@@ -19,6 +19,7 @@
 //! ledger does not need marching orders.
 
 use std::path::Path;
+use tugcore::instance::Paths;
 
 /// Whether a gesture on `arc` is being made inside a live arc.
 ///
@@ -32,7 +33,7 @@ use std::path::Path;
 /// the fallback for a checkout whose arc file this process cannot reach.
 pub(crate) fn under_an_arc(arc: &str) -> bool {
     if let Ok(repo) = tugtool_core::find_repo_root()
-        && tugarc_core::arc::read_arc(&repo, arc).is_some()
+        && tugarc_core::arc::read_arc(&Paths::from_env(), &repo, arc).is_some()
     {
         return arc_is_live_in(&repo, arc);
     }
@@ -43,7 +44,7 @@ pub(crate) fn under_an_arc(arc: &str) -> bool {
 /// `wheel::arc_is_running` makes on the server side, against the same
 /// record, so the two cannot disagree about what a live arc is.
 pub(crate) fn arc_is_live_in(repo: &Path, arc: &str) -> bool {
-    match tugarc_core::arc::read_arc(repo, arc) {
+    match tugarc_core::arc::read_arc(&Paths::from_env(), repo, arc) {
         Some(record) => !record.done && record.stopped.is_none(),
         None => false,
     }

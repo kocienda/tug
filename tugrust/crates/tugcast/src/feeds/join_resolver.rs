@@ -37,6 +37,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use tugcore::instance::Paths;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -1184,7 +1185,7 @@ async fn open_workshop(
             unresolved,
             rung_resolved: ladder_resolved,
             resolution_set,
-            intent: tugarc_core::resolve_intent(&repo, &base_branch, &branch),
+            intent: tugarc_core::resolve_intent(&Paths::from_env(), &repo, &base_branch, &branch),
             base_branch,
             inherited_candidate,
             ladder_tree,
@@ -1231,7 +1232,14 @@ async fn commit_candidate(
         let branch = format!("tugarc/{}", arc);
         // The candidate is an intermediate — the join composes the message the
         // base actually keeps — so it names no session of its own.
-        let message = tugarc_core::ops::integrate_message(&repo, &arc, &branch, None, None);
+        let message = tugarc_core::ops::integrate_message(
+            &Paths::from_env(),
+            &repo,
+            &arc,
+            &branch,
+            None,
+            None,
+        );
         // An audit that changed nothing keeps the candidate it audited.
         // Committing an identical tree anyway would reparent it onto the base
         // head, turning a replay join into a squash without anybody asking.
@@ -1619,7 +1627,8 @@ mod tests {
         let repo = temp.path();
         let before_base = std::fs::read_to_string(repo.join("f.txt")).unwrap();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         assert!(
             outcome.candidate_commit.is_none(),
             "the ladder alone cannot settle this conflict"
@@ -1678,7 +1687,8 @@ mod tests {
             &["config", "tugarc.mergedriver", &driver.to_string_lossy()],
         );
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         assert!(
             outcome.candidate_commit.is_some(),
             "the driver rung settles it"
@@ -1753,7 +1763,8 @@ mod tests {
         let temp = replay_shaped_repo(auditing_stub);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         assert_eq!(
             outcome.shape,
             tugarc_core::JoinShape::Replay,
@@ -1791,7 +1802,8 @@ mod tests {
         let temp = replay_shaped_repo(silent_stub);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -1809,7 +1821,8 @@ mod tests {
         // merges cleanly.
         git(repo, &["revert", "--no-edit", "HEAD"]);
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         assert!(outcome.candidate_commit.is_some());
         assert!(
             audit_set(&outcome).is_empty(),
@@ -1833,7 +1846,8 @@ mod tests {
         let temp = conflicted_repo(smuggler);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -1844,7 +1858,8 @@ mod tests {
         let honest = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf 'x\\n' > \"$ws/invented.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"both rewrote it\",\"reconciliation\":\"kept both\"},{\"path\":\"invented.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"neither had it\",\"reconciliation\":\"added, the merged code needs it\"}],\"notes\":\"done\"}'\n";
         let temp = conflicted_repo(honest);
         let repo = temp.path();
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         finish_join(&ctx, &outcome)
             .await
@@ -1871,7 +1886,7 @@ mod tests {
             "Which side owns the retry budget?",
         );
 
-        let intent = tugarc_core::resolve_intent(repo, "main", "tugarc/demo");
+        let intent = tugarc_core::resolve_intent(&Paths::from_env(), repo, "main", "tugarc/demo");
         assert!(
             intent.contains("Which side owns the retry budget?"),
             "the expired ask rides the next charter's corpus: {intent}"
@@ -1881,7 +1896,8 @@ mod tests {
         // A resolve consumes it, so the one after does not re-ask on its behalf.
         let auditing = "#!/bin/sh\nws=\"$1\"\nread -r _charter\nprintf 'SENTINEL\\n' > \"$ws/f.txt\"\nprintf '%s\\n' '{\"files\":[{\"path\":\"f.txt\",\"resolved_by\":\"resolver\",\"what_each_side_did\":\"x\",\"reconciliation\":\"y\"}],\"notes\":\"\"}'\n";
         write_exec(&repo.join("stub-resolver.sh"), auditing);
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         finish_join(&context(repo), &outcome)
             .await
             .expect("the resolve runs");
@@ -1900,7 +1916,8 @@ mod tests {
         let temp = conflicted_repo(touch_nothing);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -1938,7 +1955,8 @@ mod tests {
             ),
         );
 
-        let outcome = tugarc_core::resolve_conflicts(&repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), &repo, "demo", None).unwrap();
         assert!(
             tugarc_core::resolve::resolve_lease(&repo, "demo", std::time::SystemTime::now())
                 .is_none(),
@@ -1999,7 +2017,8 @@ mod tests {
         git(repo, &["add", "g.txt"]);
         git(repo, &["commit", "-m", "the base adds g"]);
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         assert_eq!(outcome.unresolved.len(), 2, "both files conflict");
         let root = tugarc_core::resolve::read_conflict(repo, "demo")
             .unwrap()
@@ -2052,7 +2071,8 @@ mod tests {
         let temp = conflicted_repo(touch_nothing);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         finish_join(&ctx, &outcome)
             .await
@@ -2133,7 +2153,8 @@ mod tests {
         let temp = conflicted_repo(omitting);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         let err = finish_join(&ctx, &outcome)
             .await
@@ -2151,7 +2172,8 @@ mod tests {
         let temp = conflicted_repo(asking);
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         let mut frames = ctx.control_tx.subscribe();
         let resolve = tokio::spawn(async move { finish_join(&ctx, &outcome).await });
@@ -2224,7 +2246,8 @@ mod tests {
         let temp = conflicted_repo(&resolving_stub("NOTHING\n"));
         let repo = temp.path();
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let ctx = context(repo);
         finish_join(&ctx, &outcome)
             .await
@@ -2258,7 +2281,8 @@ mod tests {
             turn_timeout: Duration::from_millis(400),
         }));
 
-        let outcome = tugarc_core::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         let err = finish_join(&ctx, &outcome)
             .await
             .expect_err("a silent resolver cannot finish the join");

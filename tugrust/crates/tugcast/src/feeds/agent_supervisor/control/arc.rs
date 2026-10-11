@@ -4,6 +4,7 @@
 
 use super::super::*;
 use tugcast_core::ControlAction;
+use tugcore::instance::Paths;
 
 /// A `bind_arc` request: which session is taking up which arc, in which
 /// project (Spec S03).
@@ -406,7 +407,9 @@ impl AgentSupervisor {
         // from a silence that now lasts seconds rather than milliseconds, and
         // every exit below goes through `abandon` or through the `arc-stop`
         // line, both of which clear it ([P03]).
-        if let Err(e) = tugarc_core::arc::append_arc_stopping(project, arc, terms.stage) {
+        if let Err(e) =
+            tugarc_core::arc::append_arc_stopping(&Paths::from_env(), project, arc, terms.stage)
+        {
             warn!(
                 arc = %arc,
                 error = %e,
@@ -414,9 +417,12 @@ impl AgentSupervisor {
             );
         }
         let abandon = |reason: &'static str| -> Result<(), &'static str> {
-            if let Err(e) =
-                tugarc_core::arc::append_arc_stopping_abandoned(project, arc, terms.stage)
-            {
+            if let Err(e) = tugarc_core::arc::append_arc_stopping_abandoned(
+                &Paths::from_env(),
+                project,
+                arc,
+                terms.stage,
+            ) {
                 warn!(
                     arc = %arc,
                     error = %e,
@@ -441,7 +447,9 @@ impl AgentSupervisor {
             return abandon("no_wheel");
         };
         if let Some(question) = terms.question {
-            if let Err(e) = tugarc_core::arc::append_arc_note(project, arc, question) {
+            if let Err(e) =
+                tugarc_core::arc::append_arc_note(&Paths::from_env(), project, arc, question)
+            {
                 warn!(
                     arc = %arc,
                     error = %e,

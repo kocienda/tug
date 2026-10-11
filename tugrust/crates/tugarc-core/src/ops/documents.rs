@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tugcore::instance::Paths;
 
 use super::git::git_stdout;
 use super::main_repo_root;
@@ -81,10 +82,10 @@ pub struct OpenOutcome {
 /// with no session and no instance — and it lives here, in the engine, rather
 /// than in the `tugtool` binary crate, because the server opens arcs too
 /// ([P05]) and cannot depend on a binary.
-pub fn open_arc(root: &Path, arc: &str) -> Result<OpenOutcome, ArcError> {
+pub fn open_arc(paths: &Paths, root: &Path, arc: &str) -> Result<OpenOutcome, ArcError> {
     validate_arc_name(arc).map_err(ArcError::InvalidName)?;
-    if let Some(record) = crate::arc::read_arc(root, arc) {
-        return resume_arc(root, arc, record);
+    if let Some(record) = crate::arc::read_arc(paths, root, arc) {
+        return resume_arc(paths, root, arc, record);
     }
 
     // One sentence for the one refusal, said by whichever of the two reads
@@ -117,12 +118,15 @@ pub fn open_arc(root: &Path, arc: &str) -> Result<OpenOutcome, ArcError> {
     // what the runner resolves against the main root.
     let relative = format!(".tug/arcs/{arc}/{file}");
 
-    crate::arc::append_arc_start(root, arc, &relative).map_err(|e| ArcError::arc_log(root, e))?;
+    crate::arc::append_arc_start(paths, root, arc, &relative)
+        .map_err(|e| ArcError::arc_log(paths, root, e))?;
     // Written after `arc-start`, so a reader that stops at the first marker
     // still finds the document. Both lines are this opening's.
-    crate::arc::append_arc_kind(root, arc, kind).map_err(|e| ArcError::arc_log(root, e))?;
-    let record = crate::arc::read_arc(root, arc).ok_or_else(|| {
+    crate::arc::append_arc_kind(paths, root, arc, kind)
+        .map_err(|e| ArcError::arc_log(paths, root, e))?;
+    let record = crate::arc::read_arc(paths, root, arc).ok_or_else(|| {
         ArcError::arc_log_said(
+            paths,
             root,
             format!("wrote the arc for '{arc}' but could not read it back"),
         )
@@ -139,6 +143,7 @@ pub fn open_arc(root: &Path, arc: &str) -> Result<OpenOutcome, ArcError> {
 /// on the calling session's next idle ([P11]). An arc that is not stopped is
 /// left as it is — its record is already what the runner reads.
 fn resume_arc(
+    paths: &Paths,
     root: &Path,
     name: &str,
     record: crate::arc::ArcRecord,
@@ -150,9 +155,11 @@ fn resume_arc(
             record,
         });
     };
-    crate::arc::append_arc_resume(root, name, stage).map_err(|e| ArcError::arc_log(root, e))?;
-    let record = crate::arc::read_arc(root, name).ok_or_else(|| {
+    crate::arc::append_arc_resume(paths, root, name, stage)
+        .map_err(|e| ArcError::arc_log(paths, root, e))?;
+    let record = crate::arc::read_arc(paths, root, name).ok_or_else(|| {
         ArcError::arc_log_said(
+            paths,
             root,
             format!("resumed the arc for '{name}' but could not read it back"),
         )
@@ -466,7 +473,6 @@ mod tests {
     use super::*;
     use crate::ops::test_support::*;
     use crate::ops::*;
-    use serial_test::serial;
     use std::fs;
     use std::path::Path;
     use tempfile::TempDir;
@@ -556,11 +562,10 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn documents_dir_answers_the_main_root_from_a_linked_worktree() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        let outcome = create_in(&repo, "wt-arc", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        let outcome = create_in(&paths, &repo, "wt-arc", None, false, None).unwrap();
         let worktree = Path::new(&outcome.worktree);
 
         let from_worktree = documents_dir(worktree, "wt-arc");
@@ -715,20 +720,19 @@ mod tests {
     /// The document is the arc's own, and the brief comes first — an arc that
     /// has reached devise opens on what it was briefed with, not on its output.
     #[test]
-    #[serial(tug_data_dir)]
     fn open_arc_opens_on_the_brief_then_the_plan() {
-        let (_home, repo) = open_arc_fixture();
+        let (_home, repo, paths) = open_arc_fixture();
         write_arc_document(repo.path(), "plan-only", "plan.md");
-        let opened = open_arc(repo.path(), "plan-only").expect("opened");
+        let opened = open_arc(&paths, repo.path(), "plan-only").expect("opened");
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/plan-only/plan.md")
         );
 
-        let (_home, repo) = open_arc_fixture();
+        let (_home, repo, paths) = open_arc_fixture();
         write_arc_document(repo.path(), "both", "brief.md");
         write_arc_document(repo.path(), "both", "plan.md");
-        let opened = open_arc(repo.path(), "both").expect("opened");
+        let opened = open_arc(&paths, repo.path(), "both").expect("opened");
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/both/brief.md")
@@ -739,12 +743,11 @@ mod tests {
     /// brief — the task list is the ledger, not the document the stages read
     /// for intent.
     #[test]
-    #[serial(tug_data_dir)]
     fn a_plain_arc_opens_on_the_brief() {
-        let (_home, repo) = open_arc_fixture();
+        let (_home, repo, paths) = open_arc_fixture();
         write_arc_document(repo.path(), "both-docs", "brief.md");
         write_arc_document(repo.path(), "both-docs", "tasks.md");
-        let opened = open_arc(repo.path(), "both-docs").unwrap();
+        let opened = open_arc(&paths, repo.path(), "both-docs").unwrap();
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/both-docs/brief.md")
@@ -758,7 +761,6 @@ mod tests {
     /// set is planned, because `plan.md` outranks `tasks.md` here exactly as
     /// it does for `ledger_file`.
     #[test]
-    #[serial(tug_data_dir)]
     fn opening_an_arc_records_the_kind_its_documents_name() {
         let planned = Some(crate::arc::ArcKind::Planned);
         let plain = Some(crate::arc::ArcKind::Plain);
@@ -771,11 +773,11 @@ mod tests {
             (&["plan.md", "tasks.md"][..], planned),
             (&["brief.md", "plan.md", "tasks.md"][..], planned),
         ] {
-            let (_home, repo) = open_arc_fixture();
+            let (_home, repo, paths) = open_arc_fixture();
             for document in documents {
                 write_arc_document(repo.path(), "table", document);
             }
-            let opened = open_arc(repo.path(), "table").unwrap();
+            let opened = open_arc(&paths, repo.path(), "table").unwrap();
             assert_eq!(opened.record.kind, expected, "documents {documents:?}");
         }
     }
@@ -785,13 +787,12 @@ mod tests {
     /// of that arc, not a second one wearing a different progression — so a
     /// task list written after the opening does not turn a planned arc plain.
     #[test]
-    #[serial(tug_data_dir)]
     fn a_resume_keeps_the_kind_the_opening_recorded() {
-        let (_home, repo) = open_arc_fixture();
+        let (_home, repo, paths) = open_arc_fixture();
         write_arc_document(repo.path(), "settled", "brief.md");
-        open_arc(repo.path(), "settled").unwrap();
+        open_arc(&paths, repo.path(), "settled").unwrap();
         write_arc_document(repo.path(), "settled", "tasks.md");
-        let reopened = open_arc(repo.path(), "settled").unwrap();
+        let reopened = open_arc(&paths, repo.path(), "settled").unwrap();
         assert!(!reopened.started);
         assert_eq!(reopened.record.kind, Some(crate::arc::ArcKind::Planned));
     }
@@ -799,11 +800,10 @@ mod tests {
     /// A task list alone still opens an arc: the wheel has a document to read
     /// and a ledger to walk, which is all opening requires.
     #[test]
-    #[serial(tug_data_dir)]
     fn a_task_list_alone_opens_an_arc() {
-        let (_home, repo) = open_arc_fixture();
+        let (_home, repo, paths) = open_arc_fixture();
         write_arc_document(repo.path(), "tasks-only", "tasks.md");
-        let opened = open_arc(repo.path(), "tasks-only").unwrap();
+        let opened = open_arc(&paths, repo.path(), "tasks-only").unwrap();
         assert_eq!(
             opened.record.document.as_deref(),
             Some(".tug/arcs/tasks-only/tasks.md")

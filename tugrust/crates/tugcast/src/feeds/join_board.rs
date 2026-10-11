@@ -29,6 +29,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
+use tugcore::instance::Paths;
 
 use tugarc_core::ops::{self, ArcDetail};
 use tugcast_core::types::{
@@ -116,7 +117,7 @@ pub fn sweep_workshops(repo_root: &Path, live_arcs: &[String]) {
         // remove`/`prune` in the same `.git/worktrees` as the one the join is
         // running. The open join record is the "a join owns this arc right
         // now" fact, and it outlives the arc's presence on the feed by design.
-        if tugarc_core::ops::join_in_flight(repo_root, &name) {
+        if tugarc_core::ops::join_in_flight(&Paths::from_env(), repo_root, &name) {
             continue;
         }
         let mut warnings = Vec::new();
@@ -162,6 +163,7 @@ pub fn join_state_for(
         // the registry is the exact answer where it exists, and the lease is
         // the derived one for the process that cannot see it.
         ops::join_blockers_from_detail(
+            &Paths::from_env(),
             repo_root,
             detail,
             current_branch,
@@ -303,7 +305,7 @@ pub fn standing_resolve_receipts(
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut receipts = std::collections::BTreeMap::new();
     // Newest first, which is what makes "the first op for an arc" its newest.
-    for op in tugarc_core::oplog::list_ops(repo_root) {
+    for op in tugarc_core::oplog::list_ops(&Paths::from_env(), repo_root) {
         // An undo and a redo are records *about* another op rather than acts on
         // the arc's own account, and the `undone_by` link they set is what this
         // reads instead — so they are stepped over rather than taken for the
@@ -377,7 +379,8 @@ fn standing_offer(repo_root: &Path, detail: &ArcDetail, quiet: bool) -> Option<A
     // What the join would land with, read on the offer branch only — one config
     // read and one draft lookup, paid where a person is about to be shown the
     // answer.
-    let (message, message_source) = ops::landing_message_preview(repo_root, name, &detail.branch);
+    let (message, message_source) =
+        ops::landing_message_preview(&Paths::from_env(), repo_root, name, &detail.branch);
     Some(ArcJoinOffer {
         // The three facts the offer is about, joined. Stable across recomputes
         // because every one of them is, which is what lets a surface reveal
@@ -596,7 +599,7 @@ mod tests {
     }
 
     fn detail_for(repo: &Path) -> ArcDetail {
-        ops::arc_detail_entry_in(repo, "demo").expect("detail")
+        ops::arc_detail_entry_in(&Paths::from_env(), repo, "demo").expect("detail")
     }
 
     fn compose(repo: &Path) -> ArcJoinState {
@@ -622,7 +625,9 @@ mod tests {
         assert!(conflicted.candidate.is_none());
 
         // The ladder builds and anchors a candidate.
-        let outcome = tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
+                .unwrap();
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
         let resolved = compose(repo);
@@ -822,7 +827,7 @@ mod tests {
         // Without the driver the ladder gives up and parks a conflict, which
         // is what a resolver would then open.
         git(repo, &["config", "--unset", "tugarc.mergedriver"]);
-        tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         tugarc_core::resolve::mark_resolve_begun(repo, "demo").unwrap();
 
         let leased = |state: &ArcJoinState| state.blockers.iter().any(|b| b.kind == "live-resolve");
@@ -856,7 +861,7 @@ mod tests {
         let repo = temp.path();
         let detail = detail_for(repo);
 
-        tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None).unwrap();
         assert!(compose(repo).candidate.is_some());
 
         // The base moves, which is what makes the candidate stale.
@@ -957,7 +962,9 @@ mod tests {
         unsafe {
             std::env::set_var("TUG_DATA_DIR", data.path());
         }
-        let outcome = tugarc_core::resolve::resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome =
+            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
+                .unwrap();
         outcome.candidate_commit.clone().expect("candidate")
     }
 
@@ -1085,8 +1092,13 @@ mod tests {
             "precondition: no fold has happened"
         );
 
-        let outcome = ops::resolve_base_in(repo, "demo", &std::collections::BTreeMap::new())
-            .expect("the fold runs");
+        let outcome = ops::resolve_base_in(
+            &Paths::from_env(),
+            repo,
+            "demo",
+            &std::collections::BTreeMap::new(),
+        )
+        .expect("the fold runs");
         assert_eq!(outcome.folded, vec!["f.txt".to_string()]);
 
         let receipt = compose(repo).resolved_base.expect("the receipt stands");
@@ -1098,7 +1110,7 @@ mod tests {
         assert_eq!(receipt.base, "main");
         assert_eq!(receipt.folded, vec!["f.txt".to_string()]);
 
-        tugarc_core::oplog::undo_in(repo, Some("demo")).expect("undo");
+        tugarc_core::oplog::undo_in(&Paths::from_env(), repo, Some("demo")).expect("undo");
         assert!(
             compose(repo).resolved_base.is_none(),
             "a reversed fold is not a standing receipt"
@@ -1118,18 +1130,25 @@ mod tests {
         let repo = temp.path();
         redirect_state(&temp);
         std::fs::write(repo.join("f.txt"), "C\nmy own edit\n").unwrap();
-        ops::resolve_base_in(repo, "demo", &std::collections::BTreeMap::new())
-            .expect("the fold runs");
+        ops::resolve_base_in(
+            &Paths::from_env(),
+            repo,
+            "demo",
+            &std::collections::BTreeMap::new(),
+        )
+        .expect("the fold runs");
         assert!(
             standing_resolve_receipts(repo).contains_key("demo"),
             "precondition: the fold is the newest thing that happened"
         );
 
         // The arc lands. Its fold is still in the log, and still un-undone.
-        let candidate = tugarc_core::resolve::resolve_conflicts(repo, "demo", None)
-            .expect("reconciled")
-            .candidate_commit;
+        let candidate =
+            tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), repo, "demo", None)
+                .expect("reconciled")
+                .candidate_commit;
         let joined = ops::join_in(
+            &Paths::from_env(),
             repo,
             "demo",
             ops::JoinOptions {

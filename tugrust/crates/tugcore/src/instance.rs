@@ -70,7 +70,7 @@ pub fn short_token_for(instance_id: &str) -> String {
 /// `apptest-<uuid>`, whose full ID plus the `$TMPDIR` prefix overflows
 /// `sun_path` and fails to bind. Same ID → same token.
 pub fn short_token() -> Option<String> {
-    instance_id().map(|id| short_token_for(&id))
+    Paths::from_env().short_token()
 }
 
 /// Per-instance tmux server socket label for an arbitrary instance ID:
@@ -87,7 +87,7 @@ pub fn tmux_socket_label_for(instance_id: &str) -> String {
 /// instance's sessions or server. Returns `None` when no instance ID
 /// is set (legacy / standalone launches use the default tmux server).
 pub fn tmux_socket_label() -> Option<String> {
-    instance_id().map(|id| tmux_socket_label_for(&id))
+    Paths::from_env().tmux_socket_label()
 }
 
 /// Path to the tmux binary every Tug process should invoke.
@@ -120,13 +120,7 @@ pub fn tmux_bin() -> String {
 /// Shared home for the reaper so both `tugtool host instance` and `tugtool arc`'s
 /// worktree teardown drive the exact same identity math.
 pub fn reap_instance_tmux(instance_id: &str) {
-    let label = tmux_socket_label_for(instance_id);
-    let _ = std::process::Command::new(tmux_bin())
-        .args(["-L", &label, "kill-server"])
-        .output();
-    let _ = std::process::Command::new(tmux_bin())
-        .args(["kill-session", "-t", &format!("cc-{instance_id}")])
-        .output();
+    Paths::from_env().reap_instance_tmux(instance_id)
 }
 
 /// Non-destructively test whether the `cc-<instance_id>` session is live on the
@@ -135,18 +129,178 @@ pub fn reap_instance_tmux(instance_id: &str) {
 /// `.tugtree/` → `.tug/worktrees/` migration): `has-session` exits 0 only when
 /// the session exists, so a dead/never-launched instance reads as not-live.
 pub fn instance_tmux_live(instance_id: &str) -> bool {
-    let label = tmux_socket_label_for(instance_id);
-    std::process::Command::new(tmux_bin())
-        .args([
-            "-L",
-            &label,
-            "has-session",
-            "-t",
-            &format!("cc-{instance_id}"),
-        ])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    Paths::from_env().instance_tmux_live(instance_id)
+}
+
+/// Every path this module resolves, resolved once.
+///
+/// [`Paths::from_env`] reads the environment exactly as the free functions
+/// below do — they are thin calls through it — and is meant to run once, at
+/// a process's edge, so the code below the edge takes a `&Paths` and reads
+/// no `TUG_` variable itself. [`Paths::under`] roots everything at a given
+/// directory with no instance and no overrides, which is what a test hands
+/// a library instead of setting `TUG_DATA_DIR` process-wide.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    /// The runtime instance ID; see [`instance_id`].
+    pub instance_id: Option<String>,
+    /// The application-data root; see [`base_data_dir`].
+    pub base_data_dir: PathBuf,
+    /// The per-instance data directory; see [`data_dir`].
+    pub data_dir: PathBuf,
+    /// The session ledger, fully resolved; see [`resolve_sessions_db_path`].
+    pub sessions_db: PathBuf,
+    /// See [`changes_db_path`].
+    pub changes_db: PathBuf,
+    /// See [`prompt_history_db_path`].
+    pub prompt_history_db: PathBuf,
+    /// See [`session_index_db_path`].
+    pub session_index_db: PathBuf,
+    /// See [`apptest_results_db_path`].
+    pub apptest_results_db: PathBuf,
+    /// See [`test_results_db_path`].
+    pub test_results_db: PathBuf,
+    /// See [`jots_path`].
+    pub jots: PathBuf,
+    /// The tmux binary every tmux call runs; see [`tmux_bin`].
+    pub tmux_bin: String,
+}
+
+impl Paths {
+    /// Resolve every path from the environment: the per-ledger overrides
+    /// first, then `TUG_DATA_DIR` and `TUG_INSTANCE_ID`, with
+    /// [`ENV_TEST_ISOLATION`] enforced on each result.
+    pub fn from_env() -> Self {
+        let overridden = |var: &str| {
+            env::var_os(var)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        };
+        Self::resolve(
+            base_data_dir(),
+            instance_id(),
+            tmux_bin(),
+            overridden,
+            guard_isolated,
+        )
+    }
+
+    /// Root every path at `dir` as `TUG_DATA_DIR=<dir>` would — `Tug` is
+    /// still appended — with no instance ID and no per-ledger override.
+    /// Reads nothing from the environment; tmux resolves from `PATH`.
+    pub fn under(dir: &Path) -> Self {
+        Self::resolve(dir.join("Tug"), None, "tmux".to_string(), |_| None, |p| p)
+    }
+
+    fn resolve(
+        base_data_dir: PathBuf,
+        instance_id: Option<String>,
+        tmux_bin: String,
+        overridden: impl Fn(&str) -> Option<PathBuf>,
+        guard: fn(PathBuf) -> PathBuf,
+    ) -> Self {
+        let data_dir = guard(match &instance_id {
+            Some(id) => base_data_dir.join("instances").join(id),
+            None => base_data_dir.clone(),
+        });
+        let sessions_db = match (overridden(ENV_SESSIONS_DB), &instance_id) {
+            (Some(p), _) => guard(p),
+            (None, Some(_)) => data_dir.join("sessions.db"),
+            (None, None) => guard(legacy_data_dir_of(&base_data_dir).join("sessions.db")),
+        };
+        let shared = |var: &str, name: &str| {
+            guard(overridden(var).unwrap_or_else(|| base_data_dir.join(name)))
+        };
+        Self {
+            sessions_db,
+            changes_db: shared(ENV_CHANGES_DB, "changes.db"),
+            prompt_history_db: shared(ENV_PROMPT_HISTORY_DB, "prompt_history.db"),
+            session_index_db: shared(ENV_SESSION_INDEX_DB, "session_index.db"),
+            apptest_results_db: shared(ENV_APPTEST_RESULTS_DB, "apptest_results.db"),
+            test_results_db: shared(ENV_TEST_RESULTS_DB, "test_results.db"),
+            jots: shared(ENV_JOTS_PATH, "jots.json"),
+            instance_id,
+            base_data_dir,
+            data_dir,
+            tmux_bin,
+        }
+    }
+
+    /// Whether the data root is the user's real one rather than a redirect.
+    pub fn is_live(&self) -> bool {
+        self.base_data_dir.starts_with(platform_data_root())
+    }
+
+    /// See [`log_dir`].
+    pub fn log_dir(&self) -> PathBuf {
+        self.data_dir.join("Logs")
+    }
+
+    /// See [`tugbank_db_path`].
+    pub fn tugbank_db(&self) -> Option<PathBuf> {
+        self.instance_id
+            .as_ref()
+            .map(|_| self.data_dir.join("tugbank.db"))
+    }
+
+    /// The per-instance session ledger, `None` without an instance ID; see
+    /// [`sessions_db_path`]. [`Paths::sessions_db`] is the full resolution.
+    pub fn instance_sessions_db(&self) -> Option<PathBuf> {
+        self.instance_id
+            .as_ref()
+            .map(|_| self.data_dir.join("sessions.db"))
+    }
+
+    /// See [`bundle_path_marker`].
+    pub fn bundle_path_marker(&self) -> PathBuf {
+        self.data_dir.join(BUNDLE_PATH_MARKER)
+    }
+
+    /// See [`short_token`].
+    pub fn short_token(&self) -> Option<String> {
+        self.instance_id.as_deref().map(short_token_for)
+    }
+
+    /// See [`tmux_socket_label`].
+    pub fn tmux_socket_label(&self) -> Option<String> {
+        self.instance_id.as_deref().map(tmux_socket_label_for)
+    }
+
+    /// See [`notify_socket_path`].
+    pub fn notify_socket_path(&self) -> PathBuf {
+        let dir = env::temp_dir();
+        match self.short_token() {
+            Some(tok) => dir.join(format!("tugbank-notify-{tok}.sock")),
+            None => dir.join("tugbank-notify.sock"),
+        }
+    }
+
+    /// See [`reap_instance_tmux`].
+    pub fn reap_instance_tmux(&self, instance_id: &str) {
+        let label = tmux_socket_label_for(instance_id);
+        let _ = std::process::Command::new(&self.tmux_bin)
+            .args(["-L", &label, "kill-server"])
+            .output();
+        let _ = std::process::Command::new(&self.tmux_bin)
+            .args(["kill-session", "-t", &format!("cc-{instance_id}")])
+            .output();
+    }
+
+    /// See [`instance_tmux_live`].
+    pub fn instance_tmux_live(&self, instance_id: &str) -> bool {
+        let label = tmux_socket_label_for(instance_id);
+        std::process::Command::new(&self.tmux_bin)
+            .args([
+                "-L",
+                &label,
+                "has-session",
+                "-t",
+                &format!("cc-{instance_id}"),
+            ])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
 }
 
 /// Per-instance data directory.
@@ -161,11 +315,7 @@ pub fn instance_tmux_live(instance_id: &str) -> bool {
 /// This function does *not* create the directory — callers that
 /// need a writable path on disk should `fs::create_dir_all` it.
 pub fn data_dir() -> PathBuf {
-    let base = base_data_dir();
-    guard_isolated(match instance_id() {
-        Some(id) => base.join("instances").join(id),
-        None => base,
-    })
+    Paths::from_env().data_dir
 }
 
 /// Per-instance log directory: `<data-dir>/Logs/`.
@@ -174,7 +324,7 @@ pub fn data_dir() -> PathBuf {
 /// callers see the legacy single-instance log path
 /// (`~/Library/Application Support/Tug/Logs/`).
 pub fn log_dir() -> PathBuf {
-    data_dir().join("Logs")
+    Paths::from_env().log_dir()
 }
 
 /// Per-instance tugbank database path.
@@ -183,7 +333,7 @@ pub fn log_dir() -> PathBuf {
 /// set, otherwise `None`. Callers fall back to their existing
 /// path resolution (e.g. `~/.tugbank.db`) when this returns `None`.
 pub fn tugbank_db_path() -> Option<PathBuf> {
-    instance_id().map(|_| data_dir().join("tugbank.db"))
+    Paths::from_env().tugbank_db()
 }
 
 /// Environment variable overriding the per-instance session-ledger path.
@@ -198,7 +348,7 @@ pub const ENV_SESSIONS_DB: &str = "TUG_SESSIONS_DB";
 /// Returns `Some(<data-dir>/sessions.db)` when `TUG_INSTANCE_ID`
 /// is set, otherwise `None`.
 pub fn sessions_db_path() -> Option<PathBuf> {
-    instance_id().map(|_| data_dir().join("sessions.db"))
+    Paths::from_env().instance_sessions_db()
 }
 
 /// Full resolution order for the session ledger, shared by every reader in
@@ -209,13 +359,7 @@ pub fn sessions_db_path() -> Option<PathBuf> {
 /// `None` only when the platform has no resolvable data directory. Callers
 /// treat that as a misconfigured environment.
 pub fn resolve_sessions_db_path() -> Option<PathBuf> {
-    if let Some(p) = env::var_os(ENV_SESSIONS_DB).filter(|v| !v.is_empty()) {
-        return Some(guard_isolated(PathBuf::from(p)));
-    }
-    if let Some(p) = sessions_db_path() {
-        return Some(p);
-    }
-    Some(guard_isolated(legacy_data_dir().join("sessions.db")))
+    Some(Paths::from_env().sessions_db)
 }
 
 /// Whether `resolved` is the session ledger of the instance this process
@@ -282,16 +426,17 @@ fn lexically_normalized(path: &Path) -> PathBuf {
     out
 }
 
-/// The pre-instances data directory. macOS has always used `Tug`; other
-/// platforms named it after the process that owned the ledger.
-fn legacy_data_dir() -> PathBuf {
+/// The pre-instances data directory for the data root `base`. macOS has
+/// always used `Tug`; other platforms named it after the process that owned
+/// the ledger.
+fn legacy_data_dir_of(base: &Path) -> PathBuf {
     #[cfg(target_os = "macos")]
     {
-        base_data_dir()
+        base.to_path_buf()
     }
     #[cfg(not(target_os = "macos"))]
     {
-        base_data_dir().with_file_name("tugcast")
+        base.with_file_name("tugcast")
     }
 }
 
@@ -308,10 +453,7 @@ pub const ENV_CHANGES_DB: &str = "TUG_CHANGES_DB";
 /// same checkout would see the first's work as ownerless). Honors the
 /// [`ENV_CHANGES_DB`] override for isolated test runs.
 pub fn changes_db_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_CHANGES_DB).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("changes.db"))
+    Paths::from_env().changes_db
 }
 
 /// Environment variable overriding the shared prompt-history ledger path.
@@ -328,10 +470,7 @@ pub const ENV_PROMPT_HISTORY_DB: &str = "TUG_PROMPT_HISTORY_DB";
 /// while the release instance holds it all). Honors the
 /// [`ENV_PROMPT_HISTORY_DB`] override for isolated test runs.
 pub fn prompt_history_db_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_PROMPT_HISTORY_DB).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("prompt_history.db"))
+    Paths::from_env().prompt_history_db
 }
 
 /// Environment variable overriding the shared session-index ledger path.
@@ -352,10 +491,7 @@ pub const ENV_SESSION_INDEX_DB: &str = "TUG_SESSION_INDEX_DB";
 /// session ledger and must not be shadowed. Honors the
 /// [`ENV_SESSION_INDEX_DB`] override for isolated test runs.
 pub fn session_index_db_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_SESSION_INDEX_DB).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("session_index.db"))
+    Paths::from_env().session_index_db
 }
 
 /// Environment variable overriding the shared app-test results ledger path.
@@ -372,10 +508,7 @@ pub const ENV_APPTEST_RESULTS_DB: &str = "TUG_APPTEST_RESULTS_DB";
 /// release one. Honors the [`ENV_APPTEST_RESULTS_DB`] override for
 /// isolated test runs.
 pub fn apptest_results_db_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_APPTEST_RESULTS_DB).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("apptest_results.db"))
+    Paths::from_env().apptest_results_db
 }
 
 /// Environment variable overriding the shared unit-test results ledger path.
@@ -391,10 +524,7 @@ pub const ENV_TEST_RESULTS_DB: &str = "TUG_TEST_RESULTS_DB";
 /// which build ran the suite. Honors the [`ENV_TEST_RESULTS_DB`] override for
 /// isolated test runs.
 pub fn test_results_db_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_TEST_RESULTS_DB).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("test_results.db"))
+    Paths::from_env().test_results_db
 }
 
 /// Environment variable overriding the shared jots-file path.
@@ -410,10 +540,7 @@ pub const ENV_JOTS_PATH: &str = "TUG_JOTS_PATH";
 /// instance would see an empty list while the first holds the jots).
 /// Honors the [`ENV_JOTS_PATH`] override for isolated test runs.
 pub fn jots_path() -> PathBuf {
-    if let Some(p) = env::var_os(ENV_JOTS_PATH).filter(|v| !v.is_empty()) {
-        return guard_isolated(PathBuf::from(p));
-    }
-    guard_isolated(base_data_dir().join("jots.json"))
+    Paths::from_env().jots
 }
 
 /// Per-instance tugbank notify socket path.
@@ -429,11 +556,7 @@ pub fn jots_path() -> PathBuf {
 /// `$TMPDIR` is the per-user runtime directory on macOS, picked up
 /// via `std::env::temp_dir()`.
 pub fn notify_socket_path() -> PathBuf {
-    let dir = env::temp_dir();
-    match short_token() {
-        Some(tok) => dir.join(format!("tugbank-notify-{tok}.sock")),
-        None => dir.join("tugbank-notify.sock"),
-    }
+    Paths::from_env().notify_socket_path()
 }
 
 /// Path to the per-instance bundle-path marker file.
@@ -448,7 +571,7 @@ pub fn notify_socket_path() -> PathBuf {
 /// this returns the legacy `Tug/bundle-path` path, which no normal
 /// flow writes — it exists for symmetry only.
 pub fn bundle_path_marker() -> PathBuf {
-    data_dir().join(BUNDLE_PATH_MARKER)
+    Paths::from_env().bundle_path_marker()
 }
 
 /// Read the path Swift passed via `TUG_BUNDLE_PATH`, if any.
@@ -760,6 +883,92 @@ mod tests {
             offenders.is_empty(),
             "data-root resolution outside tugcore::instance::base_data_dir — \
              route these through it so {ENV_DATA_DIR} moves the whole tree: {offenders:#?}"
+        );
+    }
+
+    /// Crates that take their instance paths as a [`Paths`] value built once at
+    /// their caller's edge. Listing a crate here is how it adopts the struct:
+    /// from then on the test below holds it to having no other way in.
+    const ADOPTED_PATHS: &[&str] = &["tugarc-core"];
+
+    /// A crate that has adopted [`Paths`] reads the environment nowhere. Its
+    /// paths arrive as a value, which is what lets its tests hand it
+    /// `Paths::under(tempdir)` instead of setting a process-wide variable and
+    /// serializing on it. Two things would reopen that door: a raw `env::var`
+    /// of a `TUG_` name, and a call to one of the free functions here (or in
+    /// `tugtool_core::paths`) that reads the environment on the crate's behalf.
+    #[test]
+    fn adopted_crates_take_their_paths_from_paths() {
+        const ENV_READING: &[&str] = &[
+            "instance_id(",
+            "base_data_dir(",
+            "data_dir(",
+            "log_dir(",
+            "tugbank_db_path(",
+            "sessions_db_path(",
+            "resolve_sessions_db_path(",
+            "changes_db_path(",
+            "prompt_history_db_path(",
+            "session_index_db_path(",
+            "apptest_results_db_path(",
+            "test_results_db_path(",
+            "jots_path(",
+            "notify_socket_path(",
+            "bundle_path_marker(",
+            "short_token(",
+            "tmux_socket_label(",
+            "tmux_bin(",
+            "reap_instance_tmux(",
+            "instance_tmux_live(",
+            "project_state_dir(",
+            "arc_log_path(",
+        ];
+        let crates_root = crate::source_scan::crates_root();
+        let mut offenders = Vec::new();
+        for (path, production) in crate::source_scan::production_sources() {
+            let rel = path.strip_prefix(&crates_root).expect("under crates/");
+            let krate = rel.components().next().expect("crate dir");
+            if !ADOPTED_PATHS.iter().any(|c| krate.as_os_str() == *c) {
+                continue;
+            }
+            for (n, line) in production.lines().enumerate() {
+                let code = line.trim_start();
+                if code.starts_with("//") || code.starts_with('*') {
+                    continue;
+                }
+                let at = format!("{}:{}", rel.display(), n + 1);
+                for read in ["env::var(", "env::var_os("] {
+                    for (i, _) in code.match_indices(read) {
+                        let arg = code[i + read.len()..].trim_start();
+                        let plain = arg.starts_with('"') && !arg[1..].starts_with("TUG_");
+                        if !plain {
+                            offenders.push(format!("{at} ({read}{arg})"));
+                        }
+                    }
+                }
+                for read in ["env::vars(", "env::vars_os("] {
+                    if code.contains(read) {
+                        offenders.push(format!("{at} ({read})"));
+                    }
+                }
+                for call in ENV_READING {
+                    for (i, _) in code.match_indices(call) {
+                        let before = &code[..i];
+                        let joined = before
+                            .chars()
+                            .next_back()
+                            .is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.');
+                        if !joined && !before.ends_with("fn ") {
+                            offenders.push(format!("{at} ({call})"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "a crate that has adopted Paths reached the environment — take the \
+             path from the `Paths` its caller passed instead: {offenders:#?}"
         );
     }
 
@@ -1243,5 +1452,113 @@ mod tests {
         set_instance(Some("release-main"));
 
         assert_eq!(foreign_sessions_db_override(), None);
+    }
+
+    /// Every per-ledger override this module honours, for tests that set or
+    /// clear them all at once.
+    const LEDGER_OVERRIDES: [&str; 7] = [
+        ENV_SESSIONS_DB,
+        ENV_CHANGES_DB,
+        ENV_PROMPT_HISTORY_DB,
+        ENV_SESSION_INDEX_DB,
+        ENV_APPTEST_RESULTS_DB,
+        ENV_TEST_RESULTS_DB,
+        ENV_JOTS_PATH,
+    ];
+
+    /// Assert that a fresh `Paths::from_env()` answers what each free
+    /// function answers in the current environment.
+    fn assert_from_env_agrees_with_the_free_functions() {
+        let p = Paths::from_env();
+        assert_eq!(p.instance_id, instance_id());
+        assert_eq!(p.base_data_dir, base_data_dir());
+        assert_eq!(p.data_dir, data_dir());
+        assert_eq!(p.log_dir(), log_dir());
+        assert_eq!(p.tugbank_db(), tugbank_db_path());
+        assert_eq!(p.instance_sessions_db(), sessions_db_path());
+        assert_eq!(Some(p.sessions_db.clone()), resolve_sessions_db_path());
+        assert_eq!(p.changes_db, changes_db_path());
+        assert_eq!(p.prompt_history_db, prompt_history_db_path());
+        assert_eq!(p.session_index_db, session_index_db_path());
+        assert_eq!(p.apptest_results_db, apptest_results_db_path());
+        assert_eq!(p.test_results_db, test_results_db_path());
+        assert_eq!(p.jots, jots_path());
+        assert_eq!(p.bundle_path_marker(), bundle_path_marker());
+        assert_eq!(p.short_token(), short_token());
+        assert_eq!(p.tmux_socket_label(), tmux_socket_label());
+        assert_eq!(p.notify_socket_path(), notify_socket_path());
+        assert_eq!(p.tmux_bin, tmux_bin());
+    }
+
+    #[test]
+    #[serial]
+    fn from_env_agrees_with_the_free_functions_with_and_without_overrides() {
+        let _e = EnvGuard::snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let _d = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
+        let cleared: Vec<VarGuard> = LEDGER_OVERRIDES
+            .iter()
+            .map(|var| VarGuard::set(var, None))
+            .collect();
+
+        for id in [Some("debug-paths"), None] {
+            set_instance(id);
+            assert_from_env_agrees_with_the_free_functions();
+        }
+        drop(cleared);
+
+        let overridden: Vec<VarGuard> = LEDGER_OVERRIDES
+            .iter()
+            .map(|var| VarGuard::set(var, Some(&tmp.path().join(format!("{var}.db")))))
+            .collect();
+        for id in [Some("debug-paths"), None] {
+            set_instance(id);
+            assert_from_env_agrees_with_the_free_functions();
+            let p = Paths::from_env();
+            assert_eq!(p.sessions_db, tmp.path().join("TUG_SESSIONS_DB.db"));
+            assert_eq!(p.jots, tmp.path().join("TUG_JOTS_PATH.db"));
+        }
+        drop(overridden);
+    }
+
+    #[test]
+    fn under_roots_every_path_at_the_given_directory() {
+        let dir = Path::new("/scratch/one-test");
+        let p = Paths::under(dir);
+        let base = dir.join("Tug");
+        assert_eq!(p.instance_id, None);
+        assert_eq!(p.base_data_dir, base);
+        assert_eq!(p.data_dir, base);
+        assert_eq!(p.log_dir(), base.join("Logs"));
+        assert_eq!(p.tugbank_db(), None);
+        assert_eq!(p.instance_sessions_db(), None);
+        assert_eq!(p.sessions_db, legacy_data_dir_of(&base).join("sessions.db"));
+        assert_eq!(p.changes_db, base.join("changes.db"));
+        assert_eq!(p.prompt_history_db, base.join("prompt_history.db"));
+        assert_eq!(p.session_index_db, base.join("session_index.db"));
+        assert_eq!(p.apptest_results_db, base.join("apptest_results.db"));
+        assert_eq!(p.test_results_db, base.join("test_results.db"));
+        assert_eq!(p.jots, base.join("jots.json"));
+        assert_eq!(p.tmux_bin, "tmux");
+        assert!(!p.is_live());
+    }
+
+    /// `under(dir)` is the environment `TUG_DATA_DIR=<dir>` with no instance
+    /// and no override would produce — the swap a test makes when it stops
+    /// setting the variable.
+    #[test]
+    #[serial]
+    fn under_matches_from_env_with_the_data_dir_set_and_nothing_else() {
+        let _e = EnvGuard::snapshot();
+        let tmp = tempfile::tempdir().unwrap();
+        let _d = VarGuard::set(ENV_DATA_DIR, Some(tmp.path()));
+        let _cleared: Vec<VarGuard> = LEDGER_OVERRIDES
+            .iter()
+            .map(|var| VarGuard::set(var, None))
+            .collect();
+        set_instance(None);
+        // A shell inside Tug.app inherits the bundled tmux; `under` never does.
+        let _t = VarGuard::set("TUG_TMUX", None);
+        assert_eq!(Paths::under(tmp.path()), Paths::from_env());
     }
 }

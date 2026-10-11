@@ -9,6 +9,7 @@
 
 mod common;
 use common::tugtool;
+use tugcore::instance::Paths;
 use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -324,7 +325,8 @@ fn park_a_leased_conflict(root: &Path, name: &str) -> String {
     git(root, &["add", "-A"]);
     git(root, &["commit", "-m", "the base edits a"]);
 
-    let outcome = tugarc_core::resolve::resolve_conflicts(root, name, None).unwrap();
+    let outcome =
+        tugarc_core::resolve::resolve_conflicts(&Paths::from_env(), root, name, None).unwrap();
     assert!(
         !outcome.unresolved.is_empty(),
         "the fixture must actually conflict"

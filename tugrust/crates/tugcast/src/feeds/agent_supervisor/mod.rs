@@ -28,6 +28,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tugcore::instance::Paths;
 
 use futures::FutureExt;
 use thiserror::Error;
@@ -2571,7 +2572,7 @@ impl AgentSupervisor {
                 return;
             }
             let project = std::path::Path::new(&row.project_dir);
-            let Some(record) = tugarc_core::arc::read_arc(project, arc) else {
+            let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project, arc) else {
                 return;
             };
             if record.done || record.stopped.is_some() {
@@ -2581,6 +2582,7 @@ impl AgentSupervisor {
                 return;
             };
             if let Err(e) = tugarc_core::arc::append_arc_note(
+                &Paths::from_env(),
                 project,
                 arc,
                 &format!("model → {selector} in {}", stage.as_str()),
@@ -5353,8 +5355,10 @@ mod tests {
         ledger
             .set_stage_provenance("claude-1", "review", None)
             .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", "arc/demo-brief.md")
+            .unwrap();
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::arc::ArcStage::Review,
@@ -5385,7 +5389,9 @@ mod tests {
             .await;
 
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "demo").unwrap().notes,
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .notes,
             vec!["model → sonnet in review".to_string()],
         );
 
@@ -5393,7 +5399,7 @@ mod tests {
         sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
             .await;
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "demo")
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
                 .unwrap()
                 .notes
                 .len(),
@@ -5405,7 +5411,9 @@ mod tests {
         sup.dispatch_one(model_change_frame("claude-1", "opus"))
             .await;
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "demo").unwrap().notes,
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .notes,
             vec![
                 "model → sonnet in review".to_string(),
                 "model → opus in review".to_string(),
@@ -5457,7 +5465,7 @@ mod tests {
             .await;
 
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "demo"),
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo"),
             None,
             "a card running no arc leaves the log alone",
         );
@@ -5465,6 +5473,7 @@ mod tests {
         // Bound to an arc whose arc has already stopped is also not on one.
         let ledger = on_arc_review_card(root);
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::arc::ArcStage::Review,
@@ -5476,7 +5485,7 @@ mod tests {
         sup.dispatch_one(model_change_frame("claude-1", "sonnet"))
             .await;
         assert!(
-            tugarc_core::arc::read_arc(root, "demo")
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
                 .unwrap()
                 .notes
                 .is_empty(),
@@ -5515,8 +5524,10 @@ mod tests {
         ledger
             .set_stage_provenance("claude-1", "review", None)
             .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", "arc/demo-brief.md")
+            .unwrap();
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::arc::ArcStage::Review,
@@ -5528,7 +5539,9 @@ mod tests {
         crate::arc_api::stop_an_on_arc_cards_arc_as_closed(&ledger, "claude-1");
 
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped,
             Some((
                 tugarc_core::arc::ArcStage::Review,
                 "card closed".to_string()
@@ -5539,7 +5552,9 @@ mod tests {
         // stack `arc-stop` lines.
         crate::arc_api::stop_an_on_arc_cards_arc_as_closed(&ledger, "claude-1");
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped,
             Some((
                 tugarc_core::arc::ArcStage::Review,
                 "card closed".to_string()
@@ -11004,14 +11019,22 @@ mod tests {
                 .set_fork_provenance(pair[1], pair[0], None)
                 .expect("provenance");
         }
-        tugarc_core::arc::append_arc_start(root, arc, "arc/foo-brief.md").expect("arc-start");
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, arc, "arc/foo-brief.md")
+            .expect("arc-start");
         for (stage, id, model) in [
             (tugarc_core::arc::ArcStage::Devise, "s-devise", "opus"),
             (tugarc_core::arc::ArcStage::Review, "s-review", "fable"),
             (tugarc_core::arc::ArcStage::Implement, "s-implement", "opus"),
         ] {
-            tugarc_core::arc::append_arc_stage(root, arc, stage, id, Some(model))
-                .expect("arc-stage");
+            tugarc_core::arc::append_arc_stage(
+                &Paths::from_env(),
+                root,
+                arc,
+                stage,
+                id,
+                Some(model),
+            )
+            .expect("arc-stage");
         }
         ledger
     }
@@ -11268,13 +11291,21 @@ mod tests {
                 .set_fork_provenance(pair[1], pair[0], None)
                 .expect("provenance");
         }
-        tugarc_core::arc::append_arc_start(root, arc, "arc/foo-brief.md").expect("arc-start");
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, arc, "arc/foo-brief.md")
+            .expect("arc-start");
         for (stage, id) in [
             (tugarc_core::arc::ArcStage::Implement, "s-implement"),
             (tugarc_core::arc::ArcStage::Audit, "s-audit"),
         ] {
-            tugarc_core::arc::append_arc_stage(root, arc, stage, id, Some("opus"))
-                .expect("arc-stage");
+            tugarc_core::arc::append_arc_stage(
+                &Paths::from_env(),
+                root,
+                arc,
+                stage,
+                id,
+                Some("opus"),
+            )
+            .expect("arc-stage");
         }
         ledger
     }

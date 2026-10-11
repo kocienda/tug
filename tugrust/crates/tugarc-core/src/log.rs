@@ -11,8 +11,9 @@ use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
+use tugcore::instance::Paths;
 use tugtool_core::error::TugError;
-use tugtool_core::paths::project_state_dir;
+use tugtool_core::paths::project_state_dir_at;
 use tugtool_core::session::now_iso8601;
 
 /// Round metadata passed via stdin to `tugarc commit`.
@@ -171,12 +172,13 @@ pub fn detect_default_branch(repo_root: &Path) -> Result<String, TugError> {
 /// `<note>` is the verbatim instruction (or the terminal action). The directory
 /// is created on first write.
 pub fn append_arc_log(
+    paths: &Paths,
     repo_root: &Path,
     arc: &str,
     marker: &str,
     note: &str,
 ) -> Result<(), TugError> {
-    let mut file = open_arc_log(repo_root)?;
+    let mut file = open_arc_log(paths, repo_root)?;
     write_arc_log_line(&mut file, arc, marker, note)
 }
 
@@ -189,10 +191,10 @@ pub fn append_arc_log(
 /// append itself, through a handle already open, is a single `write` on a file
 /// opened `O_APPEND`: as close to "cannot fail for a reason you could have
 /// foreseen" as a filesystem gets. See `ops::step_in`.
-pub fn open_arc_log(repo_root: &Path) -> Result<std::fs::File, TugError> {
-    refuse_unredirected_temp_repo(repo_root);
-    let path = tugtool_core::paths::arc_log_path(repo_root);
-    let dir = project_state_dir(repo_root);
+pub fn open_arc_log(paths: &Paths, repo_root: &Path) -> Result<std::fs::File, TugError> {
+    refuse_unredirected_temp_repo(paths, repo_root);
+    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
+    let dir = project_state_dir_at(paths, repo_root);
     fs::create_dir_all(&dir).map_err(TugError::Io)?;
     OpenOptions::new()
         .create(true)
@@ -218,15 +220,15 @@ pub fn write_arc_log_line(
 
 /// Whether writing project state for `repo_root` would land in the user's live
 /// data directory when it should not: the repo sits under the OS temp directory
-/// (so it is scratch by construction) and `data_dir` — the value of
-/// `TUG_DATA_DIR` — is unset or empty.
+/// (so it is scratch by construction) and the data root is `live` — the user's
+/// real one rather than a redirect.
 ///
 /// Both paths are canonicalized before the comparison because macOS reports the
 /// temp directory as `/var/folders/…` while a canonicalized repo root reads
 /// `/private/var/folders/…`; comparing them raw never matches.
 #[cfg(debug_assertions)]
-fn temp_repo_without_redirect(repo_root: &Path, data_dir: Option<&std::ffi::OsStr>) -> bool {
-    if data_dir.is_some_and(|v| !v.is_empty()) {
+fn temp_repo_without_redirect(repo_root: &Path, live: bool) -> bool {
+    if !live {
         return false;
     }
     let resolve = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
@@ -237,18 +239,19 @@ fn temp_repo_without_redirect(repo_root: &Path, data_dir: Option<&std::ffi::OsSt
 /// real data directory.
 ///
 /// A test that builds a repo under `$TMPDIR` and runs arc ops against it
-/// resolves [`project_state_dir`] from the live data root and leaves one
-/// directory behind per run — hundreds accumulated before this check existed.
-/// The fix is to redirect `TUG_DATA_DIR`, which `tugrust/.cargo/config.toml`
-/// already does for every cargo-driven process, so the message names it.
+/// with live [`Paths`] writes its project state under the user's data root and
+/// leaves one directory behind per run — hundreds accumulated before this
+/// check existed. A unit test hands the engine `Paths::under` a scratch dir; a
+/// binary invoked directly resolves its paths from `TUG_DATA_DIR`, which
+/// `tugrust/.cargo/config.toml` sets for every cargo-driven process, so the
+/// message names it.
 ///
 /// Debug builds only: the shipping app never runs this check, and a user whose
 /// real project genuinely lives under a temp path is not second-guessed.
 #[cfg(debug_assertions)]
-pub(crate) fn refuse_unredirected_temp_repo(repo_root: &Path) {
-    let data_dir = std::env::var_os(tugcore::instance::ENV_DATA_DIR);
+pub(crate) fn refuse_unredirected_temp_repo(paths: &Paths, repo_root: &Path) {
     assert!(
-        !temp_repo_without_redirect(repo_root, data_dir.as_deref()),
+        !temp_repo_without_redirect(repo_root, paths.is_live()),
         "arc state for the temp-directory repo {} would be written to the live data \
          directory. Set {} to a scratch path before running arc ops against a \
          tempdir repo (cargo does this for every test process; a binary invoked \
@@ -259,7 +262,7 @@ pub(crate) fn refuse_unredirected_temp_repo(repo_root: &Path) {
 }
 
 #[cfg(not(debug_assertions))]
-pub(crate) fn refuse_unredirected_temp_repo(_repo_root: &Path) {}
+pub(crate) fn refuse_unredirected_temp_repo(_paths: &Paths, _repo_root: &Path) {}
 
 // --- declarations ----------------------------------------------------------
 
@@ -495,8 +498,8 @@ pub fn is_terminal(marker: &str, note: &str) -> bool {
 ///
 /// A missing log, an empty log, and a name the log never mentions all read
 /// `false`: never having started is not having ended.
-pub fn arc_has_ended(repo_root: &Path, arc: &str) -> bool {
-    let path = tugtool_core::paths::arc_log_path(repo_root);
+pub fn arc_has_ended(paths: &Paths, repo_root: &Path, arc: &str) -> bool {
+    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
     let Ok(text) = fs::read_to_string(&path) else {
         return false;
     };
@@ -564,8 +567,8 @@ pub fn read_step_title(note: &str, current: u32) -> Option<String> {
 /// `step-done` as the last word and so still arms the join, which is exactly
 /// the behaviour it had before the markers existed. That is the skew rule
 /// W1 settled: a new fact an old reader cannot see leaves it where it was.
-pub fn read_declarations(repo_root: &Path, arc: &str) -> ArcDeclarations {
-    let path = tugtool_core::paths::arc_log_path(repo_root);
+pub fn read_declarations(paths: &Paths, repo_root: &Path, arc: &str) -> ArcDeclarations {
+    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
     let Ok(text) = fs::read_to_string(&path) else {
         return ArcDeclarations::default();
     };
@@ -846,14 +849,20 @@ pub fn run_fraction(decls: &ArcDeclarations) -> Option<(u32, u32)> {
 /// Written by `step start` before the step's own declaration, and only when the
 /// value differs from what the generation already declared, so re-entering an
 /// interrupted step writes no duplicate.
-pub fn append_run_through(repo_root: &Path, arc: &str, through: u32) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "run-through", &through.to_string())
+pub fn append_run_through(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    through: u32,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "run-through", &through.to_string())
 }
 
 /// Append a step declaration (Spec S01). `tail` is the step's title on a start
 /// and the round's short sha on a done; the `i/N` prefix is written here so no
 /// call site has to spell the note's grammar.
 pub fn append_step_declaration(
+    paths: &Paths,
     repo_root: &Path,
     arc: &str,
     phase: StepPhase,
@@ -862,6 +871,7 @@ pub fn append_step_declaration(
     tail: &str,
 ) -> Result<(), TugError> {
     append_arc_log(
+        paths,
         repo_root,
         arc,
         phase.marker(),
@@ -882,25 +892,25 @@ pub fn step_declaration_note(current: u32, total: u32, tail: &str) -> String {
 
 /// Append a `built` or `audited` declaration (Spec S01, [P09]).
 pub fn append_mark_declaration(
+    paths: &Paths,
     repo_root: &Path,
     arc: &str,
     stage: MarkStage,
     note: &str,
 ) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, stage.marker(), note)
+    append_arc_log(paths, repo_root, arc, stage.marker(), note)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
 
     /// A scratch data dir plus the repo root whose arc log it holds. Both
-    /// live as long as the fixture; the data dir is redirected off the user's
-    /// real one, which is why every test here is `#[serial]`.
+    /// live as long as the fixture; `paths` roots the engine at the data dir.
     struct LogFixture {
         _home: tempfile::TempDir,
         repo: tempfile::TempDir,
+        paths: Paths,
     }
 
     impl LogFixture {
@@ -913,18 +923,18 @@ mod tests {
     /// holds `lines` as its arc log. An empty `lines` writes no log at all.
     fn log_repo(lines: &str) -> LogFixture {
         let home = tempfile::tempdir().expect("tempdir");
-        // SAFETY: these tests are #[serial]; no other thread reads the
-        // environment concurrently while this runs.
-        unsafe {
-            std::env::set_var("TUG_DATA_DIR", home.path());
-        }
+        let paths = Paths::under(home.path());
         let repo = tempfile::tempdir().expect("tempdir");
         if !lines.is_empty() {
-            let state = project_state_dir(repo.path());
+            let state = project_state_dir_at(&paths, repo.path());
             fs::create_dir_all(&state).expect("state dir");
             fs::write(state.join(tugtool_core::paths::ARC_LOG), lines).expect("write log");
         }
-        LogFixture { _home: home, repo }
+        LogFixture {
+            _home: home,
+            repo,
+            paths,
+        }
     }
 
     /// One log line in the shape [`append_arc_log`] writes.
@@ -941,53 +951,42 @@ mod tests {
     #[test]
     fn a_tempdir_repo_without_a_redirect_is_refused() {
         let repo = tempfile::tempdir().expect("tempdir");
-        assert!(temp_repo_without_redirect(repo.path(), None));
-        assert!(temp_repo_without_redirect(
-            repo.path(),
-            Some(std::ffi::OsStr::new(""))
-        ));
+        assert!(temp_repo_without_redirect(repo.path(), true));
     }
 
     #[test]
     fn a_redirected_tempdir_repo_is_allowed() {
         let repo = tempfile::tempdir().expect("tempdir");
-        let scratch = tempfile::tempdir().expect("tempdir");
-        assert!(!temp_repo_without_redirect(
-            repo.path(),
-            Some(scratch.path().as_os_str())
-        ));
+        assert!(!temp_repo_without_redirect(repo.path(), false));
     }
 
     #[test]
     fn a_repo_outside_the_temp_directory_is_allowed() {
         // The checkout this test is compiled from — a real project root.
         let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
-        assert!(!temp_repo_without_redirect(repo, None));
+        assert!(!temp_repo_without_redirect(repo, true));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn declarations_are_empty_without_a_log() {
         let fixture = log_repo("");
         assert_eq!(
-            read_declarations(fixture.root(), "some-arc"),
+            read_declarations(&fixture.paths, fixture.root(), "some-arc"),
             ArcDeclarations::default()
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_discarded_arc_reads_as_ended() {
         let fixture = log_repo(&format!(
             "{}{}",
             log_line("d", "arc-start", "arc/idea.md"),
             log_line("d", "discarded", ""),
         ));
-        assert!(arc_has_ended(fixture.root(), "d"));
+        assert!(arc_has_ended(&fixture.paths, fixture.root(), "d"));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn the_historical_released_spelling_still_ends_an_arc() {
         let fixture = log_repo(&format!(
             "{}{}",
@@ -995,20 +994,19 @@ mod tests {
             log_line("d", "released", ""),
         ));
         assert!(
-            arc_has_ended(fixture.root(), "d"),
+            arc_has_ended(&fixture.paths, fixture.root(), "d"),
             "a log written before the verb was renamed still ends its arc"
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn both_join_spellings_end_an_arc() {
         let bare = log_repo(&format!(
             "{}{}",
             log_line("d", "arc-start", "arc/idea.md"),
             log_line("d", "abc1234", "joined"),
         ));
-        assert!(arc_has_ended(bare.root(), "d"));
+        assert!(arc_has_ended(&bare.paths, bare.root(), "d"));
 
         let routed = log_repo(&format!(
             "{}{}",
@@ -1016,13 +1014,12 @@ mod tests {
             log_line("d", "abc1234", "joined via card"),
         ));
         assert!(
-            arc_has_ended(routed.root(), "d"),
+            arc_has_ended(&routed.paths, routed.root(), "d"),
             "the join's note carries the route that landed it"
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_name_restarted_after_a_terminal_line_has_not_ended() {
         let fixture = log_repo(&format!(
             "{}{}{}",
@@ -1031,13 +1028,12 @@ mod tests {
             log_line("d", "arc-start", "arc/next.md"),
         ));
         assert!(
-            !arc_has_ended(fixture.root(), "d"),
+            !arc_has_ended(&fixture.paths, fixture.root(), "d"),
             "`arc run <name>` reopens a discarded arc on its surviving documents"
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_late_line_after_a_teardown_does_not_reopen_an_arc() {
         let fixture = log_repo(&format!(
             "{}{}{}",
@@ -1045,44 +1041,40 @@ mod tests {
             log_line("d", "discarded", ""),
             log_line("d", "note", "a straggler from the generation that ended"),
         ));
-        assert!(arc_has_ended(fixture.root(), "d"));
+        assert!(arc_has_ended(&fixture.paths, fixture.root(), "d"));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_live_arc_and_an_unknown_name_have_not_ended() {
         let fixture = log_repo(&format!(
             "{}{}",
             log_line("d", "arc-start", "arc/idea.md"),
             log_line("d", "created", "tugarc/d"),
         ));
-        assert!(!arc_has_ended(fixture.root(), "d"));
+        assert!(!arc_has_ended(&fixture.paths, fixture.root(), "d"));
         assert!(
-            !arc_has_ended(fixture.root(), "never-mentioned"),
+            !arc_has_ended(&fixture.paths, fixture.root(), "never-mentioned"),
             "never having started is not having ended"
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn another_arcs_teardown_never_ends_this_one() {
         let fixture = log_repo(&format!(
             "{}{}",
             log_line("d", "arc-start", "arc/idea.md"),
             log_line("other", "discarded", ""),
         ));
-        assert!(!arc_has_ended(fixture.root(), "d"));
+        assert!(!arc_has_ended(&fixture.paths, fixture.root(), "d"));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_missing_log_ends_nothing() {
         let fixture = log_repo("");
-        assert!(!arc_has_ended(fixture.root(), "d"));
+        assert!(!arc_has_ended(&fixture.paths, fixture.root(), "d"));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_later_step_start_demotes_a_built_arc() {
         let log = format!(
             "{}{}{}",
@@ -1091,7 +1083,7 @@ mod tests {
             log_line("d", "step-start", "2/9 Step 2: Second"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(
             found.latest,
             Some(ArcDeclaration::Step {
@@ -1103,7 +1095,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_step_survives_a_later_mark_for_the_step_fields() {
         let log = format!(
             "{}{}",
@@ -1111,13 +1102,12 @@ mod tests {
             log_line("d", "built", "debug instance up"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.latest, Some(ArcDeclaration::Built));
         assert_eq!(found.step, Some((3, 9)));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_step_start_carries_its_title_and_a_done_keeps_it() {
         let log = format!(
             "{}{}",
@@ -1125,7 +1115,7 @@ mod tests {
             log_line("d", "step-done", "3/9 a4477d5"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.step, Some((3, 9)));
         assert_eq!(
             found.step_title.as_deref(),
@@ -1135,7 +1125,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_declared_run_completes_when_its_final_step_is_done() {
         let log = format!(
             "{}{}{}{}{}",
@@ -1146,7 +1135,7 @@ mod tests {
             log_line("d", "step-done", "7/15 b5588e6"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_through, Some(8));
         assert!(!found.step_in_flight);
         assert!(!found.run_complete, "step 7 of a run through 8 is not done");
@@ -1157,13 +1146,13 @@ mod tests {
             log_line("d", "step-start", "8/15 Step 8: Eighth"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert!(found.step_in_flight, "the final step is open, not finished");
         assert!(!found.run_complete);
 
         let log = format!("{}{}", log, log_line("d", "step-done", "8/15 c6699f7"));
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert!(found.run_complete, "the declared selection finished");
 
         // A second run on the same arc re-declares and re-opens.
@@ -1174,14 +1163,13 @@ mod tests {
             log_line("d", "step-start", "9/15 Step 9: Ninth"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_through, Some(12));
         assert!(found.step_in_flight);
         assert!(!found.run_complete);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_run_without_a_declaration_never_completes() {
         // Every generation whose log predates `--through`: steps done, no run
         // declared, so the completion arithmetic has nothing to compare against.
@@ -1191,13 +1179,13 @@ mod tests {
             log_line("d", "step-done", "1/2 a4477d5"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_through, None);
         assert!(!found.run_complete);
 
         // And a run-through with no step declaration yet is not complete either.
         let fixture = log_repo(&log_line("d", "run-through", "3"));
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_through, Some(3));
         assert!(!found.run_complete);
     }
@@ -1207,7 +1195,6 @@ mod tests {
     /// `read_arc` reads only `arc-*` markers — so a new marker between two
     /// step declarations moves neither.
     #[test]
-    #[serial(tug_data_dir)]
     fn a_compact_marker_moves_no_declaration_and_no_arc_fact() {
         let without = format!(
             "{}{}{}",
@@ -1224,9 +1211,12 @@ mod tests {
         );
 
         let plain = log_repo(&without);
-        let expected = read_declarations(plain.root(), "d");
+        let expected = read_declarations(&plain.paths, plain.root(), "d");
         let marked = log_repo(&with);
-        assert_eq!(read_declarations(marked.root(), "d"), expected);
+        assert_eq!(
+            read_declarations(&marked.paths, marked.root(), "d"),
+            expected
+        );
 
         let arc_log = format!(
             "{}{}{}",
@@ -1235,7 +1225,7 @@ mod tests {
             log_line("d", "arc-note", "compacted at 0.73 > 0.60"),
         );
         let fixture = log_repo(&arc_log);
-        let record = crate::arc::read_arc(fixture.root(), "d").expect("an arc");
+        let record = crate::arc::read_arc(&fixture.paths, fixture.root(), "d").expect("an arc");
         assert_eq!(record.notes, vec!["compacted at 0.73 > 0.60".to_string()]);
         assert!(record.stages.is_empty());
     }
@@ -1244,7 +1234,6 @@ mod tests {
     /// re-latched by the next `run-through` — so a second selection on one arc
     /// reports its own span rather than the first one's.
     #[test]
-    #[serial(tug_data_dir)]
     fn the_run_latches_the_step_that_opened_it() {
         let first_run = format!(
             "{}{}{}",
@@ -1253,7 +1242,7 @@ mod tests {
             log_line("d", "step-done", "1/10 a4477d5"),
         );
         let fixture = log_repo(&first_run);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_first, Some(1));
         assert_eq!(found.run_through, Some(3));
 
@@ -1264,7 +1253,10 @@ mod tests {
             log_line("d", "step-start", "2/10 Step 2: Second"),
         );
         let fixture = log_repo(&first_run);
-        assert_eq!(read_declarations(fixture.root(), "d").run_first, Some(1));
+        assert_eq!(
+            read_declarations(&fixture.paths, fixture.root(), "d").run_first,
+            Some(1)
+        );
 
         // A second selection re-declares, and the latch moves to its opener.
         let second_run = format!(
@@ -1275,23 +1267,28 @@ mod tests {
             log_line("d", "step-start", "5/10 Step 5: Fifth"),
         );
         let fixture = log_repo(&second_run);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_first, Some(5));
         assert_eq!(found.run_through, Some(7));
 
         // A generation that declared no run has nothing to latch onto.
         let fixture = log_repo(&log_line("d", "step-start", "1/2 Step 1: First"));
-        assert_eq!(read_declarations(fixture.root(), "d").run_first, None);
+        assert_eq!(
+            read_declarations(&fixture.paths, fixture.root(), "d").run_first,
+            None
+        );
 
         // Nor does the window between a run's declaration and its first step.
         let fixture = log_repo(&log_line("d", "run-through", "3"));
-        assert_eq!(read_declarations(fixture.root(), "d").run_first, None);
+        assert_eq!(
+            read_declarations(&fixture.paths, fixture.root(), "d").run_first,
+            None
+        );
     }
 
     /// The number every glanceable counter shows: position within the declared
     /// selection, not within the plan.
     #[test]
-    #[serial(tug_data_dir)]
     fn the_run_fraction_counts_the_selection_not_the_plan() {
         // The case that opened this work: `Steps 1-3` of a ten-step plan.
         let log = format!(
@@ -1300,7 +1297,7 @@ mod tests {
             log_line("d", "step-start", "1/10 Step 1: First"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.step, Some((1, 10)), "the plan pair is still recorded");
         assert_eq!(run_fraction(&found), Some((1, 3)), "but the run counts 1/3");
 
@@ -1314,7 +1311,7 @@ mod tests {
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            run_fraction(&read_declarations(fixture.root(), "d")),
+            run_fraction(&read_declarations(&fixture.paths, fixture.root(), "d")),
             Some((2, 3))
         );
 
@@ -1327,7 +1324,7 @@ mod tests {
             log_line("d", "step-done", "7/10 c6699f7"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert!(found.run_complete);
         assert_eq!(run_fraction(&found), Some((3, 3)));
 
@@ -1340,7 +1337,7 @@ mod tests {
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            run_fraction(&read_declarations(fixture.root(), "d")),
+            run_fraction(&read_declarations(&fixture.paths, fixture.root(), "d")),
             Some((1, 1))
         );
     }
@@ -1348,7 +1345,6 @@ mod tests {
     /// Every shape the arithmetic cannot be trusted on degrades to `None`, so
     /// the display falls back to the plan's own counters ([P05]).
     #[test]
-    #[serial(tug_data_dir)]
     fn an_untrustworthy_span_yields_no_run_fraction() {
         // No declared run at all — every log written before `--through`.
         let log = format!(
@@ -1357,11 +1353,17 @@ mod tests {
             log_line("d", "step-done", "1/2 a4477d5"),
         );
         let fixture = log_repo(&log);
-        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), None);
+        assert_eq!(
+            run_fraction(&read_declarations(&fixture.paths, fixture.root(), "d")),
+            None
+        );
 
         // A run declared but not yet opened has no first step to measure from.
         let fixture = log_repo(&log_line("d", "run-through", "3"));
-        assert_eq!(run_fraction(&read_declarations(fixture.root(), "d")), None);
+        assert_eq!(
+            run_fraction(&read_declarations(&fixture.paths, fixture.root(), "d")),
+            None
+        );
 
         // A hand-edited log whose declaration order is reversed latches the
         // step before the run that should have cleared it, leaving `through`
@@ -1372,7 +1374,7 @@ mod tests {
             log_line("d", "run-through", "3"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_first, None, "the declaration cleared the latch");
         assert_eq!(run_fraction(&found), None);
 
@@ -1384,13 +1386,12 @@ mod tests {
             log_line("d", "step-done", "9/10 a4477d5"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_first, Some(9));
         assert_eq!(run_fraction(&found), None, "through 3 is before first 9");
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_terminal_line_resets_the_run_facts() {
         let log = format!(
             "{}{}{}{}",
@@ -1400,7 +1401,7 @@ mod tests {
             log_line("d", "a4477d5", "joined via card"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.run_through, None);
         assert_eq!(found.run_first, None);
         assert!(!found.run_complete);
@@ -1409,16 +1410,14 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_bare_step_start_reads_as_untitled() {
         let fixture = log_repo(&log_line("d", "step-start", "4/9"));
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.step, Some((4, 9)));
         assert_eq!(found.step_title, None);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_withdrawal_closes_the_run_as_a_completion_does() {
         let log = format!(
             "{}{}{}{}",
@@ -1428,7 +1427,7 @@ mod tests {
             log_line("d", "step-withdrawn", "8/8 Step 8: Eighth"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert!(
             found.run_complete,
             "an arc whose final selected step was withdrawn is joinable, not wedged"
@@ -1444,7 +1443,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_withdrawal_leaves_the_runs_span_alone() {
         let log = format!(
             "{}{}{}{}",
@@ -1454,7 +1452,7 @@ mod tests {
             log_line("d", "step-start", "8/8 Step 8: Eighth"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(
             found.run_first,
             Some(7),
@@ -1465,7 +1463,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_withdrawal_after_a_terminal_line_starts_a_fresh_generation() {
         let log = format!(
             "{}{}{}{}{}",
@@ -1476,7 +1473,7 @@ mod tests {
             log_line("d", "step-withdrawn", "1/4 Step 1: First"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(
             found.run_through, None,
             "the joined run's selection is gone"
@@ -1491,7 +1488,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_reused_name_inherits_nothing_across_a_terminal_line() {
         for terminal in [
             log_line("d", "discarded", ""),
@@ -1516,7 +1512,7 @@ mod tests {
                 log_line("d", "abc1234", "a fresh round on the reused name"),
             );
             let fixture = log_repo(&log);
-            let found = read_declarations(fixture.root(), "d");
+            let found = read_declarations(&fixture.paths, fixture.root(), "d");
             assert_eq!(
                 ArcDeclarations {
                     last_activity: None,
@@ -1533,7 +1529,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_logs_newest_line_dates_the_arc() {
         let log = format!(
             "{}{}{}",
@@ -1548,7 +1543,7 @@ mod tests {
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            read_declarations(fixture.root(), "d")
+            read_declarations(&fixture.paths, fixture.root(), "d")
                 .last_activity
                 .as_deref(),
             Some("2026-08-12T09:00:00Z"),
@@ -1556,7 +1551,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_terminal_line_resets_the_date() {
         let log = format!(
             "{}{}{}",
@@ -1566,7 +1560,7 @@ mod tests {
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            read_declarations(fixture.root(), "d")
+            read_declarations(&fixture.paths, fixture.root(), "d")
                 .last_activity
                 .as_deref(),
             Some("2026-08-12T09:00:00Z"),
@@ -1575,7 +1569,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_arc_with_no_surviving_lines_has_no_date() {
         let log = format!(
             "{}{}",
@@ -1583,14 +1576,16 @@ mod tests {
             log_line("d", "released", ""),
         );
         let fixture = log_repo(&log);
-        assert_eq!(read_declarations(fixture.root(), "d").last_activity, None);
+        assert_eq!(
+            read_declarations(&fixture.paths, fixture.root(), "d").last_activity,
+            None
+        );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_created_marker_does_not_move_the_stage() {
         let fixture = log_repo(&log_line_at("2026-08-10T09:00:00Z", "d", "created", ""));
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.latest, None, "a birth record is not a declaration");
         assert_eq!(found.step, None);
         assert_eq!(
@@ -1601,7 +1596,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_unparseable_step_note_is_skipped() {
         let log = format!(
             "{}{}",
@@ -1609,12 +1603,11 @@ mod tests {
             log_line("d", "step-start", "nonsense"),
         );
         let fixture = log_repo(&log);
-        let found = read_declarations(fixture.root(), "d");
+        let found = read_declarations(&fixture.paths, fixture.root(), "d");
         assert_eq!(found.step, Some((1, 9)), "the garbage note is ignored");
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn another_arcs_declarations_never_leak_in() {
         let log = format!(
             "{}{}",
@@ -1623,11 +1616,11 @@ mod tests {
         );
         let fixture = log_repo(&log);
         assert_eq!(
-            read_declarations(fixture.root(), "other").latest,
+            read_declarations(&fixture.paths, fixture.root(), "other").latest,
             Some(ArcDeclaration::Audited)
         );
         assert_eq!(
-            read_declarations(fixture.root(), "d").latest,
+            read_declarations(&fixture.paths, fixture.root(), "d").latest,
             Some(ArcDeclaration::Step {
                 current: 1,
                 total: 2
@@ -1636,26 +1629,35 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn the_writers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_step_declaration(root, "d", StepPhase::Start, 2, 8, "Step 2: Second").unwrap();
+        append_step_declaration(
+            &fixture.paths,
+            root,
+            "d",
+            StepPhase::Start,
+            2,
+            8,
+            "Step 2: Second",
+        )
+        .unwrap();
         assert_eq!(
-            read_declarations(root, "d").latest,
+            read_declarations(&fixture.paths, root, "d").latest,
             Some(ArcDeclaration::Step {
                 current: 2,
                 total: 8
             })
         );
-        append_mark_declaration(root, "d", MarkStage::Built, "").unwrap();
+        append_mark_declaration(&fixture.paths, root, "d", MarkStage::Built, "").unwrap();
         assert_eq!(
-            read_declarations(root, "d").latest,
+            read_declarations(&fixture.paths, root, "d").latest,
             Some(ArcDeclaration::Built)
         );
-        append_mark_declaration(root, "d", MarkStage::Audited, "good shape").unwrap();
+        append_mark_declaration(&fixture.paths, root, "d", MarkStage::Audited, "good shape")
+            .unwrap();
         assert_eq!(
-            read_declarations(root, "d").latest,
+            read_declarations(&fixture.paths, root, "d").latest,
             Some(ArcDeclaration::Audited)
         );
     }

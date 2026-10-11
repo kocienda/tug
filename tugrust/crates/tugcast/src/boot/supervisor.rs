@@ -16,6 +16,7 @@
 //! stage.
 
 use std::sync::Arc;
+use tugcore::instance::Paths;
 
 use tokio::sync::mpsc;
 use tracing::{info, warn};
@@ -770,6 +771,7 @@ pub(crate) async fn supervisor(
             // Filled by `run_arc_engine` itself, which owns the channel's
             // other end.
             settle: None,
+            paths: Arc::new(Paths::from_env()),
         },
         arc_tick_rx,
         changeset_all_rx.clone(),

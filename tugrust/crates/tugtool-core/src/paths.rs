@@ -28,7 +28,13 @@ const LEGACY_ARC_LOG: &str = "dash-log.md";
 /// Silent in every failure, like the rest of this module: a rename that loses
 /// a race still leaves a usable path, since the caller opens it with `create`.
 pub fn arc_log_path(repo_root: &Path) -> PathBuf {
-    resolve_arc_log_in(&project_state_dir(repo_root))
+    arc_log_path_at(&tugcore::instance::Paths::from_env(), repo_root)
+}
+
+/// [`arc_log_path`] under the data root `paths` names rather than the one the
+/// environment names.
+pub fn arc_log_path_at(paths: &tugcore::instance::Paths, repo_root: &Path) -> PathBuf {
+    resolve_arc_log_in(&project_state_dir_at(paths, repo_root))
 }
 
 /// [`arc_log_path`]'s rename, over a state dir given rather than resolved.
@@ -59,7 +65,13 @@ fn resolve_arc_log_in(dir: &Path) -> PathBuf {
 /// worktree of a project shares one state dir by construction rather than by
 /// the caller's care. This is per-user runtime state; it is never committed.
 pub fn project_state_dir(repo_root: &Path) -> PathBuf {
-    let projects = tugcore::instance::base_data_dir().join("projects");
+    project_state_dir_at(&tugcore::instance::Paths::from_env(), repo_root)
+}
+
+/// [`project_state_dir`] under the data root `paths` names rather than the one
+/// the environment names. Reads no environment variable.
+pub fn project_state_dir_at(paths: &tugcore::instance::Paths, repo_root: &Path) -> PathBuf {
+    let projects = paths.base_data_dir.join("projects");
     let checkout = checkout_for_state(repo_root);
     let canonical = project_slug(&checkout);
     let raw = raw_slug(&checkout);

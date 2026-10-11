@@ -5,6 +5,7 @@
 
 use std::io::{self, IsTerminal, Read};
 use std::process::ExitCode;
+use tugcore::instance::Paths;
 
 use serde::Serialize;
 
@@ -25,14 +26,25 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
     if let Some(refusal) = git_preflight(&cmd) {
         return AppError::Exit1("git_unavailable", refusal).report(command, json);
     }
+    // Every instance path this verb touches, resolved once at the edge: the
+    // engine below reads no environment.
+    let paths = &Paths::from_env();
     let result: Result<(), AppError> = match cmd {
         ArcCommands::Create {
             name,
             description,
             carry,
             base,
-        } => run_create(&name, description, carry, base.as_deref(), json, quiet),
-        ArcCommands::Commit { name, message } => run_commit(&name, &message, json, quiet),
+        } => run_create(
+            paths,
+            &name,
+            description,
+            carry,
+            base.as_deref(),
+            json,
+            quiet,
+        ),
+        ArcCommands::Commit { name, message } => run_commit(paths, &name, &message, json, quiet),
         ArcCommands::Join {
             name,
             message,
@@ -41,7 +53,15 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             continue_join,
             resolve,
             break_lease,
-        } if resolve => run_join_resolve(&name, message, strategy.into(), break_lease, json, quiet),
+        } if resolve => run_join_resolve(
+            paths,
+            &name,
+            message,
+            strategy.into(),
+            break_lease,
+            json,
+            quiet,
+        ),
         ArcCommands::Join {
             name,
             message,
@@ -51,6 +71,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
             resolve: _,
             break_lease,
         } => run_join(
+            paths,
             &name,
             JoinOptions {
                 strategy: strategy.into(),
@@ -60,43 +81,47 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
                 candidate: None,
                 origin: Some("cli".to_string()),
                 // The CLI runs inside the session it belongs to, so its own
-                // `TUG_SESSION_ID` is the answer and nothing needs passing.
-                session_id: None,
+                // `TUG_SESSION_ID` is the answer, read here at the edge.
+                session_id: crate::session_identity::trailer_session_id(),
                 break_lease,
                 caller_cwd: std::env::current_dir().ok(),
             },
             json,
             quiet,
         ),
-        ArcCommands::Replay { name } => return run_replay(&name, json, quiet),
-        ArcCommands::ResolveBase { name } => return run_resolve_base(&name, json, quiet),
+        ArcCommands::Replay { name } => return run_replay(paths, &name, json, quiet),
+        ArcCommands::ResolveBase { name } => return run_resolve_base(paths, &name, json, quiet),
         ArcCommands::Verify { name, base, head } => {
-            return run_verify(&name, base, head, json, quiet);
+            return run_verify(paths, &name, base, head, json, quiet);
         }
         ArcCommands::Undo { name, list } => {
-            return run_undo(name.as_deref(), list, json, quiet);
+            return run_undo(paths, name.as_deref(), list, json, quiet);
         }
         ArcCommands::Redo { name, list } => {
-            return run_redo(name.as_deref(), list, json, quiet);
+            return run_redo(paths, name.as_deref(), list, json, quiet);
         }
-        ArcCommands::Discard { name, break_lease } => run_discard(&name, break_lease, json, quiet),
+        ArcCommands::Discard { name, break_lease } => {
+            run_discard(paths, &name, break_lease, json, quiet)
+        }
         ArcCommands::DeleteDocuments { name } => run_delete_documents(&name, json, quiet),
         ArcCommands::Config => run_config(json, quiet),
-        ArcCommands::List => run_list(json, quiet),
-        ArcCommands::Show { name } => run_show(&name, json, quiet),
-        ArcCommands::Status { name } => run_status(&name, json, quiet),
-        ArcCommands::Doctor { name, repair } => run_doctor(&name, repair, json, quiet),
-        ArcCommands::Step { name, action } => run_step(&name, action, json, quiet),
-        ArcCommands::Mark { name, stage, note } => run_mark(&name, stage.into(), note, json, quiet),
+        ArcCommands::List => run_list(paths, json, quiet),
+        ArcCommands::Show { name } => run_show(paths, &name, json, quiet),
+        ArcCommands::Status { name } => run_status(paths, &name, json, quiet),
+        ArcCommands::Doctor { name, repair } => run_doctor(paths, &name, repair, json, quiet),
+        ArcCommands::Step { name, action } => run_step(paths, &name, action, json, quiet),
+        ArcCommands::Mark { name, stage, note } => {
+            run_mark(paths, &name, stage.into(), note, json, quiet)
+        }
         ArcCommands::Run {
             name,
             project,
             session,
-        } => run_arc_run(&name, project, session, json, quiet),
+        } => run_arc_run(paths, &name, project, session, json, quiet),
         ArcCommands::Documents { name, ensure, bind } => {
             run_documents(&name, ensure, bind, json, quiet)
         }
-        ArcCommands::Record { name, project } => run_arc_report(&name, project, json, quiet),
+        ArcCommands::Record { name, project } => run_arc_report(paths, &name, project, json, quiet),
         ArcCommands::Bind {
             name,
             project,
@@ -248,6 +273,7 @@ fn git_preflight(cmd: &ArcCommands) -> Option<String> {
 }
 
 fn run_create(
+    paths: &Paths,
     name: &str,
     description: Option<String>,
     carry: bool,
@@ -256,7 +282,7 @@ fn run_create(
     quiet: bool,
 ) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    let data = ops::create_in(&repo, name, description, carry, base)?;
+    let data = ops::create_in(paths, &repo, name, description, carry, base)?;
     let claim = claim_arc(name);
     // The worktree exists either way, and the receipt says so. What did not
     // happen is the record of who is working it — and that is the half a
@@ -403,7 +429,13 @@ fn print_base_census(data: &ops::CreateOutcome) {
     }
 }
 
-fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_commit(
+    paths: &Paths,
+    name: &str,
+    message: &str,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
     // Round metadata arrives on stdin (the one datum git lacks: the verbatim
     // instruction). A terminal stdin means none was piped.
     let round_meta: Option<ArcRoundMeta> = if !io::stdin().is_terminal() {
@@ -424,7 +456,14 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
     };
 
     let repo = arc_repo_root()?;
-    let data = ops::commit_in(&repo, name, message, round_meta)?;
+    let data = ops::commit_in(
+        paths,
+        &repo,
+        name,
+        message,
+        round_meta,
+        crate::session_identity::trailer_session_id().as_deref(),
+    )?;
     // Deliberately no `claim_arc` here. A round is the plainest statement
     // that this session is working this arc, but the claim costs an HTTP walk
     // over every live instance, and `commit` is the one arc verb that runs on
@@ -456,11 +495,17 @@ fn capture_owner_key(repo: &std::path::Path, name: &str) -> String {
     tugarc_core::ops::arc_owner_key(repo, name)
 }
 
-fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_join(
+    paths: &Paths,
+    name: &str,
+    opts: JoinOptions,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
     let previewing = opts.preview;
     let captured = (!previewing).then(|| capture_owner_key(&repo, name));
-    let data = ops::join_in(&repo, name, opts)?;
+    let data = ops::join_in(paths, &repo, name, opts)?;
     // Only a real join that landed tore the arc down.
     if !data.previewed
         && data.conflicts.is_empty()
@@ -537,6 +582,7 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
 /// ([P31]). No AI rung from the CLI (the scribe lives in tugcast) — the ladder's
 /// algorithmic rungs only.
 fn run_join_resolve(
+    paths: &Paths,
     name: &str,
     message: Option<String>,
     strategy: JoinStrategy,
@@ -561,7 +607,7 @@ fn run_join_resolve(
         ));
     }
 
-    let outcome = resolve::resolve_conflicts(&repo_root, name, None)?;
+    let outcome = resolve::resolve_conflicts(paths, &repo_root, name, None)?;
 
     let Some(candidate) = outcome.candidate_commit.clone() else {
         // Some files could not be resolved algorithmically.
@@ -594,6 +640,7 @@ fn run_join_resolve(
     // Captured before the teardown, for the reason `capture_owner_key` states.
     let owner_key = capture_owner_key(&repo_root, name);
     let landed = ops::join_in(
+        paths,
         &repo_root,
         name,
         JoinOptions {
@@ -603,7 +650,7 @@ fn run_join_resolve(
             continue_join: false,
             candidate: Some(candidate),
             origin: Some("cli".to_string()),
-            session_id: None,
+            session_id: crate::session_identity::trailer_session_id(),
             // The ladder already replaced whatever chain stood here, so the
             // join below sees no lease — carried anyway so the two halves of
             // one gesture cannot disagree.
@@ -639,11 +686,17 @@ fn run_join_resolve(
     Ok(())
 }
 
-fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_discard(
+    paths: &Paths,
+    name: &str,
+    break_lease: bool,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
     // Captured before the teardown, for the reason `capture_owner_key` states.
     let repo = arc_repo_root()?;
     let owner_key = capture_owner_key(&repo, name);
-    let data = ops::discard_in(&repo, name, Some("cli"), break_lease)?;
+    let data = ops::discard_in(paths, &repo, name, Some("cli"), break_lease)?;
     broadcast_arc_gone(&repo, &owner_key, ArcGone::Discarded);
     if json {
         print_ok("arc discard", &data);
@@ -693,10 +746,10 @@ fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), AppEr
     Ok(())
 }
 
-fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_status(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    ops::reconcile_branches(&repo, &mut Vec::new());
-    let data = ops::status_in(&repo, name)?;
+    ops::reconcile_branches(paths, &repo, &mut Vec::new());
+    let data = ops::status_in(paths, &repo, name)?;
     // **What the wheel is waiting for**, asked only when the answer will be
     // printed and there is a seat to ask about. `--quiet` must not pay an HTTP
     // walk over every live instance for a line it will not print, and an
@@ -817,9 +870,15 @@ fn status_lines(data: &ops::ArcStatus, waiting: Option<&serde_json::Value>) -> V
 /// that reconciles every reconcilable finding still exits 1 if something was
 /// left for a person — the arc is not healthy just because the doctor did
 /// what it could.
-fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_doctor(
+    paths: &Paths,
+    name: &str,
+    repair: bool,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    let outcome = tugarc_core::doctor::doctor(&repo, name, repair)?;
+    let outcome = tugarc_core::doctor::doctor(paths, &repo, name, repair)?;
 
     // A repair that reconciled everything it could still reports the arc as
     // unhealthy if anything is left — the verb answers "do the records agree",
@@ -881,7 +940,13 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), A
 /// not parse, a row that cannot make the transition — exits non-zero by
 /// [`exit_code_for`] with the plan and the row named, and leaves the plan file
 /// untouched.
-fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_step(
+    paths: &Paths,
+    name: &str,
+    action: StepAction,
+    json: bool,
+    quiet: bool,
+) -> Result<(), AppError> {
     let mut claim = None;
     let mut jobs_ended = None;
     let mv = match &action {
@@ -901,29 +966,29 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             // Opening a step is the resume path's "I am working this arc".
             // A run that picks a plan up mid-way never calls `create`, so this
             // is the only place the claim can be made for it.
-            let outcome = ops::step_start_in(&arc_repo_root()?, name, step, through)?;
+            let outcome = ops::step_start_in(paths, &arc_repo_root()?, name, step, through)?;
             claim = Some(claim_arc(name));
             outcome
         }
         StepAction::Done { step, commit } => {
-            ops::step_done_in(&arc_repo_root()?, name, step, commit.as_deref())?
+            ops::step_done_in(paths, &arc_repo_root()?, name, step, commit.as_deref())?
         }
         StepAction::Withdraw { step } => {
             // Withdrawing is a run act like opening a step, so it registers
             // the same claim: a run that picks a plan up mid-way to withdraw
             // one step has still taken the arc.
-            let outcome = ops::step_withdraw_in(&arc_repo_root()?, name, step)?;
+            let outcome = ops::step_withdraw_in(paths, &arc_repo_root()?, name, step)?;
             claim = Some(claim_arc(name));
             outcome
         }
         // Parking and reopening are run acts too, on the same grounds.
         StepAction::Reset { step, why } => {
-            let outcome = ops::step_reset_in(&arc_repo_root()?, name, step, why.as_deref())?;
+            let outcome = ops::step_reset_in(paths, &arc_repo_root()?, name, step, why.as_deref())?;
             claim = Some(claim_arc(name));
             outcome
         }
         StepAction::Reopen { step, why } => {
-            let outcome = ops::step_reopen_in(&arc_repo_root()?, name, step, &why)?;
+            let outcome = ops::step_reopen_in(paths, &arc_repo_root()?, name, step, &why)?;
             claim = Some(claim_arc(name));
             outcome
         }
@@ -960,6 +1025,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
 
 /// Declare a stage git cannot see ([P09]) — one arc log line, nothing else.
 fn run_mark(
+    paths: &Paths,
     name: &str,
     stage: MarkStage,
     note: Option<String>,
@@ -967,7 +1033,7 @@ fn run_mark(
     quiet: bool,
 ) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    let data = ops::mark_in(&repo, name, stage, note.as_deref())?;
+    let data = ops::mark_in(paths, &repo, name, stage, note.as_deref())?;
     if json {
         print_ok("arc mark", &data);
     } else if !quiet {
@@ -1041,7 +1107,7 @@ fn replay_exit_status(outcome: &ReplayOutcome) -> u8 {
     }
 }
 
-fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
+fn run_resolve_base(paths: &Paths, name: &str, json: bool, quiet: bool) -> ExitCode {
     const COMMAND: &str = "arc resolve-base";
     let repo = match repo_or_report(COMMAND, json) {
         Ok(r) => r,
@@ -1050,11 +1116,15 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
     // The CLI has no attribution view — that is the running instance's — so
     // every overlap here reads as the user's own, which is the right answer
     // for a person standing in their own checkout.
-    let outcome =
-        match tugarc_core::ops::resolve_base_in(&repo, name, &std::collections::BTreeMap::new()) {
-            Ok(o) => o,
-            Err(e) => return engine_failed(COMMAND, json, e),
-        };
+    let outcome = match tugarc_core::ops::resolve_base_in(
+        paths,
+        &repo,
+        name,
+        &std::collections::BTreeMap::new(),
+    ) {
+        Ok(o) => o,
+        Err(e) => return engine_failed(COMMAND, json, e),
+    };
     if json {
         print_ok(COMMAND, &outcome);
     } else if !quiet {
@@ -1077,8 +1147,8 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
 
 /// `arc replay` owns its exit code rather than borrowing the dispatcher's;
 /// [`replay_exit_status`] states which outcome means what.
-fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
-    let outcome = match arc_repo_root().and_then(|repo| replay::replay_onto(&repo, name)) {
+fn run_replay(paths: &Paths, name: &str, json: bool, quiet: bool) -> ExitCode {
+    let outcome = match arc_repo_root().and_then(|repo| replay::replay_onto(paths, &repo, name)) {
         Ok(o) => o,
         Err(e) => return engine_failed("arc replay", json, e),
     };
@@ -1096,6 +1166,7 @@ fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
 /// receipt line. There is nothing a filter can extract that the receipt has
 /// not already extracted.
 fn run_verify(
+    paths: &Paths,
     name: &str,
     base: Option<String>,
     head: Option<String>,
@@ -1107,11 +1178,16 @@ fn run_verify(
         Ok(r) => r,
         Err(code) => return code,
     };
-    let report =
-        match tugarc_core::surfaces::verify_in(&repo, name, base.as_deref(), head.as_deref()) {
-            Ok(r) => r,
-            Err(e) => return engine_failed(COMMAND, json, e),
-        };
+    let report = match tugarc_core::surfaces::verify_in(
+        paths,
+        &repo,
+        name,
+        base.as_deref(),
+        head.as_deref(),
+    ) {
+        Ok(r) => r,
+        Err(e) => return engine_failed(COMMAND, json, e),
+    };
 
     if json {
         print_ok(COMMAND, &report);
@@ -1206,14 +1282,14 @@ fn declaration_hint(unclaimed: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
-fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
+fn run_undo(paths: &Paths, name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
     let repo = match repo_or_report("arc undo", json) {
         Ok(r) => r,
         Err(code) => return code,
     };
 
     if list {
-        let ops: Vec<_> = tugarc_core::list_ops(&repo)
+        let ops: Vec<_> = tugarc_core::list_ops(paths, &repo)
             .into_iter()
             .filter(|op| name.is_none_or(|n| op.arc == n))
             .collect();
@@ -1225,7 +1301,7 @@ fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
         return ExitCode::from(0);
     }
 
-    let outcome = match tugarc_core::undo_in(&repo, name) {
+    let outcome = match tugarc_core::undo_in(paths, &repo, name) {
         Ok(o) => o,
         Err(e) => return engine_failed("arc undo", json, e),
     };
@@ -1285,7 +1361,7 @@ fn print_oplog(ops: &[tugarc_core::OpPayload]) {
     }
 }
 
-fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
+fn run_redo(paths: &Paths, name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
     let repo = match repo_or_report("arc redo", json) {
         Ok(r) => r,
         Err(code) => return code,
@@ -1294,7 +1370,7 @@ fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
     // One printer, two flags: `undo --list` and `redo --list` are the same
     // question about the same log, and two spellings of it would drift.
     if list {
-        let ops: Vec<_> = tugarc_core::list_ops(&repo)
+        let ops: Vec<_> = tugarc_core::list_ops(paths, &repo)
             .into_iter()
             .filter(|op| name.is_none_or(|n| op.arc == n))
             .collect();
@@ -1306,7 +1382,7 @@ fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
         return ExitCode::from(0);
     }
 
-    let outcome = match tugarc_core::redo_in(&repo, name) {
+    let outcome = match tugarc_core::redo_in(paths, &repo, name) {
         Ok(o) => o,
         Err(e) => return engine_failed("arc redo", json, e),
     };
@@ -1569,6 +1645,7 @@ struct DocumentsPayload {
 /// verbs use. The server binds the session to the arc and returns; the first
 /// stage rotates on that session's own turn end ([P05]), never on arrival.
 fn run_arc_run(
+    paths: &Paths,
     name: &str,
     project: Option<std::path::PathBuf>,
     session: Option<String>,
@@ -1584,7 +1661,7 @@ fn run_arc_run(
         started,
         resumed,
         record: arc,
-    } = tugarc_core::ops::open_arc(&root, name)?;
+    } = tugarc_core::ops::open_arc(paths, &root, name)?;
 
     // The record is written before the kick, so a tugcast that never hears
     // about the arc still has one to find on its next pass.
@@ -1636,13 +1713,14 @@ fn run_arc_run(
 /// Report the arc (Spec S07). No arc exits 0 with `arc: null`: an arc without
 /// an arc is a state, not an error.
 fn run_arc_report(
+    paths: &Paths,
     name: &str,
     project: Option<std::path::PathBuf>,
     json: bool,
     quiet: bool,
 ) -> Result<(), AppError> {
     let root = arc_project_root(project)?;
-    let arc = tugarc_core::read_arc(&root, name);
+    let arc = tugarc_core::read_arc(paths, &root, name);
 
     if json {
         print_ok(
@@ -2527,9 +2605,9 @@ fn run_config(json: bool, quiet: bool) -> Result<(), AppError> {
     Ok(())
 }
 
-fn run_list(json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_list(paths: &Paths, json: bool, quiet: bool) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    let items = ops::list_in(&repo)?;
+    let items = ops::list_in(paths, &repo)?;
     if json {
         print_ok("arc list", ListPayload { arcs: items });
     } else if !quiet {
@@ -2587,9 +2665,9 @@ fn document_words(item: &ops::ArcListItem) -> String {
     words.join(", ")
 }
 
-fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
+fn run_show(paths: &Paths, name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
     let repo = arc_repo_root()?;
-    let data = ops::show_in(&repo, name)?;
+    let data = ops::show_in(paths, &repo, name)?;
     if json {
         print_ok("arc show", &data);
     } else if !quiet {
@@ -2920,6 +2998,7 @@ mod tests {
     #[test]
     fn step_start_refuses_without_through() {
         let err = run_step(
+            &Paths::from_env(),
             "any-arc",
             StepAction::Start {
                 step: 1,
@@ -2944,7 +3023,14 @@ mod tests {
     /// this one takes its early return.
     #[test]
     fn step_withdraw_needs_no_through() {
-        let err = run_step("any-arc", StepAction::Withdraw { step: 1 }, false, true).unwrap_err();
+        let err = run_step(
+            &Paths::from_env(),
+            "any-arc",
+            StepAction::Withdraw { step: 1 },
+            false,
+            true,
+        )
+        .unwrap_err();
         assert!(
             !err.message().contains("--through"),
             "a withdrawal inherits the run's selection rather than declaring one: {}",
@@ -3015,7 +3101,8 @@ mod tests {
     fn opening_an_arc_writes_one_start_line() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        let opened = tugarc_core::ops::open_arc(fixture.root(), "demo").expect("opened");
+        let opened =
+            tugarc_core::ops::open_arc(&Paths::from_env(), fixture.root(), "demo").expect("opened");
         assert!(opened.started);
         assert!(!opened.resumed);
         assert_eq!(
@@ -3035,8 +3122,9 @@ mod tests {
     fn opening_the_same_arc_twice_is_one_arc() {
         let fixture = arc_fixture();
         fixture.write_brief("demo");
-        tugarc_core::ops::open_arc(fixture.root(), "demo").expect("opened");
-        let reopened = tugarc_core::ops::open_arc(fixture.root(), "demo").expect("reopened");
+        tugarc_core::ops::open_arc(&Paths::from_env(), fixture.root(), "demo").expect("opened");
+        let reopened = tugarc_core::ops::open_arc(&Paths::from_env(), fixture.root(), "demo")
+            .expect("reopened");
         assert!(
             !reopened.started,
             "a second run on the same arc opens nothing"
@@ -3053,7 +3141,7 @@ mod tests {
     #[serial_test::serial]
     fn a_arc_with_no_documents_says_to_write_one() {
         let fixture = arc_fixture();
-        let err = tugarc_core::ops::open_arc(fixture.root(), "empty")
+        let err = tugarc_core::ops::open_arc(&Paths::from_env(), fixture.root(), "empty")
             .unwrap_err()
             .to_string();
         assert!(
@@ -3072,7 +3160,8 @@ mod tests {
             "2026-08-24T10:05:00Z  demo  arc-stop  review lint failed\n"
         ));
         let before = fixture.log_lines().len();
-        let opened = tugarc_core::ops::open_arc(fixture.root(), "demo").expect("resumed");
+        let opened = tugarc_core::ops::open_arc(&Paths::from_env(), fixture.root(), "demo")
+            .expect("resumed");
         assert!(!opened.started);
         assert!(opened.resumed);
         assert_eq!(opened.record.stopped, None, "the stop is cleared");
@@ -3090,7 +3179,8 @@ mod tests {
         // An arc that is not stopped has nothing to resume, and a second run
         // on it writes nothing.
         let after = fixture.log_lines().len();
-        let again = tugarc_core::ops::open_arc(fixture.root(), "demo").expect("still open");
+        let again = tugarc_core::ops::open_arc(&Paths::from_env(), fixture.root(), "demo")
+            .expect("still open");
         assert!(!again.resumed);
         assert_eq!(fixture.log_lines().len(), after);
     }
@@ -3099,7 +3189,7 @@ mod tests {
     #[serial_test::serial]
     fn an_unknown_arc_has_no_arc() {
         let fixture = arc_fixture();
-        assert!(tugarc_core::read_arc(fixture.root(), "nonexistent").is_none());
+        assert!(tugarc_core::read_arc(&Paths::from_env(), fixture.root(), "nonexistent").is_none());
     }
 
     #[test]
@@ -3114,7 +3204,7 @@ mod tests {
         );
         let payload = ArcReportPayload {
             name: "demo".to_string(),
-            arc: tugarc_core::read_arc(fixture.root(), "demo"),
+            arc: tugarc_core::read_arc(&Paths::from_env(), fixture.root(), "demo"),
         };
         let value = serde_json::to_value(&payload).expect("serialize");
         assert_eq!(value["name"], "demo");
@@ -3170,8 +3260,10 @@ mod tests {
         }
         let repo = tempfile::tempdir().unwrap();
         let root = repo.path();
-        tugarc_core::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
+        tugarc_core::append_arc_start(&Paths::from_env(), root, "demo", "arc/demo-brief.md")
+            .unwrap();
         tugarc_core::append_arc_stage(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::ArcStage::Review,
@@ -3180,6 +3272,7 @@ mod tests {
         )
         .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::ArcStage::Review,
@@ -3187,7 +3280,7 @@ mod tests {
         )
         .unwrap();
 
-        let opened = tugarc_core::ops::open_arc(root, "demo").expect("resume");
+        let opened = tugarc_core::ops::open_arc(&Paths::from_env(), root, "demo").expect("resume");
         assert!(!opened.started, "the arc is the same one, not a second");
         assert!(
             opened.resumed,

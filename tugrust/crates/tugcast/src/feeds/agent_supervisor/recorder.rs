@@ -3,6 +3,7 @@
 //! change pushes.
 
 use super::*;
+use tugcore::instance::Paths;
 
 /// Per-session metadata captured at session_init time.
 ///
@@ -666,7 +667,10 @@ pub(super) fn replay_lineage(
     let arc = chain
         .iter()
         .find_map(|id| recorder.arc_name_for(id))
-        .and_then(|arc| tugarc_core::arc::read_arc(project_dir, &arc).map(|record| (arc, record)));
+        .and_then(|arc| {
+            tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, &arc)
+                .map(|record| (arc, record))
+        });
     let entries: Vec<serde_json::Value> = chain
         .iter()
         .map(|session_id| {

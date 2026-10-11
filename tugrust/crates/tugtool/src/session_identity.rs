@@ -111,6 +111,18 @@ pub(crate) fn have_calling_session() -> bool {
     posted_session_id().is_some()
 }
 
+/// The id this process was born with, for a commit's session trailers.
+///
+/// The one other place the raw id may leave this module, and for the reason it
+/// once had its own read in the arc engine: the citation the trailer carries
+/// resolves the id to its **line** before it writes anything ([P13]), so a
+/// segment that has since rotated still cites the right conversation. A round
+/// commit runs on every round, and resolving here would cost the instance walk
+/// [`resolve`] makes per round for a fact the citation already settles.
+pub(crate) fn trailer_session_id() -> Option<String> {
+    posted_session_id()
+}
+
 /// The calling session, resolved to its line's live segment, or the
 /// actionable refusal naming what to do.
 ///

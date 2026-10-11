@@ -13,6 +13,7 @@
 //! its own spelling untouched; the gateway is here.
 
 use crate::session_ledger::SessionLedger;
+use tugcore::instance::Paths;
 
 /// What a binding write did, in the vocabulary the CLI's try-each-instance
 /// loop reads: `UnknownSession` means "not mine, keep looking", an error means
@@ -290,8 +291,8 @@ pub(crate) fn arc_run(
         Ok(live) => live,
         Err(outcome) => return outcome,
     };
-    if tugarc_core::arc::read_arc(project_dir, arc).is_none() {
-        if let Err(e) = tugarc_core::ops::open_arc(project_dir, arc) {
+    if tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc).is_none() {
+        if let Err(e) = tugarc_core::ops::open_arc(&Paths::from_env(), project_dir, arc) {
             return ArcApiOutcome::Error(e.to_string());
         }
     }
@@ -331,7 +332,7 @@ pub(crate) fn arc_resume(
         Ok(live) => live,
         Err(outcome) => return outcome,
     };
-    let Some(record) = tugarc_core::arc::read_arc(project_dir, arc) else {
+    let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc) else {
         return ArcApiOutcome::Error(format!("{arc} has no arc to resume"));
     };
     // Refused *before* the resume line is written: an arc another card holds
@@ -353,7 +354,9 @@ pub(crate) fn arc_resume(
         ));
     }
     if let Some((stage, _)) = record.stopped {
-        if let Err(e) = tugarc_core::arc::append_arc_resume(project_dir, arc, stage) {
+        if let Err(e) =
+            tugarc_core::arc::append_arc_resume(&Paths::from_env(), project_dir, arc, stage)
+        {
             return ArcApiOutcome::Error(e.to_string());
         }
     }
@@ -417,7 +420,7 @@ pub(crate) fn stop_an_on_arc_cards_arc_as_closed(ledger: &SessionLedger, session
         return;
     }
     let project = std::path::Path::new(&row.project_dir);
-    let Some(record) = tugarc_core::arc::read_arc(project, arc) else {
+    let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project, arc) else {
         return;
     };
     if record.done || record.stopped.is_some() {
@@ -427,6 +430,7 @@ pub(crate) fn stop_an_on_arc_cards_arc_as_closed(ledger: &SessionLedger, session
         return;
     };
     if let Err(e) = tugarc_core::arc::append_arc_stop(
+        &Paths::from_env(),
         project,
         arc,
         stage,
@@ -475,7 +479,7 @@ pub(crate) fn arc_stop(
             ));
         }
     }
-    let Some(record) = tugarc_core::arc::read_arc(project_dir, arc) else {
+    let Some(record) = tugarc_core::arc::read_arc(&Paths::from_env(), project_dir, arc) else {
         return ArcApiOutcome::Error(format!("{arc} has no arc to stop"));
     };
     if record.done {
@@ -613,9 +617,11 @@ fn seated_stages(ledger: &SessionLedger, arc_id: &str) -> Vec<SeatedArcStage> {
         if ledger.stage_provenance(session_id).is_none() {
             return out;
         }
-        let Some(record) =
-            tugarc_core::arc::read_arc(std::path::Path::new(&row.project_dir), &arc_name)
-        else {
+        let Some(record) = tugarc_core::arc::read_arc(
+            &Paths::from_env(),
+            std::path::Path::new(&row.project_dir),
+            &arc_name,
+        ) else {
             return out;
         };
         if record.done || record.stopped.is_some() {
@@ -694,7 +700,8 @@ mod tests {
         ledger
             .set_arc_binding("claude-1", Some(("tugarc/alpha#1", "alpha")))
             .unwrap();
-        tugarc_core::arc::append_arc_start(root, "alpha", "arc/alpha-brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "alpha", "arc/alpha-brief.md")
+            .unwrap();
         ledger
     }
 
@@ -760,7 +767,8 @@ mod tests {
             arc_run(&ledger, root, "claude-1", "beta"),
             ArcApiOutcome::Bound { .. }
         ));
-        let record = tugarc_core::arc::read_arc(root, "beta").expect("the arc was opened");
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "beta")
+            .expect("the arc was opened");
         assert_eq!(record.kind, Some(tugarc_core::ArcKind::Planned));
         assert_eq!(record.document.as_deref(), Some(".tug/arcs/beta/brief.md"));
         assert_eq!(bound_arc(&ledger).as_deref(), Some("beta"));
@@ -775,7 +783,8 @@ mod tests {
             arc_run(&ledger, root, "claude-1", "gamma"),
             ArcApiOutcome::Bound { .. }
         ));
-        let record = tugarc_core::arc::read_arc(root, "gamma").expect("the arc was opened");
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "gamma")
+            .expect("the arc was opened");
         assert_eq!(record.kind, Some(tugarc_core::ArcKind::Plain));
         assert_eq!(record.document.as_deref(), Some(".tug/arcs/gamma/brief.md"));
     }
@@ -801,7 +810,7 @@ mod tests {
             other => panic!("expected a refusal, got {}", outcome_name(&other)),
         }
         assert!(
-            tugarc_core::arc::read_arc(root, "beta").is_none(),
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "beta").is_none(),
             "nothing was written",
         );
         assert!(bound_arc(&ledger).is_none(), "and nothing was bound");
@@ -817,8 +826,15 @@ mod tests {
         let root = dir.path();
         let ledger = idle_card(root);
         write_brief(root, "beta");
-        tugarc_core::arc::append_arc_start(root, "beta", ".tug/arcs/beta/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "beta",
+            ".tug/arcs/beta/brief.md",
+        )
+        .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "beta",
             tugarc_core::ArcStage::Devise,
@@ -830,7 +846,8 @@ mod tests {
             arc_run(&ledger, root, "claude-1", "beta"),
             ArcApiOutcome::Bound { .. }
         ));
-        let record = tugarc_core::arc::read_arc(root, "beta").expect("the record stands");
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "beta")
+            .expect("the record stands");
         assert!(
             record.stopped.is_some(),
             "the stop is the resume's to clear, not the start's",
@@ -965,6 +982,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Review,
@@ -981,7 +999,9 @@ mod tests {
             ArcApiOutcome::Unbound { .. }
         ));
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "alpha").unwrap().stopped,
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha")
+                .unwrap()
+                .stopped,
             Some((
                 tugarc_core::arc::ArcStage::Review,
                 "card closed".to_string()
@@ -1021,7 +1041,10 @@ mod tests {
             unbind(&ledger, "claude-1"),
             ArcApiOutcome::Unbound { .. }
         ));
-        assert_eq!(tugarc_core::arc::read_arc(root, "plain"), None);
+        assert_eq!(
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "plain"),
+            None
+        );
     }
 
     #[test]
@@ -1043,7 +1066,9 @@ mod tests {
             ArcApiOutcome::Unbound { .. }
         ));
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "alpha").unwrap().stopped,
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha")
+                .unwrap()
+                .stopped,
             None,
         );
     }
@@ -1060,6 +1085,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Review,
@@ -1149,6 +1175,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Review,
@@ -1160,12 +1187,13 @@ mod tests {
             .set_stage_provenance("claude-1", "review", None)
             .unwrap();
         // The ending's own terminal line, appended before the CLI broadcasts.
-        tugarc_core::log::append_arc_log(root, "alpha", "discarded", "").unwrap();
+        tugarc_core::log::append_arc_log(&Paths::from_env(), root, "alpha", "discarded", "")
+            .unwrap();
 
         let _ = arc_gone(&ledger, root, "tugarc/alpha#1");
 
         assert_eq!(
-            tugarc_core::arc::read_arc(root, "alpha"),
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha"),
             None,
             "the arc's generation stays closed",
         );
@@ -1197,6 +1225,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Review,
@@ -1232,6 +1261,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Review,
@@ -1370,9 +1400,10 @@ mod tests {
             } else {
                 let ledger = on_arc_card(root);
                 if close == "done" {
-                    tugarc_core::arc::append_arc_done(root, "alpha").unwrap();
+                    tugarc_core::arc::append_arc_done(&Paths::from_env(), root, "alpha").unwrap();
                 } else {
                     tugarc_core::arc::append_arc_stop(
+                        &Paths::from_env(),
                         root,
                         "alpha",
                         tugarc_core::arc::ArcStage::Devise,
@@ -1429,7 +1460,8 @@ mod tests {
         ledger
             .set_arc_binding("claude-1", Some((&arc_id, "demo")))
             .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", "arc/demo-brief.md")
+            .unwrap();
         arc_id
     }
 
@@ -1481,6 +1513,7 @@ mod tests {
         let ledger = on_arc_card(root);
         demo_on_the_first_card(&ledger, root);
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::arc::ArcStage::Implement,
@@ -1498,7 +1531,7 @@ mod tests {
         }
         assert_eq!(resume_lines(root), before, "and the stop still stands");
         assert!(
-            tugarc_core::arc::read_arc(root, "demo")
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
                 .unwrap()
                 .stopped
                 .is_some()
@@ -1523,6 +1556,7 @@ mod tests {
         let ledger = on_arc_card(root);
         demo_on_the_first_card(&ledger, root);
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             tugarc_core::arc::ArcStage::Implement,
@@ -1581,6 +1615,7 @@ mod tests {
             let ledger = on_arc_card(root);
             if close == "stopped" {
                 tugarc_core::arc::append_arc_stop(
+                    &Paths::from_env(),
                     root,
                     "alpha",
                     tugarc_core::arc::ArcStage::Devise,
@@ -1588,7 +1623,7 @@ mod tests {
                 )
                 .unwrap();
             } else {
-                tugarc_core::arc::append_arc_done(root, "alpha").unwrap();
+                tugarc_core::arc::append_arc_done(&Paths::from_env(), root, "alpha").unwrap();
             }
 
             assert!(
@@ -1629,6 +1664,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Implement,
@@ -1637,6 +1673,7 @@ mod tests {
         )
         .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Implement,
@@ -1648,7 +1685,8 @@ mod tests {
             arc_resume(&ledger, root, "claude-1", "alpha"),
             ArcApiOutcome::Bound { .. }
         ));
-        let record = tugarc_core::arc::read_arc(root, "alpha").expect("the arc is still there");
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha")
+            .expect("the arc is still there");
         assert!(
             record.stopped.is_none(),
             "the stop is cleared, which is what tells the runner to pick up",
@@ -1704,6 +1742,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Devise,
@@ -1722,7 +1761,7 @@ mod tests {
              card seated on it is the shape a stop exists to avoid",
         );
         assert!(
-            tugarc_core::arc::read_arc(root, "alpha")
+            tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha")
                 .expect("the arc is still there")
                 .stopped
                 .is_some(),
@@ -1813,6 +1852,7 @@ mod tests {
         let (main, worktree) = checkout_with_worktree(dir.path());
         let ledger = on_arc_card(&main);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             &main,
             "alpha",
             tugarc_core::arc::ArcStage::Implement,
@@ -1873,6 +1913,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Implement,
@@ -1880,8 +1921,13 @@ mod tests {
             None,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_stopping(root, "alpha", tugarc_core::arc::ArcStage::Implement)
-            .unwrap();
+        tugarc_core::arc::append_arc_stopping(
+            &Paths::from_env(),
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+        )
+        .unwrap();
 
         match arc_stop(&ledger, root, "claude-1", "alpha") {
             ArcApiOutcome::Error(message) => {
@@ -1909,6 +1955,7 @@ mod tests {
         let root = dir.path();
         let ledger = on_arc_card(root);
         tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
             root,
             "alpha",
             tugarc_core::arc::ArcStage::Implement,
@@ -1916,8 +1963,13 @@ mod tests {
             None,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_stopping(root, "alpha", tugarc_core::arc::ArcStage::Implement)
-            .unwrap();
+        tugarc_core::arc::append_arc_stopping(
+            &Paths::from_env(),
+            root,
+            "alpha",
+            tugarc_core::arc::ArcStage::Implement,
+        )
+        .unwrap();
 
         match arc_resume(&ledger, root, "claude-1", "alpha") {
             ArcApiOutcome::Error(message) => {
@@ -1928,7 +1980,7 @@ mod tests {
             }
             other => panic!("a stopping arc is not resumed: {}", outcome_name(&other)),
         }
-        let record = tugarc_core::arc::read_arc(root, "alpha").unwrap();
+        let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "alpha").unwrap();
         assert_eq!(record.stopping, Some(tugarc_core::arc::ArcStage::Implement));
         assert_eq!(record.resume, None, "no `arc-resume` line was written");
     }

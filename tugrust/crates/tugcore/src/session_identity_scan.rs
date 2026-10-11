@@ -30,12 +30,6 @@ const ALLOWED_READS: &[(&str, usize, &str)] = &[
         "the chokepoint itself — the one read every verb goes through",
     ),
     (
-        "tugarc-core/src/ops/commit.rs",
-        1,
-        "`session_citation_for`'s fallback, whose citation resolves the id to \
-         its line before writing a trailer ([P13])",
-    ),
-    (
         "tugchanges-core/src/changes.rs",
         1,
         "`resolve_changes`'s `--session` default, expanded to the whole line \

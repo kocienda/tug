@@ -8,6 +8,7 @@
 //! returned, so a typed error changes no message anybody reads.
 
 use std::path::{Path, PathBuf};
+use tugcore::instance::Paths;
 use tugtool_core::error::TugError;
 
 use crate::ops::JoinBlocker;
@@ -172,24 +173,24 @@ impl ArcError {
     ///
     /// The log's append fails only on I/O, which `TugError` renders as `IO
     /// error: <source>`; this keeps that sentence and adds the path it lost.
-    pub(crate) fn arc_log(repo_root: &Path, e: TugError) -> Self {
+    pub(crate) fn arc_log(paths: &Paths, repo_root: &Path, e: TugError) -> Self {
         match e {
             TugError::Io(source) => ArcError::Io {
                 what: "IO error".to_string(),
-                path: tugtool_core::paths::arc_log_path(repo_root),
+                path: tugtool_core::paths::arc_log_path_at(paths, repo_root),
                 source,
             },
-            other => Self::arc_log_said(repo_root, other.to_string()),
+            other => Self::arc_log_said(paths, repo_root, other.to_string()),
         }
     }
 
     /// A failure of the arc log at `repo_root` whose sentence the site writes
     /// whole — the log's own error set mid-sentence, or a record written and
     /// then not read back.
-    pub(crate) fn arc_log_said(repo_root: &Path, sentence: String) -> Self {
+    pub(crate) fn arc_log_said(paths: &Paths, repo_root: &Path, sentence: String) -> Self {
         ArcError::Io {
             what: String::new(),
-            path: tugtool_core::paths::arc_log_path(repo_root),
+            path: tugtool_core::paths::arc_log_path_at(paths, repo_root),
             source: std::io::Error::other(sentence),
         }
     }

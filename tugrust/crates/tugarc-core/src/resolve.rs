@@ -36,6 +36,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tugcore::instance::Paths;
 
 use serde::{Deserialize, Serialize};
 use tugtool_core::sanitize_branch_name;
@@ -186,11 +187,12 @@ pub struct ResolveOutcome {
 /// candidate commit is built off to the side and landed separately by
 /// [`crate::ops::join_in`] with the staleness guard.
 pub fn resolve_conflicts(
+    paths: &Paths,
     repo: &Path,
     name: &str,
     merger: Option<&dyn FileMerger>,
 ) -> Result<ResolveOutcome, ArcError> {
-    let mut outcome = resolve_ladder(repo, name, merger)?;
+    let mut outcome = resolve_ladder(paths, repo, name, merger)?;
 
     // Anchor at one site rather than at each of the ladder's four success
     // exits. The arc head is read here — *after* the ladder's
@@ -255,6 +257,7 @@ pub fn resolve_conflicts(
 /// candidate this returns; the split exists so the anchoring happens once
 /// instead of at each of the four success exits below.
 fn resolve_ladder(
+    paths: &Paths,
     repo: &Path,
     name: &str,
     merger: Option<&dyn FileMerger>,
@@ -309,7 +312,7 @@ fn resolve_ladder(
         // and this arm was unreachable for very nearly every arc that joined.
         // The candidate is an intermediate the join re-composes its own message
         // over, so the session it names is the running process's if it has one.
-        let msg = integrate_message(repo, name, &branch, None, None);
+        let msg = integrate_message(paths, repo, name, &branch, None, None);
         let candidate = commit_tree(repo, &cand_tree, &base_head, &msg)?;
         return Ok(ResolveOutcome {
             conflict_record: None,
@@ -351,13 +354,13 @@ fn resolve_ladder(
         });
     }
 
-    let msg = integrate_message(repo, name, &branch, None, None);
+    let msg = integrate_message(paths, repo, name, &branch, None, None);
 
     // Rungs 2–5, per file. A scratch tempdir holds the merge-file / driver
     // working files; the rerere rung has its own scratch worktree.
     let scratch = tempfile::tempdir()
         .map_err(|e| ArcError::io("resolve: tempdir", std::env::temp_dir(), e))?;
-    let intent = resolve_intent(repo, &base_branch, &branch);
+    let intent = resolve_intent(paths, repo, &base_branch, &branch);
 
     // Rung 2a — salvage, above rerere and consulted before it.
     //
@@ -1318,9 +1321,9 @@ const PLAN_INTENT_CAP: usize = 12_000;
 /// the answer is the same one. A draft and a few subjects can say what an arc
 /// wanted; they cannot say which of two purposes a conflicting hunk serves,
 /// which is the judgment this corpus exists to support.
-pub fn resolve_intent(repo: &Path, base_branch: &str, branch: &str) -> String {
+pub fn resolve_intent(paths: &Paths, repo: &Path, base_branch: &str, branch: &str) -> String {
     let mut parts = Vec::new();
-    if let Some(draft) = crate::ops::arc_draft_message(repo, branch) {
+    if let Some(draft) = crate::ops::arc_draft_message(paths, repo, branch) {
         parts.push(draft);
     }
     if let Ok(subjects) = git_stdout(
@@ -2500,12 +2503,14 @@ mod tests {
 
     #[test]
     fn a_partial_ladder_run_parks_the_conflict_as_a_commit() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
         let base_head = git_stdout(repo, &["rev-parse", "main"]).unwrap();
         let arc_head = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(!outcome.unresolved.is_empty(), "f.txt cannot be merged");
 
         let chain = read_conflict(repo, "demo").expect("the conflict is on file");
@@ -2550,9 +2555,11 @@ mod tests {
     /// does it unattended — so a bare root must never read as occupancy.
     #[test]
     fn a_parked_root_is_not_a_lease() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
 
         assert!(read_conflict(repo, "demo").is_some(), "a chain stands");
         assert!(resolve_lease(repo, "demo", SystemTime::now()).is_none());
@@ -2560,9 +2567,11 @@ mod tests {
 
     #[test]
     fn a_begin_marker_leases_the_arc_until_it_ages_out() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let marker = mark_resolve_begun(repo, "demo").unwrap();
 
         let now = SystemTime::now();
@@ -2579,9 +2588,11 @@ mod tests {
 
     #[test]
     fn a_checkpoint_renews_the_lease() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         mark_resolve_begun(repo, "demo").unwrap();
 
         let ws = crate::workshop::Workshop::open_conflict(repo, "demo").unwrap();
@@ -2597,9 +2608,11 @@ mod tests {
 
     #[test]
     fn an_end_marker_releases_the_lease() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         mark_resolve_begun(repo, "demo").unwrap();
         let end = mark_resolve_ended(repo, "demo").unwrap();
 
@@ -2615,9 +2628,11 @@ mod tests {
     /// an end marker — a released lease implies one was held.
     #[test]
     fn ending_a_resolve_nobody_began_writes_nothing() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let root = read_conflict(repo, "demo").unwrap().tip;
 
         assert_eq!(mark_resolve_ended(repo, "demo").unwrap(), root);
@@ -2626,9 +2641,11 @@ mod tests {
 
     #[test]
     fn a_standing_candidate_releases_the_lease() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         mark_resolve_begun(repo, "demo").unwrap();
         assert!(resolve_lease(repo, "demo", SystemTime::now()).is_some());
 
@@ -2646,9 +2663,11 @@ mod tests {
     /// the chain or reads its tip tree sees exactly what it saw before.
     #[test]
     fn markers_keep_the_tip_tree_and_the_root_reachable() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let parked = read_conflict(repo, "demo").unwrap();
         let tree = git_stdout(repo, &["rev-parse", &format!("{}^{{tree}}", parked.tip)]).unwrap();
 
@@ -2678,6 +2697,8 @@ mod tests {
 
     #[test]
     fn the_conflict_tree_keeps_what_the_machine_rungs_resolved() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // The regression this guards: with the bare merge-tree output, every
         // file a rung had already settled would come back to the resolver with
         // markers in it. `g.txt` is settled by the stub driver; `f.txt` is not.
@@ -2725,7 +2746,7 @@ mod tests {
             &["config", "tugarc.mergedriver", &stub.to_string_lossy()],
         );
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
 
         let chain = read_conflict(repo, "demo").expect("a conflict stands");
@@ -2757,9 +2778,11 @@ mod tests {
 
     #[test]
     fn a_conflict_goes_invalid_when_either_head_moves() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(valid_conflict(repo, "demo").is_some(), "valid when written");
 
         // A new round on the arc: the recorded merge no longer describes the
@@ -2781,9 +2804,11 @@ mod tests {
 
     #[test]
     fn base_motion_also_invalidates_a_conflict() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         set(repo, "unrelated.txt", "base moved\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base moves"]);
@@ -2792,11 +2817,13 @@ mod tests {
 
     #[test]
     fn clearing_a_candidate_clears_the_conflict_with_it() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // One lifecycle, not two — folded into `clear_candidate` so the four
         // existing callers need no change and cannot forget.
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(read_conflict(repo, "demo").is_some());
 
         clear_candidate(repo, "demo");
@@ -2809,14 +2836,16 @@ mod tests {
 
     #[test]
     fn a_fully_resolved_run_leaves_no_conflict_standing() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // A candidate and a live conflict must never both stand for one arc.
         let temp = init_conflicted();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(read_conflict(repo, "demo").is_some(), "partial run first");
 
         stub_driver(repo, "resolved by the driver\n");
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
 
         assert!(outcome.unresolved.is_empty(), "the driver settled it");
         assert!(outcome.candidate_commit.is_some());
@@ -2828,6 +2857,8 @@ mod tests {
 
     #[test]
     fn the_conflict_summary_counts_progress_from_the_tree() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
         assert!(
@@ -2835,7 +2866,7 @@ mod tests {
             "absent, not zeroed, when nothing conflicts"
         );
 
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
 
         let summary = crate::ops::conflict_summary(repo, "demo").expect("a conflict stands");
         assert_eq!(summary.paths_total, 1);
@@ -2925,10 +2956,12 @@ mod tests {
     /// arrive with `a.txt` already done and only `b.txt` left.
     #[test]
     fn checkpointed_work_survives_base_motion_by_stage_identity() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_two_file_conflict();
         let repo = temp.path();
 
-        let first = resolve_conflicts(repo, "demo", None).unwrap();
+        let first = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(
             first.unresolved,
             vec!["a.txt".to_string(), "b.txt".to_string()]
@@ -2946,7 +2979,7 @@ mod tests {
             "the drill must actually invalidate the chain"
         );
 
-        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        let second = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let salvaged: Vec<&FileResolution> = second
             .resolved
             .iter()
@@ -2979,9 +3012,11 @@ mod tests {
     /// license replaying an answer computed for the old one.
     #[test]
     fn a_moved_stage_defeats_salvage() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_two_file_conflict();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         checkpoint_one(repo, "a.txt", "settled by a person\n");
 
         // The base rewrites a.txt, so its stage-1/stage-3 oids move.
@@ -2989,7 +3024,7 @@ mod tests {
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base rewrites a"]);
 
-        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        let second = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(
             !second
                 .resolved
@@ -3005,9 +3040,11 @@ mod tests {
     /// nothing to salvage from it.
     #[test]
     fn a_checkpoint_still_carrying_markers_is_not_salvaged() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_two_file_conflict();
         let repo = temp.path();
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         // A "resolution" that only edited around the conflict block.
         checkpoint_one(
             repo,
@@ -3019,7 +3056,7 @@ mod tests {
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "unrelated base work"]);
 
-        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        let second = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(
             !second
                 .resolved
@@ -3034,11 +3071,13 @@ mod tests {
     /// harvested here — salvage's precondition stays about checkpoint work.
     #[test]
     fn machine_rung_resolutions_are_not_salvaged() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_two_file_conflict();
         let repo = temp.path();
         // A driver settles b.txt at rung 4 while a.txt stays unresolved.
         stub_driver(repo, "driver settled this\n");
-        let first = resolve_conflicts(repo, "demo", None).unwrap();
+        let first = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(
             first
                 .resolved
@@ -3052,7 +3091,7 @@ mod tests {
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "unrelated base work"]);
 
-        let second = resolve_conflicts(repo, "demo", None).unwrap();
+        let second = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let b = second
             .resolved
             .iter()
@@ -3151,9 +3190,11 @@ mod tests {
     /// The stage-carrying path: a real `merge-tree` conflicted blob.
     #[test]
     fn real_merge_tree_conflicted_blob_reads_conflicted() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init_conflicted();
         let repo = temp.path();
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
         let chain = read_conflict(repo, "demo").expect("a conflict stands");
         let body = git_stdout(repo, &["show", &format!("{}:f.txt", chain.tip)]).unwrap();
@@ -3246,6 +3287,8 @@ mod tests {
     /// workshop could never read it as resolved.
     #[test]
     fn a_setext_file_resolves_through_the_workshop_to_a_candidate() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("doc.md", "Heading\n=======\n\narc\n", "arc edits doc")]);
         let repo = temp.path();
         set(repo, "doc.md", "Heading\n=======\n\nbase\n");
@@ -3253,7 +3296,7 @@ mod tests {
         git(repo, &["commit", "-m", "base edits doc"]);
 
         // No text rung can settle an overlapping edit, so it parks as a conflict.
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.unresolved, vec!["doc.md".to_string()]);
 
         // Resolve it the way a resolver would: whole-file bytes that keep the
@@ -3287,6 +3330,8 @@ mod tests {
     /// with a conflict and never on what it does without one.
     #[test]
     fn a_clean_arc_never_reaches_the_replay_rung() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1"), ("g.txt", "G\n", "r2")]);
         let repo = temp.path();
         git(
@@ -3302,7 +3347,7 @@ mod tests {
         let (_t, stages) = merge_tree_stages(repo, "main", "tugarc/demo").unwrap();
         assert!(stages.is_empty(), "nothing conflicts");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(
             outcome.shape,
             JoinShape::Squash,
@@ -3329,6 +3374,8 @@ mod tests {
 
     #[test]
     fn replay_probe_resolves_base_already_advanced_and_lands_replay_shape() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // branch: A→B→C. main separately advances A→B (same as round 1), so the
         // one-shot squash conflicts (B vs C) but round-by-round replay is clean.
         let temp = init(&[("f.txt", "B\n", "r1"), ("f.txt", "C\n", "r2")]);
@@ -3370,7 +3417,7 @@ mod tests {
             "the head is the last round's rebuilt commit"
         );
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.shape, JoinShape::Replay);
         assert!(outcome.unresolved.is_empty());
         let candidate = outcome.candidate_commit.expect("replay candidate");
@@ -3386,26 +3433,30 @@ mod tests {
 
     #[test]
     fn unresolvable_overlap_leaves_no_candidate() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // branch A→B; main A→C. Overlapping single-line change, no rerere/driver.
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
         git(repo, &["commit", "-am", "main to C"]);
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(outcome.candidate_commit.is_none(), "no candidate");
         assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
     }
 
     #[test]
     fn delete_modify_short_circuits_to_unresolved() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // branch modifies f.txt; main deletes it → delete/modify (non-content).
         let temp = init(&[("f.txt", "B\n", "modify")]);
         let repo = temp.path();
         std::fs::remove_file(repo.join("f.txt")).unwrap();
         git(repo, &["commit", "-am", "main deletes f.txt"]);
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(outcome.candidate_commit.is_none());
         assert_eq!(outcome.unresolved, vec!["f.txt".to_string()]);
         assert!(outcome.resolved.is_empty());
@@ -3413,6 +3464,8 @@ mod tests {
 
     #[test]
     fn delete_modify_is_not_claimed_by_rerere() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // Same shape as the test above, but with a populated `rr-cache` so rung 2
         // actually runs — `rerere_rung` early-returns on an empty cache, which is
         // why every other test in this module is blind to what it does here.
@@ -3446,7 +3499,7 @@ mod tests {
         std::fs::remove_file(repo.join("f.txt")).unwrap();
         git(repo, &["commit", "-am", "main deletes f.txt"]);
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(
             outcome.resolved.is_empty(),
             "rerere resolved nothing here; a delete/modify is marker-free by \
@@ -3466,6 +3519,8 @@ mod tests {
 
     #[test]
     fn driver_rung_resolves_via_configured_stub() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
@@ -3473,7 +3528,7 @@ mod tests {
 
         stub_driver(repo, "DRIVER\n");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let candidate = outcome
             .candidate_commit
             .expect("driver produced a candidate");
@@ -3490,6 +3545,8 @@ mod tests {
 
     #[test]
     fn a_resolution_carries_the_diff_it_would_land() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // The driver stub resolves f.txt to DRIVER; main is at C. The review the
         // join face gates on is this diff, so the outcome has to carry it.
         let temp = init(&[("f.txt", "B\n", "r1")]);
@@ -3498,7 +3555,7 @@ mod tests {
         git(repo, &["commit", "-am", "main to C"]);
         stub_driver(repo, "DRIVER\n");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let resolution = &outcome.resolved[0];
         let diff = resolution
             .diff
@@ -3521,7 +3578,7 @@ mod tests {
         let repo2 = temp2.path();
         set(repo2, "f.txt", "C\n");
         git(repo2, &["commit", "-am", "main to C"]);
-        let partial = resolve_conflicts(repo2, "demo", None).unwrap();
+        let partial = resolve_conflicts(&paths, repo2, "demo", None).unwrap();
         assert!(partial.candidate_commit.is_none());
         assert!(partial.resolved.iter().all(|r| r.diff.is_none()));
         assert!(
@@ -3534,6 +3591,8 @@ mod tests {
 
     #[test]
     fn a_capped_diff_still_reports_the_whole_resolution() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // The `+0 −395` incident, pinned. A large file on the base resolved to a
         // one-line body produces a diff whose deletions alone overrun the cap —
         // and git emits deletions before additions, so the single `+` line, the
@@ -3547,7 +3606,7 @@ mod tests {
         git(repo, &["commit", "-am", "main grows f.txt past the cap"]);
         stub_driver(repo, "DRIVER\n");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let resolution = &outcome.resolved[0];
         assert_eq!(resolution.resolved_by, ResolvedBy::Driver);
         let diff = resolution.diff.as_deref().expect("a resolution to review");
@@ -3583,6 +3642,8 @@ mod tests {
 
     #[test]
     fn ai_rung_resolves_and_validates_marker_free() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
@@ -3594,7 +3655,7 @@ mod tests {
                 Some(b"AI-MERGED\n".to_vec())
             }
         }
-        let outcome = resolve_conflicts(repo, "demo", Some(&FakeAi)).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", Some(&FakeAi)).unwrap();
         assert_eq!(outcome.resolved.len(), 1);
         assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Ai);
         assert!(outcome.candidate_commit.is_some());
@@ -3611,13 +3672,15 @@ mod tests {
                 Some(b"<<<<<<< ours\nB\n=======\nC\n>>>>>>> theirs\n".to_vec())
             }
         }
-        let bad = resolve_conflicts(repo2, "demo", Some(&BadAi)).unwrap();
+        let bad = resolve_conflicts(&paths, repo2, "demo", Some(&BadAi)).unwrap();
         assert!(bad.candidate_commit.is_none());
         assert_eq!(bad.unresolved, vec!["f.txt".to_string()]);
     }
 
     #[test]
     fn rerere_replays_a_recorded_resolution() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         ensure_rerere_config(repo);
@@ -3648,7 +3711,7 @@ mod tests {
         git(repo, &["commit", "--no-edit", "-m", "resolve"]);
         git(repo, &["reset", "--hard", &main_c]);
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.resolved.len(), 1, "rerere resolved f.txt");
         assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Rerere);
         let candidate = outcome.candidate_commit.expect("rerere candidate");
@@ -3665,6 +3728,8 @@ mod tests {
 
     #[test]
     fn squash_candidate_anchors_at_the_ref_and_verifies_valid() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // branch A→B, main A→C, stub driver resolves → squash-shape candidate.
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
@@ -3672,7 +3737,7 @@ mod tests {
         git(repo, &["commit", "-am", "main to C"]);
         stub_driver(repo, "RESOLVED\n");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.shape, JoinShape::Squash);
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
@@ -3689,6 +3754,8 @@ mod tests {
 
     #[test]
     fn replay_candidate_verifies_valid_though_its_parent_is_not_the_base() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // The multi-round replay shape: the candidate is the tip of a chain of
         // replayed rounds, so its *parent* is the previous round rather than
         // the base head. A parent-equality rule would call this stale; ancestry
@@ -3698,7 +3765,7 @@ mod tests {
         set(repo, "f.txt", "B\n");
         git(repo, &["commit", "-am", "main advances to B"]);
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert_eq!(outcome.shape, JoinShape::Replay);
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
@@ -3718,6 +3785,8 @@ mod tests {
 
     #[test]
     fn worktree_dirt_committed_by_the_preamble_still_yields_a_valid_candidate() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         // The arc head the ladder records must be read AFTER the preamble
         // commits the worktree's dirt — that preamble moves the arc head as
         // part of resolving, so a pre-preamble reading marks every candidate
@@ -3742,7 +3811,7 @@ mod tests {
         let head_before = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
         set(&worktree, "extra.txt", "dirt\n");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
         let head_after = git_stdout(repo, &["rev-parse", "tugarc/demo"]).unwrap();
@@ -3759,12 +3828,14 @@ mod tests {
 
     #[test]
     fn a_moved_base_and_a_moved_arc_each_get_their_own_stale_sentence() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
         git(repo, &["commit", "-am", "main to C"]);
         stub_driver(repo, "RESOLVED\n");
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
 
         // The base advances past the candidate.
         set(repo, "other.txt", "later\n");
@@ -3778,7 +3849,7 @@ mod tests {
         }
 
         // Rebuild against the moved base, then move the arc instead.
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(matches!(
             candidate_status(repo, "demo", "main"),
             CandidateStatus::Valid(_)
@@ -3798,18 +3869,20 @@ mod tests {
 
     #[test]
     fn a_partial_resolve_clears_a_previously_anchored_candidate() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
         git(repo, &["commit", "-am", "main to C"]);
         stub_driver(repo, "RESOLVED\n");
-        resolve_conflicts(repo, "demo", None).unwrap();
+        resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(read_candidate(repo, "demo").is_some(), "anchored");
 
         // Drop the driver so the same conflict now resolves nothing.
         git(repo, &["config", "--unset", "tugarc.mergedriver"]);
         git(repo, &["config", "rerere.enabled", "false"]);
-        let again = resolve_conflicts(repo, "demo", None).unwrap();
+        let again = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(again.candidate_commit.is_none(), "partial outcome");
         assert_eq!(
             read_candidate(repo, "demo"),
@@ -3822,6 +3895,8 @@ mod tests {
 
     #[test]
     fn resolved_rungs_round_trip_through_config() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(&[("f.txt", "B\n", "r1"), ("g.txt", "G\n", "r2")]);
         let repo = temp.path();
         set(repo, "f.txt", "C\n");
@@ -3829,7 +3904,7 @@ mod tests {
         git(repo, &["commit", "-m", "main to C"]);
         stub_driver(repo, "RESOLVED\n");
 
-        let outcome = resolve_conflicts(repo, "demo", None).unwrap();
+        let outcome = resolve_conflicts(&paths, repo, "demo", None).unwrap();
         assert!(outcome.candidate_commit.is_some());
         let stored = read_resolved_rungs(repo, "demo");
         assert_eq!(stored.len(), outcome.resolved.len(), "one value per file");

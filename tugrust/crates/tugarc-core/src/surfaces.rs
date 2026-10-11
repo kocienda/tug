@@ -15,6 +15,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
+use tugcore::instance::Paths;
 use tugtool_core::config::{Config, Surface};
 
 use crate::error::ArcError;
@@ -396,6 +397,7 @@ fn touched_paths(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, Arc
 /// and therefore what the fit is about. It is answerable for an arc that has
 /// never been replayed, which a recorded range could not be.
 pub fn verify_in(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     base_override: Option<&str>,
@@ -515,7 +517,7 @@ pub fn verify_in(
                 // verified at <head>" would leave a durable fact about a state
                 // the next fix erases; the absence of a line is the honest
                 // record of not-verified.
-                crate::log::append_arc_log(
+                crate::log::append_arc_log(paths, 
                     &repo,
                     name,
                     "verified",
@@ -523,7 +525,7 @@ pub fn verify_in(
                         "{head} onto {base} · {checked} surfaces checked · {claimed_unchecked} claimed unchecked"
                     ),
                 )
-                .map_err(|e| ArcError::arc_log(&repo, e))?;
+                .map_err(|e| ArcError::arc_log(paths, &repo, e))?;
             }
             VerifyReport {
                 base,
@@ -810,7 +812,6 @@ mod tests {
 #[cfg(test)]
 mod fit_tests {
     use super::*;
-    use serial_test::serial;
     use std::path::Path;
     use tugcore::test_fixtures::git::{GitFixture, git};
 
@@ -852,8 +853,9 @@ mod fit_tests {
     const RED: &str =
         "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"false\"]\n";
 
-    fn verified_lines(root: &Path) -> Vec<String> {
-        let log = tugtool_core::paths::project_state_dir(root).join(tugtool_core::paths::ARC_LOG);
+    fn verified_lines(paths: &Paths, root: &Path) -> Vec<String> {
+        let log = tugtool_core::paths::project_state_dir_at(paths, root)
+            .join(tugtool_core::paths::ARC_LOG);
         std::fs::read_to_string(log)
             .unwrap_or_default()
             .lines()
@@ -862,20 +864,21 @@ mod fit_tests {
             .collect()
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_green_verify_records_both_endpoints_in_full() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         let worktree = project(&root, GREEN, &[("src/a.rs", "a\n")]);
 
-        let report = verify_in(&root, "demo", None, None).expect("the verify runs");
+        let report = verify_in(&paths, &root, "demo", None, None).expect("the verify runs");
         assert_eq!(report.verdict, "verified");
 
         let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
         let base = git(&root, &["rev-parse", "main"]).trim().to_string();
-        let lines = verified_lines(&root);
+        let lines = verified_lines(&paths, &root);
         assert_eq!(lines.len(), 1, "exactly one line: {lines:?}");
         assert!(
             lines[0].contains(&format!("{head} onto {base}")),
@@ -885,30 +888,36 @@ mod fit_tests {
         assert!(lines[0].contains("1 surfaces checked · 0 claimed unchecked"));
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_red_a_refused_and_an_empty_range_each_record_nothing() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         let worktree = project(&root, RED, &[("src/a.rs", "a\n")]);
 
-        assert_eq!(verify_in(&root, "demo", None, None).unwrap().verdict, "red");
+        assert_eq!(
+            verify_in(&paths, &root, "demo", None, None)
+                .unwrap()
+                .verdict,
+            "red"
+        );
         assert!(
-            verified_lines(&root).is_empty(),
+            verified_lines(&paths, &root).is_empty(),
             "a red run records nothing"
         );
 
         // An empty range, on the same arc.
         let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
         assert_eq!(
-            verify_in(&root, "demo", Some(&head), Some(&head))
+            verify_in(&paths, &root, "demo", Some(&head), Some(&head))
                 .unwrap()
                 .verdict,
             "nothing-in-range"
         );
         assert!(
-            verified_lines(&root).is_empty(),
+            verified_lines(&paths, &root).is_empty(),
             "an empty range records nothing"
         );
 
@@ -919,26 +928,29 @@ mod fit_tests {
         )
         .unwrap();
         assert_eq!(
-            verify_in(&root, "demo", None, None).unwrap().verdict,
+            verify_in(&paths, &root, "demo", None, None)
+                .unwrap()
+                .verdict,
             "unclaimed"
         );
         assert!(
-            verified_lines(&root).is_empty(),
+            verified_lines(&paths, &root).is_empty(),
             "a refused run records nothing"
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn the_fact_is_collected_without_moving_the_stage() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
 
-        let before = crate::log::read_declarations(&root, "demo");
-        verify_in(&root, "demo", None, None).unwrap();
-        let after = crate::log::read_declarations(&root, "demo");
+        let before = crate::log::read_declarations(&paths, &root, "demo");
+        verify_in(&paths, &root, "demo", None, None).unwrap();
+        let after = crate::log::read_declarations(&paths, &root, "demo");
 
         assert!(after.last_verified.is_some(), "the note is collected");
         assert_eq!(
@@ -951,39 +963,41 @@ mod fit_tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_terminal_line_resets_the_fact_with_everything_else() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
-        verify_in(&root, "demo", None, None).unwrap();
+        verify_in(&paths, &root, "demo", None, None).unwrap();
         assert!(
-            crate::log::read_declarations(&root, "demo")
+            crate::log::read_declarations(&paths, &root, "demo")
                 .last_verified
                 .is_some()
         );
 
-        crate::log::append_arc_log(&root, "demo", "join", "joined into main").unwrap();
+        crate::log::append_arc_log(&paths, &root, "demo", "join", "joined into main").unwrap();
         assert!(
-            crate::log::read_declarations(&root, "demo")
+            crate::log::read_declarations(&paths, &root, "demo")
                 .last_verified
                 .is_none(),
             "a reused arc name must not be born verified"
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn currency_needs_both_endpoints_to_still_stand() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         let worktree = project(&root, GREEN, &[("src/a.rs", "a\n")]);
-        verify_in(&root, "demo", None, None).unwrap();
+        verify_in(&paths, &root, "demo", None, None).unwrap();
 
-        let fit = crate::ops::status_in(&root, "demo").unwrap().fit;
+        let fit = crate::ops::status_in(&paths, &root, "demo").unwrap().fit;
         assert!(
             fit.as_ref().is_some_and(|f| f.current),
             "green at the recorded pair"
@@ -994,7 +1008,10 @@ mod fit_tests {
         std::fs::write(root.join("base-move.txt"), "moved\n").unwrap();
         git(&root, &["add", "-A"]);
         git(&root, &["commit", "-m", "base moves"]);
-        let after_base = crate::ops::status_in(&root, "demo").unwrap().fit.unwrap();
+        let after_base = crate::ops::status_in(&paths, &root, "demo")
+            .unwrap()
+            .fit
+            .unwrap();
         assert!(
             !after_base.current,
             "a base that moved makes the verified tree no longer the tree a join would land"
@@ -1003,7 +1020,7 @@ mod fit_tests {
         // And a round on the arc, with the recorded base back in place.
         git(&root, &["reset", "--hard", "HEAD~1"]);
         assert!(
-            crate::ops::status_in(&root, "demo")
+            crate::ops::status_in(&paths, &root, "demo")
                 .unwrap()
                 .fit
                 .unwrap()
@@ -1013,7 +1030,7 @@ mod fit_tests {
         git(&worktree, &["add", "-A"]);
         git(&worktree, &["commit", "-m", "another round"]);
         assert!(
-            !crate::ops::status_in(&root, "demo")
+            !crate::ops::status_in(&paths, &root, "demo")
                 .unwrap()
                 .fit
                 .unwrap()
@@ -1021,9 +1038,10 @@ mod fit_tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_note_that_names_no_pair_is_ignored_rather_than_half_believed() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         assert_eq!(
             crate::log::parse_verified_note("abc onto def · 1 surfaces checked"),
             Some(("abc".to_string(), "def".to_string()))
@@ -1036,31 +1054,37 @@ mod fit_tests {
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
-        crate::log::append_arc_log(&root, "demo", "verified", "nonsense-with-no-base").unwrap();
+        crate::log::append_arc_log(&paths, &root, "demo", "verified", "nonsense-with-no-base")
+            .unwrap();
 
         assert!(
-            crate::ops::status_in(&root, "demo").unwrap().fit.is_none(),
+            crate::ops::status_in(&paths, &root, "demo")
+                .unwrap()
+                .fit
+                .is_none(),
             "an unparseable note yields no fact, not a fact with an empty base"
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn status_json_carries_the_fit_and_omits_it_when_there_is_none() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("repo");
         std::fs::create_dir_all(&root).unwrap();
         project(&root, GREEN, &[("src/a.rs", "a\n")]);
 
         let unverified =
-            serde_json::to_value(crate::ops::status_in(&root, "demo").unwrap()).unwrap();
+            serde_json::to_value(crate::ops::status_in(&paths, &root, "demo").unwrap()).unwrap();
         assert!(
             unverified.get("fit").is_none(),
             "an arc nobody verified says nothing about the fit"
         );
 
-        verify_in(&root, "demo", None, None).unwrap();
-        let verified = serde_json::to_value(crate::ops::status_in(&root, "demo").unwrap()).unwrap();
+        verify_in(&paths, &root, "demo", None, None).unwrap();
+        let verified =
+            serde_json::to_value(crate::ops::status_in(&paths, &root, "demo").unwrap()).unwrap();
         assert_eq!(verified["fit"]["current"], true);
         assert!(
             verified["fit"]["head"]

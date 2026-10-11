@@ -2,6 +2,7 @@
 //! the stop protocol.
 
 use super::*;
+use tugcore::instance::Paths;
 
 // --- session↔arc binding (Spec S03/S04, [P05], [P08]) ----------------
 
@@ -983,8 +984,10 @@ async fn stop_harness(
         "[tugtool.arc]\nidle_settle_secs = 0\n",
     )
     .unwrap();
-    tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+    tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", ".tug/arcs/demo/brief.md")
+        .unwrap();
     tugarc_core::arc::append_arc_stage(
+        &Paths::from_env(),
         root,
         "demo",
         tugarc_core::ArcStage::Implement,
@@ -1087,7 +1090,9 @@ async fn a_stop_on_a_busy_session_interrupts_then_hands_back() {
              hand-back comes last",
     );
     assert_eq!(
-        tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+        tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+            .unwrap()
+            .stopped,
         Some((
             tugarc_core::ArcStage::Implement,
             "stopped by user".to_string()
@@ -1155,7 +1160,7 @@ async fn an_ask_never_interrupts() {
         vec!["stop_all_work".to_string(), "model_change".to_string()],
         "a turn ending on its own question is not cut short",
     );
-    let record = tugarc_core::arc::read_arc(root, "demo").unwrap();
+    let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo").unwrap();
     assert!(
         record
             .notes
@@ -1194,7 +1199,7 @@ async fn a_stop_with_no_wheel_answers_err_not_ok() {
     );
     assert!(frame_types(&mut input_rx).is_empty());
     assert!(
-        tugarc_core::arc::read_arc(root, "demo")
+        tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
             .unwrap()
             .stopped
             .is_none(),
@@ -1251,8 +1256,10 @@ async fn rotated_stop_harness(
         "[tugtool.arc]\nidle_settle_secs = 0\n",
     )
     .unwrap();
-    tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+    tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", ".tug/arcs/demo/brief.md")
+        .unwrap();
     tugarc_core::arc::append_arc_stage(
+        &Paths::from_env(),
         root,
         "demo",
         tugarc_core::ArcStage::Implement,
@@ -1356,7 +1363,9 @@ async fn a_stop_after_a_rotation_interrupts_the_card() {
         "the interrupt is addressed to the card, not the segment: {sent:?}",
     );
     assert_eq!(
-        tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+        tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+            .unwrap()
+            .stopped,
         Some((
             tugarc_core::ArcStage::Implement,
             "stopped by user".to_string()
@@ -1413,7 +1422,8 @@ async fn a_stop_on_a_segment_no_card_wears_is_refused() {
     let root = dir.path();
     std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
     std::fs::write(root.join(".tug/arcs/demo/brief.md"), "# A brief\n").unwrap();
-    tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+    tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", ".tug/arcs/demo/brief.md")
+        .unwrap();
     let (sup, _ledger, _register_rx) =
         test_minimal_supervisor_reading_its_ledger_with(SupervisorDeps {
             wheel: Some(Arc::new(crate::wheel::WheelState::default())),
@@ -1436,7 +1446,7 @@ async fn a_stop_on_a_segment_no_card_wears_is_refused() {
         Err("no_card"),
     );
     assert!(
-        tugarc_core::arc::read_arc(root, "demo")
+        tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
             .unwrap()
             .stopped
             .is_none(),
@@ -1552,7 +1562,7 @@ async fn the_stop_does_not_answer_while_a_job_is_open() {
         "the stop is still waiting on the open job",
     );
     assert!(
-        tugarc_core::arc::read_arc(root, "demo")
+        tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
             .unwrap()
             .stopped
             .is_none(),
@@ -1564,7 +1574,9 @@ async fn the_stop_does_not_answer_while_a_job_is_open() {
 
     stopping.await.unwrap().expect("the stop lands");
     assert_eq!(
-        tugarc_core::arc::read_arc(root, "demo").unwrap().stopped,
+        tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo")
+            .unwrap()
+            .stopped,
         Some((
             tugarc_core::ArcStage::Implement,
             "stopped by user".to_string()
@@ -1674,7 +1686,7 @@ async fn the_stop_answers_err_at_the_ceiling() {
         Err("stop stalled at: quiet"),
         "the refusal names the rung it stalled on",
     );
-    let record = tugarc_core::arc::read_arc(root, "demo").unwrap();
+    let record = tugarc_core::arc::read_arc(&Paths::from_env(), root, "demo").unwrap();
     assert!(record.stopped.is_none(), "no `arc-stop` line was written");
     assert!(
         record.stopping.is_none(),

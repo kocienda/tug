@@ -18,6 +18,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+use tugcore::instance::Paths;
 
 use futures::FutureExt;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, Lines};
@@ -1910,13 +1911,13 @@ async fn relay_session_io_tracked(
                                         // launch with no instance id writes
                                         // nothing — an unowned arc is every
                                         // runner's to judge, as it always was.
-                                        if let Some(instance) =
-                                            tugcore::instance::instance_id()
-                                        {
+                                        let paths = Paths::from_env();
+                                        if let Some(instance) = paths.instance_id.as_deref() {
                                             if let Err(err) = append_arc_owner(
+                                                &paths,
                                                 Path::new(project_dir),
                                                 arc_name,
-                                                &instance,
+                                                instance,
                                             ) {
                                                 warn!(
                                                     session = %tug_session_id,
@@ -1927,6 +1928,7 @@ async fn relay_session_io_tracked(
                                             }
                                         }
                                         if let Err(err) = append_arc_stage(
+                                            &paths,
                                             Path::new(project_dir),
                                             arc_name,
                                             kind,

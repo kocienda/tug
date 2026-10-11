@@ -3,6 +3,7 @@
 //! the minted `tugid` behind every owner key.
 
 use std::path::{Path, PathBuf};
+use tugcore::instance::Paths;
 use tugtool_core::error::TugError;
 use tugtool_core::sanitize_branch_name;
 
@@ -113,9 +114,9 @@ fn migrate_branch_prefix(repo: &Path, warnings: &mut Vec<String>) {
 ///
 /// Public for the one verb whose `*_in` form is a pure read: `status_in`
 /// reconciles nothing, so the CLI's `arc status` runs this before it.
-pub fn reconcile_branches(repo: &Path, warnings: &mut Vec<String>) {
+pub fn reconcile_branches(paths: &Paths, repo: &Path, warnings: &mut Vec<String>) {
     migrate_branch_prefix(repo, warnings);
-    migrate_worktrees(repo, warnings);
+    migrate_worktrees(paths, repo, warnings);
 }
 
 /// Migrate legacy `.tugtree/` worktrees to `.tug/worktrees/` ([P13], Risk table).
@@ -127,7 +128,7 @@ pub fn reconcile_branches(repo: &Path, warnings: &mut Vec<String>) {
 /// the dir would strand the app's cwd). Otherwise it warns once and leaves the
 /// worktree where it is; the effective `worktree_path` keeps operating on the
 /// old location. Best-effort: any git failure is a warning, never fatal.
-fn migrate_worktrees(repo: &Path, warnings: &mut Vec<String>) {
+fn migrate_worktrees(paths: &Paths, repo: &Path, warnings: &mut Vec<String>) {
     let Ok(branches) = git_stdout(
         repo,
         &[
@@ -158,7 +159,7 @@ fn migrate_worktrees(repo: &Path, warnings: &mut Vec<String>) {
         }
 
         // Gate 2: no live instance app holding the dir (reap-slug identity math).
-        if arc_instance_live(branch) {
+        if arc_instance_live(paths, branch) {
             warnings.push(format!(
                 "arc '{}': a live instance holds the worktree; left at .tugtree (not migrated)",
                 name
@@ -199,11 +200,11 @@ fn migrate_worktrees(repo: &Path, warnings: &mut Vec<String>) {
 /// `cc-<profile>-<slug>` tmux session), so migration doesn't move a worktree out
 /// from under a running app. Mirrors `reap_arc_tmux`'s identity math, but
 /// non-destructive.
-fn arc_instance_live(branch: &str) -> bool {
+fn arc_instance_live(paths: &Paths, branch: &str) -> bool {
     let slug = branch_slug(branch);
     ["debug", "release"]
         .iter()
-        .any(|profile| tugcore::instance::instance_tmux_live(&format!("{profile}-{slug}")))
+        .any(|profile| paths.instance_tmux_live(&format!("{profile}-{slug}")))
 }
 
 pub fn branch_exists(repo: &Path, branch: &str) -> bool {
@@ -259,10 +260,10 @@ fn branch_slug(branch: &str) -> String {
 /// private `tug-<token>` server (or, for pre-isolation builds, the shared
 /// default server). The arc's profile isn't recorded, so reap both
 /// debug and release identities via the shared instance reaper.
-fn reap_arc_tmux(branch: &str) {
+fn reap_arc_tmux(paths: &Paths, branch: &str) {
     let slug = branch_slug(branch);
     for profile in ["debug", "release"] {
-        tugcore::instance::reap_instance_tmux(&format!("{profile}-{slug}"));
+        paths.reap_instance_tmux(&format!("{profile}-{slug}"));
     }
 }
 
@@ -281,6 +282,7 @@ fn reap_arc_tmux(branch: &str) {
 ///
 /// A warning is pushed only if the directory truly survives all of that.
 pub(super) fn remove_arc_worktree(
+    paths: &Paths,
     repo: &Path,
     branch: &str,
     worktree: &Path,
@@ -288,7 +290,7 @@ pub(super) fn remove_arc_worktree(
 ) {
     const ATTEMPTS: u32 = 5;
 
-    reap_arc_tmux(branch);
+    reap_arc_tmux(paths, branch);
 
     if !worktree.exists() {
         return;
@@ -452,7 +454,6 @@ mod tests {
     use super::*;
     use crate::ops::test_support::*;
     use crate::ops::*;
-    use serial_test::serial;
     use std::fs;
     use std::path::Path;
     use tempfile::TempDir;
@@ -502,30 +503,29 @@ mod tests {
     /// `create` mints once and every later touch reports the same identity;
     /// an arc with no `tugid` reads under its legacy branch-ref key until a
     /// write verb backfills it ([P01], [P02], Risk R01).
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_id_minted_once_and_backfilled_on_write() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        let first = create_in(repo, "id-arc", None, false, None).unwrap();
+        let first = create_in(&paths, repo, "id-arc", None, false, None).unwrap();
         let id = first.id.clone().expect("create mints an id");
         assert!(id.starts_with("tugarc/id-arc#"), "owner key shape: {id}");
 
         // The idempotent revisit reports the same identity, not a fresh mint.
-        let second = create_in(repo, "id-arc", None, false, None).unwrap();
+        let second = create_in(&paths, repo, "id-arc", None, false, None).unwrap();
         assert!(!second.created);
         assert_eq!(second.id.as_deref(), Some(id.as_str()));
 
         // Every read verb agrees.
         assert_eq!(arc_owner_key(repo, "id-arc"), id);
         assert_eq!(
-            show_in(repo, "id-arc").unwrap().id.as_deref(),
+            show_in(&paths, repo, "id-arc").unwrap().id.as_deref(),
             Some(id.as_str())
         );
-        let listed = list_in(repo).unwrap();
+        let listed = list_in(&paths, repo).unwrap();
         let entry = listed.iter().find(|d| d.name == "id-arc").unwrap();
         assert_eq!(entry.id.as_deref(), Some(id.as_str()));
 
@@ -533,12 +533,12 @@ mod tests {
         // read verb must not mint one ([P02]).
         git(repo, &["config", "--unset", "branch.tugarc/id-arc.tugid"]);
         assert_eq!(arc_owner_key(repo, "id-arc"), "tugarc/id-arc");
-        let _ = show_in(repo, "id-arc").unwrap();
+        let _ = show_in(&paths, repo, "id-arc").unwrap();
         assert_eq!(arc_owner_key(repo, "id-arc"), "tugarc/id-arc");
 
         // A round is a write path: it backfills.
         fs::write(repo.join(".tug/worktrees/id-arc/f.txt"), "x\n").unwrap();
-        commit_in(repo, "id-arc", "Add f", None).unwrap();
+        commit_in(&paths, repo, "id-arc", "Add f", None, None).unwrap();
         let backfilled = arc_owner_key(repo, "id-arc");
         assert!(backfilled.starts_with("tugarc/id-arc#"));
         assert_ne!(
@@ -553,14 +553,14 @@ mod tests {
     /// won't override), `remove_arc_worktree` must still leave the directory
     /// gone via its filesystem-wipe fallback — no stranded worktree, no
     /// warning. This drives the real fallback code path on real files.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_remove_arc_worktree_fallback_when_git_refuses() {
+        let (_state, paths) = scratch_paths();
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
 
-        create_in(repo, "test-arc", None, false, None).unwrap();
+        create_in(&paths, repo, "test-arc", None, false, None).unwrap();
         let branch = branch_name("test-arc");
         let worktree = worktree_path(repo, "test-arc");
         assert!(worktree.exists());
@@ -582,7 +582,7 @@ mod tests {
         assert!(worktree.exists(), "precondition: worktree still present");
 
         let mut warnings = Vec::new();
-        remove_arc_worktree(repo, &branch, &worktree, &mut warnings);
+        remove_arc_worktree(&paths, repo, &branch, &worktree, &mut warnings);
 
         assert!(!worktree.exists(), "fallback must remove the directory");
         assert!(
@@ -594,13 +594,12 @@ mod tests {
     /// A clean legacy `.tugtree/` worktree migrates to `.tug/worktrees/` on the
     /// next tugarc command; a dirty one stays put and still operates from its
     /// old path ([P13], migration risk mitigation).
-    #[serial(tug_data_dir)]
     #[test]
     fn test_legacy_worktree_migrates_but_dirty_stays() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
         // Stand up two legacy-layout arcs by hand, as pre-migration builds did.
         for name in ["clean", "dirty"] {
@@ -631,7 +630,7 @@ mod tests {
         fs::write(repo.join(".tugtree/tugdash__dirty/scratch.txt"), "wip\n").unwrap();
 
         // A single list_in(&repo) runs the migration pass.
-        list_in(repo).unwrap();
+        list_in(&paths, repo).unwrap();
 
         // Clean legacy arc moved to the new home; dirty one stayed at .tugtree.
         assert!(
@@ -652,7 +651,7 @@ mod tests {
         );
 
         // The dirty arc still operates from its old path — commit works on it.
-        let out = commit_in(repo, "dirty", "wip: scratch", None).unwrap();
+        let out = commit_in(&paths, repo, "dirty", "wip: scratch", None, None).unwrap();
         assert!(out.committed, "commit operates on the un-migrated worktree");
     }
 
@@ -666,13 +665,12 @@ mod tests {
     /// key. The second `list()` is the idempotence claim, made byte-for-byte
     /// against `for-each-ref` and `config --list` rather than by re-reading a
     /// few keys, because "changed nothing" is stronger than "still right".
-    #[serial(tug_data_dir)]
     #[test]
     fn test_branch_prefix_migrates_once_and_carries_everything() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
         // Two arcs under the retired prefix, standing where a pre-rename build
         // left them: a worktree apiece and all four config keys set.
@@ -738,7 +736,7 @@ mod tests {
         let worktrees_before = worktree_paths(repo);
 
         // Any verb runs the pass; `list` is the cheapest.
-        list_in(repo).unwrap();
+        list_in(&paths, repo).unwrap();
 
         // The namespace moved, wholesale.
         for name in ["clean", "dirty"] {
@@ -792,7 +790,7 @@ mod tests {
         // Idempotent: a second pass finds nothing to do and changes nothing.
         let refs_after = git_stdout(repo, &["for-each-ref", "--format=%(refname)"]).unwrap();
         let config_after = git_stdout(repo, &["config", "--list"]).unwrap();
-        list_in(repo).unwrap();
+        list_in(&paths, repo).unwrap();
         assert_eq!(
             git_stdout(repo, &["for-each-ref", "--format=%(refname)"]).unwrap(),
             refs_after,
@@ -811,13 +809,11 @@ mod tests {
     /// branch` until a person resolves it — which is the whole point: the two
     /// branches may hold different work, and a migration is not the place to
     /// decide which one somebody meant.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_branch_prefix_clash_leaves_both_and_warns() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
 
         git(repo, &["branch", "tugdash/clash", "main"]);
         git(repo, &["branch", "tugarc/clash", "main"]);
@@ -840,12 +836,13 @@ mod tests {
     /// worktree is gone is named, `--repair` makes the seat through the same
     /// idempotent `create_in` the dispatch calls, and the finding clears;
     /// a name with no arc behind it is refused rather than called healthy.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_doctor_finds_a_missing_seat_and_repair_makes_it() {
-        let (_temp, root) = stepped_arc("seat-arc");
-        crate::arc::append_arc_start(&root, "seat-arc", ".tug/arcs/seat-arc/plan.md").unwrap();
+        let (_temp, root, paths) = stepped_arc("seat-arc");
+        crate::arc::append_arc_start(&paths, &root, "seat-arc", ".tug/arcs/seat-arc/plan.md")
+            .unwrap();
         crate::arc::append_arc_stage(
+            &paths,
             &root,
             "seat-arc",
             crate::arc::ArcStage::Implement,
@@ -855,7 +852,7 @@ mod tests {
         .unwrap();
 
         let seat_findings = |root: &Path| -> Vec<String> {
-            crate::doctor::diagnose(root, "seat-arc")
+            crate::doctor::diagnose(&paths, root, "seat-arc")
                 .findings
                 .into_iter()
                 .filter(|f| f.code == "seat-missing")
@@ -881,7 +878,7 @@ mod tests {
             "the sentence names the stage and the missing record: {}",
             found[0]
         );
-        let finding = crate::doctor::diagnose(&root, "seat-arc")
+        let finding = crate::doctor::diagnose(&paths, &root, "seat-arc")
             .findings
             .into_iter()
             .find(|f| f.code == "seat-missing")
@@ -896,7 +893,7 @@ mod tests {
         );
 
         // `--repair` makes the seat, and the record clears.
-        let outcome = crate::doctor::doctor(&root, "seat-arc", true).unwrap();
+        let outcome = crate::doctor::doctor(&paths, &root, "seat-arc", true).unwrap();
         assert_eq!(outcome.made, vec![worktree.to_string_lossy().into_owned()]);
         assert!(worktree.is_dir());
         assert_eq!(
@@ -908,7 +905,7 @@ mod tests {
         // A worktree parked on some other branch is a seat no round may use,
         // and not one the doctor rebuilds.
         git(&worktree, &["checkout", "-b", "somewhere-else"]);
-        let found = crate::doctor::diagnose(&root, "seat-arc")
+        let found = crate::doctor::diagnose(&paths, &root, "seat-arc")
             .findings
             .into_iter()
             .filter(|f| f.code == "seat-missing")
@@ -922,30 +919,37 @@ mod tests {
         assert!(found[0].repair.is_none());
 
         // A name nobody opened is not an arc whose records agree.
-        let err = crate::doctor::doctor(&root, "nobody", false)
+        let err = crate::doctor::doctor(&paths, &root, "nobody", false)
             .unwrap_err()
             .to_string();
         assert!(err.contains("no arc named `nobody`"), "{err}");
     }
 
     /// A devise-stage arc is owed no seat, so a missing one is not a finding.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_devise_stage_arc_with_no_seat_is_quiet() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
+        let (repo, paths) = repo_beside_state(&temp);
         let root = fs::canonicalize(&repo).unwrap();
-        crate::arc::append_arc_start(&root, "devising", ".tug/arcs/devising/brief.md").unwrap();
-        crate::arc::append_arc_stage(&root, "devising", crate::arc::ArcStage::Devise, "s1", None)
+        crate::arc::append_arc_start(&paths, &root, "devising", ".tug/arcs/devising/brief.md")
             .unwrap();
+        crate::arc::append_arc_stage(
+            &paths,
+            &root,
+            "devising",
+            crate::arc::ArcStage::Devise,
+            "s1",
+            None,
+        )
+        .unwrap();
         assert!(!worktree_path(&root, "devising").exists());
         assert!(
-            crate::doctor::diagnose(&root, "devising")
+            crate::doctor::diagnose(&paths, &root, "devising")
                 .findings
                 .iter()
                 .all(|f| f.code != "seat-missing"),
         );
         // And the doctor knows the arc by its log alone.
-        crate::doctor::doctor(&root, "devising", false).unwrap();
+        crate::doctor::doctor(&paths, &root, "devising", false).unwrap();
     }
 }

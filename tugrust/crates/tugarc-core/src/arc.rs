@@ -13,6 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use tugcore::instance::Paths;
 use tugtool_core::config::ArcConfig;
 use tugtool_core::error::TugError;
 
@@ -528,8 +529,8 @@ impl ArcRecord {
 ///
 /// Applies the same generation reset [`crate::log::read_declarations`] applies:
 /// everything at or before the last terminal line for this arc is discarded.
-pub fn read_arc(repo_root: &Path, arc: &str) -> Option<ArcRecord> {
-    let path = tugtool_core::paths::arc_log_path(repo_root);
+pub fn read_arc(paths: &Paths, repo_root: &Path, arc: &str) -> Option<ArcRecord> {
+    let path = tugtool_core::paths::arc_log_path_at(paths, repo_root);
     let text = std::fs::read_to_string(&path).ok()?;
 
     let mut found: Option<ArcRecord> = None;
@@ -690,8 +691,13 @@ fn read_stop_line(note: &str) -> Option<(ArcStage, String)> {
 }
 
 /// Append `arc-start` — the arc opened on this document.
-pub fn append_arc_start(repo_root: &Path, arc: &str, document: &str) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-start", document)
+pub fn append_arc_start(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    document: &str,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-start", document)
 }
 
 /// Append `arc-kind` — which kind of arc this is.
@@ -700,8 +706,13 @@ pub fn append_arc_start(repo_root: &Path, arc: &str, document: &str) -> Result<(
 /// `arc-start`'s note is a path read whole: appending to it would make an
 /// older reader take `arc/idea.md planned` for the document's name. A marker an
 /// old reader does not know is skipped; a note it misreads is not.
-pub fn append_arc_kind(repo_root: &Path, arc: &str, kind: ArcKind) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-kind", kind.as_str())
+pub fn append_arc_kind(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    kind: ArcKind,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-kind", kind.as_str())
 }
 
 /// Append `arc-owner` — the instance whose tugcast is seating this arc.
@@ -721,12 +732,18 @@ pub fn append_arc_kind(repo_root: &Path, arc: &str, kind: ArcKind) -> Result<(),
 /// one — so the caller resolves `tugcore::instance::instance_id()` and simply
 /// does not call this when it is `None`. A record with no owner is unowned;
 /// there is no placeholder to write.
-pub fn append_arc_owner(repo_root: &Path, arc: &str, instance_id: &str) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-owner", instance_id.trim())
+pub fn append_arc_owner(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    instance_id: &str,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-owner", instance_id.trim())
 }
 
 /// Append `arc-stage` — a stage was rotated onto `session_id`.
 pub fn append_arc_stage(
+    paths: &Paths,
     repo_root: &Path,
     arc: &str,
     stage: ArcStage,
@@ -742,7 +759,7 @@ pub fn append_arc_stage(
             .filter(|m| !m.is_empty())
             .unwrap_or("-")
     );
-    append_arc_log(repo_root, arc, "arc-stage", &note)
+    append_arc_log(paths, repo_root, arc, "arc-stage", &note)
 }
 
 /// Append `arc-dispatch` — a rotation to `stage` is about to be sent.
@@ -751,29 +768,45 @@ pub fn append_arc_stage(
 /// gap after it: a crash between the dispatch and the bridge's `arc-stage`
 /// line leaves a seat the record cannot explain, and this is the line that
 /// explains it. The `arc-stage` it anticipates clears it.
-pub fn append_arc_dispatch(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-dispatch", stage.as_str())
+pub fn append_arc_dispatch(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    stage: ArcStage,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-dispatch", stage.as_str())
 }
 
 /// Append `arc-plan` — the plan path the runner named.
-pub fn append_arc_plan(repo_root: &Path, arc: &str, plan: &str) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-plan", plan)
+pub fn append_arc_plan(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    plan: &str,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-plan", plan)
 }
 
 /// Append `arc-note` — a runner note, such as the review cap.
-pub fn append_arc_note(repo_root: &Path, arc: &str, note: &str) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-note", note)
+pub fn append_arc_note(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    note: &str,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-note", note)
 }
 
 /// Append `arc-stop` — the arc stopped in `stage` for `reason`.
 pub fn append_arc_stop(
+    paths: &Paths,
     repo_root: &Path,
     arc: &str,
     stage: ArcStage,
     reason: ArcStopReason,
 ) -> Result<(), TugError> {
     let note = format!("{} {}", stage.as_str(), reason.as_str());
-    append_arc_log(repo_root, arc, "arc-stop", note.trim())
+    append_arc_log(paths, repo_root, arc, "arc-stop", note.trim())
 }
 
 /// Append `arc-stopping` — a stop protocol on `stage` is in flight.
@@ -784,8 +817,13 @@ pub fn append_arc_stop(
 /// reason `arc-owner` is one: `arc-stop` is read as `<stage> <reason>` and a
 /// reason is free text, so a field appended to it is a word an older reader
 /// takes for part of the reason. A marker it does not know, it skips.
-pub fn append_arc_stopping(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-stopping", stage.as_str())
+pub fn append_arc_stopping(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    stage: ArcStage,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-stopping", stage.as_str())
 }
 
 /// Append `arc-stopping <stage> abandoned` — the stop protocol on `stage` did
@@ -796,19 +834,25 @@ pub fn append_arc_stopping(repo_root: &Path, arc: &str, stage: ArcStage) -> Resu
 /// may move; the next press runs the whole protocol fresh, because no
 /// `arc-stop` was ever written ([P03]).
 pub fn append_arc_stopping_abandoned(
+    paths: &Paths,
     repo_root: &Path,
     arc: &str,
     stage: ArcStage,
 ) -> Result<(), TugError> {
     let note = format!("{} abandoned", stage.as_str());
-    append_arc_log(repo_root, arc, "arc-stopping", &note)
+    append_arc_log(paths, repo_root, arc, "arc-stopping", &note)
 }
 
 /// Append `arc-resume` — a stopped arc was picked back up, and `stage` is the
 /// one to rotate again. Clears the stop; the rotation it asks for
 /// clears it in turn.
-pub fn append_arc_resume(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-resume", stage.as_str())
+pub fn append_arc_resume(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    stage: ArcStage,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-resume", stage.as_str())
 }
 
 /// Append `arc-continue` — a stopped or resumed stage was picked back up on
@@ -820,20 +864,24 @@ pub fn append_arc_resume(repo_root: &Path, arc: &str, stage: ArcStage) -> Result
 /// the session that was stopped is the one that moved, so seating a fresh one
 /// would replace a stage mid-thought with an empty one. Clearing `resume` is
 /// therefore the point rather than a side effect.
-pub fn append_arc_continue(repo_root: &Path, arc: &str, stage: ArcStage) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-continue", stage.as_str())
+pub fn append_arc_continue(
+    paths: &Paths,
+    repo_root: &Path,
+    arc: &str,
+    stage: ArcStage,
+) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-continue", stage.as_str())
 }
 
 /// Append `arc-done` — the arc reached its terminal state.
-pub fn append_arc_done(repo_root: &Path, arc: &str) -> Result<(), TugError> {
-    append_arc_log(repo_root, arc, "arc-done", "")
+pub fn append_arc_done(paths: &Paths, repo_root: &Path, arc: &str) -> Result<(), TugError> {
+    append_arc_log(paths, repo_root, arc, "arc-done", "")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::log::{ArcDeclarations, read_declarations};
-    use serial_test::serial;
     use std::fs;
 
     #[test]
@@ -855,16 +903,15 @@ mod tests {
     /// that can — the announcement names a claude session id nobody knows
     /// until claude announces it. A record still carrying a dispatch says a
     /// rotation was tried and never landed.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_dispatch_stands_until_the_stage_it_anticipates_announces() {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "arc/idea.md").unwrap();
-        append_arc_dispatch(root, "d", ArcStage::Implement).unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").unwrap();
+        append_arc_dispatch(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
 
-        let record = read_arc(root, "d").unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(
             record.dispatched,
             Some(ArcStage::Implement),
@@ -872,8 +919,16 @@ mod tests {
         );
         assert!(record.stages.is_empty());
 
-        append_arc_stage(root, "d", ArcStage::Implement, "sess-9", None).unwrap();
-        let record = read_arc(root, "d").unwrap();
+        append_arc_stage(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            "sess-9",
+            None,
+        )
+        .unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(
             record.dispatched, None,
             "and the announcement it anticipated closes it"
@@ -884,21 +939,20 @@ mod tests {
     /// **The kind is recorded, and a log without one reads `None`.**
     /// That `None` is the whole of the pre-kind story: the runner falls back
     /// to sniffing the documents for it, which is what it did before.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_recorded_kind_reads_back_and_its_absence_is_a_pre_kind_arc() {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "arc/idea.md").unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").unwrap();
         assert_eq!(
-            read_arc(root, "d").unwrap().kind,
+            read_arc(&fixture.paths, root, "d").unwrap().kind,
             None,
             "an arc-start alone is a pre-kind arc"
         );
 
-        append_arc_kind(root, "d", ArcKind::Plain).unwrap();
-        let record = read_arc(root, "d").unwrap();
+        append_arc_kind(&fixture.paths, root, "d", ArcKind::Plain).unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(record.kind, Some(ArcKind::Plain));
         assert_eq!(
             record.document.as_deref(),
@@ -911,7 +965,6 @@ mod tests {
     /// record written by a build that spells a third kind reads `None` here,
     /// which is exactly a pre-kind arc — the one behavior every reader in
     /// the tree already knows how to take.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_kind_this_build_cannot_read_is_a_pre_kind_arc() {
         let fixture = log_repo(
@@ -921,7 +974,10 @@ mod tests {
             ]
             .concat(),
         );
-        assert_eq!(read_arc(fixture.root(), "d").unwrap().kind, None);
+        assert_eq!(
+            read_arc(&fixture.paths, fixture.root(), "d").unwrap().kind,
+            None
+        );
     }
 
     /// **The retired kind words are not kinds either.** The two words this
@@ -930,7 +986,6 @@ mod tests {
     /// unknown-word arm any third word takes. No arm here knows the old words:
     /// a pre-kind arc's reader sniffs the documents, which is the right answer
     /// for a record written before the kind was `plain` or `planned`.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_retired_kind_words_read_as_a_pre_kind_arc() {
         for word in ["dash", "trek"] {
@@ -942,7 +997,7 @@ mod tests {
                 .concat(),
             );
             assert_eq!(
-                read_arc(fixture.root(), "d").unwrap().kind,
+                read_arc(&fixture.paths, fixture.root(), "d").unwrap().kind,
                 None,
                 "the retired word {word} is not a kind this build reads"
             );
@@ -955,7 +1010,6 @@ mod tests {
     /// a log that still carries one reads back as a pre-kind arc — the same
     /// `None` any unknown marker earns, through the reader's standing
     /// unknown-marker fall-through rather than an arm that knows the old word.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_retired_arc_course_marker_reads_as_a_pre_kind_arc() {
         let fixture = log_repo(
@@ -965,7 +1019,10 @@ mod tests {
             ]
             .concat(),
         );
-        assert_eq!(read_arc(fixture.root(), "d").unwrap().kind, None);
+        assert_eq!(
+            read_arc(&fixture.paths, fixture.root(), "d").unwrap().kind,
+            None
+        );
     }
 
     /// **The skew direction.** The marker is new, so every reader older than
@@ -976,7 +1033,6 @@ mod tests {
     /// An old `read_arc` does the same through its own `_` arm — which this
     /// cannot drive from here, so what it pins is the half that shares a file
     /// with everything else.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_dispatch_line_moves_no_declaration() {
         let steps = [
@@ -987,7 +1043,7 @@ mod tests {
         .concat();
         let fixture = log_repo(&steps);
         let root = fixture.root();
-        let before = read_declarations(root, "d");
+        let before = read_declarations(&fixture.paths, root, "d");
         assert_eq!(
             before.last_activity.as_deref(),
             Some("2026-08-24T10:02:00Z")
@@ -1000,7 +1056,7 @@ mod tests {
         .concat();
         let fixture = log_repo(&with_dispatch);
         let root = fixture.root();
-        let after = read_declarations(root, "d");
+        let after = read_declarations(&fixture.paths, root, "d");
 
         assert_eq!(after.step, before.step);
         assert_eq!(after.run_through, before.run_through);
@@ -1014,11 +1070,11 @@ mod tests {
     }
 
     /// A scratch data dir plus the repo root whose arc log it holds — the same
-    /// shape `arc.rs`'s tests use, and `#[serial]` for the same reason: the
-    /// data dir is redirected through the environment.
+    /// shape `log.rs`'s tests use; `paths` roots the engine at the data dir.
     struct LogFixture {
         _home: tempfile::TempDir,
         repo: tempfile::TempDir,
+        paths: Paths,
     }
 
     impl LogFixture {
@@ -1029,18 +1085,18 @@ mod tests {
 
     fn log_repo(lines: &str) -> LogFixture {
         let home = tempfile::tempdir().expect("tempdir");
-        // SAFETY: these tests are #[serial]; no other thread reads the
-        // environment concurrently while this runs.
-        unsafe {
-            std::env::set_var("TUG_DATA_DIR", home.path());
-        }
+        let paths = Paths::under(home.path());
         let repo = tempfile::tempdir().expect("tempdir");
         if !lines.is_empty() {
-            let state = tugtool_core::paths::project_state_dir(repo.path());
+            let state = tugtool_core::paths::project_state_dir_at(&paths, repo.path());
             fs::create_dir_all(&state).expect("state dir");
             fs::write(state.join(tugtool_core::paths::ARC_LOG), lines).expect("write log");
         }
-        LogFixture { _home: home, repo }
+        LogFixture {
+            _home: home,
+            repo,
+            paths,
+        }
     }
 
     fn log_line(arc: &str, marker: &str, note: &str) -> String {
@@ -1080,10 +1136,9 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_log_with_no_arc_lines_has_no_arc() {
         let fixture = log_repo(&log_line("d", "step-start", "1/3 Step 1: First"));
-        assert_eq!(read_arc(fixture.root(), "d"), None);
+        assert_eq!(read_arc(&fixture.paths, fixture.root(), "d"), None);
     }
 
     /// **The owner is the last one written, within the generation.** A seat
@@ -1091,7 +1146,6 @@ mod tests {
     /// takes over an arc the first abandoned — and the record must name the
     /// instance whose tugcast is seating it *now*, not the first one that ever
     /// did.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_owner_line_is_read_back_and_the_last_one_wins() {
         let fixture = log_repo(
@@ -1105,7 +1159,10 @@ mod tests {
             .concat(),
         );
         assert_eq!(
-            read_arc(fixture.root(), "d").unwrap().owner.as_deref(),
+            read_arc(&fixture.paths, fixture.root(), "d")
+                .unwrap()
+                .owner
+                .as_deref(),
             Some("debug-spike")
         );
     }
@@ -1114,7 +1171,6 @@ mod tests {
     /// record from scratch after each terminal line, and ownership is a fact
     /// about a live seat rather than about the arc's name — an arc joined by
     /// one instance and re-opened by another must not read as the first one's.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_owner_does_not_survive_the_generation_reset() {
         let fixture = log_repo(
@@ -1126,7 +1182,7 @@ mod tests {
             ]
             .concat(),
         );
-        let record = read_arc(fixture.root(), "d").unwrap();
+        let record = read_arc(&fixture.paths, fixture.root(), "d").unwrap();
         assert_eq!(
             record.owner, None,
             "the owner belongs to the generation that recorded it"
@@ -1138,7 +1194,6 @@ mod tests {
     /// unowned arc as every runner's to judge, which is what every runner did
     /// before ownership existed. This is what keeps single-instance and
     /// standalone launches unchanged.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_pre_owner_log_reads_as_unowned() {
         let fixture = log_repo(
@@ -1149,7 +1204,7 @@ mod tests {
             ]
             .concat(),
         );
-        let record = read_arc(fixture.root(), "d").unwrap();
+        let record = read_arc(&fixture.paths, fixture.root(), "d").unwrap();
         assert_eq!(record.owner, None);
         assert_eq!(
             record.stages.len(),
@@ -1165,7 +1220,6 @@ mod tests {
     /// `read_arc` parses that note whole with `ArcStage::parse`, so a second
     /// field there would lose the dispatch intent and reintroduce the false
     /// `CardTaken` the marker exists to prevent.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_owner_line_does_not_disturb_the_stage_or_dispatch_readers() {
         let without = [
@@ -1193,8 +1247,10 @@ mod tests {
         ]
         .concat();
 
-        let bare = read_arc(log_repo(&without).root(), "d").unwrap();
-        let owned = read_arc(log_repo(&with).root(), "d").unwrap();
+        let bare_repo = log_repo(&without);
+        let bare = read_arc(&bare_repo.paths, bare_repo.root(), "d").unwrap();
+        let owned_repo = log_repo(&with);
+        let owned = read_arc(&owned_repo.paths, owned_repo.root(), "d").unwrap();
 
         assert_eq!(owned.stages, bare.stages);
         assert_eq!(
@@ -1208,17 +1264,15 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_missing_log_has_no_arc() {
         let fixture = log_repo("");
-        assert_eq!(read_arc(fixture.root(), "d"), None);
+        assert_eq!(read_arc(&fixture.paths, fixture.root(), "d"), None);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_full_arc_reads_back_document_plan_stages_and_done() {
         let fixture = log_repo(&full_arc_log());
-        let arc = read_arc(fixture.root(), "d").expect("arc");
+        let arc = read_arc(&fixture.paths, fixture.root(), "d").expect("arc");
         assert_eq!(arc.arc, "d");
         assert_eq!(arc.document.as_deref(), Some("arc/idea.md"));
         assert_eq!(arc.plan.as_deref(), Some("arc/d.md"));
@@ -1241,14 +1295,12 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn another_arcs_lines_are_not_this_ones() {
         let fixture = log_repo(&log_line("other", "arc-start", "arc/idea.md"));
-        assert_eq!(read_arc(fixture.root(), "d"), None);
+        assert_eq!(read_arc(&fixture.paths, fixture.root(), "d"), None);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_arc_before_a_teardown_is_a_previous_generation() {
         let log = format!(
             "{}{}",
@@ -1256,11 +1308,10 @@ mod tests {
             log_line_at("2026-08-24T14:00:00Z", "d", "abc1234", "joined via card")
         );
         let fixture = log_repo(&log);
-        assert_eq!(read_arc(fixture.root(), "d"), None);
+        assert_eq!(read_arc(&fixture.paths, fixture.root(), "d"), None);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_reused_name_reads_only_its_own_generation() {
         let log = format!(
             "{}{}{}",
@@ -1269,14 +1320,13 @@ mod tests {
             log_line_at("2026-08-24T15:00:00Z", "d", "arc-start", "arc/next.md")
         );
         let fixture = log_repo(&log);
-        let arc = read_arc(fixture.root(), "d").expect("arc");
+        let arc = read_arc(&fixture.paths, fixture.root(), "d").expect("arc");
         assert_eq!(arc.document.as_deref(), Some("arc/next.md"));
         assert!(arc.stages.is_empty());
         assert!(!arc.done);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_stop_reads_as_stopped_and_the_next_rotation_clears_it() {
         let stopped = format!(
             "{}{}",
@@ -1289,7 +1339,7 @@ mod tests {
             )
         );
         let fixture = log_repo(&stopped);
-        let arc = read_arc(fixture.root(), "d").expect("arc");
+        let arc = read_arc(&fixture.paths, fixture.root(), "d").expect("arc");
         assert_eq!(
             arc.stopped,
             Some((ArcStage::Review, "lint failed".to_owned()))
@@ -1306,13 +1356,12 @@ mod tests {
             )
         );
         let fixture = log_repo(&resumed);
-        let arc = read_arc(fixture.root(), "d").expect("arc");
+        let arc = read_arc(&fixture.paths, fixture.root(), "d").expect("arc");
         assert_eq!(arc.stopped, None);
         assert_eq!(arc.current_stage(), Some(ArcStage::Review));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn notes_accumulate_in_order() {
         let log = format!(
             "{}{}{}",
@@ -1321,7 +1370,7 @@ mod tests {
             log_line("d", "arc-note", "implement ran on the account default")
         );
         let fixture = log_repo(&log);
-        let arc = read_arc(fixture.root(), "d").expect("arc");
+        let arc = read_arc(&fixture.paths, fixture.root(), "d").expect("arc");
         assert_eq!(
             arc.notes,
             vec![
@@ -1332,7 +1381,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_unreadable_stage_line_is_skipped_not_guessed_at() {
         let log = format!(
             "{}{}{}",
@@ -1341,12 +1389,11 @@ mod tests {
             log_line("d", "arc-stage", "devise")
         );
         let fixture = log_repo(&log);
-        let arc = read_arc(fixture.root(), "d").expect("arc");
+        let arc = read_arc(&fixture.paths, fixture.root(), "d").expect("arc");
         assert!(arc.stages.is_empty());
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn arc_lines_are_invisible_to_the_declarations_reader() {
         // The pin rests on: `read_declarations` matches its markers
         // exhaustively, so arc lines change nothing it reports — except the
@@ -1364,9 +1411,9 @@ mod tests {
         let with_arc = format!("{}{}", bare, full_arc_log());
 
         let fixture = log_repo(&bare);
-        let without = read_declarations(fixture.root(), "d");
+        let without = read_declarations(&fixture.paths, fixture.root(), "d");
         let fixture = log_repo(&with_arc);
-        let with = read_declarations(fixture.root(), "d");
+        let with = read_declarations(&fixture.paths, fixture.root(), "d");
 
         assert_ne!(without, ArcDeclarations::default());
         assert_eq!(
@@ -1380,20 +1427,19 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_discarded_arc_has_no_arc() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Devise, "s1", None).unwrap();
-        assert!(read_arc(root, "d").is_some());
+        append_arc_start(&fixture.paths, root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Devise, "s1", None).unwrap();
+        assert!(read_arc(&fixture.paths, root, "d").is_some());
         // Discard writes the arc's terminal marker; the arc record ends with
         // the arc, so a later `arc run` under the same name opens fresh
         // rather than resuming into an arc that no longer exists.
-        append_arc_log(root, "d", "discarded", "").unwrap();
-        assert_eq!(read_arc(root, "d"), None);
-        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
-        let fresh = read_arc(root, "d").unwrap();
+        append_arc_log(&fixture.paths, root, "d", "discarded", "").unwrap();
+        assert_eq!(read_arc(&fixture.paths, root, "d"), None);
+        append_arc_start(&fixture.paths, root, "d", "arc/d-brief.md").unwrap();
+        let fresh = read_arc(&fixture.paths, root, "d").unwrap();
         assert!(
             fresh.stages.is_empty(),
             "the discarded arc's stages do not carry over"
@@ -1456,14 +1502,20 @@ mod tests {
     /// clears `stopped` before anything composes a prompt, so a stage being
     /// resumed would be told nothing about what it was resuming from.
     #[test]
-    #[serial(tug_data_dir)]
     fn last_stop_survives_the_resume_that_clears_stopped() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
-        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::ImplementIdle).unwrap();
-        let stopped = read_arc(root, "d").unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::ImplementIdle,
+        )
+        .unwrap();
+        let stopped = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(
             stopped.last_stop,
             Some((ArcStage::Implement, "implement idle".to_string())),
@@ -1473,10 +1525,12 @@ mod tests {
 
         for pick_up in ["resume", "continue"] {
             match pick_up {
-                "resume" => append_arc_resume(root, "d", ArcStage::Implement).unwrap(),
-                _ => append_arc_continue(root, "d", ArcStage::Implement).unwrap(),
+                "resume" => {
+                    append_arc_resume(&fixture.paths, root, "d", ArcStage::Implement).unwrap()
+                }
+                _ => append_arc_continue(&fixture.paths, root, "d", ArcStage::Implement).unwrap(),
             }
-            let record = read_arc(root, "d").unwrap();
+            let record = read_arc(&fixture.paths, root, "d").unwrap();
             assert_eq!(record.stopped, None, "{pick_up} clears the state");
             assert_eq!(
                 record.last_stop,
@@ -1487,9 +1541,9 @@ mod tests {
 
         // A rotation clears `stopped` too, and the history outlives it as far
         // as the generation goes.
-        append_arc_stage(root, "d", ArcStage::Audit, "s2", None).unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Audit, "s2", None).unwrap();
         assert_eq!(
-            read_arc(root, "d").unwrap().last_stop,
+            read_arc(&fixture.paths, root, "d").unwrap().last_stop,
             Some((ArcStage::Implement, "implement idle".to_string())),
         );
     }
@@ -1500,17 +1554,30 @@ mod tests {
     /// then carries both, decides nothing, and the next press writes a fresh
     /// `arc-resume` that clears `stopped` and makes the arm fire.
     #[test]
-    #[serial(tug_data_dir)]
     fn a_stop_over_a_standing_resume_keeps_it() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
-        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
-        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        append_arc_resume(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
 
-        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::Stalled).unwrap();
-        let record = read_arc(root, "d").unwrap();
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::Stalled,
+        )
+        .unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(
             record.stopped,
             Some((ArcStage::Implement, "stalled".to_string())),
@@ -1521,8 +1588,8 @@ mod tests {
             "so the next press still means something",
         );
 
-        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
-        let pressed = read_arc(root, "d").unwrap();
+        append_arc_resume(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
+        let pressed = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(pressed.stopped, None);
         assert_eq!(pressed.resume, Some(ArcStage::Implement));
     }
@@ -1531,7 +1598,6 @@ mod tests {
     /// so the arc is running again and nobody is owed a rotation. `arc-resume`
     /// alone would leave one standing.
     #[test]
-    #[serial(tug_data_dir)]
     fn an_audit_stage_line_clears_the_resume_it_answers() {
         // A resume from a stop at the seam is answered by a rotation to the
         // audit, not to the stage the stop named. The `arc-stage audit` line
@@ -1540,17 +1606,24 @@ mod tests {
         // again and rotates a second audit over the first.
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
-        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
-        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
+        append_arc_resume(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
         assert_eq!(
-            read_arc(root, "d").unwrap().resume,
+            read_arc(&fixture.paths, root, "d").unwrap().resume,
             Some(ArcStage::Implement)
         );
 
-        append_arc_stage(root, "d", ArcStage::Audit, "s2", None).unwrap();
-        let record = read_arc(root, "d").unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Audit, "s2", None).unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(record.resume, None, "the rotation answered the resume");
         assert_eq!(record.stopped, None);
         assert_eq!(record.current_stage(), Some(ArcStage::Audit));
@@ -1560,20 +1633,26 @@ mod tests {
     /// so the arc is running again and nobody is owed a rotation. `arc-resume`
     /// alone would leave one standing.
     #[test]
-    #[serial(tug_data_dir)]
     fn arc_continue_clears_the_stop_and_the_resume_and_adds_no_stage() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "arc/d-brief.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Implement, "s1", None).unwrap();
-        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::ImplementIdle).unwrap();
-        append_arc_resume(root, "d", ArcStage::Implement).unwrap();
-        let resumed = read_arc(root, "d").unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/d-brief.md").unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Implement, "s1", None).unwrap();
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::ImplementIdle,
+        )
+        .unwrap();
+        append_arc_resume(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
+        let resumed = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(resumed.stopped, None);
         assert_eq!(resumed.resume, Some(ArcStage::Implement));
 
-        append_arc_continue(root, "d", ArcStage::Implement).unwrap();
-        let continued = read_arc(root, "d").unwrap();
+        append_arc_continue(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
+        let continued = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(continued.stopped, None);
         assert_eq!(
             continued.resume, None,
@@ -1629,17 +1708,26 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn the_append_helpers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();
-        append_arc_start(root, "d", "arc/idea.md").expect("start");
-        append_arc_plan(root, "d", "arc/d.md").expect("plan");
-        append_arc_stage(root, "d", ArcStage::Devise, "sess-1", Some("opus")).expect("devise");
-        append_arc_stage(root, "d", ArcStage::Review, "sess-2", None).expect("review");
-        append_arc_note(root, "d", "second review skipped").expect("note");
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").expect("start");
+        append_arc_plan(&fixture.paths, root, "d", "arc/d.md").expect("plan");
+        append_arc_stage(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Devise,
+            "sess-1",
+            Some("opus"),
+        )
+        .expect("devise");
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Review, "sess-2", None)
+            .expect("review");
+        append_arc_note(&fixture.paths, root, "d", "second review skipped").expect("note");
         append_arc_stop(
+            &fixture.paths,
             root,
             "d",
             ArcStage::Review,
@@ -1647,7 +1735,7 @@ mod tests {
         )
         .expect("stop");
 
-        let arc = read_arc(root, "d").expect("arc");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
         assert_eq!(arc.document.as_deref(), Some("arc/idea.md"));
         assert_eq!(arc.plan.as_deref(), Some("arc/d.md"));
         assert_eq!(arc.stages.len(), 2);
@@ -1661,17 +1749,18 @@ mod tests {
 
         // A resume clears the stop and names the stage to rotate again; the
         // rotation it asks for clears the resume.
-        append_arc_resume(root, "d", ArcStage::Review).expect("resume");
-        let arc = read_arc(root, "d").expect("arc");
+        append_arc_resume(&fixture.paths, root, "d", ArcStage::Review).expect("resume");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
         assert_eq!(arc.stopped, None);
         assert_eq!(arc.resume, Some(ArcStage::Review));
-        append_arc_stage(root, "d", ArcStage::Review, "sess-3", None).expect("review again");
-        let arc = read_arc(root, "d").expect("arc");
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Review, "sess-3", None)
+            .expect("review again");
+        let arc = read_arc(&fixture.paths, root, "d").expect("arc");
         assert_eq!(arc.resume, None);
         assert_eq!(arc.stages.len(), 3);
 
-        append_arc_done(root, "d").expect("done");
-        assert!(read_arc(root, "d").expect("arc").done);
+        append_arc_done(&fixture.paths, root, "d").expect("done");
+        assert!(read_arc(&fixture.paths, root, "d").expect("arc").done);
     }
 
     /// **An `arc-stage` line does not clear a standing stop mark** ([F08]).
@@ -1679,60 +1768,72 @@ mod tests {
     /// rotation's announcement then arrives, and if that line cleared the mark
     /// the stop would be erased mid-protocol. The next reader will otherwise
     /// "tidy" this into the neighbouring `record.stopped = None`.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_arc_stage_line_does_not_clear_a_standing_stop_mark() {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "arc/idea.md").unwrap();
-        append_arc_stopping(root, "d", ArcStage::Devise).unwrap();
-        append_arc_stage(root, "d", ArcStage::Devise, "sess-1", None).unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").unwrap();
+        append_arc_stopping(&fixture.paths, root, "d", ArcStage::Devise).unwrap();
+        append_arc_stage(&fixture.paths, root, "d", ArcStage::Devise, "sess-1", None).unwrap();
 
-        let record = read_arc(root, "d").unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(record.stopping, Some(ArcStage::Devise));
         assert_eq!(record.stages.len(), 1, "and the rotation still lands");
     }
 
     /// The abandon line clears the mark, and a fresh set stands again: the
     /// two states ride one marker so nothing can know one without the other.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_abandon_line_clears_the_mark() {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "arc/idea.md").unwrap();
-        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").unwrap();
+        append_arc_stopping(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
         assert_eq!(
-            read_arc(root, "d").unwrap().stopping,
+            read_arc(&fixture.paths, root, "d").unwrap().stopping,
             Some(ArcStage::Implement)
         );
 
-        append_arc_stopping_abandoned(root, "d", ArcStage::Implement).unwrap();
-        assert_eq!(read_arc(root, "d").unwrap().stopping, None);
+        append_arc_stopping_abandoned(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
+        assert_eq!(read_arc(&fixture.paths, root, "d").unwrap().stopping, None);
 
-        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
+        append_arc_stopping(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
         assert_eq!(
-            read_arc(root, "d").unwrap().stopping,
+            read_arc(&fixture.paths, root, "d").unwrap().stopping,
             Some(ArcStage::Implement)
         );
     }
 
     /// The `arc-stop` that ends a successful protocol clears the mark, so no
     /// mark ever stands with no press outstanding.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_arc_stop_line_clears_the_mark() {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "arc/idea.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Implement, "sess-1", None).unwrap();
-        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
-        append_arc_stop(root, "d", ArcStage::Implement, ArcStopReason::StoppedByUser).unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").unwrap();
+        append_arc_stage(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            "sess-1",
+            None,
+        )
+        .unwrap();
+        append_arc_stopping(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
+        append_arc_stop(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            ArcStopReason::StoppedByUser,
+        )
+        .unwrap();
 
-        let record = read_arc(root, "d").unwrap();
+        let record = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(record.stopping, None);
         assert!(record.stopped.is_some());
     }
@@ -1740,19 +1841,26 @@ mod tests {
     /// **Skew.** A reader with no `arc-stopping` arm falls through `_ => {}`
     /// and reads every other field exactly as it would without the line: the
     /// marker adds a mark and changes nothing else on the record.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_older_reader_skips_the_marker() {
         let fixture = log_repo("");
         let root = fixture.root();
 
-        append_arc_start(root, "d", "arc/idea.md").unwrap();
-        append_arc_stage(root, "d", ArcStage::Implement, "sess-1", None).unwrap();
-        append_arc_note(root, "d", "a note").unwrap();
-        let without = read_arc(root, "d").unwrap();
+        append_arc_start(&fixture.paths, root, "d", "arc/idea.md").unwrap();
+        append_arc_stage(
+            &fixture.paths,
+            root,
+            "d",
+            ArcStage::Implement,
+            "sess-1",
+            None,
+        )
+        .unwrap();
+        append_arc_note(&fixture.paths, root, "d", "a note").unwrap();
+        let without = read_arc(&fixture.paths, root, "d").unwrap();
 
-        append_arc_stopping(root, "d", ArcStage::Implement).unwrap();
-        let mut with = read_arc(root, "d").unwrap();
+        append_arc_stopping(&fixture.paths, root, "d", ArcStage::Implement).unwrap();
+        let mut with = read_arc(&fixture.paths, root, "d").unwrap();
         assert_eq!(with.stopping, Some(ArcStage::Implement));
 
         // Every other field reads as it did. `last_activity` moves with any

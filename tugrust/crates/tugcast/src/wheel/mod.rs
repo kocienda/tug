@@ -20,6 +20,7 @@ use parking_lot::Mutex as SyncMutex;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
+use tugcore::instance::Paths;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -339,7 +340,7 @@ pub fn arc_is_running(ledger: &crate::session_ledger::SessionLedger, session_id:
     let Some(arc) = row.arc_name.as_deref() else {
         return false;
     };
-    match tugarc_core::arc::read_arc(Path::new(&row.project_dir), arc) {
+    match tugarc_core::arc::read_arc(&Paths::from_env(), Path::new(&row.project_dir), arc) {
         Some(record) => !record.done && record.stopped.is_none(),
         None => false,
     }
@@ -664,6 +665,7 @@ mod tests {
         insert_ledger_entry_for_tests, test_minimal_supervisor, test_minimal_supervisor_with_ledger,
     };
     use tokio::sync::mpsc;
+    use tugcore::instance::Paths;
 
     /// Every refusal the wheel can return becomes a stop the receipt can
     /// explain. Total, not injective: `UnknownSession` and a session that is
@@ -1465,10 +1467,11 @@ mod tests {
         // Bound, but no arc record — an arc is not an arc running.
         assert!(!arc_is_running(&ledger, "claude-on-arc"));
 
-        tugarc_core::arc::append_arc_start(root, "demo", "arc/demo-brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(&Paths::from_env(), root, "demo", "arc/demo-brief.md")
+            .unwrap();
         assert!(arc_is_running(&ledger, "claude-on-arc"));
 
-        tugarc_core::arc::append_arc_done(root, "demo").unwrap();
+        tugarc_core::arc::append_arc_done(&Paths::from_env(), root, "demo").unwrap();
         assert!(
             !arc_is_running(&ledger, "claude-on-arc"),
             "a finished arc is not one running"

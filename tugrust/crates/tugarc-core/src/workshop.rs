@@ -590,7 +590,7 @@ fn ensure_tug_ignored(repo: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
+    use tugcore::instance::Paths;
     use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn set(dir: &Path, rel: &str, content: &str) {
@@ -636,7 +636,10 @@ mod tests {
     /// these tests exercise the shape the resolver actually meets — a tree
     /// carrying the rungs' resolutions and markers only where they gave up.
     fn open_conflicted(repo: &Path) -> Workshop {
-        crate::resolve::resolve_conflicts(repo, "demo", None).expect("the ladder runs");
+        // The ladder's own state is scratch: these tests read the workshop.
+        let state = tempfile::TempDir::new().unwrap();
+        crate::resolve::resolve_conflicts(&Paths::under(state.path()), repo, "demo", None)
+            .expect("the ladder runs");
         Workshop::open_conflict(repo, "demo").expect("a conflict is recorded")
     }
 
@@ -929,9 +932,10 @@ mod tests {
     /// workshop from rendering as a phantom arc on every surface that globs
     /// that namespace — and what gives the checkout a stable derived-data slug
     /// instead of a per-candidate `detached-<sha>`.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_workshop_branch_is_outside_the_arc_namespace() {
+        let _state = tempfile::TempDir::new().unwrap();
+        let paths = Paths::under(_state.path());
         let temp = init(true);
         let repo = temp.path();
         let ws = open_conflicted(repo);
@@ -955,7 +959,7 @@ mod tests {
         // And the surface itself: `arc_detail_entries_in` is the one walk
         // behind both `tugtool arc list` and the card's snapshot ([D138]), so
         // asserting here covers every reader of either.
-        let arcs = crate::ops::arc_detail_entries_in(repo);
+        let arcs = crate::ops::arc_detail_entries_in(&paths, repo);
         let names: Vec<&str> = arcs.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, vec!["demo"], "the workshop must not read as an arc");
     }

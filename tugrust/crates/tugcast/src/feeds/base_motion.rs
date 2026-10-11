@@ -36,6 +36,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use tugcore::instance::Paths;
 
 use tokio::sync::{Notify, broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -509,11 +510,11 @@ async fn evaluate_workspace(
     let dir = repo_dir.clone();
     let Ok((autoreplay, arcs)) = tokio::task::spawn_blocking(move || {
         let autoreplay = read_autoreplay(&dir);
-        let arcs: Vec<ArcReading> = tugarc_core::arc_detail_entries_in(&dir)
+        let arcs: Vec<ArcReading> = tugarc_core::arc_detail_entries_in(&Paths::from_env(), &dir)
             .into_iter()
             .map(|detail| ArcReading {
                 base_tip: rev_parse(&dir, &detail.base),
-                join_journal: tugarc_core::join_in_flight(&dir, &detail.name),
+                join_journal: tugarc_core::join_in_flight(&Paths::from_env(), &dir, &detail.name),
                 arc_autoreplay: read_arc_autoreplay(&dir, &detail.name),
                 detail,
             })
@@ -668,7 +669,10 @@ fn spawn_replay(
         let outcome = {
             let repo = job.repo_dir.clone();
             let name = job.name.clone();
-            tokio::task::spawn_blocking(move || tugarc_core::replay_onto(&repo, &name)).await
+            tokio::task::spawn_blocking(move || {
+                tugarc_core::replay_onto(&Paths::from_env(), &repo, &name)
+            })
+            .await
         };
 
         // What to say, decided under the lock; saying it happens after, because
@@ -802,7 +806,12 @@ fn compose_for(
                 // speak and composing, which the lock ordering prevents.
                 return String::new();
             };
-            let intent = tugarc_core::resolve_intent(&job.repo_dir, &job.base_branch, &job.branch);
+            let intent = tugarc_core::resolve_intent(
+                &Paths::from_env(),
+                &job.repo_dir,
+                &job.base_branch,
+                &job.branch,
+            );
             compose_conflict_message(&ConflictMessage {
                 arc: &job.name,
                 base_branch: &job.base_branch,

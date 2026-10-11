@@ -45,6 +45,7 @@
 //! writes anything but the log.
 
 use std::path::Path;
+use tugcore::instance::Paths;
 
 use serde::Serialize;
 
@@ -194,20 +195,21 @@ fn catch_log_up(row: &Row, total: u32) -> Option<ArcRepair> {
 /// documents, no log, or no branch is not an error here — it is an arc with
 /// fewer records to disagree, and the checks that need a record it lacks are
 /// simply not run.
-pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
+pub fn diagnose(paths: &Paths, repo_root: &Path, name: &str) -> ArcDiagnosis {
     let mut findings = Vec::new();
-    let decls = read_declarations(repo_root, name);
+    let decls = read_declarations(paths, repo_root, name);
     let table = read_table(repo_root, name);
-    let arc = crate::arc::read_arc(repo_root, name);
+    let arc = crate::arc::read_arc(paths, repo_root, name);
 
     let ledger = table.as_ref().map(|(path, _)| path.clone());
     let rows: &[Row] = table.as_ref().map(|(_, rows)| &rows[..]).unwrap_or(&[]);
-    let seat = ops::seat_row_for(&ops::arc_owner_key(repo_root, name));
+    let seat = ops::seat_row_for(paths, &ops::arc_owner_key(repo_root, name));
 
     check_table_against_log(&mut findings, rows, &decls, ledger.is_some(), name);
     check_run_arming(&mut findings, rows, &decls);
     check_commit_cells(&mut findings, rows);
     check_arc(
+        paths,
         &mut findings,
         rows,
         arc.as_ref(),
@@ -217,7 +219,7 @@ pub fn diagnose(repo_root: &Path, name: &str) -> ArcDiagnosis {
     );
     check_seat_alive(&mut findings, arc.as_ref(), seat.as_ref());
     check_seat(&mut findings, arc.as_ref(), repo_root, name);
-    check_base_checkout(&mut findings, repo_root, name);
+    check_base_checkout(paths, &mut findings, repo_root, name);
 
     ArcDiagnosis {
         arc: name.to_string(),
@@ -249,8 +251,8 @@ pub const OPEN_STEP_CODES: [&str; 3] = [
 /// `open-step-status` and `open-step-missing-row` are *about*, and the table's
 /// own open row answers `undeclared-open-row`, which is the case where the log
 /// declares nothing.
-pub fn open_step(repo_root: &Path, name: &str) -> Option<u32> {
-    let decls = read_declarations(repo_root, name);
+pub fn open_step(paths: &Paths, repo_root: &Path, name: &str) -> Option<u32> {
+    let decls = read_declarations(paths, repo_root, name);
     if decls.step_in_flight
         && let Some((current, _)) = decls.step
     {
@@ -401,6 +403,7 @@ fn check_commit_cells(findings: &mut Vec<ArcFinding>, rows: &[Row]) {
 
 /// The arc record against the table, the documents, and the binding.
 fn check_arc(
+    paths: &Paths,
     findings: &mut Vec<ArcFinding>,
     rows: &[Row],
     arc: Option<&crate::arc::ArcRecord>,
@@ -463,7 +466,7 @@ fn check_arc(
     if arc.stopped.is_none()
         && arc.current_stage().is_some()
         && seat.is_none()
-        && ops::bound_session_for(&ops::arc_owner_key(repo_root, name)).is_none()
+        && ops::bound_session_for(paths, &ops::arc_owner_key(repo_root, name)).is_none()
     {
         findings.push(ArcFinding {
             code: "arc-unbound".into(),
@@ -690,7 +693,12 @@ pub const BASE_ECHO_CODE: &str = "base-echo";
 /// see it. Each finding names the state and the verb that clears it; none
 /// carries a repair, because every clearing act touches the user's checkout
 /// and `resolve-base` is the door that records doing so.
-fn check_base_checkout(findings: &mut Vec<ArcFinding>, repo_root: &Path, name: &str) {
+fn check_base_checkout(
+    paths: &Paths,
+    findings: &mut Vec<ArcFinding>,
+    repo_root: &Path,
+    name: &str,
+) {
     let root = ops::main_repo_root(repo_root);
     let mut push = |code: &str, sentence: String| {
         findings.push(ArcFinding {
@@ -700,16 +708,19 @@ fn check_base_checkout(findings: &mut Vec<ArcFinding>, repo_root: &Path, name: &
         });
     };
 
-    if let Some(op) = crate::oplog::stranded_join(&root, name) {
+    if let Some(op) = crate::oplog::stranded_join(paths, &root, name) {
         push("base-stranded", crate::oplog::stranded_detail(&op));
     }
 
     // Any other operation that began and never finished. A join between its
     // integrate and its end is not one of these: it carries progress, and
     // `join --continue` is its own door.
-    for op in crate::oplog::list_ops(&root).into_iter().filter(|op| {
-        op.arc == name && op.after.is_none() && op.join.is_none() && op.stranded.is_none()
-    }) {
+    for op in crate::oplog::list_ops(paths, &root)
+        .into_iter()
+        .filter(|op| {
+            op.arc == name && op.after.is_none() && op.join.is_none() && op.stranded.is_none()
+        })
+    {
         push(
             "op-incomplete",
             format!(
@@ -777,13 +788,18 @@ pub struct DoctorOutcome {
 /// id in git — is refused rather than pronounced healthy: "the records
 /// agree" about an arc that does not exist is the reading that hid the
 /// missing seat in the first place.
-pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcome, ArcError> {
-    if crate::arc::read_arc(repo_root, name).is_none()
+pub fn doctor(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    repair: bool,
+) -> Result<DoctorOutcome, ArcError> {
+    if crate::arc::read_arc(paths, repo_root, name).is_none()
         && !ops::arc_record_exists(&ops::main_repo_root(repo_root), name)
     {
         return Err(ArcError::Refused(format!("no arc named `{name}`")));
     }
-    let diagnosis = diagnose(repo_root, name);
+    let diagnosis = diagnose(paths, repo_root, name);
     let mut appended = Vec::new();
     let mut made = Vec::new();
     if repair {
@@ -793,13 +809,16 @@ pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcom
             };
             match fix {
                 ArcRepair::Append { marker, note, .. } => {
-                    crate::log::append_arc_log(repo_root, name, marker, note).map_err(|e| {
-                        ArcError::arc_log(repo_root, e).context("the reconciling append failed")
-                    })?;
+                    crate::log::append_arc_log(paths, repo_root, name, marker, note).map_err(
+                        |e| {
+                            ArcError::arc_log(paths, repo_root, e)
+                                .context("the reconciling append failed")
+                        },
+                    )?;
                     appended.push(format!("{marker}  {note}"));
                 }
                 ArcRepair::MakeSeat { .. } => {
-                    let outcome = ops::create_in(repo_root, name, None, false, None)
+                    let outcome = ops::create_in(paths, repo_root, name, None, false, None)
                         .map_err(|e| e.context("the seat could not be made"))?;
                     made.push(outcome.worktree);
                 }

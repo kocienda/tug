@@ -4,6 +4,7 @@
 use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
+use tugcore::instance::Paths;
 use tugtool_core::Config;
 
 use super::documents::ensure_tug_excluded;
@@ -125,6 +126,7 @@ pub(crate) fn run_post_create(repo: &Path, worktree: &Path) -> Result<(), ArcErr
 /// is refused before anything is created. A revisit ignores it: an arc's base
 /// is set at birth.
 pub fn create_in(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     description: Option<String>,
@@ -133,7 +135,7 @@ pub fn create_in(
 ) -> Result<CreateOutcome, ArcError> {
     validate_arc_name(name).map_err(ArcError::InvalidName)?;
     let repo_root = main_repo_root(repo_root);
-    reconcile_branches(&repo_root, &mut Vec::new());
+    reconcile_branches(paths, &repo_root, &mut Vec::new());
     let base_branch = match base {
         Some(requested) => {
             if !branch_exists(&repo_root, requested) {
@@ -260,7 +262,7 @@ pub fn create_in(
     // `tugcast`'s draft engine is a second parser of this file that keeps every
     // non-empty note as a per-round authoring instruction, and skips empty ones.
     // A note here would read as an instruction the user never gave.
-    let _ = append_arc_log(&repo_root, name, "created", "");
+    let _ = append_arc_log(paths, &repo_root, name, "created", "");
 
     // Hydrate the worktree; on failure, roll it (and the branch) back so a
     // retry re-creates cleanly and the idempotent path never strands it.
@@ -508,12 +510,11 @@ mod tests {
     /// consulting, and stamped with who laid it. The provenance is readable
     /// both directly and off the list every arc surface reads, because a
     /// badge nobody can see is not provenance.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_arc_created_against_an_explicit_root_carries_its_provenance() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
 
-        let created = create_in(&root, "agent-ci-abc12345", None, false, None).unwrap();
+        let created = create_in(&paths, &root, "agent-ci-abc12345", None, false, None).unwrap();
         assert!(created.created);
         set_laid_by(&root, "agent-ci-abc12345", "agent/ci");
 
@@ -521,7 +522,7 @@ mod tests {
             laid_by(&root, "agent-ci-abc12345").as_deref(),
             Some("agent/ci")
         );
-        let listed = list_in(&root).unwrap();
+        let listed = list_in(&paths, &root).unwrap();
         let row = listed
             .iter()
             .find(|d| d.name == "agent-ci-abc12345")
@@ -533,11 +534,10 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn create_over_a_clean_base_reports_nothing() {
-        let (_temp, root) = repo_for_create();
-        let out = create_in(&root, "tidy", None, false, None).unwrap();
+        let (_temp, root, paths) = repo_for_create();
+        let out = create_in(&paths, &root, "tidy", None, false, None).unwrap();
         assert!(out.base_dirt.is_empty(), "{:?}", out.base_dirt);
         assert_eq!(out.off_base, None);
     }
@@ -546,14 +546,13 @@ mod tests {
     /// birth record it would have no arc log line at all and no date to
     /// report. The revisit must not forge a second one — a re-run is a repair,
     /// not activity.
-    #[serial(tug_data_dir)]
     #[test]
     fn create_writes_one_birth_record_and_a_revisit_writes_none() {
-        let (_temp, root) = repo_for_create();
-        create_in(&root, "newborn", None, false, None).unwrap();
+        let (_temp, root, paths) = repo_for_create();
+        create_in(&paths, &root, "newborn", None, false, None).unwrap();
 
-        let log_path =
-            tugtool_core::paths::project_state_dir(&root).join(tugtool_core::paths::ARC_LOG);
+        let log_path = tugtool_core::paths::project_state_dir_at(&paths, &root)
+            .join(tugtool_core::paths::ARC_LOG);
         let count = |text: &str| {
             text.lines()
                 .filter(|l| l.contains("  newborn  created  "))
@@ -573,7 +572,7 @@ mod tests {
             "the created line carries no note: {line:?}"
         );
 
-        let revisit = create_in(&root, "newborn", None, false, None).unwrap();
+        let revisit = create_in(&paths, &root, "newborn", None, false, None).unwrap();
         assert!(!revisit.created);
         assert_eq!(count(&fs::read_to_string(&log_path).unwrap()), 1);
     }
@@ -581,16 +580,15 @@ mod tests {
     /// Most creates happen over *some* unrelated dirt, so a refusing create
     /// would be intolerable. The shape that survives is a decision, not a veto:
     /// create succeeds, says what it left behind, and takes nothing.
-    #[serial(tug_data_dir)]
     #[test]
     fn create_censuses_base_dirt_and_leaves_it_alone() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("README.md"), "# base edit\n").unwrap();
         git(&root, &["add", "README.md"]);
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
         fs::remove_file(root.join("base.rs")).ok();
 
-        let out = create_in(&root, "dirty", None, false, None).unwrap();
+        let out = create_in(&paths, &root, "dirty", None, false, None).unwrap();
         assert!(out.created);
 
         assert_eq!(dirt_entry(&out, "README.md").state, "tracked-dirty");
@@ -614,16 +612,15 @@ mod tests {
     /// `git diff --name-only HEAD` reports a *deleted* tracked file as dirty,
     /// and there is no content behind it. The census says so, because anything
     /// that copies these entries has to know before it opens the file.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_deletion_on_base_is_censused_as_a_deletion() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("doomed.txt"), "here\n").unwrap();
         git(&root, &["add", "doomed.txt"]);
         git(&root, &["commit", "-m", "add doomed"]);
         fs::remove_file(root.join("doomed.txt")).unwrap();
 
-        let out = create_in(&root, "gone", None, false, None).unwrap();
+        let out = create_in(&paths, &root, "gone", None, false, None).unwrap();
         let entry = dirt_entry(&out, "doomed.txt");
         assert_eq!(entry.state, "tracked-dirty");
         assert!(entry.deleted);
@@ -632,13 +629,12 @@ mod tests {
     /// Creation cuts from the base *ref*, so an off-base checkout does not
     /// affect it — but the join's preflight refuses until the checkout is back.
     /// This is the warning at the start about what the end will demand.
-    #[serial(tug_data_dir)]
     #[test]
     fn create_warns_when_the_base_checkout_is_on_another_branch() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         git(&root, &["checkout", "-q", "-b", "scratch"]);
 
-        let out = create_in(&root, "elsewhere", None, false, None).unwrap();
+        let out = create_in(&paths, &root, "elsewhere", None, false, None).unwrap();
         assert_eq!(out.off_base.as_deref(), Some("scratch"));
         assert_eq!(out.base_branch, "main");
     }
@@ -648,18 +644,17 @@ mod tests {
     /// written from *inside the worktree* — the write that used to disappear —
     /// and landed. The base is clean at every step it should be, and the
     /// message the join commits is the message the author wrote.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn carried_work_becomes_a_round_and_lands_the_authored_draft() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        isolate_changes_db(&temp);
+        let (repo, mut paths) = repo_beside_state(&temp);
+        isolate_changes_db(&mut paths, &temp);
         let root = fs::canonicalize(&repo).unwrap();
 
         // Work already under way on the base.
         fs::write(root.join("feature.rs"), "half a feature\n").unwrap();
 
-        let created = create_in(&root, "walk", None, true, None).unwrap();
+        let created = create_in(&paths, &root, "walk", None, true, None).unwrap();
         assert!(created.base_dirt.iter().all(|d| d.carried));
         assert!(
             base_working_set_dirt(&root).is_empty(),
@@ -674,7 +669,7 @@ mod tests {
 
         // The arc's first round commits the carried work with intent.
         fs::write(worktree.join("feature.rs"), "the whole feature\n").unwrap();
-        commit_in(&root, "walk", "finish the feature", None).unwrap();
+        commit_in(&paths, &root, "walk", "finish the feature", None, None).unwrap();
 
         // The authored draft, written the way `arc-implement` writes it: keyed
         // by the base root that `arc_draft_key` resolves, from the worktree.
@@ -687,14 +682,15 @@ mod tests {
             draft,
         );
 
-        assert!(join_preflight_in(&root, "walk").unwrap().is_empty());
-        let landed = join_in(&root, "walk", mechanics()).unwrap();
+        assert!(join_preflight_in(&paths, &root, "walk").unwrap().is_empty());
+        let landed = join_in(&paths, &root, "walk", mechanics()).unwrap();
         let sha = landed.commit_hash.expect("a landed join has a commit");
         let committed = git_stdout(&root, &["log", "-1", "--format=%B", &sha]).unwrap();
 
         assert_eq!(
             committed,
             with_arc_trailers(
+                &paths,
                 &root,
                 "walk",
                 "tugarc/walk",
@@ -719,14 +715,13 @@ mod tests {
     /// the dirt was made against is the content the worktree holds — the
     /// transplant is a copy, and it lands uncommitted because the work is in
     /// progress by definition.
-    #[serial(tug_data_dir)]
     #[test]
     fn carry_moves_the_base_working_set_into_the_worktree() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("README.md"), "# in progress\n").unwrap();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
 
-        let out = create_in(&root, "carried", None, true, None).unwrap();
+        let out = create_in(&paths, &root, "carried", None, true, None).unwrap();
         let worktree = worktree_path(&root, "carried");
 
         assert_eq!(
@@ -757,16 +752,15 @@ mod tests {
     /// there is nothing to read behind it. Carrying a deletion means deleting
     /// the worktree's copy — the worktree was cut from the base tip, so it has
     /// one.
-    #[serial(tug_data_dir)]
     #[test]
     fn carry_carries_a_deletion_as_a_deletion() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("doomed.txt"), "here\n").unwrap();
         git(&root, &["add", "doomed.txt"]);
         git(&root, &["commit", "-m", "add doomed"]);
         fs::remove_file(root.join("doomed.txt")).unwrap();
 
-        create_in(&root, "deleter", None, true, None).unwrap();
+        create_in(&paths, &root, "deleter", None, true, None).unwrap();
         let worktree = worktree_path(&root, "deleter");
 
         assert!(
@@ -784,14 +778,13 @@ mod tests {
     /// `git checkout --` restores from the *index* and a staged edit would
     /// survive — leaving the path still dirty against HEAD after a carry that
     /// reported success.
-    #[serial(tug_data_dir)]
     #[test]
     fn carry_cleans_a_staged_base_edit_too() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("README.md"), "staged\n").unwrap();
         git(&root, &["add", "README.md"]);
 
-        let out = create_in(&root, "staged", None, true, None).unwrap();
+        let out = create_in(&paths, &root, "staged", None, true, None).unwrap();
         let worktree = worktree_path(&root, "staged");
 
         assert_eq!(out.base_dirt[0].state, "tracked-dirty");
@@ -810,14 +803,13 @@ mod tests {
     /// restore it to. Putting it back means removing the index entry as well —
     /// otherwise the base is left holding a staged addition of a file that is
     /// no longer there, which is dirtier than what carry was asked to clean.
-    #[serial(tug_data_dir)]
     #[test]
     fn carry_puts_back_a_staged_new_file_index_entry_and_all() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::write(root.join("fresh.rs"), "brand new\n").unwrap();
         git(&root, &["add", "fresh.rs"]);
 
-        let out = create_in(&root, "fresh", None, true, None).unwrap();
+        let out = create_in(&paths, &root, "fresh", None, true, None).unwrap();
         let worktree = worktree_path(&root, "fresh");
 
         assert_eq!(out.base_dirt[0].state, "staged-new");
@@ -835,10 +827,9 @@ mod tests {
 
     /// Apply-all-before-clean-any is what makes tearing the arc down a safe
     /// response to a failed transplant: the base has not been touched yet.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_failed_carry_tears_down_and_leaves_the_base_intact() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         fs::create_dir_all(root.join("blocked")).unwrap();
         fs::write(root.join("blocked/keep.txt"), "kept\n").unwrap();
         git(&root, &["add", "-A"]);
@@ -851,7 +842,7 @@ mod tests {
         fs::remove_dir_all(root.join("blocked")).unwrap();
         fs::write(root.join("blocked"), "now a file\n").unwrap();
 
-        let err = create_in(&root, "doomed-carry", None, true, None)
+        let err = create_in(&paths, &root, "doomed-carry", None, true, None)
             .unwrap_err()
             .to_string();
         assert!(err.contains("blocked"), "{err}");
@@ -864,10 +855,9 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn carry_refuses_over_unmerged_base_paths() {
-        let (_temp, root) = repo_for_create();
+        let (_temp, root, paths) = repo_for_create();
         // Two branches editing one file, merged into a conflict.
         fs::write(root.join("clash.txt"), "one\n").unwrap();
         git(&root, &["add", "clash.txt"]);
@@ -880,7 +870,7 @@ mod tests {
         git(&root, &["commit", "-am", "main side"]);
         let _ = git_output(&root, &["merge", "other"]);
 
-        let err = create_in(&root, "unmerged", None, true, None)
+        let err = create_in(&paths, &root, "unmerged", None, true, None)
             .unwrap_err()
             .to_string();
         assert!(err.contains("unmerged"), "{err}");
@@ -888,11 +878,10 @@ mod tests {
         assert!(!branch_present(&root, "tugarc/unmerged"));
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn carry_over_a_clean_base_is_a_no_op() {
-        let (_temp, root) = repo_for_create();
-        let out = create_in(&root, "nothing", None, true, None).unwrap();
+        let (_temp, root, paths) = repo_for_create();
+        let out = create_in(&paths, &root, "nothing", None, true, None).unwrap();
         assert!(out.created);
         assert!(out.base_dirt.is_empty());
         assert!(base_working_set_dirt(&root).is_empty());
@@ -902,11 +891,11 @@ mod tests {
     /// under the universe, it forks from the branch the universe has out, and
     /// the checkout that merely owns the common dir is left alone ([P01],
     /// [P03], [P07] — refs stay shared, paths do not).
-    #[serial(tug_data_dir, tug_repo_universe)]
+    #[serial(tug_repo_universe)]
     #[test]
     fn test_universe_create_stays_inside_the_universe() {
         let temp = TempDir::new().unwrap();
-        let (base, universe, _universe) = base_with_universe(&temp);
+        let (base, universe, _universe, paths) = base_with_universe(&temp);
 
         // Content that exists only on the universe's branch, so an arc forked
         // from `main` instead would be visibly wrong.
@@ -915,7 +904,7 @@ mod tests {
         git(&universe, &["commit", "-m", "universe work"]);
         let feature_tip = rev_parse_at(&universe, "feature");
 
-        let created = create_in(&universe, "scoped", None, false, Some("feature")).unwrap();
+        let created = create_in(&paths, &universe, "scoped", None, false, Some("feature")).unwrap();
         assert!(created.created);
         assert_eq!(created.base_branch, "feature");
         assert_eq!(
@@ -953,13 +942,12 @@ mod tests {
     /// An explicit base forks the arc from that branch and records it, so a
     /// checkout parked off the default branch makes an arc that holds the
     /// content it is actually working on ([P03]).
-    #[serial(tug_data_dir)]
     #[test]
     fn test_create_base_forks_from_the_named_branch() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
         // A `feature` tip that `main` does not have.
         git(repo, &["checkout", "-b", "feature"]);
@@ -970,7 +958,7 @@ mod tests {
         git(repo, &["checkout", "main"]);
         assert_ne!(feature_tip, rev_parse_at(repo, "main"));
 
-        let created = create_in(repo, "based", None, false, Some("feature")).unwrap();
+        let created = create_in(&paths, repo, "based", None, false, Some("feature")).unwrap();
         assert!(created.created);
         assert_eq!(created.base_branch, "feature");
         assert_eq!(arc_base(repo, "based").unwrap(), "feature");
@@ -985,15 +973,14 @@ mod tests {
 
     /// A base that does not exist is refused before anything is created —
     /// no branch, no worktree, no config residue.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_create_base_refuses_an_unknown_branch() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        let err = create_in(repo, "nobase", None, false, Some("no-such-branch"))
+        let err = create_in(&paths, repo, "nobase", None, false, Some("no-such-branch"))
             .unwrap_err()
             .to_string();
         assert!(
@@ -1007,33 +994,38 @@ mod tests {
 
     /// An arc's base is set at birth: a revisit reports the recorded base and
     /// does not rewrite it ([P03]).
-    #[serial(tug_data_dir)]
     #[test]
     fn test_create_base_is_ignored_on_a_revisit() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        let first = create_in(repo, "settled", None, false, None).unwrap();
+        let first = create_in(&paths, repo, "settled", None, false, None).unwrap();
         assert_eq!(first.base_branch, "main");
         git(repo, &["branch", "feature"]);
 
-        let again = create_in(repo, "settled", None, false, Some("feature")).unwrap();
+        let again = create_in(&paths, repo, "settled", None, false, Some("feature")).unwrap();
         assert!(!again.created);
         assert_eq!(again.base_branch, "main");
         assert_eq!(arc_base(repo, "settled").unwrap(), "main");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_create_basic() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        let result = create_in(repo, "test-arc", Some("desc".to_string()), false, None);
+        let result = create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("desc".to_string()),
+            false,
+            None,
+        );
         assert!(result.is_ok());
 
         assert!(repo.join(".tug/worktrees/test-arc").exists());
@@ -1049,38 +1041,51 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&base.stdout).trim(), "main");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_create_idempotent() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        create_in(repo, "test-arc", Some("first".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("first".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         // Second create returns the existing arc without error.
-        let result = create_in(repo, "test-arc", Some("second".to_string()), false, None);
+        let result = create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("second".to_string()),
+            false,
+            None,
+        );
         assert!(!result.unwrap().created);
         assert!(repo.join(".tug/worktrees/test-arc").exists());
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_create_runs_post_create_once() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
         // Append a line to a marker file each time the hook runs.
         write_config(repo, &["echo ran >> hook-marker.txt"]);
 
-        create_in(repo, "hooky", None, false, None).unwrap();
+        create_in(&paths, repo, "hooky", None, false, None).unwrap();
         let marker = repo.join(".tug/worktrees/hooky/hook-marker.txt");
         assert!(marker.exists(), "post_create should run on creation");
         assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
 
         // Idempotent resume must NOT re-run the hook.
-        create_in(repo, "hooky", None, false, None).unwrap();
+        create_in(&paths, repo, "hooky", None, false, None).unwrap();
         assert_eq!(
             fs::read_to_string(&marker).unwrap().lines().count(),
             1,
@@ -1088,16 +1093,15 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_create_failing_hook_rolls_back() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
         write_config(repo, &["exit 1"]);
 
-        let result = create_in(repo, "doomed", None, false, None);
+        let result = create_in(&paths, repo, "doomed", None, false, None);
         assert!(result.is_err(), "failing hook should fail create");
 
         // Rollback: neither worktree nor branch survive.
@@ -1106,7 +1110,7 @@ mod tests {
 
         // A retry (with a passing hook) then succeeds cleanly.
         write_config(repo, &[]);
-        let retry = create_in(repo, "doomed", None, false, None);
+        let retry = create_in(&paths, repo, "doomed", None, false, None);
         assert!(retry.is_ok());
         assert!(repo.join(".tug/worktrees/doomed").exists());
     }

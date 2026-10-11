@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
+use tugcore::instance::Paths;
 
 use super::{
     ArcDetail, BRANCH_PREFIX, arc_base, arc_detail_entry_in, arc_owner_key, branch_exists,
@@ -71,8 +72,8 @@ pub struct JoinOptions {
     /// It is here because the join is executed by **tugcast**, not by the
     /// session: the server exports no `TUG_SESSION_ID`, so without this the
     /// squash commit can name the arc and nothing else, and the History row
-    /// shows one pill for work that had a session behind it. `None` falls back
-    /// to the running process's own id, which is what the CLI wants.
+    /// shows one pill for work that had a session behind it. `None` writes no
+    /// session trailers; the CLI fills it from its own `TUG_SESSION_ID`.
     pub session_id: Option<String>,
     /// Proceed past the `live-resolve` refusal, tearing down a conflict chain
     /// the lease says somebody may still be working on.
@@ -200,8 +201,8 @@ pub struct JoinRemedy {
 ///
 /// `main_repo_root` is a filesystem walk, so a caller holding a worktree path
 /// reads the right state directory without paying for a git process.
-pub fn join_in_flight(repo: &Path, name: &str) -> bool {
-    crate::oplog::join_in_flight(&main_repo_root(repo), name).is_some()
+pub fn join_in_flight(paths: &Paths, repo: &Path, name: &str) -> bool {
+    crate::oplog::join_in_flight(paths, &main_repo_root(repo), name).is_some()
 }
 
 /// Whether `git` here supports `git merge-tree --write-tree` (git ≥ 2.38).
@@ -471,9 +472,9 @@ fn project_spellings(dir: &Path) -> Vec<String> {
 }
 
 /// The maintained join draft for an arc, read read-only from the
-/// machine-global changes ledger (`tugcore::instance::changes_db_path()`,
-/// `TUG_CHANGES_DB` overridable) — drafts are machine-global like the working
-/// tree they describe.
+/// machine-global changes ledger (`paths.changes_db`, which the caller's edge
+/// resolved with `TUG_CHANGES_DB` honoured) — drafts are machine-global like
+/// the working tree they describe.
 ///
 /// The primary probe is [`arc_draft_key`]'s pair. Everything after it is a
 /// **migration bridge**, not a reconciliation layer, and each rung is a row
@@ -496,10 +497,10 @@ fn project_spellings(dir: &Path) -> Vec<String> {
 /// arc it answers the default spelling rather than where the worktree actually
 /// stood. That is acceptable for a best-effort legacy probe, and is said here so
 /// it is not later read as a bug.
-pub(crate) fn arc_draft_message(repo: &Path, branch: &str) -> Option<String> {
-    let db = tugcore::instance::changes_db_path();
+pub(crate) fn arc_draft_message(paths: &Paths, repo: &Path, branch: &str) -> Option<String> {
+    let db = paths.changes_db.as_path();
     let conn =
-        rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .ok()?;
     let read = |owner_id: &str, project: &str| -> Option<String> {
         conn.query_row(
@@ -556,6 +557,7 @@ pub(crate) fn arc_draft_message(repo: &Path, branch: &str) -> Option<String> {
 /// so both ends are closed: nothing produces a scope here, and a hand-typed one
 /// cannot double.
 pub fn integrate_message(
+    paths: &Paths,
     repo: &Path,
     name: &str,
     branch: &str,
@@ -564,10 +566,10 @@ pub fn integrate_message(
 ) -> String {
     let subject = match override_msg {
         Some(body) => compose_landing_subject(name, &body),
-        None => landing_message_preview(repo, name, branch).0,
+        None => landing_message_preview(paths, repo, name, branch).0,
     };
     // Subject stays `tugarc(<name>): …`; the trailers ride the body ([P08]).
-    with_arc_trailers(repo, name, branch, &subject, session)
+    with_arc_trailers(paths, repo, name, branch, &subject, session)
 }
 
 /// Where a landing message's words came from ([P05]).
@@ -610,11 +612,12 @@ fn compose_landing_subject(name: &str, body: &str) -> String {
 /// they cannot act on. The subject and body are byte-identical to what
 /// [`integrate_message`] would produce with no override.
 pub fn landing_message_preview(
+    paths: &Paths,
     repo: &Path,
     name: &str,
     branch: &str,
 ) -> (String, LandingMessageSource) {
-    let (body, source) = match arc_draft_message(repo, branch) {
+    let (body, source) = match arc_draft_message(paths, repo, branch) {
         Some(draft) => (draft, LandingMessageSource::Draft),
         None => match config_get(repo, &format!("branch.{}.description", branch)) {
             Some(description) => (description, LandingMessageSource::Description),
@@ -1212,7 +1215,11 @@ pub(super) fn intersect_base_dirt(
 ///
 /// The cwd guard is deliberately not here ([R02]): it reads the process cwd,
 /// which is the server's when the call comes from tugcast.
-pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker>, ArcError> {
+pub fn join_preflight_in(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+) -> Result<Vec<JoinBlocker>, ArcError> {
     let repo_root = &main_repo_root(repo_root);
     let branch = branch_name(name);
     if !branch_exists(repo_root, &branch) {
@@ -1220,7 +1227,7 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
             name: name.to_string(),
         });
     }
-    let detail = arc_detail_entry_in(repo_root, name).ok_or_else(|| ArcError::NotFound {
+    let detail = arc_detail_entry_in(paths, repo_root, name).ok_or_else(|| ArcError::NotFound {
         name: name.to_string(),
     })?;
     let current = current_branch(repo_root)?;
@@ -1229,6 +1236,7 @@ pub fn join_preflight_in(repo_root: &Path, name: &str) -> Result<Vec<JoinBlocker
     // Which is exactly why the resolve lease exists — the one occupancy fact a
     // second process can still read, because it is written in git.
     Ok(join_blockers_from_detail(
+        paths,
         repo_root,
         &detail,
         &current,
@@ -1297,6 +1305,7 @@ pub struct ResolveBaseOutcome {
 /// caller owes each named holder the news ([L31]'s other half): tugcast
 /// sends their session a notice.
 pub fn resolve_base_in(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     live_dirt: &BTreeMap<String, String>,
@@ -1320,9 +1329,9 @@ pub fn resolve_base_in(
     // "uncommitted work" the partition below knows how to read, and the record
     // that names it goes only once the base is back where that join found it.
     let mut warnings = Vec::new();
-    let mut cleared_strand = match crate::oplog::stranded_join(&repo_root, name) {
+    let mut cleared_strand = match crate::oplog::stranded_join(paths, &repo_root, name) {
         Some(op) => {
-            clear_stranded_join(&repo_root, &op, &mut warnings)?;
+            clear_stranded_join(paths, &repo_root, &op, &mut warnings)?;
             true
         }
         None => false,
@@ -1332,10 +1341,13 @@ pub fn resolve_base_in(
     // says nothing an undo can read. With no half-done integrate standing on
     // the base there is nothing of it left to clear but the record itself.
     if standing_integrate_markers(&repo_root).is_empty() {
-        for op in crate::oplog::list_ops(&repo_root).into_iter().filter(|op| {
-            op.arc == name && op.after.is_none() && op.join.is_none() && op.stranded.is_none()
-        }) {
-            crate::oplog::abandon(&repo_root, op.seq);
+        for op in crate::oplog::list_ops(paths, &repo_root)
+            .into_iter()
+            .filter(|op| {
+                op.arc == name && op.after.is_none() && op.join.is_none() && op.stranded.is_none()
+            })
+        {
+            crate::oplog::abandon(paths, &repo_root, op.seq);
             warnings.push(format!(
                 "Dropped operation {} ({} of '{name}'), which began and never finished.",
                 op.seq,
@@ -1407,6 +1419,7 @@ pub fn resolve_base_in(
     let op_before = crate::oplog::capture_before(&repo_root, name)?;
     let op_tips = crate::oplog::tips_of(&op_before);
     let op_seq = crate::oplog::record_begin(
+        paths,
         &repo_root,
         crate::oplog::OpVerb::ResolveBase,
         name,
@@ -1419,9 +1432,10 @@ pub fn resolve_base_in(
     // is not. A bare `before` is a record nothing can read.
     let close_failed = |left_dropped: &[String]| {
         if left_dropped.is_empty() {
-            crate::oplog::abandon(&repo_root, op_seq);
+            crate::oplog::abandon(paths, &repo_root, op_seq);
         } else {
             let _ = crate::oplog::record_complete(
+                paths,
                 &repo_root,
                 op_seq,
                 crate::oplog::OpAfter {
@@ -1469,6 +1483,7 @@ pub fn resolve_base_in(
     };
 
     crate::oplog::record_complete(
+        paths,
         &repo_root,
         op_seq,
         crate::oplog::OpAfter {
@@ -1662,6 +1677,7 @@ fn base_dirt_blockers(
 /// scoped to sessions that are not working this arc ([`attach_holders`]). An
 /// empty map reads every overlap as the user's own.
 pub fn join_blockers_from_detail(
+    paths: &Paths,
     repo_root: &Path,
     detail: &ArcDetail,
     current_branch: &str,
@@ -1685,7 +1701,7 @@ pub fn join_blockers_from_detail(
     // `held` is passed rather than read because the holder registry is
     // in-process and lives a crate away — the same reason `pilot_action` takes
     // its facts rather than fetching them.
-    if held != Some("join") && crate::oplog::join_in_flight(repo_root, name).is_some() {
+    if held != Some("join") && crate::oplog::join_in_flight(paths, repo_root, name).is_some() {
         blockers.push(stale_journal_blocker(name));
     }
 
@@ -1795,8 +1811,13 @@ pub fn join_conflicts_in(repo_root: &Path, name: &str) -> Result<JoinConflicts, 
 /// Never reads the process cwd: the one question that depends on where the
 /// caller stands — whether it is inside the arc worktree — is answered from
 /// [`JoinOptions::caller_cwd`].
-pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOutcome, ArcError> {
-    join_in_with_progress(repo_root, name, opts, |_, _| {})
+pub fn join_in(
+    paths: &Paths,
+    repo_root: &Path,
+    name: &str,
+    opts: JoinOptions,
+) -> Result<JoinOutcome, ArcError> {
+    join_in_with_progress(paths, repo_root, name, opts, |_, _| {})
 }
 
 /// [`join_in`], narrating itself as it goes.
@@ -1823,6 +1844,7 @@ pub fn join_in(repo_root: &Path, name: &str, opts: JoinOptions) -> Result<JoinOu
 /// caller's own recompute stays authoritative, exactly as it already is for the
 /// resolve path. Dropping every beat costs the progress line and nothing else.
 pub fn join_in_with_progress(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     opts: JoinOptions,
@@ -1830,12 +1852,12 @@ pub fn join_in_with_progress(
 ) -> Result<JoinOutcome, ArcError> {
     let repo_root = main_repo_root(repo_root);
     let mut warnings = Vec::new();
-    reconcile_branches(&repo_root, &mut warnings);
+    reconcile_branches(paths, &repo_root, &mut warnings);
     // A journal an older build left behind becomes an op record here, where
     // every path below can see it — and an unreadable one is named rather than
     // ignored, because ignoring it would let a plain join run over an arc that
     // is half torn down.
-    crate::oplog::fold_legacy_join_journal(&repo_root, name)?;
+    crate::oplog::fold_legacy_join_journal(paths, &repo_root, name)?;
     // Pre-feature arcs get rerere enabled here so a recorded resolution
     // replays on this and future joins ([P31]).
     crate::resolve::ensure_rerere_config(&repo_root);
@@ -1851,7 +1873,7 @@ pub fn join_in_with_progress(
     // the one resume that most needs to run. The record is what says this arc
     // is mid-teardown; git cannot know it.
     if opts.continue_join {
-        let op = crate::oplog::join_in_flight(&repo_root, name).ok_or_else(|| {
+        let op = crate::oplog::join_in_flight(paths, &repo_root, name).ok_or_else(|| {
             ArcError::Refused(format!(
                 "No interrupted join to continue for arc '{}'.",
                 name
@@ -1864,6 +1886,7 @@ pub fn join_in_with_progress(
             ))
         })?;
         return finish_join_teardown(
+            paths,
             TeardownTarget {
                 repo_root: &repo_root,
                 name,
@@ -1896,7 +1919,7 @@ pub fn join_in_with_progress(
                     .to_string(),
             ));
         }
-        let blockers = join_preflight_in(&repo_root, name)?;
+        let blockers = join_preflight_in(paths, &repo_root, name)?;
         let probe = join_conflicts_in(&repo_root, name)?;
         return Ok(JoinOutcome {
             name: name.to_string(),
@@ -1918,14 +1941,14 @@ pub fn join_in_with_progress(
 
     // A join still in flight means a prior one half-finished — require
     // --continue.
-    if crate::oplog::join_in_flight(&repo_root, name).is_some() {
+    if crate::oplog::join_in_flight(paths, &repo_root, name).is_some() {
         return Err(ArcError::Blocked(vec![stale_journal_blocker(name)]));
     }
 
     // A prior join that could not prove it left the base untouched stands
     // until `resolve-base` clears it; joining over it would stack a second
     // integrate on a state nothing recorded.
-    if let Some(op) = crate::oplog::stranded_join(&repo_root, name) {
+    if let Some(op) = crate::oplog::stranded_join(paths, &repo_root, name) {
         return Err(ArcError::Refused(crate::oplog::stranded_detail(&op)));
     }
 
@@ -2024,6 +2047,7 @@ pub fn join_in_with_progress(
     op_before.broke_lease = broke_lease.as_ref().map(|l| l.age.as_secs());
     let op_tips = crate::oplog::tips_of(&op_before);
     let op_seq = crate::oplog::record_begin(
+        paths,
         &repo_root,
         crate::oplog::OpVerb::Join,
         name,
@@ -2042,9 +2066,9 @@ pub fn join_in_with_progress(
     if let Err(failure) = drop_identical_base_copies(&repo_root, &branch, &droppable, &mut warnings)
     {
         if failure.left_dropped.is_empty() {
-            crate::oplog::abandon(&repo_root, op_seq);
+            crate::oplog::abandon(paths, &repo_root, op_seq);
         } else {
-            let _ = crate::oplog::record_stranded(
+            let _ = crate::oplog::record_stranded(paths, 
                 &repo_root,
                 op_seq,
                 crate::oplog::StrandedBase {
@@ -2096,7 +2120,7 @@ pub fn join_in_with_progress(
     let settle_unlanded = || -> Option<String> {
         let base_after = BaseReading::read(&repo_root, &arc_paths);
         if base_after == base_before {
-            crate::oplog::abandon(&repo_root, op_seq);
+            crate::oplog::abandon(paths, &repo_root, op_seq);
             return None;
         }
         let stranded = base_after.difference_from(&base_before);
@@ -2104,10 +2128,10 @@ pub fn join_in_with_progress(
             " — and the base checkout could not be proven untouched ({}). The join is recorded as operation {op_seq}; clear it with: tugtool arc resolve-base {name}",
             stranded.found
         );
-        let _ = crate::oplog::record_stranded(&repo_root, op_seq, stranded);
+        let _ = crate::oplog::record_stranded(paths, &repo_root, op_seq, stranded);
         Some(tail)
     };
-    let integration = match integrate_join(&repo_root, name, &branch, &base_branch, &opts) {
+    let integration = match integrate_join(paths, &repo_root, name, &branch, &base_branch, &opts) {
         Ok(integration) => integration,
         Err(e) => {
             return Err(match settle_unlanded() {
@@ -2138,10 +2162,11 @@ pub fn join_in_with_progress(
         strategy: opts.strategy.as_str().to_string(),
         message,
     };
-    crate::oplog::record_join_progress(&repo_root, op_seq, progress.clone())?;
+    crate::oplog::record_join_progress(paths, &repo_root, op_seq, progress.clone())?;
     on_beat("squash", "done");
 
     finish_join_teardown(
+        paths,
         TeardownTarget {
             repo_root: &repo_root,
             name,
@@ -2318,6 +2343,7 @@ fn standing_integrate_markers(repo_root: &Path) -> Vec<&'static str> {
 /// still not where the join found it is *not* moved: that is history, and the
 /// sentence says where it was so a person can decide.
 fn clear_stranded_join(
+    paths: &Paths,
     repo_root: &Path,
     op: &crate::oplog::OpPayload,
     warnings: &mut Vec<String>,
@@ -2354,7 +2380,7 @@ fn clear_stranded_join(
             }
         )));
     }
-    crate::oplog::abandon(repo_root, op.seq);
+    crate::oplog::abandon(paths, repo_root, op.seq);
     warnings.push(format!(
         "Cleared the base state a failed join of '{}' left behind (operation {}).",
         op.arc, op.seq
@@ -2384,6 +2410,7 @@ enum Integration {
 /// land — a conflict, a stale candidate, a failed merge or commit — leaves the
 /// base as it was, which is what lets the caller drop the record it opened.
 fn integrate_join(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     branch: &str,
@@ -2424,6 +2451,7 @@ fn integrate_join(
         // it does for a join with no candidate, and `Squash` is the default
         // every route asks for.
         let final_msg = integrate_message(
+            paths,
             repo_root,
             name,
             branch,
@@ -2475,6 +2503,7 @@ fn integrate_join(
     }
 
     let final_msg = integrate_message(
+        paths,
         repo_root,
         name,
         branch,
@@ -2565,6 +2594,7 @@ struct TeardownTarget<'a> {
 /// which join is in flight — so both paths arrive holding the op they are
 /// finishing, and a completion can no longer land on the wrong one.
 fn finish_join_teardown(
+    paths: &Paths,
     target: TeardownTarget<'_>,
     op_seq: u64,
     mut progress: crate::oplog::JoinProgress,
@@ -2585,13 +2615,13 @@ fn finish_join_teardown(
         repo_root,
         branch,
         &arc_base(repo_root, name).unwrap_or_default(),
-        &read_declarations(repo_root, name),
+        &read_declarations(paths, repo_root, name),
     );
     if progress.phase == crate::oplog::JoinPhase::Integrated {
         on_beat("teardown", "start");
-        remove_arc_worktree(repo_root, branch, worktree, &mut warnings);
+        remove_arc_worktree(paths, repo_root, branch, worktree, &mut warnings);
         progress.phase = crate::oplog::JoinPhase::WorktreeRemoved;
-        crate::oplog::record_join_progress(repo_root, op_seq, progress.clone())?;
+        crate::oplog::record_join_progress(paths, repo_root, op_seq, progress.clone())?;
         on_beat("teardown", "done");
     }
 
@@ -2626,7 +2656,7 @@ fn finish_join_teardown(
             }
         }
         progress.phase = crate::oplog::JoinPhase::BranchDeleted;
-        crate::oplog::record_join_progress(repo_root, op_seq, progress.clone())?;
+        crate::oplog::record_join_progress(paths, repo_root, op_seq, progress.clone())?;
         on_beat("release", "done");
     }
 
@@ -2640,15 +2670,16 @@ fn finish_join_teardown(
         Some(origin) => format!("joined via {origin}"),
         None => "joined".to_string(),
     };
-    append_arc_log(repo_root, name, &short, &note).map_err(|e| ArcError::arc_log(repo_root, e))?;
+    append_arc_log(paths, repo_root, name, &short, &note)
+        .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
 
-    let base_branch = base_branch_of(repo_root, op_seq, name);
+    let base_branch = base_branch_of(paths, repo_root, op_seq, name);
     let after = crate::oplog::OpAfter {
         base_tip: git_stdout(repo_root, &["rev-parse", &base_branch]).ok(),
         landed_commit: Some(progress.commit_hash.clone()),
         ..Default::default()
     };
-    if let Err(e) = crate::oplog::record_complete(repo_root, op_seq, after) {
+    if let Err(e) = crate::oplog::record_complete(paths, repo_root, op_seq, after) {
         warnings.push(format!("Failed to complete the op-log record: {}", e));
     }
     on_beat("record", "done");
@@ -2674,8 +2705,8 @@ fn finish_join_teardown(
 /// re-derived: by the time a `--continue` runs, the arc branch may already be
 /// deleted and `arc_base` would fall back to the repository's default branch,
 /// which is a guess.
-fn base_branch_of(repo_root: &Path, op_seq: u64, name: &str) -> String {
-    crate::oplog::read_op(repo_root, op_seq)
+fn base_branch_of(paths: &Paths, repo_root: &Path, op_seq: u64, name: &str) -> String {
+    crate::oplog::read_op(paths, repo_root, op_seq)
         .map(|op| op.before.base_branch)
         .or_else(|| arc_base(repo_root, name).ok())
         .unwrap_or_else(|| "main".to_string())
@@ -2691,16 +2722,15 @@ mod tests {
     use std::path::Path;
     use tempfile::TempDir;
 
-    #[serial(tug_data_dir)]
     #[test]
     fn preflight_leaves_ordinary_base_dirt_wording_alone() {
-        let (_temp, root) = plain_arc("plainly-arc");
+        let (_temp, root, paths) = plain_arc("plainly-arc");
         let worktree = worktree_path(&root, "plainly-arc");
         fs::write(worktree.join("README.md"), "# Arc\n").unwrap();
-        commit_in(&root, "plainly-arc", "touch readme", None).unwrap();
+        commit_in(&paths, &root, "plainly-arc", "touch readme", None, None).unwrap();
         fs::write(root.join("README.md"), "# Local\n").unwrap();
 
-        let blockers = join_preflight_in(&root, "plainly-arc").unwrap();
+        let blockers = join_preflight_in(&paths, &root, "plainly-arc").unwrap();
         let dirt = blockers.iter().find(|b| b.kind == "base-dirt").unwrap();
         assert!(dirt.detail.contains("README.md"), "{:?}", dirt);
         assert!(
@@ -2713,18 +2743,17 @@ mod tests {
     /// An untracked base file at a path the arc changed is what `git merge
     /// --squash` refuses outright — previously a clean preview and a failing
     /// join. It is a blocker now, and only when it actually intersects.
-    #[serial(tug_data_dir)]
     #[test]
     fn preflight_blocks_untracked_base_files_the_arc_would_overwrite() {
-        let (_temp, root) = plain_arc("overwrite-arc");
+        let (_temp, root, paths) = plain_arc("overwrite-arc");
         let worktree = worktree_path(&root, "overwrite-arc");
         fs::create_dir_all(worktree.join("roadmap")).unwrap();
         fs::write(worktree.join("roadmap/plan.md"), TWO_STEP_PLAN).unwrap();
-        commit_in(&root, "overwrite-arc", "add the plan", None).unwrap();
+        commit_in(&paths, &root, "overwrite-arc", "add the plan", None, None).unwrap();
 
         // A disjoint untracked file does not block.
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
-        let clean = join_preflight_in(&root, "overwrite-arc").unwrap();
+        let clean = join_preflight_in(&paths, &root, "overwrite-arc").unwrap();
         assert!(clean.iter().all(|b| b.kind != "base-dirt"), "{clean:?}");
 
         // The same path the arc added does — when it is other content. An
@@ -2733,21 +2762,21 @@ mod tests {
         // refused over, the same as its tracked twin.
         fs::create_dir_all(root.join("roadmap")).unwrap();
         fs::write(root.join("roadmap/plan.md"), TWO_STEP_PLAN).unwrap();
-        let echo = join_preflight_in(&root, "overwrite-arc").unwrap();
+        let echo = join_preflight_in(&paths, &root, "overwrite-arc").unwrap();
         assert!(
             echo.iter().all(|b| b.kind != "base-dirt"),
             "an identical untracked copy is the arc's own bytes: {echo:?}"
         );
 
         fs::write(root.join("roadmap/plan.md"), "somebody else's plan\n").unwrap();
-        let blockers = join_preflight_in(&root, "overwrite-arc").unwrap();
+        let blockers = join_preflight_in(&paths, &root, "overwrite-arc").unwrap();
         let dirt = blockers.iter().find(|b| b.kind == "base-dirt").unwrap();
         assert_eq!(dirt.paths, vec!["roadmap/plan.md".to_string()]);
         assert!(dirt.detail.contains("would be overwritten"), "{:?}", dirt);
 
         // The execute path refuses with the same sentence, rather than a clean
         // preview followed by a squash that fails on the untracked file.
-        let err = join_in(&root, "overwrite-arc", mechanics())
+        let err = join_in(&paths, &root, "overwrite-arc", mechanics())
             .unwrap_err()
             .to_string();
         assert_eq!(err, dirt.detail);
@@ -2756,12 +2785,11 @@ mod tests {
 
     /// The whole point of moving the documents out of the tree: what a join
     /// lands is the work, and the paperwork is not in it.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_planned_arc_lands_a_commit_whose_tree_holds_no_document() {
         let temp = TempDir::new().unwrap();
-        let repo = bare_repo_beside_state(&temp);
-        create_in(&repo, "landing", None, false, None).unwrap();
+        let (repo, paths) = bare_repo_beside_state(&temp);
+        create_in(&paths, &repo, "landing", None, false, None).unwrap();
         let root = fs::canonicalize(&repo).unwrap();
 
         let documents = documents_dir(&root, "landing");
@@ -2771,12 +2799,12 @@ mod tests {
 
         let worktree = worktree_path(&root, "landing");
         fs::write(worktree.join("feature.txt"), "the work\n").unwrap();
-        commit_in(&root, "landing", "add the feature", None).unwrap();
+        commit_in(&paths, &root, "landing", "add the feature", None, None).unwrap();
 
         // Even without a `.gitignore`, `create` kept `.tug/` out of git.
         assert_eq!(git_stdout(&root, &["status", "--porcelain"]).unwrap(), "");
 
-        let out = join_in(&root, "landing", mechanics()).unwrap();
+        let out = join_in(&paths, &root, "landing", mechanics()).unwrap();
         let tree = git_stdout(&root, &["ls-tree", "-r", "HEAD", "--name-only"]).unwrap();
         assert!(tree.contains("feature.txt"), "{tree}");
         assert!(
@@ -2801,8 +2829,10 @@ mod tests {
     //
     // These tests set `TUG_REPO_UNIVERSE` for their own process. That is safe
     // because the workspace runs under `cargo nextest`, which executes one
-    // process per test, and because every test here is `#[serial]` besides —
-    // the same regime `redirect_state_dir` already relies on.
+    // process per test, and because every test here is
+    // `#[serial(tug_repo_universe)]` besides: the universe is the one input
+    // the engine still reads from the environment, through the repo-root
+    // resolver.
 
     /// The join narrates its beats, in the order the code performs them.
     ///
@@ -2815,20 +2845,21 @@ mod tests {
     /// beat names suggest: `record` is the arc log line, which is written
     /// *last*, after the worktree is gone and the branch is deleted, because it
     /// is the terminal record of a join that already happened.
-    #[serial(tug_data_dir, tug_repo_universe)]
+    #[serial(tug_repo_universe)]
     #[test]
     fn test_a_join_narrates_its_beats_and_a_preview_narrates_nothing() {
         let temp = TempDir::new().unwrap();
-        let (_base, universe, _universe) = base_with_universe(&temp);
+        let (_base, universe, _universe, paths) = base_with_universe(&temp);
 
-        create_in(&universe, "narrator", None, false, Some("feature")).unwrap();
+        create_in(&paths, &universe, "narrator", None, false, Some("feature")).unwrap();
         let worktree = universe.join(".tug/worktrees/narrator");
         fs::write(worktree.join("landed.txt"), "from the arc\n").unwrap();
-        commit_in(&universe, "narrator", "r1", None).unwrap();
+        commit_in(&paths, &universe, "narrator", "r1", None, None).unwrap();
 
         // A preview mutates nothing, so it has nothing to narrate.
         let previewed = std::cell::RefCell::new(Vec::<String>::new());
         join_in_with_progress(
+            &paths,
             &universe,
             "narrator",
             JoinOptions {
@@ -2845,9 +2876,13 @@ mod tests {
         );
 
         let beats = std::cell::RefCell::new(Vec::<String>::new());
-        let outcome = join_in_with_progress(&universe, "narrator", mechanics(), |beat, status| {
-            beats.borrow_mut().push(format!("{beat}:{status}"))
-        })
+        let outcome = join_in_with_progress(
+            &paths,
+            &universe,
+            "narrator",
+            mechanics(),
+            |beat, status| beats.borrow_mut().push(format!("{beat}:{status}")),
+        )
         .unwrap();
         assert!(outcome.commit_hash.is_some(), "the squash landed");
 
@@ -2870,25 +2905,25 @@ mod tests {
     /// The whole join runs inside the universe: the preflight reads the
     /// universe's checked-out branch, and the squash lands on it — the base
     /// checkout's HEAD never moves (#landing-mechanics).
-    #[serial(tug_data_dir, tug_repo_universe)]
+    #[serial(tug_repo_universe)]
     #[test]
     fn test_universe_join_lands_on_the_universe_branch() {
         let temp = TempDir::new().unwrap();
-        let (base, universe, _universe) = base_with_universe(&temp);
+        let (base, universe, _universe, paths) = base_with_universe(&temp);
         let base_head_before = rev_parse_at(&base, "HEAD");
 
-        create_in(&universe, "lander", None, false, Some("feature")).unwrap();
+        create_in(&paths, &universe, "lander", None, false, Some("feature")).unwrap();
         let worktree = universe.join(".tug/worktrees/lander");
         fs::write(worktree.join("landed.txt"), "from the arc\n").unwrap();
-        commit_in(&universe, "lander", "r1", None).unwrap();
+        commit_in(&paths, &universe, "lander", "r1", None, None).unwrap();
 
-        let blockers = join_preflight_in(&universe, "lander").unwrap();
+        let blockers = join_preflight_in(&paths, &universe, "lander").unwrap();
         assert!(
             blockers.is_empty(),
             "a coherent universe has nothing to refuse over: {blockers:?}"
         );
 
-        let outcome = join_in(&universe, "lander", mechanics()).unwrap();
+        let outcome = join_in(&paths, &universe, "lander", mechanics()).unwrap();
         assert!(outcome.commit_hash.is_some(), "the squash landed");
         assert_eq!(
             fs::read_to_string(universe.join("landed.txt")).unwrap(),
@@ -2907,21 +2942,29 @@ mod tests {
         assert!(dlog.contains("joined"), "the universe's arc log records it");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_join_full_lifecycle() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "test-arc", Some("Test arc".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("Test arc".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("feature.txt"), "new feature\n").unwrap();
-        commit_in(repo, "test-arc", "Add feature", None).unwrap();
+        commit_in(&paths, repo, "test-arc", "Add feature", None, None).unwrap();
 
         let result = join_in(
+            &paths,
             repo,
             "test-arc",
             JoinOptions {
@@ -2953,20 +2996,20 @@ mod tests {
     /// The route that asked for a join is recorded in the arc log’s
     /// terminal note, so a join is attributable to the CLI or the card after
     /// the fact rather than only to "something".
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_records_the_route_that_asked_for_it() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "routed", None, false, None).unwrap();
+        create_in(&paths, repo, "routed", None, false, None).unwrap();
         fs::write(repo.join(".tug/worktrees/routed/f.txt"), "work\n").unwrap();
-        commit_in(repo, "routed", "Add f", None).unwrap();
+        commit_in(&paths, repo, "routed", "Add f", None, None).unwrap();
 
         join_in(
+            &paths,
             repo,
             "routed",
             JoinOptions {
@@ -2987,14 +3030,13 @@ mod tests {
     /// the machine-global changes ledger (`TUG_CHANGES_DB`) as its squash
     /// message — pins `arc_draft_message` reading
     /// `changes.changeset_drafts`, not the legacy per-instance `sessions.db`.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn test_arc_join_uses_changes_ledger_draft_message() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let mut paths = redirect_state_dir(&home);
 
         // Seed the machine-global draft row under the canonical repo
         // spelling (Spec S05 write contract).
@@ -3014,18 +3056,24 @@ mod tests {
             )
             .unwrap();
         }
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::set_var("TUG_CHANGES_DB", &changes_db);
-        }
+        paths.changes_db = changes_db.clone();
 
-        create_in(repo, "draft-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "draft-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/draft-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "draft-arc", "Add f", None).unwrap();
+        commit_in(&paths, repo, "draft-arc", "Add f", None, None).unwrap();
 
         // Preview first (`/join`'s beat 1): in-memory, clean, mutates nothing.
         let preview = join_in(
+            &paths,
             repo,
             "draft-arc",
             JoinOptions {
@@ -3043,12 +3091,7 @@ mod tests {
         );
 
         // Execute: the squash message comes from the ledger draft.
-        join_in(repo, "draft-arc", mechanics()).unwrap();
-
-        // SAFETY: serial test; clear before the next test resolves the path.
-        unsafe {
-            std::env::remove_var("TUG_CHANGES_DB");
-        }
+        join_in(&paths, repo, "draft-arc", mechanics()).unwrap();
 
         let log = tugcore::test_fixtures::git::command()
             .arg("-C")
@@ -3068,28 +3111,31 @@ mod tests {
     }
 
     /// Round commits and the join/squash commit carry the `Tug-Dash:` trailer
-    /// ([P08], Spec S02). With no `TUG_SESSION_ID` in the environment the
+    /// ([P08], Spec S02). With no session id given the
     /// `Tug-Session:` trailer is omitted (no error).
     /// A join reaches the arc's draft under the id-qualified owner key — the
     /// key writers use once an arc has a creation id ([P01], [P03], Spec S02).
     /// Same fixture as the legacy-key case above; only the key differs.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn test_arc_join_uses_id_keyed_draft_message() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let mut paths = redirect_state_dir(&home);
 
         let changes_db = tugcore::test_fixtures::ledgers(temp.path()).changes_db();
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::set_var("TUG_CHANGES_DB", &changes_db);
-        }
+        paths.changes_db = changes_db.clone();
 
-        let created =
-            create_in(repo, "id-draft-arc", Some("Test".to_string()), false, None).unwrap();
+        let created = create_in(
+            &paths,
+            repo,
+            "id-draft-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let owner_key = created.id.expect("created arc has an owner key");
         assert!(owner_key.contains('#'), "id-qualified: {owner_key}");
 
@@ -3111,9 +3157,9 @@ mod tests {
 
         let worktree = repo.join(".tug/worktrees/id-draft-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "id-draft-arc", "Add f", None).unwrap();
+        commit_in(&paths, repo, "id-draft-arc", "Add f", None, None).unwrap();
 
-        join_in(repo, "id-draft-arc", mechanics()).unwrap();
+        join_in(&paths, repo, "id-draft-arc", mechanics()).unwrap();
 
         let log = tugcore::test_fixtures::git::command()
             .arg("-C")
@@ -3126,11 +3172,6 @@ mod tests {
             body.contains("Land the id-keyed work"),
             "the id-keyed draft is the squash message: {body}"
         );
-
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::remove_var("TUG_CHANGES_DB");
-        }
     }
 
     /// The join the CARD presses is executed by tugcast, which is nobody's
@@ -3142,14 +3183,13 @@ mod tests {
     /// The env is deliberately EMPTY here: this is the server's situation, and
     /// a test that let the env answer would pass without the argument ever
     /// being read.
-    #[serial(tug_data_dir, tug_sessions_db, tug_session_id)]
     #[test]
     fn a_card_join_cites_the_session_the_request_names() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let mut paths = redirect_state_dir(&home);
 
         let line_id = "3c2b1a09-8877-4665-9443-221100ffeedd";
         let session = "9f8e7d6c-5b4a-4392-8281-706f5e4d3c2b";
@@ -3166,18 +3206,23 @@ mod tests {
             .unwrap();
             ledgers.add_session(session, line_id);
         }
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::set_var(tugcore::instance::ENV_SESSIONS_DB, &sessions_db);
-            std::env::remove_var("TUG_SESSION_ID");
-        }
+        paths.sessions_db = sessions_db.clone();
 
-        create_in(repo, "card-join", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "card-join",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/card-join");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "card-join", "Add f", None).unwrap();
+        commit_in(&paths, repo, "card-join", "Add f", None, None).unwrap();
 
         join_in(
+            &paths,
             repo,
             "card-join",
             JoinOptions {
@@ -3194,11 +3239,6 @@ mod tests {
             .output()
             .unwrap();
         let squash = String::from_utf8_lossy(&squash.stdout);
-
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::remove_var(tugcore::instance::ENV_SESSIONS_DB);
-        }
 
         assert!(
             squash.contains("Tug-Session: lean-radio (3c2b1a09)"),
@@ -3218,35 +3258,35 @@ mod tests {
     /// `candidate` fast-forwards the base onto it and tears the arc down
     /// ([P31]). Uses the replay scenario: base advanced to the arc's first
     /// round, so the squash conflicts but replay is clean.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_join_lands_resolved_candidate() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
         // Baseline file the arc and main both evolve.
         fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "seed f"]);
 
-        create_in(repo, "cand", None, false, None).unwrap();
+        create_in(&paths, repo, "cand", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/cand");
         fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(repo, "cand", "r1", None).unwrap();
+        commit_in(&paths, repo, "cand", "r1", None, None).unwrap();
         fs::write(worktree.join("f.txt"), "C\n").unwrap();
-        commit_in(repo, "cand", "r2", None).unwrap();
+        commit_in(&paths, repo, "cand", "r2", None, None).unwrap();
 
         // Main independently advances to the arc's first-round state.
         fs::write(repo.join("f.txt"), "B\n").unwrap();
         git(repo, &["commit", "-am", "main advances to B"]);
 
-        let outcome = crate::resolve::resolve_conflicts(repo, "cand", None).unwrap();
+        let outcome = crate::resolve::resolve_conflicts(&paths, repo, "cand", None).unwrap();
         assert_eq!(outcome.shape, crate::resolve::JoinShape::Replay);
         let candidate = outcome.candidate_commit.clone().expect("candidate");
 
         let landed = join_in(
+            &paths,
             repo,
             "cand",
             JoinOptions {
@@ -3271,19 +3311,18 @@ mod tests {
     /// left on a live branch by an older build must not resurface as a
     /// refusal, and an arc that was never reconciled must not be stranded — a
     /// gate whose escape hatch also went away would be worse than the gate.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_consults_no_verdict_and_a_stale_one_does_not_block_it() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "unverified", None, false, None).unwrap();
+        create_in(&paths, repo, "unverified", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/unverified");
         fs::write(worktree.join("new.txt"), "clean\n").unwrap();
-        commit_in(repo, "unverified", "r1", None).unwrap();
+        commit_in(&paths, repo, "unverified", "r1", None, None).unwrap();
 
         // The residue an older build would have left: a red verdict, in the
         // branch config, naming this arc. Nothing reads it.
@@ -3299,6 +3338,7 @@ mod tests {
 
         // A preview touches nothing and answers a different question.
         let previewed = join_in(
+            &paths,
             repo,
             "unverified",
             JoinOptions {
@@ -3310,7 +3350,7 @@ mod tests {
         assert!(previewed.previewed);
         assert!(previewed.commit_hash.is_none());
 
-        let landed = join_in(repo, "unverified", JoinOptions::default())
+        let landed = join_in(&paths, repo, "unverified", JoinOptions::default())
             .expect("a reconcile-clean arc joins with no verdict anywhere");
         assert!(landed.commit_hash.is_some());
         assert!(!worktree.exists(), "the join really ran");
@@ -3318,28 +3358,27 @@ mod tests {
 
     /// A candidate built against a base head that has since moved must refuse to
     /// land — git's own `--ff-only` is the staleness guard ([P31]).
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_join_stale_candidate_refused() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
         fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "seed f"]);
 
-        create_in(repo, "cand", None, false, None).unwrap();
+        create_in(&paths, repo, "cand", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/cand");
         fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(repo, "cand", "r1", None).unwrap();
+        commit_in(&paths, repo, "cand", "r1", None, None).unwrap();
         fs::write(worktree.join("f.txt"), "C\n").unwrap();
-        commit_in(repo, "cand", "r2", None).unwrap();
+        commit_in(&paths, repo, "cand", "r2", None, None).unwrap();
         fs::write(repo.join("f.txt"), "B\n").unwrap();
         git(repo, &["commit", "-am", "main to B"]);
 
-        let candidate = crate::resolve::resolve_conflicts(repo, "cand", None)
+        let candidate = crate::resolve::resolve_conflicts(&paths, repo, "cand", None)
             .unwrap()
             .candidate_commit
             .expect("candidate");
@@ -3350,6 +3389,7 @@ mod tests {
         git(repo, &["commit", "-m", "base advances again"]);
 
         let err = join_in(
+            &paths,
             repo,
             "cand",
             JoinOptions {
@@ -3367,13 +3407,12 @@ mod tests {
 
     /// Intersection preflight ([P14]): base dirt blocks a join only when it
     /// touches a file the arc also changed; disjoint base dirt joins fine.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_join_intersecting_base_dirt_fails_but_disjoint_joins() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
         // Two tracked files on base.
         for f in ["shared.txt", "other.txt"] {
@@ -3383,14 +3422,14 @@ mod tests {
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
 
         // An arc that changes shared.txt.
-        create_in(repo, "isect", None, false, None).unwrap();
+        create_in(&paths, repo, "isect", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/isect");
         fs::write(worktree.join("shared.txt"), "base\narc change\n").unwrap();
-        commit_in(repo, "isect", "touch shared", None).unwrap();
+        commit_in(&paths, repo, "isect", "touch shared", None, None).unwrap();
 
         // Base dirt on the SAME file the arc changed → refuses, naming it.
         fs::write(repo.join("shared.txt"), "base\nlocal edit\n").unwrap();
-        let blocked = join_in(repo, "isect", mechanics());
+        let blocked = join_in(&paths, repo, "isect", mechanics());
         assert!(blocked.is_err());
         let err = blocked.unwrap_err().to_string();
         assert!(err.contains("differs from this arc"), "{err}");
@@ -3400,7 +3439,7 @@ mod tests {
         // Move the base dirt to a DISJOINT file → the join now succeeds.
         git_output(repo, &["checkout", "--", "shared.txt"]).unwrap();
         fs::write(repo.join("other.txt"), "base\nlocal edit\n").unwrap();
-        let ok = join_in(repo, "isect", mechanics()).unwrap();
+        let ok = join_in(&paths, repo, "isect", mechanics()).unwrap();
         assert!(ok.commit_hash.is_some());
         assert!(!branch_present(repo, "tugarc/isect"));
     }
@@ -3410,11 +3449,10 @@ mod tests {
     /// survived would name a join that did not happen — and once an incomplete
     /// join op *means* a teardown to resume, it would refuse every later join
     /// of this arc with a `--continue` that has nothing to continue.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_conflicted_join_records_no_op() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "clash");
+        let paths = seed_arc_with_a_round(&temp, "clash");
         let repo = temp.path();
 
         // The base edits the same file the arc did, so the squash conflicts.
@@ -3422,16 +3460,16 @@ mod tests {
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "base touches shared"]).unwrap();
 
-        let out = join_in(repo, "clash", mechanics()).unwrap();
+        let out = join_in(&paths, repo, "clash", mechanics()).unwrap();
         assert_eq!(out.conflicts, vec!["shared.txt".to_string()]);
         assert!(out.commit_hash.is_none(), "nothing landed");
 
         assert!(
-            ops_for(repo, "clash").is_empty(),
+            ops_for(&paths, repo, "clash").is_empty(),
             "a join that landed nothing records nothing"
         );
         let root = std::fs::canonicalize(repo).unwrap();
-        let err = crate::oplog::undo_in(&root, Some("clash"))
+        let err = crate::oplog::undo_in(&paths, &root, Some("clash"))
             .unwrap_err()
             .to_string();
         assert!(
@@ -3442,28 +3480,27 @@ mod tests {
 
     /// The same rule on the refusal side: a candidate the base has moved past
     /// never touches the base, so its record goes too.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_stale_candidate_refusal_records_no_op() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
         fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "seed f"]);
 
-        create_in(repo, "stale", None, false, None).unwrap();
+        create_in(&paths, repo, "stale", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/stale");
         fs::write(worktree.join("f.txt"), "B\n").unwrap();
-        commit_in(repo, "stale", "r1", None).unwrap();
+        commit_in(&paths, repo, "stale", "r1", None, None).unwrap();
         fs::write(worktree.join("f.txt"), "C\n").unwrap();
-        commit_in(repo, "stale", "r2", None).unwrap();
+        commit_in(&paths, repo, "stale", "r2", None, None).unwrap();
         fs::write(repo.join("f.txt"), "B\n").unwrap();
         git(repo, &["commit", "-am", "main to B"]);
 
-        let candidate = crate::resolve::resolve_conflicts(repo, "stale", None)
+        let candidate = crate::resolve::resolve_conflicts(&paths, repo, "stale", None)
             .unwrap()
             .candidate_commit
             .expect("candidate");
@@ -3473,6 +3510,7 @@ mod tests {
         git(repo, &["commit", "-m", "base advances again"]);
 
         let err = join_in(
+            &paths,
             repo,
             "stale",
             JoinOptions {
@@ -3484,32 +3522,30 @@ mod tests {
         .to_string();
         assert!(err.contains("stale candidate"), "got: {err}");
         assert!(
-            ops_for(repo, "stale").is_empty(),
+            ops_for(&paths, repo, "stale").is_empty(),
             "and no record survives it"
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn preview_reports_off_base_when_the_root_is_on_another_branch() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "offbase");
+        let paths = seed_arc_with_a_round(&temp, "offbase");
         let repo = temp.path();
 
-        assert!(preview_in(repo, "offbase").blockers.is_empty());
+        assert!(preview_in(&paths, repo, "offbase").blockers.is_empty());
 
         git_output(repo, &["checkout", "-b", "scratch"]).unwrap();
-        let out = preview_in(repo, "offbase");
+        let out = preview_in(&paths, repo, "offbase");
         let b = blocker(&out, "off-base").expect("off-base blocker");
         assert!(b.detail.contains("Check out"), "{}", b.detail);
         assert!(b.paths.is_empty());
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_of_a_join_restores_the_base_the_branch_and_its_config() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "undome");
+        let paths = seed_arc_with_a_round(&temp, "undome");
         let repo = temp.path();
         git_output(
             repo,
@@ -3524,10 +3560,10 @@ mod tests {
         let base_tip = git_stdout(repo, &["rev-parse", "main"]).unwrap();
         let tugid = config_get(repo, &tugid_config_key("undome"));
 
-        join_in(repo, "undome", mechanics()).unwrap();
+        join_in(&paths, repo, "undome", mechanics()).unwrap();
         assert_ne!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_tip);
 
-        let out = crate::oplog::undo_in(repo, None).unwrap();
+        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
 
         assert_eq!(out.verb, crate::oplog::OpVerb::Join);
         assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), base_tip);
@@ -3551,13 +3587,12 @@ mod tests {
         assert!(out.restored_unbound, "rebinding is the user's gesture");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_refuses_when_the_base_moved_since_the_join() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "raced");
+        let paths = seed_arc_with_a_round(&temp, "raced");
         let repo = temp.path();
-        join_in(repo, "raced", mechanics()).unwrap();
+        join_in(&paths, repo, "raced", mechanics()).unwrap();
 
         // Somebody committed on the base after the join. Resetting now would
         // destroy it, so the undo must decline rather than force.
@@ -3566,7 +3601,9 @@ mod tests {
         git_output(repo, &["commit", "-m", "later work"]).unwrap();
         let tip_now = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
-        let err = crate::oplog::undo_in(repo, None).unwrap_err().to_string();
+        let err = crate::oplog::undo_in(&paths, repo, None)
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("tip-moved:"), "{err}");
         assert_eq!(
             git_stdout(repo, &["rev-parse", "main"]).unwrap(),
@@ -3576,53 +3613,57 @@ mod tests {
         assert!(!branch_exists(repo, "tugarc/raced"));
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_is_offered_once_and_says_so_the_second_time() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "twice");
+        let paths = seed_arc_with_a_round(&temp, "twice");
         let repo = temp.path();
-        join_in(repo, "twice", mechanics()).unwrap();
+        join_in(&paths, repo, "twice", mechanics()).unwrap();
 
-        crate::oplog::undo_in(repo, None).unwrap();
-        let err = crate::oplog::undo_in(repo, Some("twice"))
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
+        let err = crate::oplog::undo_in(&paths, repo, Some("twice"))
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("already-undone:"), "{err}");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_refuses_an_operation_that_never_finished() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "halfway");
+        let paths = seed_arc_with_a_round(&temp, "halfway");
         let repo = temp.path();
         let before = crate::oplog::capture_before(repo, "halfway").unwrap();
         let tips = crate::oplog::tips_of(&before);
-        crate::oplog::record_begin(repo, crate::oplog::OpVerb::Join, "halfway", before, &tips)
-            .unwrap();
+        crate::oplog::record_begin(
+            &paths,
+            repo,
+            crate::oplog::OpVerb::Join,
+            "halfway",
+            before,
+            &tips,
+        )
+        .unwrap();
 
-        let err = crate::oplog::undo_in(repo, Some("halfway"))
+        let err = crate::oplog::undo_in(&paths, repo, Some("halfway"))
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("incomplete-op:"), "{err}");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_over_a_live_chain_is_refused_by_name_and_touches_nothing() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "leased");
+        let paths = seed_arc_with_a_round(&temp, "leased");
         let repo = temp.path();
-        let marker = lease_a_parked_conflict(repo, "leased");
+        let marker = lease_a_parked_conflict(&paths, repo, "leased");
 
         // Dirt the sweep would commit, so a refusal below it would be visible.
         let worktree = worktree_path(repo, "leased");
         fs::write(worktree.join("late.txt"), "not yet committed\n").unwrap();
         let arc_tip = git_stdout(repo, &["rev-parse", "tugarc/leased"]).unwrap();
-        let ops_before = crate::oplog::list_ops(repo).len();
+        let ops_before = crate::oplog::list_ops(&paths, repo).len();
 
-        let err = join_in(repo, "leased", mechanics())
+        let err = join_in(&paths, repo, "leased", mechanics())
             .unwrap_err()
             .to_string();
         assert!(err.contains("A resolve may still be running"), "{err}");
@@ -3640,22 +3681,21 @@ mod tests {
             "the refusal is above the dirt sweep, so no round was committed"
         );
         assert_eq!(
-            crate::oplog::list_ops(repo).len(),
+            crate::oplog::list_ops(&paths, repo).len(),
             ops_before,
             "and nothing was recorded"
         );
         assert!(branch_exists(repo, "tugarc/leased"));
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_preview_lists_live_resolve_as_a_blocker() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "leased");
+        let paths = seed_arc_with_a_round(&temp, "leased");
         let repo = temp.path();
-        lease_a_parked_conflict(repo, "leased");
+        lease_a_parked_conflict(&paths, repo, "leased");
 
-        let blockers = join_preflight_in(repo, "leased").unwrap();
+        let blockers = join_preflight_in(&paths, repo, "leased").unwrap();
         let blocker = blockers
             .iter()
             .find(|b| b.kind == "live-resolve")
@@ -3667,18 +3707,18 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn an_ended_lease_does_not_refuse() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "released");
+        let paths = seed_arc_with_a_round(&temp, "released");
         let repo = temp.path();
-        park_conflict(repo, "released");
+        park_conflict(&paths, repo, "released");
         crate::resolve::mark_resolve_begun(repo, "released").unwrap();
         crate::resolve::mark_resolve_ended(repo, "released").unwrap();
 
         let (_, candidate) = resolve_parked_conflict(repo, "released");
         let landed = join_in(
+            &paths,
             repo,
             "released",
             JoinOptions {
@@ -3697,13 +3737,12 @@ mod tests {
     /// The ops path reads `SystemTime::now()` and cannot be handed a clock, and
     /// `git_output` carries no environment, so the marker is backdated at the
     /// point it is written instead.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_aged_out_lease_does_not_refuse() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "stale");
+        let paths = seed_arc_with_a_round(&temp, "stale");
         let repo = temp.path();
-        park_conflict(repo, "stale");
+        park_conflict(&paths, repo, "stale");
 
         let tip = crate::resolve::read_conflict(repo, "stale").unwrap().tip;
         let long_ago = std::time::SystemTime::now()
@@ -3735,6 +3774,7 @@ mod tests {
 
         let (_, candidate) = resolve_parked_conflict(repo, "stale");
         let landed = join_in(
+            &paths,
             repo,
             "stale",
             JoinOptions {
@@ -3748,13 +3788,12 @@ mod tests {
 
     /// The same flag on the join: a chain whose resolver died, on an arc that
     /// now merges cleanly because the base moved on without it.
-    #[serial(tug_data_dir)]
     #[test]
     fn breaking_the_lease_lets_a_join_through() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "forced");
+        let paths = seed_arc_with_a_round(&temp, "forced");
         let repo = temp.path();
-        park_conflict(repo, "forced");
+        park_conflict(&paths, repo, "forced");
         crate::resolve::mark_resolve_begun(repo, "forced").unwrap();
 
         // The base takes its own edit back, so nothing is left to merge around
@@ -3764,7 +3803,7 @@ mod tests {
         git_output(repo, &["commit", "-m", "base backs its edit out"]).unwrap();
         assert!(crate::resolve::resolve_lease(repo, "forced", SystemTime::now()).is_some());
 
-        let refused = join_in(repo, "forced", mechanics())
+        let refused = join_in(&paths, repo, "forced", mechanics())
             .unwrap_err()
             .to_string();
         assert!(
@@ -3773,6 +3812,7 @@ mod tests {
         );
 
         let landed = join_in(
+            &paths,
             repo,
             "forced",
             JoinOptions {
@@ -3792,18 +3832,18 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_keeps_the_conflict_chain_alive_and_undo_puts_the_ref_back() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "chained");
+        let paths = seed_arc_with_a_round(&temp, "chained");
         let repo = temp.path();
-        park_conflict(repo, "chained");
+        park_conflict(&paths, repo, "chained");
         let (chain_tip, candidate) = resolve_parked_conflict(repo, "chained");
 
         // The join tears the arc down, and `clear_candidate` takes the
         // conflict ref with it.
         let landed = join_in(
+            &paths,
             repo,
             "chained",
             JoinOptions {
@@ -3831,7 +3871,7 @@ mod tests {
         .success();
         assert!(alive, "the resolve work outlived the teardown");
 
-        let out = crate::oplog::undo_in(repo, None).unwrap();
+        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
         assert_eq!(out.verb, crate::oplog::OpVerb::Join);
         assert_eq!(
             crate::resolve::read_conflict(repo, "chained").map(|c| c.tip),
@@ -3842,16 +3882,16 @@ mod tests {
 
     /// Never over newer work: a fresh resolve between the join and its undo
     /// owns the ref, and restoring the older chain would destroy it.
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_leaves_a_newer_conflict_chain_alone_and_says_both_tips() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "raced2");
+        let paths = seed_arc_with_a_round(&temp, "raced2");
         let repo = temp.path();
-        park_conflict(repo, "raced2");
+        park_conflict(&paths, repo, "raced2");
         let (old_tip, candidate) = resolve_parked_conflict(repo, "raced2");
 
         join_in(
+            &paths,
             repo,
             "raced2",
             JoinOptions {
@@ -3865,7 +3905,7 @@ mod tests {
         let newer = git_stdout(repo, &["rev-parse", "main"]).unwrap();
         git_output(repo, &["update-ref", "refs/tug/conflict/raced2", &newer]).unwrap();
 
-        let out = crate::oplog::undo_in(repo, None).unwrap();
+        let out = crate::oplog::undo_in(&paths, repo, None).unwrap();
         assert_eq!(
             git_stdout(repo, &["rev-parse", "refs/tug/conflict/raced2"]).unwrap(),
             newer,
@@ -3890,23 +3930,22 @@ mod tests {
     /// takes it away again. The markdown file is the point: under the old
     /// prefix predicate its underline made it permanently unresolvable, so this
     /// drill could not have reached its second line.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_whole_arc_runs_on_one_arc() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
         fs::write(repo.join("doc.md"), "Heading\n=======\n\norig\n").unwrap();
         fs::write(repo.join("code.rs"), "fn main() { orig() }\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
-        create_in(repo, "arc", None, false, None).unwrap();
+        create_in(&paths, repo, "arc", None, false, None).unwrap();
 
         let worktree = repo.join(".tug/worktrees").join("arc");
         fs::write(worktree.join("doc.md"), "Heading\n=======\n\narc\n").unwrap();
         fs::write(worktree.join("code.rs"), "fn main() { arc() }\n").unwrap();
-        commit_in(repo, "arc", "arc edits both", None).unwrap();
+        commit_in(&paths, repo, "arc", "arc edits both", None, None).unwrap();
 
         fs::write(repo.join("doc.md"), "Heading\n=======\n\nbase\n").unwrap();
         fs::write(repo.join("code.rs"), "fn main() { base() }\n").unwrap();
@@ -3915,7 +3954,7 @@ mod tests {
 
         // Both conflict, and the markdown file is one of them — which the old
         // predicate would have made permanently unresolvable.
-        let first = crate::resolve::resolve_conflicts(repo, "arc", None).unwrap();
+        let first = crate::resolve::resolve_conflicts(&paths, repo, "arc", None).unwrap();
         assert_eq!(
             first.unresolved,
             vec!["code.rs".to_string(), "doc.md".to_string()]
@@ -3940,7 +3979,7 @@ mod tests {
         git_output(repo, &["commit", "-m", "unrelated base work"]).unwrap();
 
         // The re-resolve salvages the checkpointed file.
-        let second = crate::resolve::resolve_conflicts(repo, "arc", None).unwrap();
+        let second = crate::resolve::resolve_conflicts(&paths, repo, "arc", None).unwrap();
         assert!(
             second
                 .resolved
@@ -3976,6 +4015,7 @@ mod tests {
         let base_before = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
         join_in(
+            &paths,
             repo,
             "arc",
             JoinOptions {
@@ -4006,7 +4046,7 @@ mod tests {
         );
 
         // Undo restores everything the teardown took.
-        crate::oplog::undo_in(repo, None).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
         assert_eq!(
             git_stdout(repo, &["rev-parse", "main"]).unwrap(),
             base_before
@@ -4022,12 +4062,12 @@ mod tests {
         );
 
         // Redo takes it away again.
-        crate::oplog::redo_in(repo, None).unwrap();
+        crate::oplog::redo_in(&paths, repo, None).unwrap();
         assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), landed);
         assert!(!branch_exists(repo, "tugarc/arc"));
 
         // And the log reads as a coherent history.
-        let ops = crate::oplog::list_ops(repo);
+        let ops = crate::oplog::list_ops(&paths, repo);
         let verbs: Vec<&str> = ops.iter().map(|o| o.verb.as_str()).collect();
         assert_eq!(
             verbs,
@@ -4049,26 +4089,25 @@ mod tests {
     /// re-applies what the undo took away and hands candidacy back to the
     /// original, so the next `undo` press means the join again rather than
     /// descending into the reversal records.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_undone_is_redone_and_undone_again() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "cycle");
+        let paths = seed_arc_with_a_round(&temp, "cycle");
         let repo = temp.path();
         let arc_tip = git_stdout(repo, &["rev-parse", "tugarc/cycle"]).unwrap();
         let base_before = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
-        join_in(repo, "cycle", mechanics()).unwrap();
+        join_in(&paths, repo, "cycle", mechanics()).unwrap();
         let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
-        let undone = crate::oplog::undo_in(repo, None).unwrap();
+        let undone = crate::oplog::undo_in(&paths, repo, None).unwrap();
         assert_eq!(
             git_stdout(repo, &["rev-parse", "main"]).unwrap(),
             base_before
         );
         assert!(branch_exists(repo, "tugarc/cycle"));
 
-        let redone = crate::oplog::redo_in(repo, None).unwrap();
+        let redone = crate::oplog::redo_in(&paths, repo, None).unwrap();
 
         assert_eq!(redone.verb, crate::oplog::OpVerb::Join);
         assert_eq!(redone.original_seq, undone.seq);
@@ -4086,7 +4125,7 @@ mod tests {
 
         // The original is undoable again; the undo is not, because it was
         // redone rather than undone.
-        let ops = crate::oplog::list_ops(repo);
+        let ops = crate::oplog::list_ops(&paths, repo);
         let original = ops.iter().find(|o| o.seq == undone.seq).unwrap();
         assert!(original.undone_by.is_none(), "candidacy handed back");
         let undo_op = ops.iter().find(|o| o.seq == undone.recorded_as).unwrap();
@@ -4100,7 +4139,7 @@ mod tests {
         );
 
         // A second undo press means the join, not the bookkeeping.
-        let again = crate::oplog::undo_in(repo, None).unwrap();
+        let again = crate::oplog::undo_in(&paths, repo, None).unwrap();
         assert_eq!(again.seq, undone.seq, "the same operation, once more");
         assert_eq!(
             git_stdout(repo, &["rev-parse", "main"]).unwrap(),
@@ -4115,15 +4154,14 @@ mod tests {
     /// [L23]: a redo tears the worktree down, so uncommitted work started in
     /// the arc between the undo and the redo would be destroyed. It refuses
     /// and names the paths instead — and changes nothing on the way out.
-    #[serial(tug_data_dir)]
     #[test]
     fn redo_refuses_over_a_dirty_restored_worktree() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "dirty");
+        let paths = seed_arc_with_a_round(&temp, "dirty");
         let repo = temp.path();
-        join_in(repo, "dirty", mechanics()).unwrap();
+        join_in(&paths, repo, "dirty", mechanics()).unwrap();
         let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
-        crate::oplog::undo_in(repo, None).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
         let base_after_undo = git_stdout(repo, &["rev-parse", "main"]).unwrap();
         assert_ne!(base_after_undo, landed);
 
@@ -4131,7 +4169,9 @@ mod tests {
         let worktree = worktree_path(repo, "dirty");
         fs::write(worktree.join("in-progress.txt"), "half a thought\n").unwrap();
 
-        let err = crate::oplog::redo_in(repo, None).unwrap_err().to_string();
+        let err = crate::oplog::redo_in(&paths, repo, None)
+            .unwrap_err()
+            .to_string();
 
         assert!(err.starts_with("worktree-dirty:"), "{err}");
         assert!(
@@ -4150,81 +4190,83 @@ mod tests {
         );
         // The refused redo left no half-written record behind.
         assert!(
-            !crate::oplog::list_ops(repo)
+            !crate::oplog::list_ops(&paths, repo)
                 .iter()
                 .any(|o| o.verb == crate::oplog::OpVerb::Redo),
             "the redo record was abandoned, not left incomplete"
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn redo_refuses_when_the_base_moved_since_the_undo() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "moved");
+        let paths = seed_arc_with_a_round(&temp, "moved");
         let repo = temp.path();
-        join_in(repo, "moved", mechanics()).unwrap();
-        crate::oplog::undo_in(repo, None).unwrap();
+        join_in(&paths, repo, "moved", mechanics()).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
 
         fs::write(repo.join("later.txt"), "landed after the undo\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "later work"]).unwrap();
         let tip_now = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
-        let err = crate::oplog::redo_in(repo, None).unwrap_err().to_string();
+        let err = crate::oplog::redo_in(&paths, repo, None)
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("tip-moved:"), "{err}");
         assert_eq!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), tip_now);
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn redo_refuses_when_a_newer_operation_ran_on_the_arc() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "busy");
+        let paths = seed_arc_with_a_round(&temp, "busy");
         let repo = temp.path();
-        join_in(repo, "busy", mechanics()).unwrap();
-        crate::oplog::undo_in(repo, None).unwrap();
+        join_in(&paths, repo, "busy", mechanics()).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
 
         // A discard on the restored arc is newer work the redo would trample.
-        discard_in(repo, "busy", None, false).unwrap();
+        discard_in(&paths, repo, "busy", None, false).unwrap();
 
-        let err = crate::oplog::redo_in(repo, Some("busy"))
+        let err = crate::oplog::redo_in(&paths, repo, Some("busy"))
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("superseded:"), "{err}");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn redo_with_nothing_to_redo_says_so() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "fresh");
+        let paths = seed_arc_with_a_round(&temp, "fresh");
         let repo = temp.path();
 
-        let err = crate::oplog::redo_in(repo, None).unwrap_err().to_string();
+        let err = crate::oplog::redo_in(&paths, repo, None)
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("nothing-to-redo:"), "{err}");
 
         // And once an undo has been redone, there is nothing left to redo.
-        join_in(repo, "fresh", mechanics()).unwrap();
-        crate::oplog::undo_in(repo, None).unwrap();
-        crate::oplog::redo_in(repo, None).unwrap();
-        let err = crate::oplog::redo_in(repo, None).unwrap_err().to_string();
+        join_in(&paths, repo, "fresh", mechanics()).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
+        crate::oplog::redo_in(&paths, repo, None).unwrap();
+        let err = crate::oplog::redo_in(&paths, repo, None)
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("already-redone:"), "{err}");
     }
 
     /// The reachability claim redo rests on, made falsifiable: the undo records
     /// itself *before* it acts, so its keepalive parents the join's landed
     /// commit — which is why that commit survives its own undo.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_landed_commit_survives_its_undo_through_the_undos_own_keepalive() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "reach");
+        let paths = seed_arc_with_a_round(&temp, "reach");
         let repo = temp.path();
-        join_in(repo, "reach", mechanics()).unwrap();
+        join_in(&paths, repo, "reach", mechanics()).unwrap();
         let landed = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
-        crate::oplog::undo_in(repo, None).unwrap();
+        crate::oplog::undo_in(&paths, repo, None).unwrap();
         assert_ne!(git_stdout(repo, &["rev-parse", "main"]).unwrap(), landed);
 
         let alive = git_output(repo, &["cat-file", "-e", &format!("{landed}^{{commit}}")])
@@ -4236,7 +4278,7 @@ mod tests {
             "no branch points at it, but the undo's keepalive does"
         );
 
-        crate::oplog::redo_in(repo, None).unwrap();
+        crate::oplog::redo_in(&paths, repo, None).unwrap();
         assert_eq!(
             git_stdout(repo, &["rev-parse", "main"]).unwrap(),
             landed,
@@ -4244,26 +4286,26 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_with_nothing_recorded_says_so() {
-        let (_temp, root) = repo_for_create();
-        let err = crate::oplog::undo_in(&root, None).unwrap_err().to_string();
+        let (_temp, root, paths) = repo_for_create();
+        let err = crate::oplog::undo_in(&paths, &root, None)
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("nothing-to-undo:"), "{err}");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_records_an_operation_that_outlives_the_branch_it_deleted() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "recorded");
+        let paths = seed_arc_with_a_round(&temp, "recorded");
         let repo = temp.path();
         let arc_tip = git_stdout(repo, &["rev-parse", "tugarc/recorded"]).unwrap();
         let base_tip = git_stdout(repo, &["rev-parse", "main"]).unwrap();
 
-        let landed = join_in(repo, "recorded", mechanics()).unwrap();
+        let landed = join_in(&paths, repo, "recorded", mechanics()).unwrap();
 
-        let op = crate::oplog::list_ops(repo)
+        let op = crate::oplog::list_ops(&paths, repo)
             .into_iter()
             .find(|o| o.verb == crate::oplog::OpVerb::Join)
             .expect("the join recorded an operation");
@@ -4293,7 +4335,6 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_records_the_arc_tip_including_the_dirt_it_swept() {
         // The join sweeps outstanding worktree changes into a commit before it
@@ -4301,15 +4342,15 @@ mod tests {
         // below that sweep, and an undo would faithfully restore an arc missing
         // the swept work.
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "sweeper");
+        let paths = seed_arc_with_a_round(&temp, "sweeper");
         let repo = temp.path();
         let before_sweep = git_stdout(repo, &["rev-parse", "tugarc/sweeper"]).unwrap();
         let worktree = repo.join(".tug/worktrees/sweeper");
         fs::write(worktree.join("late.txt"), "typed after the round\n").unwrap();
 
-        join_in(repo, "sweeper", mechanics()).unwrap();
+        join_in(&paths, repo, "sweeper", mechanics()).unwrap();
 
-        let op = crate::oplog::list_ops(repo)
+        let op = crate::oplog::list_ops(&paths, repo)
             .into_iter()
             .find(|o| o.verb == crate::oplog::OpVerb::Join)
             .expect("the join recorded an operation");
@@ -4328,14 +4369,14 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn join_outcome_carries_the_message_it_committed() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "msg");
+        let paths = seed_arc_with_a_round(&temp, "msg");
         let repo = temp.path();
 
         let landed = join_in(
+            &paths,
             repo,
             "msg",
             JoinOptions {
@@ -4359,18 +4400,17 @@ mod tests {
     }
 
     /// The precedence a join walks silently, said out loud ([P05], Spec S03).
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn the_landing_preview_names_where_its_words_came_from() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "prov");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "prov");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
         let db = temp.path().join("changes.db");
 
         // Neither a draft nor a description: the generic stand-in, and the
         // preview says so rather than letting it pass as authored.
-        let (message, source) = landing_message_preview(repo, "prov", "tugarc/prov");
+        let (message, source) = landing_message_preview(&paths, repo, "prov", "tugarc/prov");
         assert_eq!(message, "tugarc(prov): Arc work");
         assert_eq!(source, LandingMessageSource::Fallback);
 
@@ -4383,7 +4423,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let (message, source) = landing_message_preview(repo, "prov", "tugarc/prov");
+        let (message, source) = landing_message_preview(&paths, repo, "prov", "tugarc/prov");
         assert_eq!(message, "tugarc(prov): Teach the imposer to breathe");
         assert_eq!(source, LandingMessageSource::Description);
 
@@ -4395,17 +4435,16 @@ mod tests {
             &canonical(repo),
             "tugarc(elsewhere): The words the author chose",
         );
-        let (message, source) = landing_message_preview(repo, "prov", "tugarc/prov");
+        let (message, source) = landing_message_preview(&paths, repo, "prov", "tugarc/prov");
         assert_eq!(message, "tugarc(prov): The words the author chose");
         assert_eq!(source, LandingMessageSource::Draft);
 
         // And the preview is what the join would land, minus the trailers the
         // landing composes against its round set.
-        let landed = integrate_message(repo, "prov", "tugarc/prov", None, None);
+        let landed = integrate_message(&paths, repo, "prov", "tugarc/prov", None, None);
         assert!(landed.starts_with(&message), "{landed}");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn arc_draft_key_is_the_id_qualified_owner_over_the_base_root() {
         let temp = TempDir::new().unwrap();
@@ -4434,12 +4473,11 @@ mod tests {
     /// The pre-fix row shape: `tugtool draft set` ran from inside the worktree
     /// and keyed by its cwd, so the join's base-root probes never matched it.
     /// The bridge finds it until the next authored write supersedes it.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn a_worktree_keyed_row_is_still_found() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "legacy");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "legacy");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
         let db = temp.path().join("changes.db");
 
@@ -4450,17 +4488,16 @@ mod tests {
             "the draft nobody could read",
         );
         assert_eq!(
-            arc_draft_message(repo, "tugarc/legacy").as_deref(),
+            arc_draft_message(&paths, repo, "tugarc/legacy").as_deref(),
             Some("the draft nobody could read")
         );
     }
 
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn the_base_root_row_wins_over_a_worktree_row() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "both");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "both");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
         let db = temp.path().join("changes.db");
         let owner = arc_owner_key(repo, "both");
@@ -4473,7 +4510,7 @@ mod tests {
         );
         seed_draft_row(&db, &owner, &canonical(repo), "the current row");
         assert_eq!(
-            arc_draft_message(repo, "tugarc/both").as_deref(),
+            arc_draft_message(&paths, repo, "tugarc/both").as_deref(),
             Some("the current row")
         );
     }
@@ -4490,12 +4527,11 @@ mod tests {
     /// firmlink, both machine state. The gateway's own firmlink behavior is
     /// pinned in `tugcore::pathform`; what this pins is that the lookup routes
     /// through it, so the two sides cannot drift apart again.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn a_gateway_keyed_row_is_found_from_another_spelling_of_the_root() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "spelled");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "spelled");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
         let db = temp.path().join("changes.db");
 
@@ -4519,7 +4555,7 @@ mod tests {
         let link = elsewhere.path().join("root-by-another-name");
         std::os::unix::fs::symlink(repo, &link).unwrap();
         assert_eq!(
-            arc_draft_message(&link, "tugarc/spelled").as_deref(),
+            arc_draft_message(&paths, &link, "tugarc/spelled").as_deref(),
             Some("the words the author chose")
         );
     }
@@ -4528,15 +4564,15 @@ mod tests {
     /// conventional voice is the common case, and the doubled subject on the
     /// first real join is what the un-idempotent wrap looked like in the
     /// commit log.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn integrate_message_does_not_double_this_arcs_own_prefix() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "idem");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "idem");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
 
         let out = integrate_message(
+            &paths,
             repo,
             "idem",
             "tugarc/idem",
@@ -4554,15 +4590,15 @@ mod tests {
     /// used to preserve it. `tugarc(a): tugarc(b): …` was never a good
     /// subject: the composing side owns the scope, so a body arriving with one
     /// is describing the same work rather than naming a second subject.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn integrate_message_strips_a_foreign_scope() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "mine");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "mine");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
 
         let out = integrate_message(
+            &paths,
             repo,
             "mine",
             "tugarc/mine",
@@ -4575,31 +4611,37 @@ mod tests {
 
     /// The strip reads a *leading* scope only. A subject that merely mentions
     /// the spelling later keeps every character of it.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn integrate_message_leaves_an_inner_mention_alone() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "inner");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "inner");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
 
         let body = "teach the linter about tugarc(name): prefixes";
-        let out = integrate_message(repo, "inner", "tugarc/inner", Some(body.to_string()), None);
+        let out = integrate_message(
+            &paths,
+            repo,
+            "inner",
+            "tugarc/inner",
+            Some(body.to_string()),
+            None,
+        );
         assert!(out.starts_with(&format!("tugarc(inner): {body}")), "{out}");
     }
 
     /// A body that opens with the spelling but is not a scope — no closing
     /// paren, or no `: ` after it — is left whole rather than half-eaten.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn integrate_message_leaves_a_malformed_scope_whole() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "malformed");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "malformed");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
 
         for body in ["tugarc(unclosed work", "tugarc(x) no colon"] {
             let out = integrate_message(
+                &paths,
                 repo,
                 "malformed",
                 "tugarc/malformed",
@@ -4613,15 +4655,15 @@ mod tests {
         }
     }
 
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn integrate_message_wraps_an_unprefixed_body_and_the_bare_fallback() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "plain");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "plain");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
 
         let out = integrate_message(
+            &paths,
             repo,
             "plain",
             "tugarc/plain",
@@ -4632,7 +4674,7 @@ mod tests {
 
         // No override, no draft row (the ledger is an empty tempdir path), and
         // no branch description — the bare fallback, still wrapped once.
-        let fallback = integrate_message(repo, "plain", "tugarc/plain", None, None);
+        let fallback = integrate_message(&paths, repo, "plain", "tugarc/plain", None, None);
         assert!(
             fallback.starts_with("tugarc(plain): Arc work"),
             "{fallback}"
@@ -4646,23 +4688,23 @@ mod tests {
     /// first real arc join is what this looks like broken, and a string
     /// equality is what makes any future writer or reader drift fail loudly
     /// instead of committing someone else's words.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn the_join_commits_the_authored_draft_byte_for_byte() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "pinned");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "pinned");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
         let db = temp.path().join("changes.db");
 
         let draft = "the subject the author wrote\n\nA body paragraph that must survive intact,\nincluding its own line breaks.";
         seed_draft_row(&db, &arc_owner_key(repo, "pinned"), &canonical(repo), draft);
 
-        let landed = join_in(repo, "pinned", mechanics()).unwrap();
+        let landed = join_in(&paths, repo, "pinned", mechanics()).unwrap();
         let sha = landed.commit_hash.expect("a landed join has a commit");
         let committed = git_stdout(repo, &["log", "-1", "--format=%B", &sha]).unwrap();
 
         let expected = with_arc_trailers(
+            &paths,
             repo,
             "pinned",
             "tugarc/pinned",
@@ -4675,12 +4717,11 @@ mod tests {
 
     /// A draft authored in the conventional voice — which is how a skill writes
     /// one — lands with the subject scoped exactly once.
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn a_draft_that_already_carries_the_prefix_lands_it_once() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "once");
-        isolate_changes_db(&temp);
+        let mut paths = seed_arc_with_a_round(&temp, "once");
+        isolate_changes_db(&mut paths, &temp);
         let repo = temp.path();
         let db = temp.path().join("changes.db");
 
@@ -4691,7 +4732,7 @@ mod tests {
             "tugarc(once): the authored subject",
         );
 
-        let landed = join_in(repo, "once", mechanics()).unwrap();
+        let landed = join_in(&paths, repo, "once", mechanics()).unwrap();
         let sha = landed.commit_hash.expect("a landed join has a commit");
         let committed = git_stdout(repo, &["log", "-1", "--format=%B", &sha]).unwrap();
 
@@ -4706,11 +4747,10 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn preflight_asked_from_a_linked_worktree_answers_about_the_main_root() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "linked");
+        let paths = seed_arc_with_a_round(&temp, "linked");
         let repo = temp.path();
         let worktree = repo.join(".tug/worktrees/linked");
 
@@ -4718,16 +4758,19 @@ mod tests {
         // not the base. Asking from there must still answer about the
         // repository — a card whose project *is* a worktree would otherwise
         // read every arc as off-base while the CLI beside it reports clean.
-        let from_worktree = join_preflight_in(&worktree, "linked").unwrap();
+        let from_worktree = join_preflight_in(&paths, &worktree, "linked").unwrap();
         assert!(from_worktree.is_empty(), "{from_worktree:?}");
-        assert!(join_preflight_in(repo, "linked").unwrap().is_empty());
+        assert!(
+            join_preflight_in(&paths, repo, "linked")
+                .unwrap()
+                .is_empty()
+        );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn preview_reports_intersecting_base_dirt_and_names_the_paths() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "dirt");
+        let paths = seed_arc_with_a_round(&temp, "dirt");
         let repo = temp.path();
         fs::write(repo.join("other.txt"), "base\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
@@ -4735,7 +4778,7 @@ mod tests {
 
         // Dirt on a file the arc also changed → blocked, and named.
         fs::write(repo.join("shared.txt"), "base\nlocal edit\n").unwrap();
-        let out = preview_in(repo, "dirt");
+        let out = preview_in(&paths, repo, "dirt");
         let b = blocker(&out, "base-dirt").expect("base-dirt blocker");
         assert_eq!(b.paths, vec!["shared.txt".to_string()]);
         assert!(b.detail.contains("shared.txt"), "{}", b.detail);
@@ -4743,18 +4786,17 @@ mod tests {
         // Disjoint dirt → no blocker.
         git_output(repo, &["checkout", "--", "shared.txt"]).unwrap();
         fs::write(repo.join("other.txt"), "base\nlocal edit\n").unwrap();
-        assert!(blocker(&preview_in(repo, "dirt"), "base-dirt").is_none());
+        assert!(blocker(&preview_in(&paths, repo, "dirt"), "base-dirt").is_none());
     }
 
     /// A conflict names a file; the archaeology names what the base did to it.
     /// Only the base commits that touched the conflicted path may appear, and
     /// they appear newest first — a list including the untouching commit would
     /// be worse than none, since the reader would be reading the wrong history.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_conflicted_preview_names_the_base_commits_behind_each_path() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "digs");
+        let paths = seed_arc_with_a_round(&temp, "digs");
         let repo = temp.path();
 
         // Two base commits touch the file the arc also changed, and one does
@@ -4769,7 +4811,7 @@ mod tests {
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "base touches shared again"]).unwrap();
 
-        let out = preview_in(repo, "digs");
+        let out = preview_in(&paths, repo, "digs");
         assert_eq!(out.conflicts, vec!["shared.txt".to_string()]);
         assert_eq!(out.archaeology.len(), 1, "one conflicted path, one history");
         let history = &out.archaeology[0];
@@ -4789,11 +4831,10 @@ mod tests {
 
     /// The cap bounds what the face renders; `total` is what it counts. A cap
     /// that also truncated the count would make "+N earlier" a lie.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_long_base_history_is_capped_but_still_counted() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "deep");
+        let paths = seed_arc_with_a_round(&temp, "deep");
         let repo = temp.path();
 
         for n in 0..(ARCHAEOLOGY_CAP + 3) {
@@ -4802,7 +4843,7 @@ mod tests {
             git_output(repo, &["commit", "-m", &format!("base edit {n}")]).unwrap();
         }
 
-        let history = &preview_in(repo, "deep").archaeology[0];
+        let history = &preview_in(&paths, repo, "deep").archaeology[0];
         assert_eq!(history.commits.len(), ARCHAEOLOGY_CAP);
         assert_eq!(history.total, (ARCHAEOLOGY_CAP + 3) as u32);
         assert_eq!(
@@ -4814,24 +4855,24 @@ mod tests {
 
     /// Pins the ordering: the preview arm sits above the stale-journal guard,
     /// so an arc mid-teardown previews with a blocker instead of erroring.
-    #[serial(tug_data_dir)]
     #[test]
     fn preview_reports_a_stale_journal() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "journalled");
+        let paths = seed_arc_with_a_round(&temp, "journalled");
         let repo = temp.path();
 
         // The record's state dir is slugged from the repo's *canonical* path,
         // which on macOS is `/private/var/…` where a TempDir reads `/var/…`.
         let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
         seed_interrupted_join(
+            &paths,
             repo,
             "journalled",
             crate::oplog::JoinPhase::Integrated,
             &head,
         );
 
-        let out = preview_in(repo, "journalled");
+        let out = preview_in(&paths, repo, "journalled");
         let b = blocker(&out, "stale-journal").expect("stale-journal blocker");
         assert!(b.detail.contains("--continue"), "{}", b.detail);
         assert!(
@@ -4845,28 +4886,40 @@ mod tests {
     /// mean "a previous join is incomplete" — for the whole squash-to-record
     /// window it means the opposite. The holder is what tells the two apart,
     /// and the blocked sentence is false in every clause while a join runs.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_live_join_is_not_a_stale_journal() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "inflight");
+        let paths = seed_arc_with_a_round(&temp, "inflight");
         let repo = temp.path();
 
         let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        seed_interrupted_join(repo, "inflight", crate::oplog::JoinPhase::Integrated, &head);
+        seed_interrupted_join(
+            &paths,
+            repo,
+            "inflight",
+            crate::oplog::JoinPhase::Integrated,
+            &head,
+        );
 
-        let detail = arc_detail_entry_in(repo, "inflight").expect("detail");
+        let detail = arc_detail_entry_in(&paths, repo, "inflight").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
 
-        let unheld = join_blockers_from_detail(repo, &detail, &current, None, &BTreeMap::new());
+        let unheld =
+            join_blockers_from_detail(&paths, repo, &detail, &current, None, &BTreeMap::new());
         assert!(
             unheld.iter().any(|b| b.kind == "stale-journal"),
             "a teardown nobody holds is stale and must refuse: {:?}",
             unheld.iter().map(|b| &b.kind).collect::<Vec<_>>()
         );
 
-        let held =
-            join_blockers_from_detail(repo, &detail, &current, Some("join"), &BTreeMap::new());
+        let held = join_blockers_from_detail(
+            &paths,
+            repo,
+            &detail,
+            &current,
+            Some("join"),
+            &BTreeMap::new(),
+        );
         assert!(
             !held.iter().any(|b| b.kind == "stale-journal"),
             "a join holding the arc opened that record: {:?}",
@@ -4875,8 +4928,14 @@ mod tests {
 
         // A *resolve* holder does not excuse it: it would be running over a
         // crashed join's leavings, and the refusal is still right.
-        let resolving =
-            join_blockers_from_detail(repo, &detail, &current, Some("resolve"), &BTreeMap::new());
+        let resolving = join_blockers_from_detail(
+            &paths,
+            repo,
+            &detail,
+            &current,
+            Some("resolve"),
+            &BTreeMap::new(),
+        );
         assert!(
             resolving.iter().any(|b| b.kind == "stale-journal"),
             "{:?}",
@@ -4893,32 +4952,30 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn preview_reports_empty_for_a_arc_with_no_rounds() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
         fs::write(repo.join("shared.txt"), "base\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
-        create_in(repo, "hollow", None, false, None).unwrap();
+        create_in(&paths, repo, "hollow", None, false, None).unwrap();
 
-        assert!(blocker(&preview_in(repo, "hollow"), "empty").is_some());
+        assert!(blocker(&preview_in(&paths, repo, "hollow"), "empty").is_some());
 
         let worktree = repo.join(".tug/worktrees/hollow");
         fs::write(worktree.join("shared.txt"), "base\nround\n").unwrap();
-        commit_in(repo, "hollow", "a round", None).unwrap();
-        assert!(blocker(&preview_in(repo, "hollow"), "empty").is_none());
+        commit_in(&paths, repo, "hollow", "a round", None, None).unwrap();
+        assert!(blocker(&preview_in(&paths, repo, "hollow"), "empty").is_none());
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_clean_arc_previews_with_no_blockers() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "clean");
-        let out = preview_in(temp.path(), "clean");
+        let paths = seed_arc_with_a_round(&temp, "clean");
+        let out = preview_in(&paths, temp.path(), "clean");
         assert!(out.previewed);
         assert!(out.conflicts.is_empty());
         assert!(out.blockers.is_empty(), "{:?}", out.blockers);
@@ -4926,17 +4983,18 @@ mod tests {
 
     /// Every blocker's `detail` is the sentence the execute path refuses with,
     /// so the preview and the land read identically ([P02]).
-    #[serial(tug_data_dir)]
     #[test]
     fn preflight_and_the_execute_path_agree() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "agree");
+        let paths = seed_arc_with_a_round(&temp, "agree");
         let repo = temp.path();
 
         let assert_agrees = |kind: &str| {
-            let out = preview_in(repo, "agree");
+            let out = preview_in(&paths, repo, "agree");
             let b = blocker(&out, kind).unwrap_or_else(|| panic!("expected a {kind} blocker"));
-            let err = join_in(repo, "agree", mechanics()).unwrap_err().to_string();
+            let err = join_in(&paths, repo, "agree", mechanics())
+                .unwrap_err()
+                .to_string();
             assert_eq!(err, b.detail, "{kind}");
         };
 
@@ -4953,32 +5011,45 @@ mod tests {
         // stale-journal
         let root = std::fs::canonicalize(repo).unwrap();
         let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        let seq = seed_interrupted_join(repo, "agree", crate::oplog::JoinPhase::Integrated, &head);
+        let seq = seed_interrupted_join(
+            &paths,
+            repo,
+            "agree",
+            crate::oplog::JoinPhase::Integrated,
+            &head,
+        );
         assert_agrees("stale-journal");
-        crate::oplog::abandon(&root, seq);
+        crate::oplog::abandon(&paths, &root, seq);
 
         // empty — an arc of its own, since the one above has a round.
-        create_in(&root, "agree2", None, false, None).unwrap();
-        let out = preview_in(&root, "agree2");
+        create_in(&paths, &root, "agree2", None, false, None).unwrap();
+        let out = preview_in(&paths, &root, "agree2");
         let b = blocker(&out, "empty").expect("empty blocker");
-        let err = join_in(&root, "agree2", mechanics())
+        let err = join_in(&paths, &root, "agree2", mechanics())
             .unwrap_err()
             .to_string();
         assert_eq!(err, b.detail);
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_join_wrong_branch_fails() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        create_in(repo, "test-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         git(repo, &["checkout", "-b", "feature"]);
 
-        let result = join_in(repo, "test-arc", mechanics());
+        let result = join_in(&paths, repo, "test-arc", mechanics());
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("on branch 'feature'"));
@@ -4986,22 +5057,29 @@ mod tests {
         assert_eq!(checked_out_branch(repo), "feature");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_join_already_gone_fails() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        create_in(repo, "test-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
-        commit_in(repo, "test-arc", "Add test", None).unwrap();
-        join_in(repo, "test-arc", mechanics()).unwrap();
+        commit_in(&paths, repo, "test-arc", "Add test", None, None).unwrap();
+        join_in(&paths, repo, "test-arc", mechanics()).unwrap();
 
         // Joining again fails: the branch no longer exists.
-        let result = join_in(repo, "test-arc", mechanics());
+        let result = join_in(&paths, repo, "test-arc", mechanics());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
@@ -5030,11 +5108,11 @@ mod tests {
 
     // --- the join's plan sweep ---------------------------------------------
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_join_merge_strategy_makes_a_merge_commit() {
-        let (_temp, repo) = repo_with_committed_arc("mrg");
+        let (_temp, repo, paths) = repo_with_committed_arc("mrg");
         let out = join_in(
+            &paths,
             &repo,
             "mrg",
             JoinOptions {
@@ -5065,13 +5143,12 @@ mod tests {
     /// candidate here is deliberately the arc branch tip — the exact shape rung
     /// 1 hands back — so this fails on the old code no matter what the ladder
     /// decides.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_join_squashes_a_multi_commit_candidate_into_one_commit() {
-        let (_temp, repo) = repo_with_committed_arc("cand");
+        let (_temp, repo, paths) = repo_with_committed_arc("cand");
         let worktree = repo.join(".tug/worktrees/cand");
         fs::write(worktree.join("g.txt"), "second\n").unwrap();
-        commit_in(&repo, "cand", "cand-round-2", None).unwrap();
+        commit_in(&paths, &repo, "cand", "cand-round-2", None, None).unwrap();
 
         let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
         let candidate = git_stdout(&repo, &["rev-parse", "tugarc/cand"]).unwrap();
@@ -5079,6 +5156,7 @@ mod tests {
         assert_eq!(rounds, "2", "the candidate really is a chain");
 
         let out = join_in(
+            &paths,
             &repo,
             "cand",
             JoinOptions {
@@ -5108,17 +5186,17 @@ mod tests {
     /// The one strategy that asks for the candidate's own history keeps it —
     /// `rebase` is an explicit opt-in to a linear land, and the fix above must
     /// not quietly take it away.
-    #[serial(tug_data_dir)]
     #[test]
     fn test_join_rebase_keeps_a_candidates_own_commits() {
-        let (_temp, repo) = repo_with_committed_arc("candrb");
+        let (_temp, repo, paths) = repo_with_committed_arc("candrb");
         let worktree = repo.join(".tug/worktrees/candrb");
         fs::write(worktree.join("g.txt"), "second\n").unwrap();
-        commit_in(&repo, "candrb", "candrb-round-2", None).unwrap();
+        commit_in(&paths, &repo, "candrb", "candrb-round-2", None, None).unwrap();
 
         let before = git_stdout(&repo, &["rev-parse", "HEAD"]).unwrap();
         let candidate = git_stdout(&repo, &["rev-parse", "tugarc/candrb"]).unwrap();
         join_in(
+            &paths,
             &repo,
             "candrb",
             JoinOptions {
@@ -5136,11 +5214,11 @@ mod tests {
         assert_eq!(subject, "candrb-round-2", "and keep their own messages");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_join_rebase_strategy_is_linear() {
-        let (_temp, repo) = repo_with_committed_arc("rb");
+        let (_temp, repo, paths) = repo_with_committed_arc("rb");
         join_in(
+            &paths,
             &repo,
             "rb",
             JoinOptions {
@@ -5160,23 +5238,22 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_join_preview_reports_conflicts_without_touching_tree() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
         // A tracked file both sides will edit on the same line.
         fs::write(repo.join("conflict.txt"), "line1\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
 
-        create_in(repo, "pv", None, false, None).unwrap();
+        create_in(&paths, repo, "pv", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/pv");
         fs::write(worktree.join("conflict.txt"), "arc line\n").unwrap();
-        commit_in(repo, "pv", "arc edit", None).unwrap();
+        commit_in(&paths, repo, "pv", "arc edit", None, None).unwrap();
 
         // Base advances with a conflicting edit to the same line.
         fs::write(repo.join("conflict.txt"), "base line\n").unwrap();
@@ -5184,6 +5261,7 @@ mod tests {
         let base_head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
 
         let preview = join_in(
+            &paths,
             repo,
             "pv",
             JoinOptions {
@@ -5205,7 +5283,6 @@ mod tests {
         assert_eq!(git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(), base_head);
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_join_continue_resumes_teardown() {
         // Simulate a crash right after the integrate commit: an open join
@@ -5216,12 +5293,12 @@ mod tests {
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "resume", None, false, None).unwrap();
+        create_in(&paths, repo, "resume", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/resume");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "resume", "add f", None).unwrap();
+        commit_in(&paths, repo, "resume", "add f", None, None).unwrap();
 
         // Do the integrate by hand, then record it as if we crashed next.
         git_output(repo, &["merge", "--squash", "tugarc/resume"]).unwrap();
@@ -5230,13 +5307,20 @@ mod tests {
         // `join` resolves the repo via `find_repo_root` (canonical), so the
         // record must be written to the canonical state dir to be found.
         let canon = fs::canonicalize(repo).unwrap();
-        let seq = seed_interrupted_join(repo, "resume", crate::oplog::JoinPhase::Integrated, &head);
+        let seq = seed_interrupted_join(
+            &paths,
+            repo,
+            "resume",
+            crate::oplog::JoinPhase::Integrated,
+            &head,
+        );
         assert!(worktree.exists());
         assert!(branch_present(repo, "tugarc/resume"));
 
         // A plain join now refuses (a join is in flight); --continue resumes.
-        assert!(join_in(repo, "resume", mechanics()).is_err());
+        assert!(join_in(&paths, repo, "resume", mechanics()).is_err());
         let out = join_in(
+            &paths,
             repo,
             "resume",
             JoinOptions {
@@ -5252,10 +5336,10 @@ mod tests {
             "branch deleted on continue"
         );
         assert!(
-            crate::oplog::join_in_flight(&canon, "resume").is_none(),
+            crate::oplog::join_in_flight(&paths, &canon, "resume").is_none(),
             "the record is complete, so nothing is in flight"
         );
-        let op = crate::oplog::read_op(&canon, seq).expect("the record is still there");
+        let op = crate::oplog::read_op(&paths, &canon, seq).expect("the record is still there");
         assert!(
             op.after.is_some(),
             "and it completed rather than being dropped"
@@ -5271,7 +5355,6 @@ mod tests {
 
     /// The resumability guarantee, one phase at a time: entering the teardown
     /// at any of its three states finishes the join and finishes it once.
-    #[serial(tug_data_dir)]
     #[test]
     fn continue_resumes_from_each_phase() {
         for phase in [
@@ -5283,12 +5366,12 @@ mod tests {
             let repo = temp.path();
             let home = temp.path().join("state");
             init_git_repo(repo);
-            redirect_state_dir(&home);
+            let paths = redirect_state_dir(&home);
 
-            create_in(repo, "phased", None, false, None).unwrap();
+            create_in(&paths, repo, "phased", None, false, None).unwrap();
             let worktree = repo.join(".tug/worktrees/phased");
             fs::write(worktree.join("f.txt"), "x\n").unwrap();
-            commit_in(repo, "phased", "add f", None).unwrap();
+            commit_in(&paths, repo, "phased", "add f", None, None).unwrap();
 
             // The integrate by hand, then the git state each phase implies —
             // the record says what has already happened, so the tree must
@@ -5296,17 +5379,18 @@ mod tests {
             git_output(repo, &["merge", "--squash", "tugarc/phased"]).unwrap();
             git_output(repo, &["commit", "-m", "tugarc(phased): add f"]).unwrap();
             let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-            let seq = seed_interrupted_join(repo, "phased", phase, &head);
+            let seq = seed_interrupted_join(&paths, repo, "phased", phase, &head);
             let canon = fs::canonicalize(repo).unwrap();
             if phase != crate::oplog::JoinPhase::Integrated {
                 let mut warnings = Vec::new();
-                remove_arc_worktree(repo, "tugarc/phased", &worktree, &mut warnings);
+                remove_arc_worktree(&paths, repo, "tugarc/phased", &worktree, &mut warnings);
             }
             if phase == crate::oplog::JoinPhase::BranchDeleted {
                 git_output(repo, &["branch", "-D", "tugarc/phased"]).unwrap();
             }
 
             let out = join_in(
+                &paths,
                 repo,
                 "phased",
                 JoinOptions {
@@ -5328,7 +5412,7 @@ mod tests {
             );
             let dlog = fs::read_to_string(arc_log_path(&home, repo)).unwrap();
             assert!(dlog.contains("joined"), "{phase:?}: arc log records it");
-            let op = crate::oplog::read_op(&canon, seq).expect("the record");
+            let op = crate::oplog::read_op(&paths, &canon, seq).expect("the record");
             assert_eq!(
                 op.after.unwrap().landed_commit.as_deref(),
                 Some(head.as_str())
@@ -5344,14 +5428,14 @@ mod tests {
     /// Once a join is finished there is nothing in flight, so the second press
     /// is refused by name rather than re-running a teardown over an arc that no
     /// longer exists.
-    #[serial(tug_data_dir)]
     #[test]
     fn continue_twice_is_a_named_refusal() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "twice");
+        let paths = seed_arc_with_a_round(&temp, "twice");
 
-        join_in(temp.path(), "twice", mechanics()).unwrap();
+        join_in(&paths, temp.path(), "twice", mechanics()).unwrap();
         let err = join_in(
+            &paths,
             temp.path(),
             "twice",
             JoinOptions {
@@ -5366,16 +5450,15 @@ mod tests {
 
     /// The record the journal never was: after a clean join, how the teardown
     /// went is still readable beside what it landed.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_finished_join_keeps_its_progress_on_the_record() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "receipt");
+        let paths = seed_arc_with_a_round(&temp, "receipt");
         let repo = temp.path();
         let canon = fs::canonicalize(repo).unwrap();
 
-        let out = join_in(repo, "receipt", mechanics()).unwrap();
-        let op = crate::oplog::list_ops(&canon)
+        let out = join_in(&paths, repo, "receipt", mechanics()).unwrap();
+        let op = crate::oplog::list_ops(&paths, &canon)
             .into_iter()
             .find(|op| op.arc == "receipt" && op.verb == crate::oplog::OpVerb::Join)
             .expect("the join recorded itself");
@@ -5385,7 +5468,7 @@ mod tests {
         assert_eq!(Some(progress.commit_hash), out.commit_hash);
         assert_eq!(progress.strategy, "squash");
         assert!(
-            crate::oplog::join_in_flight(&canon, "receipt").is_none(),
+            crate::oplog::join_in_flight(&paths, &canon, "receipt").is_none(),
             "a completed record is not a teardown to resume"
         );
     }
@@ -5393,32 +5476,38 @@ mod tests {
     /// Undo's refusal is a property of the payload, and the fold leaves it
     /// exactly where it was: an operation mid-teardown has no `after`, so it is
     /// refused by name until `--continue` gives it one.
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_refuses_a_join_mid_teardown_then_reverses_it_once_continued() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "halfway", None, false, None).unwrap();
+        create_in(&paths, repo, "halfway", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/halfway");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "halfway", "add f", None).unwrap();
+        commit_in(&paths, repo, "halfway", "add f", None, None).unwrap();
 
         git_output(repo, &["merge", "--squash", "tugarc/halfway"]).unwrap();
         git_output(repo, &["commit", "-m", "tugarc(halfway): add f"]).unwrap();
         let head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        seed_interrupted_join(repo, "halfway", crate::oplog::JoinPhase::Integrated, &head);
+        seed_interrupted_join(
+            &paths,
+            repo,
+            "halfway",
+            crate::oplog::JoinPhase::Integrated,
+            &head,
+        );
         let canon = fs::canonicalize(repo).unwrap();
 
-        let err = crate::oplog::undo_in(&canon, Some("halfway"))
+        let err = crate::oplog::undo_in(&paths, &canon, Some("halfway"))
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("incomplete-op:"), "got {err}");
 
         join_in(
+            &paths,
             repo,
             "halfway",
             JoinOptions {
@@ -5427,7 +5516,8 @@ mod tests {
             },
         )
         .unwrap();
-        let undone = crate::oplog::undo_in(&canon, Some("halfway")).expect("now it reverses");
+        let undone =
+            crate::oplog::undo_in(&paths, &canon, Some("halfway")).expect("now it reverses");
         assert_eq!(undone.verb, crate::oplog::OpVerb::Join);
         assert!(branch_present(repo, "tugarc/halfway"), "the arc is back");
     }
@@ -5436,21 +5526,20 @@ mod tests {
     /// card uses and the preflight the CLI uses — the anti-drift pin. Two
     /// definitions of "what refuses a join" is how the card and the terminal
     /// came to disagree in the first place.
-    #[serial(tug_data_dir)]
     #[test]
     fn composed_blockers_match_the_preflight_for_every_kind() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "kinds");
+        let paths = seed_arc_with_a_round(&temp, "kinds");
         let repo = temp.path();
 
         let composed = || {
-            let detail = arc_detail_entry_in(repo, "kinds").expect("detail");
+            let detail = arc_detail_entry_in(&paths, repo, "kinds").expect("detail");
             let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
-            join_blockers_from_detail(repo, &detail, &current, None, &BTreeMap::new())
+            join_blockers_from_detail(&paths, repo, &detail, &current, None, &BTreeMap::new())
         };
         let same = |label: &str| {
             let a = composed();
-            let b = join_preflight_in(repo, "kinds").unwrap();
+            let b = join_preflight_in(&paths, repo, "kinds").unwrap();
             assert_eq!(
                 a.iter().map(|x| &x.kind).collect::<Vec<_>>(),
                 b.iter().map(|x| &x.kind).collect::<Vec<_>>(),
@@ -5480,7 +5569,7 @@ mod tests {
         // the untracked *overwrite* case rather than unrelated base dirt.
         let worktree = repo.join(".tug/worktrees/kinds");
         fs::write(worktree.join("fresh.txt"), "from the arc\n").unwrap();
-        commit_in(repo, "kinds", "add fresh", None).unwrap();
+        commit_in(&paths, repo, "kinds", "add fresh", None, None).unwrap();
         fs::write(repo.join("fresh.txt"), "untracked on base\n").unwrap();
         assert!(
             same("untracked overlap")
@@ -5496,6 +5585,7 @@ mod tests {
 
         // stale-journal.
         let seq = seed_interrupted_join(
+            &paths,
             repo,
             "kinds",
             crate::oplog::JoinPhase::Integrated,
@@ -5506,25 +5596,32 @@ mod tests {
                 .iter()
                 .any(|b| b.kind == "stale-journal")
         );
-        crate::oplog::abandon(&fs::canonicalize(repo).unwrap(), seq);
+        crate::oplog::abandon(&paths, &fs::canonicalize(repo).unwrap(), seq);
 
         // empty: an arc with no rounds and no tracked worktree dirt.
-        create_in(repo, "hollow", None, false, None).unwrap();
-        let hollow_detail = arc_detail_entry_in(repo, "hollow").expect("detail");
+        create_in(&paths, repo, "hollow", None, false, None).unwrap();
+        let hollow_detail = arc_detail_entry_in(&paths, repo, "hollow").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
         assert_eq!(
-            join_blockers_from_detail(repo, &hollow_detail, &current, None, &BTreeMap::new())
-                .iter()
-                .map(|b| &b.kind)
-                .collect::<Vec<_>>(),
-            join_preflight_in(repo, "hollow")
+            join_blockers_from_detail(
+                &paths,
+                repo,
+                &hollow_detail,
+                &current,
+                None,
+                &BTreeMap::new()
+            )
+            .iter()
+            .map(|b| &b.kind)
+            .collect::<Vec<_>>(),
+            join_preflight_in(&paths, repo, "hollow")
                 .unwrap()
                 .iter()
                 .map(|b| &b.kind)
                 .collect::<Vec<_>>(),
         );
         assert!(
-            join_preflight_in(repo, "hollow")
+            join_preflight_in(&paths, repo, "hollow")
                 .unwrap()
                 .iter()
                 .any(|b| b.kind == "empty")
@@ -5535,11 +5632,10 @@ mod tests {
     /// moving. This is the exact defect a `(base_sha, arc_head_sha)` cache
     /// would hide: both SHAs are unchanged across the whole test, and the right
     /// answer changes twice.
-    #[serial(tug_data_dir)]
     #[test]
     fn blockers_track_dirt_that_moves_no_sha() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "nosha");
+        let paths = seed_arc_with_a_round(&temp, "nosha");
         let repo = temp.path();
 
         let heads = || {
@@ -5549,10 +5645,10 @@ mod tests {
             )
         };
         let before = heads();
-        assert!(join_preflight_in(repo, "nosha").unwrap().is_empty());
+        assert!(join_preflight_in(&paths, repo, "nosha").unwrap().is_empty());
 
         fs::write(repo.join("shared.txt"), "base\nlocal edit\n").unwrap();
-        let dirty = join_preflight_in(repo, "nosha").unwrap();
+        let dirty = join_preflight_in(&paths, repo, "nosha").unwrap();
         assert!(
             dirty.iter().any(|b| b.kind == "base-dirt"),
             "dirt on an overlapping path blocks"
@@ -5561,7 +5657,7 @@ mod tests {
 
         git_output(repo, &["checkout", "--", "shared.txt"]).unwrap();
         assert!(
-            join_preflight_in(repo, "nosha").unwrap().is_empty(),
+            join_preflight_in(&paths, repo, "nosha").unwrap().is_empty(),
             "cleaning the checkout clears the blocker"
         );
         assert_eq!(before, heads(), "still no SHA moved");
@@ -5571,17 +5667,16 @@ mod tests {
     /// that they are there. A base copy holding exactly what the arc carries
     /// is `identical`, and everything downstream turns on that being read from
     /// the objects rather than assumed from the fact of the dirt.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_overlap_says_whether_the_base_copy_is_the_arcs_own_bytes() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "relation");
+        let paths = seed_arc_with_a_round(&temp, "relation");
         let repo = temp.path();
 
         // The base's copy IS the arc's version, to the byte — the shape a
         // note written on main from the arc's own work leaves behind.
         fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
-        let detail = arc_detail_entry_in(repo, "relation").expect("detail");
+        let detail = arc_detail_entry_in(&paths, repo, "relation").expect("detail");
         assert_eq!(overlap_paths(&detail.base_overlap), vec!["shared.txt"]);
         assert_eq!(
             detail.base_overlap[0].relation, OVERLAP_IDENTICAL,
@@ -5590,11 +5685,11 @@ mod tests {
 
         // A byte apart is other work, and the reading says so.
         fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
-        let detail = arc_detail_entry_in(repo, "relation").expect("detail");
+        let detail = arc_detail_entry_in(&paths, repo, "relation").expect("detail");
         assert_eq!(detail.base_overlap[0].relation, OVERLAP_DIVERGENT);
 
         // And it rides the blocker, which is where every surface reads it.
-        let blockers = join_preflight_in(repo, "relation").unwrap();
+        let blockers = join_preflight_in(&paths, repo, "relation").unwrap();
         let dirt = blockers
             .iter()
             .find(|b| b.kind == "base-dirt")
@@ -5607,24 +5702,24 @@ mod tests {
     /// arc's own edit sitting on the base, and the join drops it and lands
     /// the same bytes. The blocker never appears, the join runs, and what was
     /// dropped is reported rather than done quietly.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_identical_base_copy_does_not_block_the_join() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "echo");
+        let paths = seed_arc_with_a_round(&temp, "echo");
         let repo = temp.path();
 
         // Main holds, uncommitted, exactly what the arc committed.
         fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
         assert!(
-            join_preflight_in(repo, "echo")
+            join_preflight_in(&paths, repo, "echo")
                 .unwrap()
                 .iter()
                 .all(|b| b.kind != "base-dirt"),
             "the arc's own bytes on the base refuse nothing"
         );
 
-        let outcome = join_in(repo, "echo", mechanics()).expect("the join runs over its own echo");
+        let outcome =
+            join_in(&paths, repo, "echo", mechanics()).expect("the join runs over its own echo");
         assert!(outcome.commit_hash.is_some(), "it landed");
         assert!(
             outcome.warnings.iter().any(|w| w.contains("shared.txt")),
@@ -5644,15 +5739,14 @@ mod tests {
 
     /// The other half of the same rule: a base copy that is somebody's *work*
     /// still refuses, and refuses having touched nothing.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_divergent_base_copy_still_blocks_and_moves_nothing() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "otherwork");
+        let paths = seed_arc_with_a_round(&temp, "otherwork");
         let repo = temp.path();
 
         fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
-        let err = join_in(repo, "otherwork", mechanics())
+        let err = join_in(&paths, repo, "otherwork", mechanics())
             .unwrap_err()
             .to_string();
         assert!(err.contains("shared.txt"), "{err}");
@@ -5666,20 +5760,20 @@ mod tests {
     /// A divergent overlap another live session holds still blocks, and the
     /// blocker names whose hand is on it — with a remedy as pressable as the
     /// user's own, because the fold preserves the work it commits.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_foreign_hand_on_the_overlap_names_its_holder() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "contended");
+        let paths = seed_arc_with_a_round(&temp, "contended");
         let repo = temp.path();
         fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
 
-        let detail = arc_detail_entry_in(repo, "contended").expect("detail");
+        let detail = arc_detail_entry_in(&paths, repo, "contended").expect("detail");
         let current = git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap();
 
         // With no attribution view — a person at a terminal — it reads as the
         // user's own, which is the right default for their own checkout.
-        let mine = join_blockers_from_detail(repo, &detail, &current, None, &BTreeMap::new());
+        let mine =
+            join_blockers_from_detail(&paths, repo, &detail, &current, None, &BTreeMap::new());
         let dirt = mine.iter().find(|b| b.kind == "base-dirt").expect("dirt");
         assert!(dirt.detail.contains("your uncommitted edit"), "{dirt:?}");
         assert!(dirt.overlap[0].holder.is_none());
@@ -5703,7 +5797,7 @@ mod tests {
 
         // With one, the sentence names the hand that is on it.
         let held = BTreeMap::from([("shared.txt".to_string(), "^ink-anchor".to_string())]);
-        let theirs = join_blockers_from_detail(repo, &detail, &current, None, &held);
+        let theirs = join_blockers_from_detail(&paths, repo, &detail, &current, None, &held);
         let dirt = theirs.iter().find(|b| b.kind == "base-dirt").expect("dirt");
         assert!(dirt.detail.contains("^ink-anchor holds"), "{dirt:?}");
         assert_eq!(dirt.overlap[0].holder.as_deref(), Some("^ink-anchor"));
@@ -5731,9 +5825,9 @@ mod tests {
 
         // And an identical copy is still nobody's problem, held or not.
         fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
-        let detail = arc_detail_entry_in(repo, "contended").expect("detail");
+        let detail = arc_detail_entry_in(&paths, repo, "contended").expect("detail");
         assert!(
-            join_blockers_from_detail(repo, &detail, &current, None, &held)
+            join_blockers_from_detail(&paths, repo, &detail, &current, None, &held)
                 .iter()
                 .all(|b| b.kind != "base-dirt"),
             "the arc's own bytes refuse nothing, whoever last wrote them"
@@ -5766,16 +5860,15 @@ mod tests {
     /// the base, and the join is no longer blocked. From that commit forward
     /// the two sides are ordinary history, which is what puts a collision in
     /// front of the resolution ladder instead of in front of the user.
-    #[serial(tug_data_dir)]
     #[test]
     fn resolve_base_folds_the_users_own_edit_onto_the_base() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "fold");
+        let paths = seed_arc_with_a_round(&temp, "fold");
         let repo = temp.path();
         fs::write(repo.join("shared.txt"), "base\nmy own edit\n").unwrap();
 
         assert!(
-            join_preflight_in(repo, "fold")
+            join_preflight_in(&paths, repo, "fold")
                 .unwrap()
                 .iter()
                 .any(|b| b.kind == "base-dirt"),
@@ -5783,14 +5876,14 @@ mod tests {
         );
 
         let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        let outcome = resolve_base_in(repo, "fold", &BTreeMap::new()).expect("resolves");
+        let outcome = resolve_base_in(&paths, repo, "fold", &BTreeMap::new()).expect("resolves");
         assert_eq!(outcome.folded, vec!["shared.txt"]);
         assert!(outcome.committed.is_some(), "it made a commit of its own");
         assert!(outcome.dropped.is_empty());
 
         // The block is gone and the checkout is clean.
         assert!(
-            join_preflight_in(repo, "fold")
+            join_preflight_in(&paths, repo, "fold")
                 .unwrap()
                 .iter()
                 .all(|b| b.kind != "base-dirt"),
@@ -5810,7 +5903,7 @@ mod tests {
         // The op records what it folded, which is what makes the receipt
         // durable: every surface that reports the act reads it back from here
         // rather than from the frame that announced it.
-        let recorded = crate::oplog::list_ops(repo)
+        let recorded = crate::oplog::list_ops(&paths, repo)
             .into_iter()
             .find(|op| op.verb == crate::oplog::OpVerb::ResolveBase)
             .expect("the fold recorded an op");
@@ -5820,7 +5913,7 @@ mod tests {
         assert!(after.folded_from.is_empty(), "nobody else held it");
 
         // Undo puts it back the way they had it: same content, uncommitted.
-        crate::oplog::undo_in(repo, Some("fold")).expect("undo");
+        crate::oplog::undo_in(&paths, repo, Some("fold")).expect("undo");
         assert_eq!(
             git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
             before_tip
@@ -5836,17 +5929,16 @@ mod tests {
     /// A resolve folds another session's work with the rest — committing it
     /// preserves it — and both the commit's message and the outcome say whose
     /// it was, so the holder can be told.
-    #[serial(tug_data_dir)]
     #[test]
     fn resolve_base_folds_another_sessions_edit_and_names_it() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "notmine");
+        let paths = seed_arc_with_a_round(&temp, "notmine");
         let repo = temp.path();
         fs::write(repo.join("shared.txt"), "base\nsomebody else\n").unwrap();
         let held = BTreeMap::from([("shared.txt".to_string(), "^ink-anchor".to_string())]);
 
         let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        let outcome = resolve_base_in(repo, "notmine", &held).expect("folds");
+        let outcome = resolve_base_in(&paths, repo, "notmine", &held).expect("folds");
         assert_eq!(outcome.folded, vec!["shared.txt"]);
         assert_eq!(
             outcome.folded_from.get("shared.txt").map(String::as_str),
@@ -5874,15 +5966,15 @@ mod tests {
     /// An overlap that is all the arc's own bytes needs no commit — dropping
     /// is the whole of the job, and the outcome says so rather than inventing
     /// a commit to report.
-    #[serial(tug_data_dir)]
     #[test]
     fn resolve_base_drops_an_echo_without_committing() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "echofold");
+        let paths = seed_arc_with_a_round(&temp, "echofold");
         let repo = temp.path();
         fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
 
-        let outcome = resolve_base_in(repo, "echofold", &BTreeMap::new()).expect("resolves");
+        let outcome =
+            resolve_base_in(&paths, repo, "echofold", &BTreeMap::new()).expect("resolves");
         assert_eq!(outcome.dropped, vec!["shared.txt"]);
         assert!(outcome.folded.is_empty());
         assert!(outcome.committed.is_none(), "nothing to commit");
@@ -5891,15 +5983,15 @@ mod tests {
 
     /// A landing that loses the base's index lock to a writer about to finish
     /// retries and lands.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_whose_landing_loses_the_lock_retries_and_lands() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "contendedbase");
+        let paths = seed_arc_with_a_round(&temp, "contendedbase");
         let repo = temp.path();
 
         let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * 3);
-        let outcome = join_in(repo, "contendedbase", mechanics()).expect("lands past the lock");
+        let outcome =
+            join_in(&paths, repo, "contendedbase", mechanics()).expect("lands past the lock");
         held.join().unwrap();
         assert!(outcome.commit_hash.is_some());
         assert_eq!(
@@ -5912,11 +6004,10 @@ mod tests {
     /// the index, the worktree — the user's disjoint uncommitted edit with
     /// them — and no `SQUASH_MSG`, because nothing was ever staged. The same
     /// join then lands once the lock is gone, over that same edit.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_lock_held_past_the_window_leaves_the_base_untouched() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "lockedbase");
+        let paths = seed_arc_with_a_round(&temp, "lockedbase");
         let repo = temp.path();
         fs::write(repo.join("notes.txt"), "committed\n").unwrap();
         git_output(repo, &["add", "notes.txt"]).unwrap();
@@ -5926,7 +6017,7 @@ mod tests {
         let files = ["shared.txt", "notes.txt"];
         let before = base_snapshot(repo, &files);
         let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * (INDEX_LOCK_ATTEMPTS * 2));
-        let err = join_in(repo, "lockedbase", mechanics())
+        let err = join_in(&paths, repo, "lockedbase", mechanics())
             .unwrap_err()
             .to_string();
         let after = base_snapshot(repo, &files);
@@ -5936,12 +6027,12 @@ mod tests {
         assert_eq!(before, after, "the base is byte-identical");
         assert!(!after.4, "no SQUASH_MSG");
         assert!(
-            ops_for(repo, "lockedbase").is_empty(),
+            ops_for(&paths, repo, "lockedbase").is_empty(),
             "and nothing is recorded"
         );
 
         let outcome =
-            join_in(repo, "lockedbase", mechanics()).expect("lands once the lock is gone");
+            join_in(&paths, repo, "lockedbase", mechanics()).expect("lands once the lock is gone");
         assert!(outcome.commit_hash.is_some());
         assert_eq!(
             fs::read_to_string(repo.join("notes.txt")).unwrap(),
@@ -5954,16 +6045,16 @@ mod tests {
     /// that moved. Read as one it falls through to the cherry-pick, and the
     /// arc arrives on the base as fresh commits rather than its own — the
     /// join's shape decided by a race. So it waits the lock out instead.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_rebase_whose_fast_forward_loses_the_lock_still_fast_forwards() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "lockedff");
+        let paths = seed_arc_with_a_round(&temp, "lockedff");
         let repo = temp.path();
         let arc_tip = git_stdout(repo, &["rev-parse", &branch_name("lockedff")]).unwrap();
 
         let held = hold_index_lock(repo, INDEX_LOCK_BACKOFF * 3);
         let outcome = join_in(
+            &paths,
             repo,
             "lockedff",
             JoinOptions {
@@ -5985,7 +6076,6 @@ mod tests {
     /// A commit built off the base has the shape the staged one had: the arc's
     /// tree, the composed message as `git commit` would have cleaned it, one
     /// parent for a squash and the arc's tip as the second for a merge.
-    #[serial(tug_data_dir)]
     #[test]
     fn squash_and_merge_land_the_same_tree_and_message_shape() {
         for (name, strategy, parent_count) in [
@@ -5993,7 +6083,7 @@ mod tests {
             ("shapemerge", JoinStrategy::Merge, 2),
         ] {
             let temp = TempDir::new().unwrap();
-            seed_arc_with_a_round(&temp, name);
+            let paths = seed_arc_with_a_round(&temp, name);
             let repo = temp.path();
             let branch = branch_name(name);
             let base_head = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
@@ -6001,6 +6091,7 @@ mod tests {
             let arc_tree = git_stdout(repo, &["rev-parse", &format!("{branch}^{{tree}}")]).unwrap();
 
             join_in(
+                &paths,
                 repo,
                 name,
                 JoinOptions {
@@ -6056,12 +6147,11 @@ mod tests {
     /// it: the abort re-run, the base back where the join found it, the
     /// record gone, and the next join free to run.
     #[cfg(unix)]
-    #[serial(tug_data_dir)]
     #[test]
     fn a_failed_abort_is_recorded_as_a_stranded_base_and_resolve_base_clears_it() {
         use std::os::unix::fs::PermissionsExt;
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "strand");
+        let paths = seed_arc_with_a_round(&temp, "strand");
         let repo = temp.path();
         // The base moves on the same line, so the rebase cannot fast-forward
         // and its cherry-pick has a content merge to run.
@@ -6102,33 +6192,37 @@ mod tests {
             strategy: JoinStrategy::Rebase,
             ..mechanics()
         };
-        let err = join_in(repo, "strand", rebase()).unwrap_err().to_string();
+        let err = join_in(&paths, repo, "strand", rebase())
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("could not be proven untouched"), "{err}");
         assert!(err.contains("CHERRY_PICK_HEAD is standing"), "{err}");
         assert!(err.contains("tugtool arc resolve-base strand"), "{err}");
 
         let root = std::fs::canonicalize(repo).unwrap();
-        let op = crate::oplog::stranded_join(&root, "strand").expect("the record is kept");
+        let op = crate::oplog::stranded_join(&paths, &root, "strand").expect("the record is kept");
         assert!(op.after.is_none(), "it landed nothing");
         assert_eq!(op.before.base_tip, base_tip);
 
         // Every other door reads the record rather than guessing.
-        let again = join_in(&root, "strand", rebase()).unwrap_err().to_string();
+        let again = join_in(&paths, &root, "strand", rebase())
+            .unwrap_err()
+            .to_string();
         assert!(again.starts_with("stranded-base:"), "{again}");
-        let undo = crate::oplog::undo_in(repo, Some("strand"))
+        let undo = crate::oplog::undo_in(&paths, repo, Some("strand"))
             .unwrap_err()
             .to_string();
         assert!(undo.starts_with("stranded-base:"), "{undo}");
 
         // The lock's holder is gone; resolve-base re-runs the abort.
         fs::remove_file(Path::new(&git_dir).join("index.lock")).unwrap();
-        let outcome = resolve_base_in(repo, "strand", &BTreeMap::new()).expect("clears");
+        let outcome = resolve_base_in(&paths, repo, "strand", &BTreeMap::new()).expect("clears");
         assert!(
             outcome.warnings.iter().any(|w| w.contains("Cleared")),
             "{:?}",
             outcome.warnings
         );
-        assert!(crate::oplog::stranded_join(&root, "strand").is_none());
+        assert!(crate::oplog::stranded_join(&paths, &root, "strand").is_none());
         assert!(standing_integrate_markers(repo).is_empty());
         assert_eq!(git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(), base_tip);
         assert!(dirty_tracked_paths(repo).is_empty());
@@ -6136,9 +6230,9 @@ mod tests {
         // And the join is a join again: with the driver gone it reports the
         // conflict, the base untouched and nothing recorded.
         git_output(repo, &["config", "--unset", "merge.strand.driver"]).unwrap();
-        let outcome = join_in(&root, "strand", rebase()).expect("runs");
+        let outcome = join_in(&paths, &root, "strand", rebase()).expect("runs");
         assert_eq!(outcome.conflicts, vec!["shared.txt"]);
-        assert!(ops_for(repo, "strand").is_empty());
+        assert!(ops_for(&paths, repo, "strand").is_empty());
     }
 
     /// A payload written before the stranded field existed still reads.
@@ -6155,25 +6249,24 @@ mod tests {
     /// The five records agree throughout, which is why the doctor reads a
     /// sixth: it names the standing squash and the echoed paths, points at
     /// `resolve-base`, and only says the arc is healthy once that has run.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_doctor_names_a_squash_stranded_on_the_base() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "leftstaged");
+        let paths = seed_arc_with_a_round(&temp, "leftstaged");
         let repo = temp.path();
         let worktree = repo.join(".tug/worktrees/leftstaged");
         for n in 0..10 {
             fs::write(worktree.join(format!("file{n}.txt")), format!("arc {n}\n")).unwrap();
         }
-        commit_in(repo, "leftstaged", "add ten files", None).unwrap();
+        commit_in(&paths, repo, "leftstaged", "add ten files", None, None).unwrap();
         let root = std::fs::canonicalize(repo).unwrap();
-        assert!(crate::doctor::diagnose(&root, "leftstaged").healthy());
+        assert!(crate::doctor::diagnose(&paths, &root, "leftstaged").healthy());
 
         let merged = git_output(repo, &["merge", "--squash", &branch_name("leftstaged")]).unwrap();
         assert!(merged.status.success());
         git_output(repo, &["checkout", "HEAD", "--", "shared.txt"]).unwrap();
 
-        let diagnosis = crate::doctor::diagnose(&root, "leftstaged");
+        let diagnosis = crate::doctor::diagnose(&paths, &root, "leftstaged");
         let find = |code: &str| {
             diagnosis
                 .findings
@@ -6204,19 +6297,18 @@ mod tests {
                 .contains("tugtool arc resolve-base leftstaged")
         );
 
-        resolve_base_in(repo, "leftstaged", &BTreeMap::new()).expect("one call clears it");
-        let diagnosis = crate::doctor::diagnose(&root, "leftstaged");
+        resolve_base_in(&paths, repo, "leftstaged", &BTreeMap::new()).expect("one call clears it");
+        let diagnosis = crate::doctor::diagnose(&paths, &root, "leftstaged");
         assert!(diagnosis.healthy(), "{:?}", diagnosis.findings);
         assert!(standing_integrate_markers(repo).is_empty());
     }
 
     /// Somebody's own `git merge --squash` of some other branch is theirs: the
     /// doctor reads the base for *this arc's* marks and reports none.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_squash_msg_that_is_not_this_arcs_is_not_a_finding() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "bystander");
+        let paths = seed_arc_with_a_round(&temp, "bystander");
         let repo = temp.path();
         git_output(repo, &["checkout", "-q", "-b", "side"]).unwrap();
         fs::write(repo.join("side.txt"), "side\n").unwrap();
@@ -6232,26 +6324,26 @@ mod tests {
         assert_eq!(standing_integrate_markers(repo), vec!["SQUASH_MSG"]);
 
         let root = std::fs::canonicalize(repo).unwrap();
-        let diagnosis = crate::doctor::diagnose(&root, "bystander");
+        let diagnosis = crate::doctor::diagnose(&paths, &root, "bystander");
         assert!(diagnosis.healthy(), "{:?}", diagnosis.findings);
     }
 
     /// The other two marks: the stranded record and an operation with no
     /// `after`, each named with the verb that clears it, and each cleared.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_doctor_names_a_stranded_record_and_an_unfinished_operation() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "records");
+        let paths = seed_arc_with_a_round(&temp, "records");
         let repo = temp.path();
         let root = std::fs::canonicalize(repo).unwrap();
         let open = |verb| {
             let before = crate::oplog::capture_before(&root, "records").unwrap();
             let tips = crate::oplog::tips_of(&before);
-            crate::oplog::record_begin(&root, verb, "records", before, &tips).unwrap()
+            crate::oplog::record_begin(&paths, &root, verb, "records", before, &tips).unwrap()
         };
         let stranded = open(crate::oplog::OpVerb::Join);
         crate::oplog::record_stranded(
+            &paths,
             &root,
             stranded,
             crate::oplog::StrandedBase {
@@ -6262,7 +6354,7 @@ mod tests {
         .unwrap();
         open(crate::oplog::OpVerb::ResolveBase);
 
-        let diagnosis = crate::doctor::diagnose(&root, "records");
+        let diagnosis = crate::doctor::diagnose(&paths, &root, "records");
         let codes: Vec<&str> = diagnosis.findings.iter().map(|f| f.code.as_str()).collect();
         assert_eq!(codes, vec!["base-stranded", "op-incomplete"]);
         for finding in &diagnosis.findings {
@@ -6275,24 +6367,23 @@ mod tests {
             );
         }
 
-        resolve_base_in(repo, "records", &BTreeMap::new()).expect("clears both");
-        assert!(crate::doctor::diagnose(&root, "records").healthy());
+        resolve_base_in(&paths, repo, "records", &BTreeMap::new()).expect("clears both");
+        assert!(crate::doctor::diagnose(&paths, &root, "records").healthy());
     }
 
     /// A base copy *staged as new* is in the index and absent from HEAD, so
     /// `checkout HEAD --` has nothing to restore it to. The drop takes the
     /// index entry with the file, and the join lands over it.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_join_lands_over_an_identical_staged_new_base_copy() {
         let temp = TempDir::new().unwrap();
-        seed_arc_that_adds_files(&temp, "stagednew");
+        let paths = seed_arc_that_adds_files(&temp, "stagednew");
         let repo = temp.path();
         fs::write(repo.join("added.txt"), "new in the arc\n").unwrap();
         git_output(repo, &["add", "added.txt"]).unwrap();
 
-        let outcome =
-            join_in(repo, "stagednew", mechanics()).expect("the join runs over a staged-new echo");
+        let outcome = join_in(&paths, repo, "stagednew", mechanics())
+            .expect("the join runs over a staged-new echo");
         assert!(outcome.commit_hash.is_some(), "it landed");
         assert!(
             outcome.warnings.iter().any(|w| w.contains("added.txt")),
@@ -6312,16 +6403,16 @@ mod tests {
     /// The state a join that lost the index lock leaves: the arc's whole squash
     /// staged on the base, edits and additions together. One `resolve-base`
     /// clears all of it.
-    #[serial(tug_data_dir)]
     #[test]
     fn resolve_base_clears_a_whole_staged_squash_in_one_call() {
         let temp = TempDir::new().unwrap();
-        seed_arc_that_adds_files(&temp, "stranded");
+        let paths = seed_arc_that_adds_files(&temp, "stranded");
         let repo = temp.path();
         let merged = git_output(repo, &["merge", "--squash", &branch_name("stranded")]).unwrap();
         assert!(merged.status.success(), "the squash staged");
 
-        let outcome = resolve_base_in(repo, "stranded", &BTreeMap::new()).expect("resolves");
+        let outcome =
+            resolve_base_in(&paths, repo, "stranded", &BTreeMap::new()).expect("resolves");
         let mut dropped = outcome.dropped.clone();
         dropped.sort();
         assert_eq!(dropped, vec!["added.txt", "nested/extra.txt", "shared.txt"]);
@@ -6346,19 +6437,18 @@ mod tests {
     /// sits in a directory that refuses the unlink, after the two tracked
     /// copies and one executable untracked one have been dropped.
     #[cfg(unix)]
-    #[serial(tug_data_dir)]
     #[test]
     fn a_drop_that_fails_midway_leaves_the_base_as_it_was() {
         use std::os::unix::fs::PermissionsExt;
         let temp = TempDir::new().unwrap();
-        seed_arc_that_adds_files(&temp, "halfdrop");
+        let paths = seed_arc_that_adds_files(&temp, "halfdrop");
         let repo = temp.path();
         // An executable file the arc adds: the one shape whose mode no index
         // entry records, since the base's copy of it is untracked.
         let worktree = repo.join(".tug/worktrees/halfdrop");
         fs::write(worktree.join("alpha.sh"), "#!/bin/sh\necho hi\n").unwrap();
         fs::set_permissions(worktree.join("alpha.sh"), fs::Permissions::from_mode(0o755)).unwrap();
-        commit_in(repo, "halfdrop", "add a script", None).unwrap();
+        commit_in(&paths, repo, "halfdrop", "add a script", None, None).unwrap();
         fs::write(repo.join("alpha.sh"), "#!/bin/sh\necho hi\n").unwrap();
         fs::set_permissions(repo.join("alpha.sh"), fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(repo.join("shared.txt"), "base\narc change\n").unwrap();
@@ -6384,7 +6474,7 @@ mod tests {
             )
         };
         let before = snapshot();
-        let err = resolve_base_in(repo, "halfdrop", &BTreeMap::new())
+        let err = resolve_base_in(&paths, repo, "halfdrop", &BTreeMap::new())
             .unwrap_err()
             .to_string();
         let after = snapshot();
@@ -6395,7 +6485,7 @@ mod tests {
         assert_eq!(before, after, "index and files are byte-identical");
         let root = std::fs::canonicalize(repo).unwrap();
         assert!(
-            crate::oplog::list_ops(&root)
+            crate::oplog::list_ops(&paths, &root)
                 .iter()
                 .all(|op| op.after.is_some() || op.verb != crate::oplog::OpVerb::ResolveBase),
             "no resolve-base payload is left without an `after`"
@@ -6403,7 +6493,7 @@ mod tests {
 
         // The same failure on the join path drops the record it opened too.
         fs::set_permissions(repo.join("nested"), fs::Permissions::from_mode(0o555)).unwrap();
-        let err = join_in(&root, "halfdrop", mechanics())
+        let err = join_in(&paths, &root, "halfdrop", mechanics())
             .unwrap_err()
             .to_string();
         let after = snapshot();
@@ -6411,7 +6501,7 @@ mod tests {
         assert!(err.contains("left as it was"), "{err}");
         assert_eq!(before, after, "the join's failed drop moved nothing either");
         assert!(
-            ops_for(repo, "halfdrop").is_empty(),
+            ops_for(&paths, repo, "halfdrop").is_empty(),
             "and left no join record"
         );
     }
@@ -6422,19 +6512,18 @@ mod tests {
     ///
     /// These two live here rather than in `oplog.rs` because a real fold needs
     /// a real arc, and `seed_arc_with_a_round` is the fixture that builds one.
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_resolve_base_in_reverses_a_standing_fold() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "undofold");
+        let paths = seed_arc_with_a_round(&temp, "undofold");
         let repo = temp.path();
         fs::write(repo.join("shared.txt"), "base\nmy own edit\n").unwrap();
 
         let before_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
-        resolve_base_in(repo, "undofold", &BTreeMap::new()).expect("folds");
+        resolve_base_in(&paths, repo, "undofold", &BTreeMap::new()).expect("folds");
         assert!(dirty_tracked_paths(repo).is_empty(), "the fold cleared it");
 
-        crate::oplog::undo_resolve_base_in(repo, "undofold").expect("undoes");
+        crate::oplog::undo_resolve_base_in(&paths, repo, "undofold").expect("undoes");
 
         assert_eq!(
             git_stdout(repo, &["rev-parse", "HEAD"]).unwrap(),
@@ -6457,7 +6546,6 @@ mod tests {
     /// operation is that join, the receipt has retired itself, and a press
     /// that reached the general `undo_in` would un-land the join under a
     /// reader who thought they were putting one file back.
-    #[serial(tug_data_dir)]
     #[test]
     fn undo_resolve_base_in_refuses_when_the_newest_op_is_a_join() {
         let temp = TempDir::new().unwrap();
@@ -6469,22 +6557,22 @@ mod tests {
         // the arc edits the top and the base edits the bottom, which is the
         // ordinary history the fold exists to produce.
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
         fs::write(repo.join("shared.txt"), "1\n2\n3\n4\n5\n6\n7\n8\n").unwrap();
         git_output(repo, &["add", "."]).unwrap();
         git_output(repo, &["commit", "-m", "seed"]).unwrap();
-        create_in(repo, "foldjoin", None, false, None).unwrap();
+        create_in(&paths, repo, "foldjoin", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/foldjoin");
         fs::write(worktree.join("shared.txt"), "TOP\n2\n3\n4\n5\n6\n7\n8\n").unwrap();
-        commit_in(repo, "foldjoin", "touch the top", None).unwrap();
+        commit_in(&paths, repo, "foldjoin", "touch the top", None, None).unwrap();
         fs::write(repo.join("shared.txt"), "1\n2\n3\n4\n5\n6\n7\nBOTTOM\n").unwrap();
 
-        resolve_base_in(repo, "foldjoin", &BTreeMap::new()).expect("folds");
-        let joined = join_in(repo, "foldjoin", mechanics()).expect("joins");
+        resolve_base_in(&paths, repo, "foldjoin", &BTreeMap::new()).expect("folds");
+        let joined = join_in(&paths, repo, "foldjoin", mechanics()).expect("joins");
         assert!(joined.commit_hash.is_some(), "the join landed: {joined:?}");
         let joined_tip = git_stdout(repo, &["rev-parse", "HEAD"]).unwrap();
 
-        let err = crate::oplog::undo_resolve_base_in(repo, "foldjoin")
+        let err = crate::oplog::undo_resolve_base_in(&paths, repo, "foldjoin")
             .unwrap_err()
             .to_string();
         assert!(err.contains("not a resolve"), "got {err}");
@@ -6498,11 +6586,10 @@ mod tests {
     /// The arc's uncommitted work counts toward the overlap, because the
     /// join's preamble commits it before joining. The detail walk's warning and
     /// the preflight's refusal are the same set.
-    #[serial(tug_data_dir)]
     #[test]
     fn worktree_dirt_counts_toward_the_overlap_the_join_will_hit() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "wtdirt");
+        let paths = seed_arc_with_a_round(&temp, "wtdirt");
         let repo = temp.path();
 
         // A path the arc has NOT committed, only dirtied in its worktree.
@@ -6512,13 +6599,13 @@ mod tests {
         fs::write(repo.join("other.txt"), "base uncommitted\n").unwrap();
         git_output(repo, &["add", "other.txt"]).unwrap();
 
-        let detail = arc_detail_entry_in(repo, "wtdirt").expect("detail");
+        let detail = arc_detail_entry_in(&paths, repo, "wtdirt").expect("detail");
         assert!(
             overlap_paths(&detail.base_overlap).contains(&"other.txt".to_string()),
             "the detail's warning sees it: {:?}",
             detail.base_overlap
         );
-        let blockers = join_preflight_in(repo, "wtdirt").unwrap();
+        let blockers = join_preflight_in(&paths, repo, "wtdirt").unwrap();
         assert!(
             blockers
                 .iter()
@@ -6527,11 +6614,10 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn join_conflicts_in_reports_what_the_preview_reports() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "probe");
+        let paths = seed_arc_with_a_round(&temp, "probe");
         let repo = temp.path();
 
         // Make the base conflict with the arc on the same path.
@@ -6539,7 +6625,7 @@ mod tests {
         git_output(repo, &["commit", "-am", "base moves shared"]).unwrap();
 
         let probe = join_conflicts_in(repo, "probe").unwrap();
-        let previewed = preview_in(repo, "probe");
+        let previewed = preview_in(&paths, repo, "probe");
         assert_eq!(probe.conflicts, previewed.conflicts);
         assert_eq!(
             probe.archaeology.len(),
@@ -6560,15 +6646,15 @@ mod tests {
     /// The inside-the-worktree refusal reads the cwd the caller names, not the
     /// process's: a caller standing in the arc worktree is refused, and one
     /// that names no cwd — tugcast's case — is not asked where it stands.
-    #[serial(tug_data_dir)]
     #[test]
     fn join_refuses_a_caller_standing_in_the_arc_worktree() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "standing");
+        let paths = seed_arc_with_a_round(&temp, "standing");
         let repo = temp.path();
         let worktree = worktree_path(repo, "standing");
 
         let err = join_in(
+            &paths,
             repo,
             "standing",
             JoinOptions {
@@ -6583,7 +6669,7 @@ mod tests {
         );
         assert!(worktree.exists(), "the refusal touched nothing");
 
-        let outcome = join_in(repo, "standing", mechanics()).unwrap();
+        let outcome = join_in(&paths, repo, "standing", mechanics()).unwrap();
         assert!(outcome.commit_hash.is_some(), "no cwd named, no refusal");
     }
 }

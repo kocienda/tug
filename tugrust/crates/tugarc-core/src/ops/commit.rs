@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 use std::path::Path;
+use tugcore::instance::Paths;
 
 use super::documents::ledger_file;
 use super::git::{LockAttempt, git_output, git_stdout, git_write, retry_past_index_lock};
@@ -83,6 +84,7 @@ fn open_ledger_steps(repo_root: &Path, name: &str) -> (Vec<u32>, u32) {
 /// one arc log line: nothing else on disk changes, so a mark is safe from a
 /// skill that is otherwise forbidden to write.
 pub fn mark_in(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     stage: MarkStage,
@@ -93,8 +95,8 @@ pub fn mark_in(
             name: name.to_string(),
         });
     }
-    append_mark_declaration(repo_root, name, stage, note.unwrap_or_default())
-        .map_err(|e| ArcError::arc_log(repo_root, e))?;
+    append_mark_declaration(paths, repo_root, name, stage, note.unwrap_or_default())
+        .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
     let (open_steps, total_steps) = open_ledger_steps(repo_root, name);
     Ok(MarkOutcome {
         arc: name.to_string(),
@@ -108,12 +110,14 @@ pub fn mark_in(
 /// carries the verbatim instruction (git's one gap) + a richer summary; the CLI
 /// reads it from stdin.
 pub fn commit_in(
+    paths: &Paths,
     repo_root: &Path,
     name: &str,
     message: &str,
     round_meta: Option<ArcRoundMeta>,
+    session_id: Option<&str>,
 ) -> Result<CommitOutcome, ArcError> {
-    reconcile_branches(repo_root, &mut Vec::new());
+    reconcile_branches(paths, repo_root, &mut Vec::new());
     let branch = branch_name(name);
     let worktree = worktree_path(repo_root, name);
 
@@ -141,8 +145,10 @@ pub fn commit_in(
     };
     // Machine-parseable trailers ([P08], Spec S02): `Tug-Session:` when the
     // committing session resolves + `Tug-Dash: <branch> onto <base>`.
-    // A round commit runs inside the session that made it, so the env answers.
-    let commit_message = with_arc_trailers(repo_root, name, &branch, &commit_message, None);
+    // A round commit runs inside the session that made it, whose id the
+    // caller resolved.
+    let commit_message =
+        with_arc_trailers(paths, repo_root, name, &branch, &commit_message, session_id);
 
     // Stage and commit, re-attempting past a held `index.lock` (Spec S02) —
     // the join's preflight sweep commits into this same worktree, and
@@ -182,8 +188,8 @@ pub fn commit_in(
         .and_then(|m| m.instruction.as_deref())
         .unwrap_or("");
     let marker = commit_hash.as_deref().unwrap_or("-");
-    append_arc_log(repo_root, name, marker, instruction)
-        .map_err(|e| ArcError::arc_log(repo_root, e))?;
+    append_arc_log(paths, repo_root, name, marker, instruction)
+        .map_err(|e| ArcError::arc_log(paths, repo_root, e))?;
 
     Ok(CommitOutcome {
         committed: has_changes,
@@ -196,28 +202,26 @@ pub fn commit_in(
 ///
 /// **Who is asked first is the caller's, not the environment's.** A round
 /// commit is made by `tugtool arc commit` running *inside* the Claude session,
-/// where tugcast exports `TUG_SESSION_ID`, and the env is the whole answer. A
+/// where tugcast exports `TUG_SESSION_ID`, and the CLI reads it at its edge. A
 /// **join** is not: the card's press is served by tugcast itself, a process
 /// that belongs to no session and exports no such variable — so every join
 /// commit ever made carried the arc trailer alone and the History row showed
 /// one pill where the work had two. The request already names the pressing
-/// card, so the id travels as an argument and the env is the fallback for the
-/// callers that have none.
+/// card. Either way the id travels as an argument: this crate reads no
+/// environment.
 ///
-/// `None` when it can't be resolved — no id from either source, no
+/// `None` when it can't be resolved — no id given, no
 /// `sessions.db`, or no row for that id. Any absence omits both trailers
 /// silently: a commit never fails on trailer resolution.
 ///
 /// The citation grammar lives in `tugchanges_core::session_citation`, shared
 /// with the deck-commit lane so the two can never drift.
-pub(crate) fn session_citation_for(session_id: Option<&str>) -> Option<(String, String)> {
-    let session_id = match session_id {
-        Some(id) if !id.is_empty() => id.to_string(),
-        _ => std::env::var("TUG_SESSION_ID")
-            .ok()
-            .filter(|s| !s.is_empty())?,
-    };
-    let db = sessions_db_file()?;
+pub(crate) fn session_citation_for(
+    paths: &Paths,
+    session_id: Option<&str>,
+) -> Option<(String, String)> {
+    let session_id = session_id.filter(|id| !id.is_empty())?.to_string();
+    let db = sessions_db_file(paths)?;
     let conn =
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .ok()?;
@@ -247,13 +251,14 @@ pub(crate) fn session_citation_for(session_id: Option<&str>) -> Option<(String, 
 /// that already carries a trailer is never duplicated.
 ///
 /// `session` is the id the caller knows, if any — see
-/// [`session_citation_for`]; `None` falls back to the process's own.
+/// [`session_citation_for`]; `None` writes no session trailers.
 ///
 /// The session travels as a **pair**: `Tug-Session` is the human citation and
 /// `Tug-Session-Id` the full uuid a reader joins against the ledger. Neither
 /// is displayed as body ink — tugcast parses both into typed fields and strips
 /// the lines.
 pub(super) fn with_arc_trailers(
+    paths: &Paths,
     repo: &Path,
     name: &str,
     branch: &str,
@@ -264,7 +269,7 @@ pub(super) fn with_arc_trailers(
         Ok(base) if !base.is_empty() => format!("{branch} onto {base}"),
         _ => branch.to_string(),
     };
-    let session = session_citation_for(session);
+    let session = session_citation_for(paths, session);
     let mut trailers: Vec<(&str, &str)> = Vec::new();
     if let Some((citation, id)) = session.as_ref() {
         trailers.push(("Tug-Session", citation.as_str()));
@@ -331,7 +336,6 @@ mod tests {
     use super::*;
     use crate::ops::test_support::*;
     use crate::ops::*;
-    use serial_test::serial;
     use std::fs;
     use tempfile::TempDir;
 
@@ -402,17 +406,23 @@ mod tests {
         assert!(err.contains("index.lock"), "error was: {err}");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn arc_commit_survives_a_lock_released_mid_call() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "locked", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "locked", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "locked");
         fs::write(worktree.join("round.txt"), "work\n").unwrap();
         let releaser = hold_index_lock(&worktree, std::time::Duration::from_millis(300));
-        let outcome = commit_in(&repo, "locked", "tugarc(locked): a round", None)
-            .expect("the round waits out a transient lock");
+        let outcome = commit_in(
+            &paths,
+            &repo,
+            "locked",
+            "tugarc(locked): a round",
+            None,
+            None,
+        )
+        .expect("the round waits out a transient lock");
         releaser.join().unwrap();
         assert!(outcome.committed, "the round landed");
     }
@@ -420,17 +430,16 @@ mod tests {
     /// The round's side of the same yield, produced directly for the same
     /// reason: the sweep having already taken the changes is a state, not a
     /// timing.
-    #[serial(tug_data_dir)]
     #[test]
     fn arc_commit_reports_uncommitted_when_a_sweep_took_its_changes() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "swept", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "swept", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "swept");
         fs::write(worktree.join("round.txt"), "work\n").unwrap();
         commit_worktree_dirt(&worktree, "swept").unwrap();
 
-        let outcome = commit_in(&repo, "swept", "tugarc(swept): a round", None)
+        let outcome = commit_in(&paths, &repo, "swept", "tugarc(swept): a round", None, None)
             .expect("losing the race is not an error");
         // The sweep committed these bytes, so the round has nothing of its own
         // left — the same outcome a clean worktree has always produced.
@@ -438,12 +447,11 @@ mod tests {
         assert!(outcome.commit_hash.is_none());
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn the_sweep_wears_the_round_voice_and_marks_itself() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "voiced", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "voiced", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "voiced");
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
         commit_worktree_dirt(&worktree, "voiced").unwrap();
@@ -467,12 +475,11 @@ mod tests {
     /// `audited` arms the join, so making it over a table of `pending` rows is
     /// a claim about work nobody recorded doing. Reported, never refused —
     /// marking ahead of the rows is a real gesture.
-    #[serial(tug_data_dir)]
     #[test]
     fn mark_reports_the_ledger_rows_still_open() {
-        let (_temp, root) = stepped_arc("open-rows-arc");
+        let (_temp, root, paths) = stepped_arc("open-rows-arc");
 
-        let marked = mark_in(&root, "open-rows-arc", MarkStage::Audited, None).unwrap();
+        let marked = mark_in(&paths, &root, "open-rows-arc", MarkStage::Audited, None).unwrap();
         assert_eq!(marked.total_steps, 2);
         assert_eq!(
             marked.open_steps,
@@ -481,12 +488,12 @@ mod tests {
         );
 
         // Closing them empties the report; the mark and the ledger now agree.
-        step_start_in(&root, "open-rows-arc", 1, 2).unwrap();
-        step_done_in(&root, "open-rows-arc", 1, None).unwrap();
-        step_start_in(&root, "open-rows-arc", 2, 2).unwrap();
-        step_withdraw_in(&root, "open-rows-arc", 2).unwrap();
+        step_start_in(&paths, &root, "open-rows-arc", 1, 2).unwrap();
+        step_done_in(&paths, &root, "open-rows-arc", 1, None).unwrap();
+        step_start_in(&paths, &root, "open-rows-arc", 2, 2).unwrap();
+        step_withdraw_in(&paths, &root, "open-rows-arc", 2).unwrap();
 
-        let marked = mark_in(&root, "open-rows-arc", MarkStage::Audited, None).unwrap();
+        let marked = mark_in(&paths, &root, "open-rows-arc", MarkStage::Audited, None).unwrap();
         assert!(
             marked.open_steps.is_empty(),
             "a withdrawn row is closed too: {:?}",
@@ -496,11 +503,10 @@ mod tests {
         let _ = &root;
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn mark_refuses_an_unknown_arc() {
-        let (_temp, root) = stepped_arc("known-arc");
-        let err = mark_in(&root, "no-such-arc", MarkStage::Built, None)
+        let (_temp, root, paths) = stepped_arc("known-arc");
+        let err = mark_in(&paths, &root, "no-such-arc", MarkStage::Built, None)
             .unwrap_err()
             .to_string();
         assert!(err.contains("Arc not found"), "{err}");
@@ -511,10 +517,9 @@ mod tests {
     /// any `tugarc/<name>` ref is cut. tugcast's binding gate learned this in
     /// W2; `mark` had been left behind refusing "Arc not found" at exactly
     /// the moment an arc most needs to declare something.
-    #[serial(tug_data_dir)]
     #[test]
     fn mark_accepts_a_arc_whose_record_is_only_its_tugid() {
-        let (_temp, root) = stepped_arc("pre-branch-arc");
+        let (_temp, root, paths) = stepped_arc("pre-branch-arc");
 
         // Cut the branch away, leaving the config entry a teardown would have
         // removed with it — `update-ref -d` rather than `branch -D`, because
@@ -531,11 +536,11 @@ mod tests {
         assert!(!branch_exists(&root, &branch_name("pre-branch-arc")));
         assert!(arc_record_exists(&root, "pre-branch-arc"));
 
-        let marked = mark_in(&root, "pre-branch-arc", MarkStage::Built, None)
+        let marked = mark_in(&paths, &root, "pre-branch-arc", MarkStage::Built, None)
             .expect("a pre-branch arc may declare that it built");
         assert_eq!(marked.stage, "built");
         assert_eq!(
-            crate::log::read_declarations(&root, "pre-branch-arc").latest,
+            crate::log::read_declarations(&paths, &root, "pre-branch-arc").latest,
             Some(crate::log::ArcDeclaration::Built)
         );
 
@@ -543,21 +548,28 @@ mod tests {
         assert!(!arc_record_exists(&root, "never-existed"));
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_commit_with_changes_writes_log() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "test-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
 
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("test.txt"), "content\n").unwrap();
 
-        let result = commit_in(repo, "test-arc", "Add test file", None);
+        let result = commit_in(&paths, repo, "test-arc", "Add test file", None, None);
         assert!(result.unwrap().committed);
 
         // A new commit landed on the arc branch.
@@ -577,17 +589,24 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_commit_no_changes() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        create_in(repo, "test-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
 
-        let result = commit_in(repo, "test-arc", "No changes", None);
+        let result = commit_in(&paths, repo, "test-arc", "No changes", None, None);
         assert!(!result.unwrap().committed);
 
         // No commit ahead of base.
@@ -600,7 +619,6 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&count.stdout).trim(), "0");
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_commit_multibyte_summary_does_not_panic() {
         // A multibyte summary longer than 72 bytes must not panic on a byte
@@ -608,9 +626,9 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        create_in(repo, "test-arc", None, false, None).unwrap();
+        create_in(&paths, repo, "test-arc", None, false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
 
@@ -619,7 +637,7 @@ mod tests {
             instruction: Some("i".to_string()),
             summary: Some("é".repeat(50)),
         };
-        commit_in(repo, "test-arc", "feat: thing", Some(meta)).unwrap();
+        commit_in(&paths, repo, "test-arc", "feat: thing", Some(meta), None).unwrap();
 
         // The subject is the --message; the summary rode into the body.
         let subject = tugcore::test_fixtures::git::command()
@@ -634,16 +652,23 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_commit_round_meta_writes_instruction() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "test-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "test-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
 
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
@@ -653,7 +678,7 @@ mod tests {
             instruction: Some("add test file".to_string()),
             summary: Some("Added test file".to_string()),
         };
-        commit_in(repo, "test-arc", "Test commit", Some(meta)).unwrap();
+        commit_in(&paths, repo, "test-arc", "Test commit", Some(meta), None).unwrap();
 
         let log = fs::read_to_string(arc_log_path(&home, repo)).unwrap();
         assert!(
@@ -667,14 +692,13 @@ mod tests {
     /// inside the parentheses, and the segment's own uuid in
     /// `Tug-Session-Id`, which is what pins the transcript the commit was
     /// made in.
-    #[serial(tug_data_dir, tug_sessions_db, tug_session_id)]
     #[test]
     fn a_round_commit_from_a_stage_cites_the_line() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let mut paths = redirect_state_dir(&home);
 
         // A line of two segments: the root, and the stage a rotation seated.
         // The commit is made from the stage.
@@ -695,16 +719,20 @@ mod tests {
                 ledgers.add_session(segment, line_id);
             }
         }
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::set_var(tugcore::instance::ENV_SESSIONS_DB, &sessions_db);
-            std::env::set_var("TUG_SESSION_ID", stage);
-        }
+        paths.sessions_db = sessions_db.clone();
 
-        create_in(repo, "cite-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "cite-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/cite-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "cite-arc", "Add f", None).unwrap();
+        commit_in(&paths, repo, "cite-arc", "Add f", None, Some(stage)).unwrap();
 
         let round = tugcore::test_fixtures::git::command()
             .arg("-C")
@@ -713,12 +741,6 @@ mod tests {
             .output()
             .unwrap();
         let round = String::from_utf8_lossy(&round.stdout);
-
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::remove_var(tugcore::instance::ENV_SESSIONS_DB);
-            std::env::remove_var("TUG_SESSION_ID");
-        }
 
         assert!(
             round.contains("Tug-Session: heroic-mule (7f3d2c18)"),
@@ -730,19 +752,26 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_commits_carry_arc_trailer() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let paths = redirect_state_dir(&home);
 
-        create_in(repo, "trailer-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(
+            &paths,
+            repo,
+            "trailer-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let worktree = repo.join(".tug/worktrees/trailer-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        commit_in(repo, "trailer-arc", "Add f", None).unwrap();
+        commit_in(&paths, repo, "trailer-arc", "Add f", None, None).unwrap();
 
         let round = tugcore::test_fixtures::git::command()
             .arg("-C")
@@ -755,21 +784,18 @@ mod tests {
             round.contains("Tug-Arc: tugarc/trailer-arc onto "),
             "round commit carries Tug-Arc: {round}"
         );
-        // Only assert absence when the environment genuinely lacks the id, so
-        // the test never flakes on a runner that happens to export it. Both
-        // keys travel together — neither lands without the other.
-        if std::env::var("TUG_SESSION_ID").is_err() {
-            assert!(
-                !round.contains("Tug-Session:"),
-                "no session env → no Tug-Session: {round}"
-            );
-            assert!(
-                !round.contains("Tug-Session-Id:"),
-                "no session env → no Tug-Session-Id: {round}"
-            );
-        }
+        // No session id given, so neither key lands — they travel together.
+        assert!(
+            !round.contains("Tug-Session:"),
+            "no session id → no Tug-Session: {round}"
+        );
+        assert!(
+            !round.contains("Tug-Session-Id:"),
+            "no session id → no Tug-Session-Id: {round}"
+        );
 
         join_in(
+            &paths,
             repo,
             "trailer-arc",
             JoinOptions {
@@ -810,12 +836,11 @@ mod tests {
     /// is a join that sweeps or refuses on a path nobody has.
     ///
     /// RED until step 5 moves `tugarc-core` onto the [B01] door.
-    #[serial(tug_data_dir)]
     #[test]
     fn an_arc_round_names_its_hostile_files_by_their_real_names() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "hostile", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "hostile", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "hostile");
 
         // Git's own spelling of the roster: verbatim, except the decomposed
@@ -826,8 +851,15 @@ mod tests {
 
         // A round that brings them in.
         tugcore::hostile_repo::write_hostile_files(&worktree).expect("the fixture writes");
-        let outcome =
-            commit_in(&repo, "hostile", "tugarc(hostile): add the records", None).unwrap();
+        let outcome = commit_in(
+            &paths,
+            &repo,
+            "hostile",
+            "tugarc(hostile): add the records",
+            None,
+            None,
+        )
+        .unwrap();
         assert!(outcome.committed, "the round carried the files");
         assert!(
             worktree_dirt(&repo, "hostile").is_empty(),
@@ -848,9 +880,11 @@ mod tests {
 
         // And a second round takes them all, leaving the worktree clean.
         let outcome = commit_in(
+            &paths,
             &repo,
             "hostile",
             "tugarc(hostile): revise the records",
+            None,
             None,
         )
         .unwrap();

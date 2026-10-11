@@ -3,6 +3,7 @@
 //! replay, the landing drafts, and the landing receipts the verbs write.
 
 use super::*;
+use tugcore::instance::Paths;
 
 /// The shared `changeset_join_resolve_base_ok` wire fixture, also read by
 /// the tugdeck bun suite — drift on either side of the mirror fails one of
@@ -1913,7 +1914,8 @@ async fn a_resolve_survives_losing_every_control_frame() {
     // The result is in git regardless, and the composition the feed runs
     // reports it — which is the whole point of moving terminal truth off
     // CONTROL and onto the replayed snapshot feed.
-    let detail = tugarc_core::ops::arc_detail_entry_in(&root, "demo").expect("detail");
+    let detail =
+        tugarc_core::ops::arc_detail_entry_in(&Paths::from_env(), &root, "demo").expect("detail");
     let branch = tugarc_core::ops::current_branch(&root).unwrap();
     let state = crate::feeds::join_board::join_state_for(
         &root,

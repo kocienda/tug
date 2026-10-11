@@ -5,6 +5,7 @@
 
 use super::super::*;
 use tugcast_core::ControlAction;
+use tugcore::instance::Paths;
 
 /// Parsed `changeset_commit` request: project dir, repo-relative file list,
 /// commit message (Spec S03). The file list may parse empty — the handler
@@ -1754,7 +1755,7 @@ impl AgentSupervisor {
         // The round count belongs to the receipt, and a landed join deletes the
         // branch it is counted from — so it is read here, for the same reason
         // the owner key is.
-        let rounds = tugarc_core::arc_detail_entries_in(dir)
+        let rounds = tugarc_core::arc_detail_entries_in(&Paths::from_env(), dir)
             .into_iter()
             .find(|d| d.name == request.arc)
             .map(|d| d.rounds)
@@ -1764,7 +1765,7 @@ impl AgentSupervisor {
         // `Joined` boundary ([B02], [B03]), and `read_arc` applies the log's
         // generation reset — so a read taken after the join, whose own
         // terminal line is already appended, comes back with nothing.
-        let arc_record = tugarc_core::read_arc(dir, &request.arc);
+        let arc_record = tugarc_core::read_arc(&Paths::from_env(), dir, &request.arc);
 
         // A join tears the workshop down and deletes the branch under it, so it
         // cannot share the arc with a resolve or a verification (Spec S01). A
@@ -1824,15 +1825,21 @@ impl AgentSupervisor {
         let beat_project_dir = project_dir.to_string();
         let beat_arc = request.arc.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugarc_core::join_in_with_progress(&dir_owned, &arc, opts, |beat, status| {
-                Self::send_changeset_join_land_delta(
-                    &beat_tx,
-                    &beat_project_dir,
-                    &beat_arc,
-                    beat,
-                    status,
-                );
-            })
+            tugarc_core::join_in_with_progress(
+                &Paths::from_env(),
+                &dir_owned,
+                &arc,
+                opts,
+                |beat, status| {
+                    Self::send_changeset_join_land_delta(
+                        &beat_tx,
+                        &beat_project_dir,
+                        &beat_arc,
+                        beat,
+                        status,
+                    );
+                },
+            )
         })
         .await;
 
@@ -2168,7 +2175,7 @@ impl AgentSupervisor {
         // Snapshotted here so a question this run raises stays matched to the
         // head it was raised against, even if a round lands on the arc while
         // the resolver waits for the answer.
-        let arc_head = tugarc_core::ops::arc_detail_entry_in(dir, &request.arc)
+        let arc_head = tugarc_core::ops::arc_detail_entry_in(&Paths::from_env(), dir, &request.arc)
             .and_then(|detail| tugarc_core::ops::rev_parse(dir, &detail.branch).ok());
         let occupancy = match crate::feeds::join_occupancy::acquire(
             &owner_key,
@@ -2240,7 +2247,7 @@ impl AgentSupervisor {
             // sentence that ended the one before it.
             tugarc_core::resolve::clear_stuck(&dir_owned, &arc);
             let merger_ref = merger.as_ref().map(|m| m as &dyn tugarc_core::FileMerger);
-            tugarc_core::resolve_conflicts(&dir_owned, &arc, merger_ref)
+            tugarc_core::resolve_conflicts(&Paths::from_env(), &dir_owned, &arc, merger_ref)
         })
         .await;
 
@@ -2580,7 +2587,7 @@ impl AgentSupervisor {
             // blocker, and a run still held at that moment would put
             // `run: "resolve-base"` on an entry with nothing running (R02).
             let _held = occupancy;
-            tugarc_core::ops::resolve_base_in(&dir_owned, &arc, &live_dirt)
+            tugarc_core::ops::resolve_base_in(&Paths::from_env(), &dir_owned, &arc, &live_dirt)
         })
         .await;
 
@@ -2755,7 +2762,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let arc = request.arc.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugarc_core::undo_resolve_base_in(&dir_owned, &arc)
+            tugarc_core::undo_resolve_base_in(&Paths::from_env(), &dir_owned, &arc)
         })
         .await;
 
@@ -2851,7 +2858,7 @@ impl AgentSupervisor {
         // What the discard is about to destroy, read while it still exists —
         // `arc_detail_entries_in` is the only accessor and after the teardown
         // the branch is gone and the subjects are unrecoverable (Spec S02).
-        let detail = tugarc_core::arc_detail_entries_in(dir)
+        let detail = tugarc_core::arc_detail_entries_in(&Paths::from_env(), dir)
             .into_iter()
             .find(|d| d.name == request.arc);
         let discarded_rounds = detail.as_ref().map(|d| d.rounds).unwrap_or(0);
@@ -2861,7 +2868,7 @@ impl AgentSupervisor {
         let dir_owned = dir.to_path_buf();
         let arc = request.arc.clone();
         let result = tokio::task::spawn_blocking(move || {
-            tugarc_core::discard_in(&dir_owned, &arc, Some("card"), false)
+            tugarc_core::discard_in(&Paths::from_env(), &dir_owned, &arc, Some("card"), false)
         })
         .await;
 
@@ -3090,8 +3097,10 @@ impl AgentSupervisor {
 
         let dir_owned = dir.to_path_buf();
         let arc = request.arc.clone();
-        let result =
-            tokio::task::spawn_blocking(move || tugarc_core::replay_onto(&dir_owned, &arc)).await;
+        let result = tokio::task::spawn_blocking(move || {
+            tugarc_core::replay_onto(&Paths::from_env(), &dir_owned, &arc)
+        })
+        .await;
 
         match result {
             Ok(Ok(outcome)) => {

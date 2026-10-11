@@ -38,6 +38,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tugcore::instance::Paths;
 
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio_util::sync::CancellationToken;
@@ -92,6 +93,9 @@ pub struct ArcContext {
     /// clock through `quiet_since` rather than sleeping. Arming nothing is
     /// then the correct behaviour rather than a stub.
     pub settle: Option<mpsc::Sender<String>>,
+    /// Every instance path the runner writes under, resolved once where the
+    /// engine is spawned: the arc engine it drives reads no environment.
+    pub paths: Arc<tugcore::instance::Paths>,
 }
 
 /// Per-arc memory the documents cannot hold.
@@ -625,7 +629,7 @@ async fn depart(ctx: &ArcContext, state: &ArcMemory, present: &[(String, BoundAr
         // The log is the only record that can say why an arc left, so an arc
         // with none — discarded out from under the sweep — has nothing to
         // write to and nothing to be told about.
-        let departure = read_arc(&arc.project, &arc.name).filter(|record| {
+        let departure = read_arc(&ctx.paths, &arc.project, &arc.name).filter(|record| {
             !record.done
                 && record.stopped.is_none()
                 && record.stopping.is_none()
@@ -890,8 +894,9 @@ async fn evaluate(ctx: &ArcContext, state: &Arc<Mutex<HashMap<String, ArcState>>
     // ended at the `spawn_blocking` would leave each of them threading a field
     // of its own onto `ArcReading`.
     let snapshot = session.clone();
+    let paths = Arc::clone(&ctx.paths);
     let Ok(Some(reading)) =
-        tokio::task::spawn_blocking(move || read(&project, &name, &snapshot, memory)).await
+        tokio::task::spawn_blocking(move || read(&paths, &project, &name, &snapshot, memory)).await
     else {
         return;
     };
@@ -1346,8 +1351,9 @@ async fn watch_the_clock_unseated(
     clear_wait(&arc.seat);
     let project = arc.project.clone();
     let name = arc.name.clone();
+    let paths = Arc::clone(&ctx.paths);
     let Ok(Some((record, config))) = tokio::task::spawn_blocking(move || {
-        let record = read_arc(&project, &name)?;
+        let record = read_arc(&paths, &project, &name)?;
         let config = Config::load_from_project(&project)
             .unwrap_or_default()
             .tugtool
@@ -1873,12 +1879,13 @@ struct TickMemory {
 /// Gather the facts. Blocking: file reads and, for an implement stage, one
 /// scoped git read.
 fn read(
+    paths: &Paths,
     project: &Path,
     name: &str,
     session: &SessionSnapshot,
     memory: TickMemory,
 ) -> Option<ArcReading> {
-    let record = read_arc(project, name)?;
+    let record = read_arc(paths, project, name)?;
     let project_config = Config::load_from_project(project).unwrap_or_default();
     let config = project_config.tugtool.arc.clone();
 
@@ -1962,7 +1969,7 @@ fn read(
         .as_ref()
         .is_some_and(|d| d.ledger_rows.iter().any(|row| row.status == "in progress"));
 
-    let declarations = tugarc_core::log::read_declarations(project, name);
+    let declarations = tugarc_core::log::read_declarations(paths, project, name);
 
     let stage_session_current = match record.stages.last() {
         Some(line) => session.claude_session_id.as_deref() == Some(line.session_id.as_str()),
@@ -2218,7 +2225,12 @@ fn opening_prompt(
 /// here rather than regretted after: a branch carrying rounds with no
 /// worktree is an `Err`, and the arc stops with the sentence that says how
 /// to get the seat back.
-fn seat_for(project: &Path, name: &str, stage: ArcStage) -> Result<PathBuf, String> {
+fn seat_for(
+    paths: &tugcore::instance::Paths,
+    project: &Path,
+    name: &str,
+    stage: ArcStage,
+) -> Result<PathBuf, String> {
     match stage {
         ArcStage::Implement | ArcStage::Audit => {
             let rounds = tugarc_core::ops::rounds_a_rebuild_would_lose(project, name);
@@ -2230,7 +2242,7 @@ fn seat_for(project: &Path, name: &str, stage: ArcStage) -> Result<PathBuf, Stri
                      tugarc/{name}` from the project root — and run the arc again."
                 ));
             }
-            tugarc_core::ops::create_in(project, name, None, false, None)
+            tugarc_core::ops::create_in(paths, project, name, None, false, None)
                 .map(|outcome| PathBuf::from(outcome.worktree))
                 .map_err(|e| e.to_string())
         }
@@ -2245,7 +2257,8 @@ fn seat_for(project: &Path, name: &str, stage: ArcStage) -> Result<PathBuf, Stri
 /// carrying `create_in`'s error, and the caller returns.
 async fn seat_or_stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage) -> Option<PathBuf> {
     let (project, name) = (arc.project.clone(), arc.name.clone());
-    let outcome = tokio::task::spawn_blocking(move || seat_for(&project, &name, stage))
+    let paths = Arc::clone(&ctx.paths);
+    let outcome = tokio::task::spawn_blocking(move || seat_for(&paths, &project, &name, stage))
         .await
         .unwrap_or_else(|join| Err(format!("the seat task did not finish: {join}")));
     match outcome {
@@ -2256,7 +2269,9 @@ async fn seat_or_stop(ctx: &ArcContext, arc: &BoundArc, stage: ArcStage) -> Opti
             // cannot carry a payload, and a receipt that only says the seat
             // could not be made is a stop nobody can act on.
             let (p, d) = (arc.project.clone(), arc.name.clone());
-            let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &error)).await;
+            let paths = Arc::clone(&ctx.paths);
+            let _ =
+                tokio::task::spawn_blocking(move || append_arc_note(&paths, &p, &d, &error)).await;
             stop(ctx, arc, stage, ArcStopReason::SeatUnavailable).await;
             None
         }
@@ -2317,11 +2332,13 @@ async fn records_agree_or_stop(
     resuming: bool,
 ) -> Option<RecordsVerdict> {
     let (project, name) = (arc.project.clone(), arc.name.clone());
-    let diagnosis =
-        tokio::task::spawn_blocking(move || tugarc_core::doctor::doctor(&project, &name, false))
-            .await
-            .ok()
-            .and_then(|outcome| outcome.ok());
+    let paths = Arc::clone(&ctx.paths);
+    let diagnosis = tokio::task::spawn_blocking(move || {
+        tugarc_core::doctor::doctor(&paths, &project, &name, false)
+    })
+    .await
+    .ok()
+    .and_then(|outcome| outcome.ok());
     let Some(outcome) = diagnosis else {
         return Some(RecordsVerdict {
             open_step: Vec::new(),
@@ -2355,7 +2372,8 @@ async fn records_agree_or_stop(
         // stop nobody can act on.
         let note = disagreements.join("; ");
         let (p, d) = (arc.project.clone(), arc.name.clone());
-        let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &note)).await;
+        let paths = Arc::clone(&ctx.paths);
+        let _ = tokio::task::spawn_blocking(move || append_arc_note(&paths, &p, &d, &note)).await;
         stop(ctx, arc, stage, ArcStopReason::RecordsDisagree).await;
         return None;
     }
@@ -2393,7 +2411,8 @@ async fn deliver_prompt(
     // another one decided over facts that may already have moved.
     let project = arc.project.clone();
     let name = arc.name.clone();
-    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
+    let paths = Arc::clone(&ctx.paths);
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&paths, &project, &name))
         .await
         .ok()
         .flatten();
@@ -2510,9 +2529,10 @@ async fn deliver_prompt(
         let note = format!("{tokens} > {compact_tokens}");
         let (project, name) = (arc.project.clone(), arc.name.clone());
         let arc_note = format!("compacted at {note}");
+        let paths = Arc::clone(&ctx.paths);
         let _ = tokio::task::spawn_blocking(move || {
-            let _ = append_arc_log(&project, &name, "compact", &note);
-            append_arc_note(&project, &name, &arc_note)
+            let _ = append_arc_log(&paths, &project, &name, "compact", &note);
+            append_arc_note(&paths, &project, &name, &arc_note)
         })
         .await;
 
@@ -2555,7 +2575,10 @@ async fn deliver_prompt(
             jobs.join(", ")
         );
         let (project, name) = (arc.project.clone(), arc.name.clone());
-        let _ = tokio::task::spawn_blocking(move || append_arc_note(&project, &name, &note)).await;
+        let paths = Arc::clone(&ctx.paths);
+        let _ =
+            tokio::task::spawn_blocking(move || append_arc_note(&paths, &project, &name, &note))
+                .await;
 
         let mut map = state.lock().await;
         let entry = map.entry(key.to_string()).or_default();
@@ -2587,7 +2610,8 @@ async fn rotate(
     // one decided over facts that may already have moved.
     let project = arc.project.clone();
     let name = arc.name.clone();
-    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
+    let paths = Arc::clone(&ctx.paths);
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&paths, &project, &name))
         .await
         .ok()
         .flatten();
@@ -2630,11 +2654,18 @@ async fn rotate(
     // clause, which is what says the worktree's edits are the arc's own.
     if !verdict.open_step.is_empty() {
         let (p, d) = (arc.project.clone(), arc.name.clone());
+        let paths = Arc::clone(&ctx.paths);
         let reset = tokio::task::spawn_blocking(move || {
-            let step = tugarc_core::doctor::open_step(&p, &d)?;
+            let step = tugarc_core::doctor::open_step(&paths, &p, &d)?;
             Some((
                 step,
-                tugarc_core::ops::step_reset_in(&p, &d, step, Some("resumed on a fresh session")),
+                tugarc_core::ops::step_reset_in(
+                    &paths,
+                    &p,
+                    &d,
+                    step,
+                    Some("resumed on a fresh session"),
+                ),
             ))
         })
         .await
@@ -2686,7 +2717,9 @@ async fn rotate(
     if rotation.stage == ArcStage::Devise {
         if let Some(target) = reading.devise_target.clone() {
             let (p, d) = (project.clone(), name.clone());
-            let _ = tokio::task::spawn_blocking(move || append_arc_plan(&p, &d, &target)).await;
+            let paths = Arc::clone(&ctx.paths);
+            let _ =
+                tokio::task::spawn_blocking(move || append_arc_plan(&paths, &p, &d, &target)).await;
         }
     }
     // An arc opened on a plan never devised one, so the plan path is recorded
@@ -2695,12 +2728,15 @@ async fn rotate(
     if rotation.stage == ArcStage::Review && reading.record.plan.is_none() {
         if let Some(plan) = reading.plan_for_prompt.clone() {
             let (p, d) = (project.clone(), name.clone());
-            let _ = tokio::task::spawn_blocking(move || append_arc_plan(&p, &d, &plan)).await;
+            let paths = Arc::clone(&ctx.paths);
+            let _ =
+                tokio::task::spawn_blocking(move || append_arc_plan(&paths, &p, &d, &plan)).await;
         }
     }
     if let Some(note) = rotation.note.clone() {
         let (p, d) = (project.clone(), name.clone());
-        let _ = tokio::task::spawn_blocking(move || append_arc_note(&p, &d, &note)).await;
+        let paths = Arc::clone(&ctx.paths);
+        let _ = tokio::task::spawn_blocking(move || append_arc_note(&paths, &p, &d, &note)).await;
     }
 
     let plan_for_stage = if rotation.stage == ArcStage::Devise {
@@ -2729,10 +2765,11 @@ async fn rotate(
     // the gap must not leave a seat nobody can attribute. No instance id
     // (a standalone launch, a `cargo`-driven test) writes nothing at all —
     // an unowned arc is every runner's to judge, which is today's behavior.
-    if let Some(instance) = tugcore::instance::instance_id() {
+    if let Some(instance) = ctx.paths.instance_id.clone() {
         let outcome = tokio::task::spawn_blocking({
+            let paths = Arc::clone(&ctx.paths);
             let (project, name) = (project.clone(), name.clone());
-            move || append_arc_owner(&project, &name, &instance)
+            move || append_arc_owner(&paths, &project, &name, &instance)
         })
         .await;
         report_append(&project, &name, "arc-owner", outcome);
@@ -2745,8 +2782,9 @@ async fn rotate(
     // here reports, and does not stop the rotation: a rotation that happened
     // is better than one refused over its own footnote.
     let outcome = tokio::task::spawn_blocking({
+        let paths = Arc::clone(&ctx.paths);
         let (project, name, stage) = (project.clone(), name.clone(), rotation.stage);
-        move || append_arc_dispatch(&project, &name, stage)
+        move || append_arc_dispatch(&paths, &project, &name, stage)
     })
     .await;
     report_append(&project, &name, "arc-dispatch", outcome);
@@ -2844,7 +2882,8 @@ async fn reverse(
     // second reversal of one stop would write a second receipt saying the
     // same thing.
     let (project, name) = (arc.project.clone(), arc.name.clone());
-    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
+    let paths = Arc::clone(&ctx.paths);
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&paths, &project, &name))
         .await
         .ok()
         .flatten();
@@ -2875,20 +2914,23 @@ async fn reverse(
     let note = format!("picked back up: {what_moved}");
     let (project, name) = (arc.project.clone(), arc.name.clone());
     let outcome = tokio::task::spawn_blocking({
+        let paths = Arc::clone(&ctx.paths);
         let (project, name) = (project.clone(), name.clone());
-        move || append_arc_note(&project, &name, &note)
+        move || append_arc_note(&paths, &project, &name, &note)
     })
     .await;
     report_append(&project, &name, "arc-note", outcome);
     let outcome = tokio::task::spawn_blocking({
+        let paths = Arc::clone(&ctx.paths);
         let (project, name) = (project.clone(), name.clone());
-        move || append_arc_resume(&project, &name, stage)
+        move || append_arc_resume(&paths, &project, &name, stage)
     })
     .await;
     report_append(&project, &name, "arc-resume", outcome);
     let outcome = tokio::task::spawn_blocking({
+        let paths = Arc::clone(&ctx.paths);
         let (project, name) = (project.clone(), name.clone());
-        move || append_arc_continue(&project, &name, stage)
+        move || append_arc_continue(&paths, &project, &name, stage)
     })
     .await;
     report_append(&project, &name, "arc-continue", outcome);
@@ -2984,7 +3026,8 @@ async fn continue_stage(
     // one decided over facts that may already have moved, and a second
     // continue of one resume would ask the stage twice.
     let (project, name) = (arc.project.clone(), arc.name.clone());
-    let fresh = tokio::task::spawn_blocking(move || read_arc(&project, &name))
+    let paths = Arc::clone(&ctx.paths);
+    let fresh = tokio::task::spawn_blocking(move || read_arc(&paths, &project, &name))
         .await
         .ok()
         .flatten();
@@ -3058,8 +3101,9 @@ async fn continue_stage(
 
     let (project, name) = (arc.project.clone(), arc.name.clone());
     let outcome = tokio::task::spawn_blocking({
+        let paths = Arc::clone(&ctx.paths);
         let (project, name) = (project.clone(), name.clone());
-        move || append_arc_continue(&project, &name, stage)
+        move || append_arc_continue(&paths, &project, &name, stage)
     })
     .await;
     report_append(&project, &name, "arc-continue", outcome);
@@ -3308,7 +3352,7 @@ pub(crate) async fn stop_arc_for_session(
             // The record supplies the arc name the receipt reads back. A stop
             // with no record left to read is still worth saying, so a missing
             // one falls back to a record naming only this arc and stage.
-            let record = read_arc(project, name).unwrap_or_else(|| ArcRecord {
+            let record = read_arc(&Paths::from_env(), project, name).unwrap_or_else(|| ArcRecord {
                 arc: name.to_owned(),
                 document: None,
                 kind: None,
@@ -3350,7 +3394,7 @@ pub(crate) async fn stop_arc_for_session(
         let name = name.to_owned();
         let outcome = tokio::task::spawn_blocking({
             let (project, name) = (project.clone(), name.clone());
-            move || append_arc_stop(&project, &name, stage, reason)
+            move || append_arc_stop(&Paths::from_env(), &project, &name, stage, reason)
         })
         .await;
         report_append(&project, &name, "arc-stop", outcome);
@@ -3426,8 +3470,9 @@ async fn finish(
     let project = arc.project.clone();
     let name = arc.name.clone();
     let outcome = tokio::task::spawn_blocking({
+        let paths = Arc::clone(&ctx.paths);
         let (project, name) = (project.clone(), name.clone());
-        move || append_arc_done(&project, &name)
+        move || append_arc_done(&paths, &project, &name)
     })
     .await;
     report_append(&project, &name, "arc-done", outcome);
@@ -3613,9 +3658,16 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -3639,10 +3691,25 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "gone",
+            None,
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, Some("fresh")),
@@ -3665,10 +3732,25 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "live", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "live",
+            None,
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, Some("live")),
@@ -3693,8 +3775,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "live", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "live",
+            None,
+        )
+        .unwrap();
 
         // Idle, current, no plan on disk — the reading a tick takes in the gap
         // between the stage's spawn and its first frame. The same facts with a
@@ -3704,7 +3800,14 @@ Some context.
         session.turn_ended = false;
         session.turns_ended = 0;
         session.prompt_turns_ended = 0;
-        let reading = read(root, "demo", &session, TickMemory::default()).unwrap();
+        let reading = read(
+            &Paths::from_env(),
+            root,
+            "demo",
+            &session,
+            TickMemory::default(),
+        )
+        .unwrap();
         assert!(reading.facts.stage_session_current);
         assert!(!reading.facts.stage_turn_ended);
         assert_eq!(arc_action(&reading.record, &reading.facts), None);
@@ -3715,9 +3818,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         asked(&entry, 0).await;
@@ -3725,7 +3841,7 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0, "no rotation");
-        let record = tugarc_core::read_arc(root, "demo").unwrap();
+        let record = tugarc_core::read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record.stopped, None,
             "and no stop written for a plan the stage has not begun"
@@ -3744,9 +3860,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         // No plan on disk: a stage that had ended an *asked* turn here would
@@ -3757,7 +3886,9 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(
-            tugarc_core::read_arc(root, "demo").unwrap().stopped,
+            tugarc_core::read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped,
             None,
             "a wake is not the stage answering, so nothing is judged about its plan",
         );
@@ -3769,9 +3900,16 @@ Some context.
         let root = dir.path();
         std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
         std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -3815,10 +3953,25 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "s", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Review,
+            "s",
+            None,
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(false, true, Some("s")),
@@ -3839,10 +3992,25 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "s",
+            None,
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, false, Some("s")),
@@ -3857,12 +4025,33 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "s", None).unwrap();
-        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "s",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::Lint,
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, Some("s")),
@@ -3877,9 +4066,16 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -3939,7 +4135,13 @@ Some context.
         std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
         let brief = root.join(".tug/arcs/demo/brief.md");
         std::fs::write(&brief, "# A brief\n\n[F01] `src/a.rs` holds it.\n").unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let commit = |message: &str| {
             tugcore::test_fixtures::git::command()
@@ -3967,6 +4169,7 @@ Some context.
         commit("change the cited file");
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -3991,6 +4194,7 @@ Some context.
             .set_modified(SystemTime::now() + Duration::from_secs(2))
             .unwrap();
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4021,9 +4225,16 @@ Some context.
             "# A brief\n\n[F01] `src/a.rs` holds it, `src/b.ts` reads it, `src/gone.rs` does not exist.\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4061,10 +4272,17 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
         std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4103,10 +4321,17 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
         std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4153,9 +4378,16 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/plan.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4266,7 +4498,13 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         std::fs::write(
             root.join(".tug/arcs/demo/plan.md"),
@@ -4274,6 +4512,7 @@ Some context.
         )
         .unwrap();
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4293,6 +4532,7 @@ Some context.
         )
         .unwrap();
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -4395,6 +4635,7 @@ Some context.
                 // The harness drives `sweep` directly and ages the clock
                 // through `quiet_since`, so there is nothing to arm.
                 settle: None,
+                paths: Arc::new(Paths::from_env()),
             },
             entry,
             register_rx,
@@ -4411,7 +4652,13 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -4436,7 +4683,13 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         entry.lock().await.turn_active = true;
@@ -4460,8 +4713,14 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_done(root, "demo").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_done(&Paths::from_env(), root, "demo").unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -4499,7 +4758,13 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
         // The table reads step 1 open and the arc log never declared it —
         // the crash-between-the-two-writes shape `arc doctor` names.
         std::fs::write(
@@ -4512,7 +4777,8 @@ Some context.
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let record =
+            tugarc_core::read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         assert!(
             record.stages.is_empty() && record.dispatched.is_none(),
             "no stage is seated over records that disagree"
@@ -4545,7 +4811,13 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         // The rotation: a fresh segment on the card's line, recorded under
@@ -4595,9 +4867,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         {
@@ -4609,7 +4894,7 @@ Some context.
         let state = Arc::new(Mutex::new(HashMap::new()));
 
         sweep(&ctx, &state).await;
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record
                 .stopped
@@ -4626,9 +4911,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         {
@@ -4651,7 +4949,7 @@ Some context.
         // test's subject. The claim here is narrower and is the whole of what
         // the grace is for — whatever the arc decides, it does not decide the
         // session is *gone*, because a gap of a second is a respawn in flight.
-        let stopped = read_arc(root, "demo").unwrap().stopped;
+        let stopped = read_arc(&Paths::from_env(), root, "demo").unwrap().stopped;
         assert_ne!(
             stopped.as_ref().map(|(_, reason)| reason.as_str()),
             Some(ArcStopReason::SessionGone.as_str()),
@@ -4671,9 +4969,22 @@ Some context.
             let dir = tempfile::tempdir().unwrap();
             let root = dir.path();
             project_with_document(root, ".tug/arcs/demo/brief.md");
-            tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-            tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-                .unwrap();
+            tugarc_core::arc::append_arc_start(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ".tug/arcs/demo/brief.md",
+            )
+            .unwrap();
+            tugarc_core::arc::append_arc_stage(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ArcStage::Devise,
+                "claude-1",
+                None,
+            )
+            .unwrap();
 
             let (ctx, entry, _register_rx) = harness(root).await;
             {
@@ -4685,7 +4996,10 @@ Some context.
 
             sweep(&ctx, &state).await;
             assert_eq!(
-                read_arc(root, "demo").unwrap().stopped.is_some(),
+                read_arc(&Paths::from_env(), root, "demo")
+                    .unwrap()
+                    .stopped
+                    .is_some(),
                 expect_stop,
                 "ever_live_here = {ever_live_here}",
             );
@@ -4708,9 +5022,22 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         // The entry the sweep would read, removed: `session_snapshot` answers
@@ -4726,7 +5053,10 @@ Some context.
         // did not watch is not silence it may hold against a stage.
         sweep(&ctx, &state).await;
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_none(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
             "the seed decides nothing"
         );
 
@@ -4738,7 +5068,7 @@ Some context.
             }
         }
         sweep(&ctx, &state).await;
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record
                 .stopped
@@ -4763,10 +5093,24 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stopping(&Paths::from_env(), root, "demo", ArcStage::Devise)
             .unwrap();
-        tugarc_core::arc::append_arc_stopping(root, "demo", ArcStage::Devise).unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         ctx.supervisor
@@ -4790,7 +5134,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(arc_stop_lines(root), stops_before, "no `arc-stop` line");
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert!(record.stopped.is_none());
         assert_eq!(
             record.stopping,
@@ -4808,9 +5152,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -4833,7 +5190,7 @@ Some context.
 
         assert_eq!(arc_stop_lines(root), stops_before + 1);
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "seat lost".to_string())),
         );
         let said = receipts(&mut control_rx);
@@ -4852,15 +5209,29 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
 
         sweep(&ctx, &state).await;
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
@@ -4875,7 +5246,7 @@ Some context.
 
         assert_eq!(arc_stop_lines(root), stops_before, "no second `arc-stop`");
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "stopped by user".to_string())),
         );
     }
@@ -4896,17 +5267,32 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Devise,
             ArcStopReason::StoppedByUser,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Devise).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Devise)
+            .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         ctx.supervisor
@@ -4930,7 +5316,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(arc_stop_lines(root), stops_before, "no `arc-stop` line");
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert!(record.stopped.is_none());
         assert_eq!(
             record.resume,
@@ -4948,10 +5334,23 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_owner(root, "demo", owner).unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_owner(&Paths::from_env(), root, "demo", owner).unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
     }
 
     /// **The incident, made a test.** A second instance over one checkout reads
@@ -4989,7 +5388,10 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_none(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
             "a live owner's arc is not this runner's to stop"
         );
     }
@@ -5024,7 +5426,7 @@ Some context.
         }
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record
                 .stopped
@@ -5049,9 +5451,22 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (mut ctx, _entry, _register_rx) = harness(root).await;
         // Even with every instance in the world alive, an unowned arc never
@@ -5074,7 +5489,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo")
+            read_arc(&Paths::from_env(), root, "demo")
                 .unwrap()
                 .stopped
                 .as_ref()
@@ -5119,18 +5534,42 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
-        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::Lint,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
 
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0);
-        assert!(read_arc(root, "demo").unwrap().stopped.is_some());
+        assert!(
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -5143,10 +5582,24 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
         // A stage recorded against a session that is no longer the one on the
         // card — what a tugcast restart leaves behind.
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "gone",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -5175,8 +5628,22 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "gone", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "gone",
+            None,
+        )
+        .unwrap();
 
         // No `set_stage_provenance` for `claude-1`: the session on the card
         // carries no stage label.
@@ -5186,7 +5653,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Devise, "card taken".to_string())),
             "the stop names the taking, not a dead stage"
         );
@@ -5215,8 +5682,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "gone", None).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Review,
+            "gone",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -5225,13 +5706,21 @@ Some context.
         sweep(&ctx, &state).await;
         assert_eq!(entry.lock().await.queue.len(), 0, "nothing rotated");
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_none(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
             "and nothing stopped"
         );
 
         ctx.supervisor.ledger.lock().await.clear();
         sweep(&ctx, &state).await;
-        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+        assert!(
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none()
+        );
 
         // A card whose claude errored out is the case with nothing to advance.
         ctx.supervisor
@@ -5242,7 +5731,7 @@ Some context.
         entry.lock().await.spawn_state = SpawnState::Errored;
         sweep(&ctx, &state).await;
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Review, "session gone".to_string()))
         );
     }
@@ -5261,17 +5750,32 @@ Some context.
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
         std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Review,
             ArcStopReason::SpawnQueueFull,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Review)
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         // Another claude on the card: the record's session is not this one.
@@ -5297,11 +5801,24 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
         // A devise stage on the card's own session that produced no plan: the
         // documents say stop.
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         entry.lock().await.deck_model = Some("opus".to_string());
@@ -5322,7 +5839,7 @@ Some context.
         assert_eq!(parsed["type"], "model_change");
         assert_eq!(parsed["model"], "opus");
 
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record.stopped,
             Some((ArcStage::Devise, "lint".to_string())),
@@ -5392,8 +5909,20 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_kind(root, "demo", tugarc_core::arc::ArcKind::Plain).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_kind(
+            &Paths::from_env(),
+            root,
+            "demo",
+            tugarc_core::arc::ArcKind::Plain,
+        )
+        .unwrap();
         let worktree = tugarc_core::ops::worktree_path(root, "demo");
         assert!(
             !worktree.exists(),
@@ -5404,7 +5933,7 @@ Some context.
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").expect("the arc record");
+        let record = read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         assert_eq!(record.stopped, None, "{:?}", record.notes);
         assert_eq!(record.dispatched, Some(ArcStage::Implement));
         assert!(worktree.is_dir(), "the dispatch made the seat");
@@ -5431,15 +5960,27 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_kind(root, "demo", tugarc_core::arc::ArcKind::Plain).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_kind(
+            &Paths::from_env(),
+            root,
+            "demo",
+            tugarc_core::arc::ArcKind::Plain,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").expect("the arc record");
+        let record = read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         assert_eq!(
             record.stopped,
             Some((
@@ -5485,13 +6026,27 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_kind(root, "demo", tugarc_core::arc::ArcKind::Plain).unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_kind(
+            &Paths::from_env(),
+            root,
+            "demo",
+            tugarc_core::arc::ArcKind::Plain,
+        )
+        .unwrap();
 
         // A seat that was walked: one round on the branch, and then the
         // worktree removed the way a `git worktree remove` or a disk sweep
         // leaves it — branch behind, tree gone.
-        let outcome = tugarc_core::ops::create_in(root, "demo", None, false, None).unwrap();
+        let outcome =
+            tugarc_core::ops::create_in(&Paths::from_env(), root, "demo", None, false, None)
+                .unwrap();
         let worktree = PathBuf::from(&outcome.worktree);
         std::fs::write(worktree.join("round.txt"), "work\n").unwrap();
         for args in [vec!["add", "-A"], vec!["commit", "-m", "A round"]] {
@@ -5530,7 +6085,7 @@ Some context.
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").expect("the arc record");
+        let record = read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         assert_eq!(
             record.stopped,
             Some((
@@ -5586,7 +6141,13 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\ndocs = \"arc\"\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -5596,7 +6157,7 @@ Some context.
 
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record.stopped,
             Some((ArcStage::Devise, "session gone".to_string())),
@@ -5617,9 +6178,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -5653,7 +6227,7 @@ Some context.
         assert_eq!(said.len(), 1, "got {said:?}");
         assert!(said[0].contains("you stopped it"), "{said:?}");
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Devise, "stopped by user".to_string())),
         );
     }
@@ -5665,9 +6239,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -5701,7 +6288,7 @@ Some context.
             "and it names no command — the resume is the receipt's own button: {said:?}",
         );
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "stopped by user".to_string())),
         );
     }
@@ -5715,9 +6302,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Review,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -5758,7 +6358,13 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -5795,9 +6401,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Review, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Review,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let mut control_rx = ctx.supervisor.control_tx.subscribe();
@@ -5831,7 +6450,7 @@ Some context.
             "and the card is told now"
         );
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None,
             "no arc-stop line is appended",
         );
@@ -5842,9 +6461,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         project_with_document(root, ".tug/arcs/demo/brief.md");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -6087,11 +6719,31 @@ Some context.
             plan_with_statuses(first, second),
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_plan(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
-        tugarc_core::log::append_arc_log(root, "demo", "run-through", "2").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_plan(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
+        tugarc_core::log::append_arc_log(&Paths::from_env(), root, "demo", "run-through", "2")
             .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
     }
 
     /// Give the session a measured context — the live `cost_update` figure,
@@ -6685,7 +7337,7 @@ Some context.
             "past the horizon the boundary is prompted past"
         );
         assert_eq!(
-            read_arc(root, "demo")
+            read_arc(&Paths::from_env(), root, "demo")
                 .unwrap()
                 .notes
                 .last()
@@ -6772,6 +7424,7 @@ Some context.
         // Stopped behind the runner's back, with the job still open: nothing
         // about the session changed, only the record.
         append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
@@ -6918,7 +7571,7 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None,
             "no arc-stop line on an unsettled reading",
         );
@@ -6931,7 +7584,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "implement idle".to_string())),
             "the settled reading stops the arc",
         );
@@ -6959,7 +7612,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "session gone".to_string())),
             "the first sweep stops it, settle or no settle",
         );
@@ -6984,7 +7637,12 @@ Some context.
             submitted(&entry).await.is_empty(),
             "an open row is a step being walked, not a boundary to answer"
         );
-        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+        assert!(
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none()
+        );
     }
 
     /// **The horizon is two asks, counted over turns rather than ticks.**
@@ -7033,7 +7691,12 @@ Some context.
             1,
             "one turn ended and closed nothing"
         );
-        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+        assert!(
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none()
+        );
         assert_eq!(
             submitted_asks(&entry).await,
             vec![
@@ -7058,7 +7721,12 @@ Some context.
             1,
             "a tick is not a turn"
         );
-        assert!(read_arc(root, "demo").unwrap().stopped.is_none());
+        assert!(
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none()
+        );
         assert_eq!(
             submitted_asks(&entry).await.len(),
             1,
@@ -7069,7 +7737,7 @@ Some context.
         asked(&entry, 2).await;
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record.stopped,
             Some((ArcStage::Implement, "implement idle".to_string())),
@@ -7127,7 +7795,7 @@ Some context.
 
         sweep(&ctx, &state).await;
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None,
             "an idle reading has an edge, and the clock is not what judges it",
         );
@@ -7144,7 +7812,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "stalled".to_string())),
             "a turn that never ends is answered by the clock or by nothing at all",
         );
@@ -7222,7 +7890,10 @@ Some context.
         asked(&entry, 2).await;
         sweep(&ctx, &state).await;
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_some(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_some(),
             "the horizon stopped the arc",
         );
 
@@ -7255,9 +7926,22 @@ Some context.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         implementing_project(root, "done", "pending");
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
 
         // The supervisor's wheel is the runner's wheel, as the boot stage wires
         // it.
@@ -7358,7 +8042,7 @@ Some context.
             "six wakes are no answers, so the count stands where the one ask left it",
         );
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None,
             "and the arc that was working is not stopped",
         );
@@ -7401,7 +8085,7 @@ Some context.
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None,
             "a wake is motion, so the clock never ran out",
         );
@@ -7428,11 +8112,30 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
-        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Stalled)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::Stalled,
+        )
+        .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -7477,15 +8180,35 @@ Some context.
             "[tugtool.arc]\nidle_settle_secs = 0\narc_stall_secs = 1\n",
         )
         .unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
-            .unwrap();
-        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Review, ArcStopReason::Stalled)
-            .unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/brief.md",
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Review,
+            ArcStopReason::Stalled,
+        )
+        .unwrap();
         // The press. `arc-resume` clears the stop and names the stage to run
         // again, so the tick that follows reads a live record with a stale
         // clock behind it — the exact pairing the arm order settles.
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Review).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Review)
+            .unwrap();
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -7508,7 +8231,10 @@ Some context.
             arc_log_markers(root),
         );
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_none(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
             "the stale clock never got to re-stop the arc the user just resumed",
         );
     }
@@ -7526,13 +8252,15 @@ Some context.
         let root = dir.path();
         implementing_project(root, "done", "pending");
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::ImplementIdle,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 100_000).await;
@@ -7607,17 +8335,26 @@ Some context.
         let root = dir.path();
         std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
         std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::StoppedByUser,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -7659,21 +8396,37 @@ Some context.
         let root = dir.path();
         std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
         std::fs::write(root.join(".tug/arcs/demo/plan.md"), LINTING_PLAN).unwrap();
-        tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
+        tugarc_core::arc::append_arc_start(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::StoppedByUser,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
         // The rotation the resume asked for lands, which clears `resume` and
         // leaves `last_stop` standing for the rest of the generation.
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "sess-1", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "sess-1",
+            None,
+        )
+        .unwrap();
 
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, None),
@@ -7735,10 +8488,24 @@ Some context.
             plan_with_statuses("done", "pending"),
         )
         .unwrap();
-        tugarc_core::arc::append_arc_plan(root, "demo", ".tug/arcs/demo/plan.md").unwrap();
-        tugarc_core::log::append_arc_log(root, "demo", "run-through", "2").unwrap();
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
+        tugarc_core::arc::append_arc_plan(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ".tug/arcs/demo/plan.md",
+        )
+        .unwrap();
+        tugarc_core::log::append_arc_log(&Paths::from_env(), root, "demo", "run-through", "2")
             .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-1",
+            None,
+        )
+        .unwrap();
     }
 
     /// A stopped, resumed implement arc whose table claims a round the log
@@ -7764,13 +8531,15 @@ Some context.
         )
         .unwrap();
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::ImplementIdle,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
     }
 
     /// **The continue path reads the records too** ([P07]). A resumed stage is
@@ -7790,7 +8559,8 @@ Some context.
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let record =
+            tugarc_core::read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         let (_, reason) = record.stopped.expect("a stop");
         assert_eq!(reason, ArcStopReason::RecordsDisagree.as_str());
         let sent: Vec<serde_json::Value> = drained(&entry).await;
@@ -7853,20 +8623,23 @@ Some context.
         let root = dir.path();
         implementing_project(root, "in progress", "pending");
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::StoppedByUser,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 100_000).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let record =
+            tugarc_core::read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         assert!(record.stopped.is_none(), "the arc was not stopped again");
         assert!(
             arc_log_markers(root)
@@ -7893,13 +8666,15 @@ Some context.
         let root = dir.path();
         implementing_project(root, "in progress", "pending");
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::StoppedByUser,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         // Another claude on the card: the record's session is not this one, so
@@ -7909,7 +8684,8 @@ Some context.
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let record =
+            tugarc_core::read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         assert!(record.stopped.is_none(), "the arc was not stopped");
         assert_eq!(
             ledger_status(root, "step-1"),
@@ -7927,20 +8703,23 @@ Some context.
         let root = dir.path();
         implementing_project_without_a_document(root);
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::StoppedByUser,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 100_000).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
-        let record = tugarc_core::read_arc(root, "demo").expect("the arc record");
+        let record =
+            tugarc_core::read_arc(&Paths::from_env(), root, "demo").expect("the arc record");
         let (_, reason) = record.stopped.expect("a stop");
         assert_eq!(reason, ArcStopReason::DocumentMissing.as_str());
         assert!(
@@ -8024,7 +8803,10 @@ Some context.
         asked(entry, 2).await;
         sweep(ctx, &state).await;
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_some(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_some(),
             "the horizon stopped the arc, which is what the reversal undoes",
         );
         state
@@ -8079,7 +8861,7 @@ Some context.
             "the note says what moved, the resume clears the stop, the continue clears the resume",
         );
 
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(record.stopped, None, "the arc is running again");
         assert_eq!(
             record.resume, None,
@@ -8136,7 +8918,13 @@ Some context.
         sweep(&ctx, &state).await;
         asked(&entry, 2).await;
         sweep(&ctx, &state).await;
-        assert!(read_arc(root, "demo").unwrap().stopped.is_some(), "stopped");
+        assert!(
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_some(),
+            "stopped"
+        );
         let _ = receipts(&mut control_rx);
         let _ = drained(&entry).await;
 
@@ -8146,7 +8934,11 @@ Some context.
         )
         .unwrap();
         sweep(&ctx, &state).await;
-        assert_eq!(read_arc(root, "demo").unwrap().stopped, None, "reversed");
+        assert_eq!(
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
+            None,
+            "reversed"
+        );
 
         // The stage is seated, idle, and between steps. The next tick reads
         // the close the way it would have read it had the stop never
@@ -8181,7 +8973,7 @@ Some context.
         woke(&entry).await;
         sweep(&ctx, &state).await;
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             None,
             "picked back up",
         );
@@ -8216,7 +9008,10 @@ Some context.
         woke(&entry).await;
         sweep(&ctx, &state).await;
 
-        assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+        assert_eq!(
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
+            None
+        );
         let said = receipts(&mut control_rx);
         assert_eq!(
             said,
@@ -8272,13 +9067,15 @@ Some context.
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 100_000).await;
         tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
             root,
             "demo",
             ArcStage::Implement,
             ArcStopReason::ImplementIdle,
         )
         .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Implement)
+            .unwrap();
         assert_eq!(arc_stop_lines(root), 1, "the stop this test starts from");
 
         let state = Arc::new(Mutex::new(HashMap::new()));
@@ -8345,7 +9142,10 @@ Some context.
             "a boundary is the opposite of a quiet turn"
         );
         assert!(
-            read_arc(root, "demo").unwrap().stopped.is_none(),
+            read_arc(&Paths::from_env(), root, "demo")
+                .unwrap()
+                .stopped
+                .is_none(),
             "and the arc is walking on, not stopped"
         );
     }
@@ -8398,14 +9198,14 @@ Some context.
 
         sweep(&ctx, &state).await;
 
-        let record = read_arc(root, "demo").unwrap();
+        let record = read_arc(&Paths::from_env(), root, "demo").unwrap();
         assert_eq!(
             record.notes.last().map(String::as_str),
             Some("compacted at 350000 > 300000")
         );
         // The new marker moves no declaration: a reader that dates an arc from
         // every line is untroubled, and `read_arc` never learns the word.
-        let declarations = tugarc_core::log::read_declarations(root, "demo");
+        let declarations = tugarc_core::log::read_declarations(&Paths::from_env(), root, "demo");
         assert_eq!(declarations.run_through, Some(2));
         assert!(!declarations.run_complete);
 
@@ -8702,7 +9502,8 @@ Some context.
         implementing_project(root, "done", "pending");
         // A selection running past the ledger's last row, so the withdrawal
         // below leaves the run neither complete nor able to name a next step.
-        tugarc_core::log::append_arc_log(root, "demo", "run-through", "3").unwrap();
+        tugarc_core::log::append_arc_log(&Paths::from_env(), root, "demo", "run-through", "3")
+            .unwrap();
 
         let (ctx, entry, _register_rx) = harness(root).await;
         set_context(&entry, 350_000).await;
@@ -8748,7 +9549,7 @@ Some context.
         asked(&entry, 4).await;
         sweep(&ctx, &state).await;
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Implement, "implement idle".to_string())),
             "an arc with nothing left to name stops rather than ticking forever"
         );
@@ -8927,6 +9728,7 @@ Some context.
 
         let (ctx, entry, _register_rx) = harness(root).await;
         let reading = read(
+            &Paths::from_env(),
             root,
             "demo",
             &snapshot(true, true, Some("claude-1")),
@@ -8943,8 +9745,15 @@ Some context.
 
         // The record moves under the tick: another rotation lands between the
         // read and the act.
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-9", None)
-            .unwrap();
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Implement,
+            "claude-9",
+            None,
+        )
+        .unwrap();
 
         let state = Arc::new(Mutex::new(HashMap::new()));
         let lines = capturing_lines(async {
@@ -8988,19 +9797,36 @@ Some context.
         project_with_document(root, ".tug/arcs/demo/brief.md");
         // No `arc-start`, so the record carries no document — and the devise
         // ask is the one that cannot be composed without one.
-        tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Devise, "claude-1", None)
+        tugarc_core::arc::append_arc_stage(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            "claude-1",
+            None,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_stop(
+            &Paths::from_env(),
+            root,
+            "demo",
+            ArcStage::Devise,
+            ArcStopReason::Lint,
+        )
+        .unwrap();
+        tugarc_core::arc::append_arc_resume(&Paths::from_env(), root, "demo", ArcStage::Devise)
             .unwrap();
-        tugarc_core::arc::append_arc_stop(root, "demo", ArcStage::Devise, ArcStopReason::Lint)
-            .unwrap();
-        tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Devise).unwrap();
-        assert_eq!(read_arc(root, "demo").unwrap().document, None);
+        assert_eq!(
+            read_arc(&Paths::from_env(), root, "demo").unwrap().document,
+            None
+        );
 
         let (ctx, _entry, _register_rx) = harness(root).await;
         let state = Arc::new(Mutex::new(HashMap::new()));
         sweep(&ctx, &state).await;
 
         assert_eq!(
-            read_arc(root, "demo").unwrap().stopped,
+            read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
             Some((ArcStage::Devise, "prompt unavailable".to_string())),
             "the arc says what it could not do rather than sitting still",
         );
@@ -9179,7 +10005,10 @@ Some context.
                 None,
                 "a reading that is not idle settles nothing",
             );
-            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+            assert_eq!(
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
+                None
+            );
             assert!(
                 submitted(&entry).await.is_empty(),
                 "and the gap between a turn and its wake bought nothing at all",
@@ -9225,7 +10054,10 @@ Some context.
             for _ in 0..4 {
                 sweep(&ctx, &state).await;
             }
-            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+            assert_eq!(
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
+                None
+            );
             assert!(submitted(&entry).await.is_empty());
 
             // The wake, which closes the job and opens a turn of its own.
@@ -9245,7 +10077,7 @@ Some context.
             sweep(&ctx, &state).await;
 
             assert_eq!(
-                read_arc(root, "demo").unwrap().stopped,
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
                 None,
                 "nothing in the whole sequence was an answer, and nothing stopped",
             );
@@ -9274,7 +10106,7 @@ Some context.
                 "the stop was reversed on the stage's own session: {markers:#?}",
             );
             assert_eq!(
-                read_arc(root, "demo").unwrap().stopped,
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
                 None,
                 "and the record says the arc is running again",
             );
@@ -9309,7 +10141,13 @@ Some context.
             );
 
             // The press.
-            tugarc_core::arc::append_arc_resume(root, "demo", ArcStage::Implement).unwrap();
+            tugarc_core::arc::append_arc_resume(
+                &Paths::from_env(),
+                root,
+                "demo",
+                ArcStage::Implement,
+            )
+            .unwrap();
             {
                 let mut map = state.lock().await;
                 let entry = map.get_mut(&demo_key(root)).unwrap();
@@ -9318,7 +10156,7 @@ Some context.
             sweep(&ctx, &state).await;
 
             assert_eq!(
-                read_arc(root, "demo").unwrap().stopped,
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
                 None,
                 "the stale clock never got to re-stop the arc the user resumed",
             );
@@ -9331,7 +10169,10 @@ Some context.
 
             // A second tick over the same staleness says the same thing.
             sweep(&ctx, &state).await;
-            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+            assert_eq!(
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
+                None
+            );
         }
 
         /// **Sequence 5 — the horizon reached the way it is meant to be.**
@@ -9363,14 +10204,17 @@ Some context.
                 1,
                 "the first quiet asked turn is answered, not waited out",
             );
-            assert_eq!(read_arc(root, "demo").unwrap().stopped, None);
+            assert_eq!(
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
+                None
+            );
 
             // The re-asked turn ends, closing nothing either.
             asked(&entry, 2).await;
             sweep(&ctx, &state).await;
 
             assert_eq!(
-                read_arc(root, "demo").unwrap().stopped,
+                read_arc(&Paths::from_env(), root, "demo").unwrap().stopped,
                 Some((ArcStage::Implement, "implement idle".to_string())),
                 "two asks, and the receipt's sentence is true of what happened",
             );

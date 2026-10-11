@@ -4,6 +4,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
+use tugcore::instance::Paths;
 
 use super::commit::SWEEP_TRAILER_KEY;
 use super::documents::{ArcDocuments, document_arcs};
@@ -104,8 +105,8 @@ pub struct RoundItem {
 ///
 /// Live work outranks waiting paperwork, so the order is branched arcs first,
 /// then paperwork, each sorted as its own scan yields it.
-pub fn list_in(repo_root: &Path) -> Result<Vec<ArcListItem>, ArcError> {
-    reconcile_branches(repo_root, &mut Vec::new());
+pub fn list_in(paths: &Paths, repo_root: &Path) -> Result<Vec<ArcListItem>, ArcError> {
+    reconcile_branches(paths, repo_root, &mut Vec::new());
 
     // Every tugarc/* branch is an active arc ([P02]).
     let branches = git_stdout(
@@ -151,7 +152,7 @@ pub fn list_in(repo_root: &Path) -> Result<Vec<ArcListItem>, ArcError> {
             continue;
         }
         let documents = ArcDocuments::read(repo_root, &name);
-        let arc_kind = crate::arc::read_arc(repo_root, &name)
+        let arc_kind = crate::arc::read_arc(paths, repo_root, &name)
             .and_then(|r| r.kind)
             .map(|k| k.as_str().to_owned());
         items.push(ArcListItem {
@@ -226,8 +227,8 @@ pub fn rounds_a_rebuild_would_lose(repo_root: &Path, name: &str) -> usize {
 }
 
 /// Show one arc's metadata + rounds (commits ahead of base) + worktree dirt.
-pub fn show_in(repo_root: &Path, name: &str) -> Result<ShowOutcome, ArcError> {
-    reconcile_branches(repo_root, &mut Vec::new());
+pub fn show_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ShowOutcome, ArcError> {
+    reconcile_branches(paths, repo_root, &mut Vec::new());
     let branch = branch_name(name);
 
     if !branch_exists(repo_root, &branch) {
@@ -519,7 +520,7 @@ pub(crate) fn name_status_paths(records: &[String]) -> Vec<String> {
 /// [`arc_owner_key`] and never mints ([P02]). tugcast's `compose_snapshot`
 /// calls this on every recompute, and a read that wrote git config would be a
 /// side-effecting read and a multi-process race.
-pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
+pub fn arc_detail_entries_in(paths: &Paths, repo_root: &Path) -> Vec<ArcDetail> {
     // The same normalization the join verbs do: a card whose project is a
     // linked worktree must be told about the repository's arcs, keyed the
     // way every other reader keys them — the derived `joining` stage reads the
@@ -602,8 +603,8 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
         // arc record, each folding the same small append-only file through its
         // own typed reader. No plan markdown is read here ([P01]): the
         // declarations are the record this path derives from.
-        let declarations = read_declarations(repo_root, name);
-        let arc_record = crate::arc::read_arc(repo_root, name);
+        let declarations = read_declarations(paths, repo_root, name);
+        let arc_record = crate::arc::read_arc(paths, repo_root, name);
         // The recorded kind, taken from the read this block already performs
         // ([F01]) — it used to be dropped here, which is why the deck had
         // nothing to read and the track sniffed documents instead.
@@ -630,7 +631,7 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
         // arc is not joinable right now, so readiness stands down either way. The blocker
         // set makes the opposite call for the opposite reason; see
         // `join_blockers_from_detail`.
-        let joining = crate::oplog::join_in_flight(repo_root, name).is_some();
+        let joining = crate::oplog::join_in_flight(paths, repo_root, name).is_some();
         let documents = ArcDocuments::read(repo_root, name);
         // Every input is already in hand from this arc's own composition, so
         // readiness costs no extra git call on the recompute's hot path ([P04]).
@@ -692,9 +693,9 @@ pub fn arc_detail_entries_in(repo_root: &Path) -> Vec<ArcDetail> {
 /// Shares that walk rather than reimplementing it, so a caller asking about one
 /// arc and a caller asking about all of them cannot get different answers about
 /// the same arc. Returns `None` when the arc has no branch.
-pub fn arc_detail_entry_in(repo_root: &Path, name: &str) -> Option<ArcDetail> {
+pub fn arc_detail_entry_in(paths: &Paths, repo_root: &Path, name: &str) -> Option<ArcDetail> {
     let repo_root = &main_repo_root(repo_root);
-    arc_detail_entries_in(repo_root)
+    arc_detail_entries_in(paths, repo_root)
         .into_iter()
         .find(|d| d.name == name)
 }
@@ -892,8 +893,8 @@ pub struct SeatRow {
 /// no live row to prefer. Best-effort on the same terms as
 /// [`bound_session_for`]: no db, no table, no `demoted` column all read as
 /// absent.
-pub(crate) fn seat_row_for(owner_key: &str) -> Option<SeatRow> {
-    let db = sessions_db_file()?;
+pub(crate) fn seat_row_for(paths: &Paths, owner_key: &str) -> Option<SeatRow> {
+    let db = sessions_db_file(paths)?;
     let Ok(conn) =
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
     else {
@@ -928,8 +929,8 @@ pub(crate) fn seat_row_for(owner_key: &str) -> Option<SeatRow> {
 /// card is never reported and an arc whose cards have all closed reads as
 /// unbound. Best-effort throughout — no db, no table, no `arc_id` column (an
 /// unmigrated ledger) all read as absent.
-pub(crate) fn bound_session_for(owner_key: &str) -> Option<String> {
-    let db = sessions_db_file()?;
+pub(crate) fn bound_session_for(paths: &Paths, owner_key: &str) -> Option<String> {
+    let db = sessions_db_file(paths)?;
     let Ok(conn) =
         rusqlite::Connection::open_with_flags(&db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
     else {
@@ -949,7 +950,7 @@ pub(crate) fn bound_session_for(owner_key: &str) -> Option<String> {
 /// One arc's lifecycle readout against `repo_root` (Spec S05).
 ///
 /// A pure read path: it resolves the owner key without minting ([P02]).
-pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, ArcError> {
+pub fn status_in(paths: &Paths, repo_root: &Path, name: &str) -> Result<ArcStatus, ArcError> {
     let branch = branch_name(name);
     if !branch_exists(repo_root, &branch) {
         return Err(ArcError::NotFound {
@@ -976,19 +977,19 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, ArcError> {
     };
     let documents = ArcDocuments::read(repo_root, name);
 
-    let draft = arc_draft_message(repo_root, &branch).is_some();
-    let join_journal_phase = crate::oplog::join_in_flight(repo_root, name)
+    let draft = arc_draft_message(paths, repo_root, &branch).is_some();
+    let join_journal_phase = crate::oplog::join_in_flight(paths, repo_root, name)
         .and_then(|op| op.join)
         .map(|progress| format!("{:?}", progress.phase));
-    let bound_session = bound_session_for(&id);
-    let declarations = read_declarations(repo_root, name);
+    let bound_session = bound_session_for(paths, &id);
+    let declarations = read_declarations(paths, repo_root, name);
     let run_span = crate::log::run_fraction(&declarations);
     let fit = fit_fact(repo_root, &branch, &base_branch, &declarations);
     // The read this path does not otherwise make. `arc status` must not
     // disagree with the feed about the same arc, and the feed derives this
     // from the record — so this path reads the record too. It is the CLI, not
     // the recompute, so one more fold of a small append-only file is free.
-    let wheel = crate::log::WheelReading::of(crate::arc::read_arc(repo_root, name).as_ref());
+    let wheel = crate::log::WheelReading::of(crate::arc::read_arc(paths, repo_root, name).as_ref());
     let join_ready = crate::log::join_ready(
         rounds.max(0) as u32,
         crate::log::unfinished_tracked_dirt(&worktree_dirt_tracked),
@@ -1027,7 +1028,7 @@ pub fn status_in(repo_root: &Path, name: &str) -> Result<ArcStatus, ArcError> {
         last_activity: declarations.last_activity.clone(),
         fit,
         conflict: conflict_summary(repo_root, name),
-        disagreements: crate::doctor::diagnose(repo_root, name).sentences(),
+        disagreements: crate::doctor::diagnose(paths, repo_root, name).sentences(),
     })
 }
 
@@ -1056,8 +1057,8 @@ pub fn worktree_dirt(repo_root: &Path, name: &str) -> Vec<String> {
 /// (no db, no table, no row) falls through to `None`.
 /// Resolve the `sessions.db` path — the running instance's, else the
 /// platform default. Read-only callers only.
-pub(super) fn sessions_db_file() -> Option<std::path::PathBuf> {
-    tugcore::instance::resolve_sessions_db_path()
+pub(super) fn sessions_db_file(paths: &tugcore::instance::Paths) -> Option<std::path::PathBuf> {
+    Some(paths.sessions_db.clone())
 }
 
 /// One authored round on an arc branch.
@@ -1170,11 +1171,10 @@ mod tests {
     /// documents was invisible to `arc list`, so a name on screen had no
     /// answer here and read as drift between two surfaces.
     #[test]
-    #[serial(tug_data_dir)]
     fn list_reports_the_paperwork_half_beside_the_branched_one() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "branched", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "branched", None, false, None).unwrap();
         let root = fs::canonicalize(&repo).unwrap();
 
         // Paperwork: a brief and a task list, no branch.
@@ -1185,7 +1185,7 @@ mod tests {
         // Litter: an arc-named directory holding nothing is not an arc.
         fs::create_dir_all(documents_dir(&root, "abandoned")).unwrap();
 
-        let items = list_in(&root).unwrap();
+        let items = list_in(&paths, &root).unwrap();
         let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(
             names,
@@ -1217,16 +1217,15 @@ mod tests {
     /// copy of the documents exactly where it was, so an arc mid-implement has
     /// both a branch and a `.tug/arcs/<name>/` directory for its whole life.
     #[test]
-    #[serial(tug_data_dir)]
     fn list_never_reports_one_arc_as_both_active_and_paperwork() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "adopted", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "adopted", None, false, None).unwrap();
         let dir = documents_dir(&fs::canonicalize(&repo).unwrap(), "adopted");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("plan.md"), "# Adopted\n").unwrap();
 
-        let items = list_in(&repo).unwrap();
+        let items = list_in(&paths, &repo).unwrap();
         assert_eq!(items.len(), 1, "one arc, one row");
         assert_eq!(items[0].status, "active");
     }
@@ -1235,12 +1234,11 @@ mod tests {
     // The sweep is marked, and is not a round (Spec S03)
     // -----------------------------------------------------------------------
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_sweep_does_not_inflate_the_round_count_or_the_subject_list() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "swept-count", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "swept-count", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "swept-count");
         author_round(&worktree, 1);
         author_round(&worktree, 2);
@@ -1249,7 +1247,7 @@ mod tests {
         fs::write(worktree.join("late.txt"), "uncommitted\n").unwrap();
         commit_worktree_dirt(&worktree, "swept-count").unwrap();
 
-        let detail = arc_detail_entries_in(&repo)
+        let detail = arc_detail_entries_in(&paths, &repo)
             .into_iter()
             .find(|d| d.name == "swept-count")
             .expect("the arc is listed");
@@ -1265,17 +1263,16 @@ mod tests {
         );
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_arc_whose_only_commit_is_a_sweep_has_no_rounds() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "sweep-only", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "sweep-only", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "sweep-only");
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
         commit_worktree_dirt(&worktree, "sweep-only").unwrap();
 
-        let detail = arc_detail_entries_in(&repo)
+        let detail = arc_detail_entries_in(&paths, &repo)
             .into_iter()
             .find(|d| d.name == "sweep-only")
             .expect("the arc is listed");
@@ -1296,12 +1293,11 @@ mod tests {
         ));
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn a_sweep_from_before_the_marker_still_counts() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "legacy-sweep", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "legacy-sweep", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "legacy-sweep");
         // Exactly what the sweep used to write: the old subject, no trailer.
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
@@ -1311,7 +1307,7 @@ mod tests {
             &["commit", "-q", "-m", "join: commit outstanding changes"],
         );
 
-        let detail = arc_detail_entries_in(&repo)
+        let detail = arc_detail_entries_in(&paths, &repo)
             .into_iter()
             .find(|d| d.name == "legacy-sweep")
             .expect("the arc is listed");
@@ -1321,24 +1317,23 @@ mod tests {
         assert_eq!(detail.rounds, 1);
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn every_round_reader_agrees_about_a_swept_arc() {
         let temp = TempDir::new().unwrap();
-        let repo = repo_beside_state(&temp);
-        create_in(&repo, "agreeing", None, false, None).unwrap();
+        let (repo, paths) = repo_beside_state(&temp);
+        create_in(&paths, &repo, "agreeing", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "agreeing");
         author_round(&worktree, 1);
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
         commit_worktree_dirt(&worktree, "agreeing").unwrap();
 
-        let detail = arc_detail_entries_in(&repo)
+        let detail = arc_detail_entries_in(&paths, &repo)
             .into_iter()
             .find(|d| d.name == "agreeing")
             .expect("the arc is listed");
-        let status = status_in(&repo, "agreeing").unwrap();
-        let shown = show_in(&repo, "agreeing").unwrap();
-        let listed = list_in(&repo)
+        let status = status_in(&paths, &repo, "agreeing").unwrap();
+        let shown = show_in(&paths, &repo, "agreeing").unwrap();
+        let listed = list_in(&paths, &repo)
             .unwrap()
             .into_iter()
             .find(|d| d.name == "agreeing")
@@ -1356,11 +1351,10 @@ mod tests {
     /// is recorded and not yet offered; `built` does not offer it; `audited`
     /// does. A stop is not an escape from this (see the test below), only
     /// the unaudited join is, and that is the user's act.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_live_wheel_holds_the_offer_until_the_audit() {
-        let (_temp, root) = wheeled_arc("audit-gate-arc");
-        let detail = arc_detail_entry_in(&root, "audit-gate-arc").unwrap();
+        let (_temp, root, paths) = wheeled_arc("audit-gate-arc");
+        let detail = arc_detail_entry_in(&paths, &root, "audit-gate-arc").unwrap();
         assert!(
             detail.run_complete,
             "the run finished, and the record says so"
@@ -1370,17 +1364,17 @@ mod tests {
             "but the audit may still commit rounds, so nothing is offered yet"
         );
 
-        mark_in(&root, "audit-gate-arc", MarkStage::Built, None).unwrap();
+        mark_in(&paths, &root, "audit-gate-arc", MarkStage::Built, None).unwrap();
         assert!(
-            !arc_detail_entry_in(&root, "audit-gate-arc")
+            !arc_detail_entry_in(&paths, &root, "audit-gate-arc")
                 .unwrap()
                 .join_ready,
             "`built` is the implement stage's own word and does not arm the join"
         );
 
-        mark_in(&root, "audit-gate-arc", MarkStage::Audited, None).unwrap();
+        mark_in(&paths, &root, "audit-gate-arc", MarkStage::Audited, None).unwrap();
         assert!(
-            arc_detail_entry_in(&root, "audit-gate-arc")
+            arc_detail_entry_in(&paths, &root, "audit-gate-arc")
                 .unwrap()
                 .join_ready,
             "the audit's declaration is the one that arms it"
@@ -1392,40 +1386,40 @@ mod tests {
     /// audit did not mark. A wheel that broke cannot leave finished work
     /// unlandable — `arc join` lands the unaudited branch — but the offer is
     /// never called ready over a tree nothing audited.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_stopped_wheel_holds_the_offer_until_the_audit_marks() {
-        let (_temp, root) = wheeled_arc("audit-stop-arc");
-        mark_in(&root, "audit-stop-arc", MarkStage::Built, None).unwrap();
+        let (_temp, root, paths) = wheeled_arc("audit-stop-arc");
+        mark_in(&paths, &root, "audit-stop-arc", MarkStage::Built, None).unwrap();
         assert!(
-            !arc_detail_entry_in(&root, "audit-stop-arc")
+            !arc_detail_entry_in(&paths, &root, "audit-stop-arc")
                 .unwrap()
                 .join_ready
         );
 
         crate::arc::append_arc_stop(
+            &paths,
             &root,
             "audit-stop-arc",
             crate::arc::ArcStage::Implement,
             crate::arc::ArcStopReason::Stalled,
         )
         .unwrap();
-        let feed = arc_detail_entry_in(&root, "audit-stop-arc").unwrap();
+        let feed = arc_detail_entry_in(&paths, &root, "audit-stop-arc").unwrap();
         assert!(feed.run_complete, "the implement stage closed every step");
         assert!(
             !feed.join_ready,
             "a wheel that broke before the audit is an arc nothing audited, and is not ready"
         );
-        let cli = status_in(&root, "audit-stop-arc").unwrap();
+        let cli = status_in(&paths, &root, "audit-stop-arc").unwrap();
         assert_eq!(
             cli.stage, feed.stage,
             "the CLI reads the same arc the same way"
         );
         assert_ne!(cli.stage, "ready");
 
-        mark_in(&root, "audit-stop-arc", MarkStage::Audited, None).unwrap();
+        mark_in(&paths, &root, "audit-stop-arc", MarkStage::Audited, None).unwrap();
         assert!(
-            arc_detail_entry_in(&root, "audit-stop-arc")
+            arc_detail_entry_in(&paths, &root, "audit-stop-arc")
                 .unwrap()
                 .join_ready,
             "the audit's own declaration is the one thing that arms it"
@@ -1437,11 +1431,11 @@ mod tests {
     /// the thing the gate exists to refuse — whether the wheel stalled or a
     /// person stopped it. The branch stays landable; it is never called
     /// ready. Both readers of the record agree.
-    #[serial(tug_data_dir)]
     #[test]
     fn a_stopped_audit_is_not_offered_over_a_real_log() {
-        let (_temp, root) = wheeled_arc("audit-unmarked-arc");
+        let (_temp, root, paths) = wheeled_arc("audit-unmarked-arc");
         crate::arc::append_arc_stage(
+            &paths,
             &root,
             "audit-unmarked-arc",
             crate::arc::ArcStage::Audit,
@@ -1450,28 +1444,36 @@ mod tests {
         )
         .unwrap();
         crate::arc::append_arc_stop(
+            &paths,
             &root,
             "audit-unmarked-arc",
             crate::arc::ArcStage::Audit,
             crate::arc::ArcStopReason::Stalled,
         )
         .unwrap();
-        let feed = arc_detail_entry_in(&root, "audit-unmarked-arc").unwrap();
+        let feed = arc_detail_entry_in(&paths, &root, "audit-unmarked-arc").unwrap();
         assert!(feed.run_complete, "the implement stage closed every step");
         assert!(
             !feed.join_ready,
             "and the audit stopped without marking, so nothing is ready"
         );
-        let cli = status_in(&root, "audit-unmarked-arc").unwrap();
+        let cli = status_in(&paths, &root, "audit-unmarked-arc").unwrap();
         assert_eq!(
             cli.stage, feed.stage,
             "the CLI reads the same arc the same way"
         );
         assert_ne!(cli.stage, "ready");
 
-        mark_in(&root, "audit-unmarked-arc", MarkStage::Audited, None).unwrap();
+        mark_in(
+            &paths,
+            &root,
+            "audit-unmarked-arc",
+            MarkStage::Audited,
+            None,
+        )
+        .unwrap();
         assert!(
-            arc_detail_entry_in(&root, "audit-unmarked-arc")
+            arc_detail_entry_in(&paths, &root, "audit-unmarked-arc")
                 .unwrap()
                 .join_ready,
             "the audit's own declaration is the one thing that arms it"
@@ -1489,12 +1491,11 @@ mod tests {
     /// of the observable disagreement [R03] is about. The undeclared run is
     /// the case that discriminates: a `status_in` that skipped the gate would
     /// say `ready` here while the feed said `implementing`.
-    #[serial(tug_data_dir)]
     #[test]
     fn status_and_the_feed_agree_mid_audit() {
-        let (_temp, root) = wheeled_arc("audit-agree-arc");
-        let feed = arc_detail_entry_in(&root, "audit-agree-arc").unwrap();
-        let cli = status_in(&root, "audit-agree-arc").unwrap();
+        let (_temp, root, paths) = wheeled_arc("audit-agree-arc");
+        let feed = arc_detail_entry_in(&paths, &root, "audit-agree-arc").unwrap();
+        let cli = status_in(&paths, &root, "audit-agree-arc").unwrap();
         assert_eq!(
             cli.stage, feed.stage,
             "the CLI and the feed read one arc the same way"
@@ -1502,9 +1503,9 @@ mod tests {
         assert_eq!(cli.stage, "implementing", "and both are behind the gate");
 
         // And both move together when the audit declares.
-        mark_in(&root, "audit-agree-arc", MarkStage::Audited, None).unwrap();
-        let feed = arc_detail_entry_in(&root, "audit-agree-arc").unwrap();
-        let cli = status_in(&root, "audit-agree-arc").unwrap();
+        mark_in(&paths, &root, "audit-agree-arc", MarkStage::Audited, None).unwrap();
+        let feed = arc_detail_entry_in(&paths, &root, "audit-agree-arc").unwrap();
+        let cli = status_in(&paths, &root, "audit-agree-arc").unwrap();
         assert!(feed.join_ready);
         assert_eq!(cli.stage, feed.stage);
         assert_eq!(cli.stage, "audited");
@@ -1516,86 +1517,96 @@ mod tests {
     /// audit where it derived `ready` before. That is the truer word — a stage
     /// is still running — but it must be pinned rather than discovered,
     /// because `implementing` is not in the deck's `JOINABLE_STAGES`.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_gate_moves_the_derived_word_only_for_an_undeclared_run() {
-        let (_temp, root) = wheeled_arc("audit-word-arc");
+        let (_temp, root, paths) = wheeled_arc("audit-word-arc");
         assert_eq!(
-            arc_detail_entry_in(&root, "audit-word-arc").unwrap().stage,
+            arc_detail_entry_in(&paths, &root, "audit-word-arc")
+                .unwrap()
+                .stage,
             "implementing",
             "a run armed only by `run_complete` reads as the stage still running"
         );
 
         // A declared `built` outranks the `join_ready` arm, so the word a
         // wheel's own implement stage produces is unchanged by the gate.
-        mark_in(&root, "audit-word-arc", MarkStage::Built, None).unwrap();
+        mark_in(&paths, &root, "audit-word-arc", MarkStage::Built, None).unwrap();
         assert_eq!(
-            arc_detail_entry_in(&root, "audit-word-arc").unwrap().stage,
+            arc_detail_entry_in(&paths, &root, "audit-word-arc")
+                .unwrap()
+                .stage,
             "built"
         );
     }
 
     /// The incident's shape, inverted: an arc driven only by the verbs a run
     /// cannot skip is offerable without anybody declaring anything ([P01]–[P04]).
-    #[serial(tug_data_dir)]
     #[test]
     fn a_finished_run_reads_ready_without_a_mark() {
-        let (_temp, root) = stepped_arc("ready-arc");
+        let (_temp, root, paths) = stepped_arc("ready-arc");
         let worktree = worktree_path(&root, "ready-arc");
 
-        step_start_in(&root, "ready-arc", 1, 2).unwrap();
+        step_start_in(&paths, &root, "ready-arc", 1, 2).unwrap();
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit_in(&root, "ready-arc", "r1", None).unwrap();
+        commit_in(&paths, &root, "ready-arc", "r1", None, None).unwrap();
 
         // Mid-run: a step is open and the selection is unfinished.
-        let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "ready-arc").unwrap();
         assert!(!detail.join_ready);
         assert_eq!(detail.stage, "implementing");
         assert_eq!(detail.run_through, Some(2));
 
-        step_done_in(&root, "ready-arc", 1, None).unwrap();
+        step_done_in(&paths, &root, "ready-arc", 1, None).unwrap();
         // Still short of the declared end.
-        let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "ready-arc").unwrap();
         assert!(!detail.join_ready);
         assert!(!detail.run_complete);
 
-        step_start_in(&root, "ready-arc", 2, 2).unwrap();
+        step_start_in(&paths, &root, "ready-arc", 2, 2).unwrap();
         fs::write(worktree.join("two.txt"), "second\n").unwrap();
-        commit_in(&root, "ready-arc", "r2", None).unwrap();
-        step_done_in(&root, "ready-arc", 2, None).unwrap();
+        commit_in(&paths, &root, "ready-arc", "r2", None, None).unwrap();
+        step_done_in(&paths, &root, "ready-arc", 2, None).unwrap();
 
-        let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "ready-arc").unwrap();
         assert!(detail.run_complete);
         assert!(detail.join_ready, "the declared selection finished");
         assert_eq!(detail.stage, "ready");
         // And the CLI's own composition agrees with the feed's.
-        assert_eq!(status_in(&root, "ready-arc").unwrap().stage, "ready");
+        assert_eq!(
+            status_in(&paths, &root, "ready-arc").unwrap().stage,
+            "ready"
+        );
 
         // An untracked scratch file does not unready the arc — the join's
         // preamble would not commit it, so it is not the run's unfinished work.
         fs::write(worktree.join("scratch.tmp"), "notes\n").unwrap();
-        let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "ready-arc").unwrap();
         assert!(detail.join_ready, "untracked dirt is not unfinished work");
-        assert_eq!(status_in(&root, "ready-arc").unwrap().stage, "ready");
+        assert_eq!(
+            status_in(&paths, &root, "ready-arc").unwrap().stage,
+            "ready"
+        );
 
         // A tracked edit does: that is work the join would sweep in.
         fs::write(worktree.join("one.txt"), "edited\n").unwrap();
-        let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "ready-arc").unwrap();
         assert!(!detail.join_ready);
-        assert_eq!(status_in(&root, "ready-arc").unwrap().stage, "implementing");
+        assert_eq!(
+            status_in(&paths, &root, "ready-arc").unwrap().stage,
+            "implementing"
+        );
     }
 
     /// The two pairs answer different questions and both reach the callers:
     /// the run's counts the selection, the plan's counts the document.
-    #[serial(tug_data_dir)]
     #[test]
     fn the_run_pair_counts_the_selection_and_the_plan_pair_the_document() {
-        let (_temp, root) = stepped_arc("span-arc");
+        let (_temp, root, paths) = stepped_arc("span-arc");
         let worktree = worktree_path(&root, "span-arc");
 
         // A run of just step 1 against a two-row plan: the numbers diverge.
-        step_start_in(&root, "span-arc", 1, 1).unwrap();
-        let detail = arc_detail_entry_in(&root, "span-arc").unwrap();
+        step_start_in(&paths, &root, "span-arc", 1, 1).unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "span-arc").unwrap();
         assert_eq!(
             (detail.step_current, detail.step_total),
             (Some(1), Some(2)),
@@ -1607,51 +1618,49 @@ mod tests {
             "the run pair counts only what was asked for"
         );
         // The CLI's composition agrees with the feed's.
-        let status = status_in(&root, "span-arc").unwrap();
+        let status = status_in(&paths, &root, "span-arc").unwrap();
         assert_eq!((status.run_position, status.run_length), (Some(1), Some(1)));
 
         // Finishing that selection holds the full fraction.
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit_in(&root, "span-arc", "r1", None).unwrap();
-        step_done_in(&root, "span-arc", 1, None).unwrap();
-        let detail = arc_detail_entry_in(&root, "span-arc").unwrap();
+        commit_in(&paths, &root, "span-arc", "r1", None, None).unwrap();
+        step_done_in(&paths, &root, "span-arc", 1, None).unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "span-arc").unwrap();
         assert!(detail.run_complete);
         assert_eq!((detail.run_position, detail.run_length), (Some(1), Some(1)));
 
         // A second selection re-declares, and the run pair follows it rather
         // than the plan — step 2 of the document is step 1 of this run.
-        step_start_in(&root, "span-arc", 2, 2).unwrap();
-        let detail = arc_detail_entry_in(&root, "span-arc").unwrap();
+        step_start_in(&paths, &root, "span-arc", 2, 2).unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "span-arc").unwrap();
         assert_eq!((detail.step_current, detail.step_total), (Some(2), Some(2)));
         assert_eq!((detail.run_position, detail.run_length), (Some(1), Some(1)));
     }
 
     /// An arc that declared no run reports no run pair, so its displays fall
     /// back to the plan's counters exactly as they did before ([P05]).
-    #[serial(tug_data_dir)]
     #[test]
     fn an_undeclared_run_reports_no_run_pair() {
-        let (_temp, root) = stepped_arc("plain-arc");
+        let (_temp, root, paths) = stepped_arc("plain-arc");
         let worktree = worktree_path(&root, "plain-arc");
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit_in(&root, "plain-arc", "r1", None).unwrap();
+        commit_in(&paths, &root, "plain-arc", "r1", None, None).unwrap();
 
-        let detail = arc_detail_entry_in(&root, "plain-arc").unwrap();
+        let detail = arc_detail_entry_in(&paths, &root, "plain-arc").unwrap();
         assert_eq!((detail.run_position, detail.run_length), (None, None));
-        let status = status_in(&root, "plain-arc").unwrap();
+        let status = status_in(&paths, &root, "plain-arc").unwrap();
         assert_eq!((status.run_position, status.run_length), (None, None));
     }
 
     /// A stepped arc reports its declared stage, its progress, and the plan it
     /// is driving; a mark moves the stage; a later step moves it back ([P03]).
-    #[serial(tug_data_dir)]
     #[test]
     fn status_reports_declared_stage_step_and_plan() {
-        let (_temp, root) = stepped_arc("status-arc");
+        let (_temp, root, paths) = stepped_arc("status-arc");
 
         // The seeded plan is not in the worktree at all, so the undeclared arc
         // derives `created`: nothing has been worked yet.
-        let fresh = status_in(&root, "status-arc").unwrap();
+        let fresh = status_in(&paths, &root, "status-arc").unwrap();
         assert_eq!(fresh.stage, "created");
         assert!(fresh.step_current.is_none());
         assert!(
@@ -1659,8 +1668,8 @@ mod tests {
             "the seeded plan is at the arc's own address"
         );
 
-        step_start_in(&root, "status-arc", 1, 2).unwrap();
-        let stepping = status_in(&root, "status-arc").unwrap();
+        step_start_in(&paths, &root, "status-arc", 1, 2).unwrap();
+        let stepping = status_in(&paths, &root, "status-arc").unwrap();
         assert_eq!(stepping.stage, "implementing");
         assert_eq!(
             (stepping.step_current, stepping.step_total),
@@ -1671,18 +1680,28 @@ mod tests {
             Some(&*plan_file(&root, "status-arc").to_string_lossy())
         );
 
-        mark_in(&root, "status-arc", MarkStage::Built, None).unwrap();
-        let built = status_in(&root, "status-arc").unwrap();
+        mark_in(&paths, &root, "status-arc", MarkStage::Built, None).unwrap();
+        let built = status_in(&paths, &root, "status-arc").unwrap();
         assert_eq!(built.stage, "built");
         // The step fields outlive the mark, so a display can still say how far.
         assert_eq!(built.step_current, Some(1));
 
-        mark_in(&root, "status-arc", MarkStage::Audited, Some("good shape")).unwrap();
-        assert_eq!(status_in(&root, "status-arc").unwrap().stage, "audited");
+        mark_in(
+            &paths,
+            &root,
+            "status-arc",
+            MarkStage::Audited,
+            Some("good shape"),
+        )
+        .unwrap();
+        assert_eq!(
+            status_in(&paths, &root, "status-arc").unwrap().stage,
+            "audited"
+        );
 
         // A follow-up step range demotes the arc back to implementing.
-        step_start_in(&root, "status-arc", 2, 2).unwrap();
-        let again = status_in(&root, "status-arc").unwrap();
+        step_start_in(&paths, &root, "status-arc", 2, 2).unwrap();
+        let again = status_in(&paths, &root, "status-arc").unwrap();
         assert_eq!(again.stage, "implementing");
         assert_eq!(again.step_current, Some(2));
     }
@@ -1690,27 +1709,26 @@ mod tests {
     /// The feed's shared composition carries the same declared stage and step
     /// progress `status` reports — which is what lights up the Arcs card
     /// and the Changes arc lane with no frontend change ([P01]).
-    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_declared_stage_and_step() {
-        let (_temp, root) = stepped_arc("feed-arc");
+        let (_temp, root, paths) = stepped_arc("feed-arc");
 
         // A plain arc derives what it always did. `created`, not `working`:
         // the plan is at the arc's own address, outside the worktree, so
         // seeding it leaves no dirt behind.
-        let plain = arc_detail_entries_in(&root);
+        let plain = arc_detail_entries_in(&paths, &root);
         let entry = plain.iter().find(|d| d.name == "feed-arc").unwrap();
         assert_eq!(entry.stage, "created");
         assert!(entry.step_current.is_none() && entry.step_total.is_none());
 
-        step_start_in(&root, "feed-arc", 1, 2).unwrap();
-        let stepped = arc_detail_entries_in(&root);
+        step_start_in(&paths, &root, "feed-arc", 1, 2).unwrap();
+        let stepped = arc_detail_entries_in(&paths, &root);
         let entry = stepped.iter().find(|d| d.name == "feed-arc").unwrap();
         assert_eq!(entry.stage, "implementing");
         assert_eq!((entry.step_current, entry.step_total), (Some(1), Some(2)));
 
-        mark_in(&root, "feed-arc", MarkStage::Built, None).unwrap();
-        let built = arc_detail_entries_in(&root);
+        mark_in(&paths, &root, "feed-arc", MarkStage::Built, None).unwrap();
+        let built = arc_detail_entries_in(&paths, &root);
         let entry = built.iter().find(|d| d.name == "feed-arc").unwrap();
         assert_eq!(entry.stage, "built");
         assert_eq!(entry.step_current, Some(1));
@@ -1719,18 +1737,18 @@ mod tests {
     /// The arc rides the same composition, **beside** the derived stage rather
     /// than inside it — the property that lets a face say `implementing` and
     /// `arc stopped in review` at once, which is exactly what a stopped arc is.
-    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_the_arc_beside_the_derived_stage() {
-        let (_temp, root) = stepped_arc("arc-run");
+        let (_temp, root, paths) = stepped_arc("arc-run");
 
         // A hand-driven arc has no arc, and says so by absence.
-        let plain = arc_detail_entries_in(&root);
+        let plain = arc_detail_entries_in(&paths, &root);
         let entry = plain.iter().find(|d| d.name == "arc-run").unwrap();
         assert!(entry.arc.is_none(), "no arc lines, nothing to say");
 
-        crate::arc::append_arc_start(&root, "arc-run", "arc/arc-run-brief.md").unwrap();
+        crate::arc::append_arc_start(&paths, &root, "arc-run", "arc/arc-run-brief.md").unwrap();
         crate::arc::append_arc_stage(
+            &paths,
             &root,
             "arc-run",
             crate::arc::ArcStage::Review,
@@ -1738,7 +1756,7 @@ mod tests {
             Some("opus"),
         )
         .unwrap();
-        let running = arc_detail_entries_in(&root);
+        let running = arc_detail_entries_in(&paths, &root);
         let entry = running.iter().find(|d| d.name == "arc-run").unwrap();
         let arc = entry.arc.as_ref().expect("the arc composes");
         assert_eq!(arc.stage.as_deref(), Some("review"));
@@ -1750,9 +1768,9 @@ mod tests {
 
         // The latest note is what the placard shows — the newest, not the
         // first, so a second act replaces what the first one said.
-        crate::arc::append_arc_note(&root, "arc-run", "compacted at 0.73 > 0.60").unwrap();
-        crate::arc::append_arc_note(&root, "arc-run", "compacted at 0.81 > 0.60").unwrap();
-        let noted = arc_detail_entries_in(&root);
+        crate::arc::append_arc_note(&paths, &root, "arc-run", "compacted at 0.73 > 0.60").unwrap();
+        crate::arc::append_arc_note(&paths, &root, "arc-run", "compacted at 0.81 > 0.60").unwrap();
+        let noted = arc_detail_entries_in(&paths, &root);
         let entry = noted.iter().find(|d| d.name == "arc-run").unwrap();
         assert_eq!(
             entry.arc.as_ref().and_then(|a| a.note.as_deref()),
@@ -1760,13 +1778,14 @@ mod tests {
         );
 
         crate::arc::append_arc_stop(
+            &paths,
             &root,
             "arc-run",
             crate::arc::ArcStage::Review,
             crate::arc::ArcStopReason::Lint,
         )
         .unwrap();
-        let stopped = arc_detail_entries_in(&root);
+        let stopped = arc_detail_entries_in(&paths, &root);
         let entry = stopped.iter().find(|d| d.name == "arc-run").unwrap();
         let arc = entry.arc.as_ref().expect("a stopped arc still composes");
         assert_eq!(arc.stopped.as_deref(), Some("lint"));
@@ -1797,12 +1816,11 @@ mod tests {
 
     /// The arc's documents ride the same composition, so a card bound to an
     /// arc can resolve the plan it is implementing without a shell round-trip.
-    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_the_arc_documents() {
-        let (_temp, root) = stepped_arc("plan-path-arc");
+        let (_temp, root, paths) = stepped_arc("plan-path-arc");
 
-        let entries = arc_detail_entries_in(&root);
+        let entries = arc_detail_entries_in(&paths, &root);
         let entry = entries.iter().find(|d| d.name == "plan-path-arc").unwrap();
         // The plan is there from the moment it is written — nothing has to
         // record it, so no step verb has to have run first.
@@ -1815,8 +1833,8 @@ mod tests {
         assert!(entry.documents.brief.is_none());
 
         // An arc with no documents at all carries none.
-        create_in(&root, "bare-arc", None, false, None).unwrap();
-        let entries = arc_detail_entries_in(&root);
+        create_in(&paths, &root, "bare-arc", None, false, None).unwrap();
+        let entries = arc_detail_entries_in(&paths, &root);
         let bare = entries.iter().find(|d| d.name == "bare-arc").unwrap();
         assert!(bare.documents.is_empty());
     }
@@ -1824,10 +1842,9 @@ mod tests {
     /// The divergence a join would only reveal at merge time, said on every
     /// recompute instead: how far the base has run ahead, and which of its
     /// uncommitted edits land on files this arc also changed.
-    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_base_divergence() {
-        let (_temp, root) = stepped_arc("divergence-arc");
+        let (_temp, root, paths) = stepped_arc("divergence-arc");
         let worktree = worktree_path(&root, "divergence-arc");
 
         // A round on the arc, touching `shared.txt`.
@@ -1835,7 +1852,7 @@ mod tests {
         git_output(&worktree, &["add", "-A"]).unwrap();
         git_output(&worktree, &["commit", "-m", "the arc's round"]).unwrap();
 
-        let quiet = arc_detail_entries_in(&root);
+        let quiet = arc_detail_entries_in(&paths, &root);
         let entry = quiet.iter().find(|d| d.name == "divergence-arc").unwrap();
         assert_eq!(entry.base_ahead, 0, "the base has not moved");
         assert!(entry.base_overlap.is_empty());
@@ -1850,7 +1867,7 @@ mod tests {
         git_output(&root, &["add", "shared.txt"]).unwrap();
         fs::write(root.join("elsewhere.txt"), "and this\n").unwrap();
 
-        let moved = arc_detail_entries_in(&root);
+        let moved = arc_detail_entries_in(&paths, &root);
         let entry = moved.iter().find(|d| d.name == "divergence-arc").unwrap();
         assert_eq!(entry.base_ahead, 1);
         assert_eq!(
@@ -1862,13 +1879,19 @@ mod tests {
 
     /// A replay's arc log line reaches the snapshot as the settled mark's text
     /// without disturbing the derived stage.
-    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_the_last_replay_note() {
-        let (_temp, root) = stepped_arc("replay-note-arc");
-        append_arc_log(&root, "replay-note-arc", "replayed", "onto abc123456: d->e").unwrap();
+        let (_temp, root, paths) = stepped_arc("replay-note-arc");
+        append_arc_log(
+            &paths,
+            &root,
+            "replay-note-arc",
+            "replayed",
+            "onto abc123456: d->e",
+        )
+        .unwrap();
 
-        let entries = arc_detail_entries_in(&root);
+        let entries = arc_detail_entries_in(&paths, &root);
         let entry = entries
             .iter()
             .find(|d| d.name == "replay-note-arc")
@@ -1882,11 +1905,10 @@ mod tests {
 
     /// The tip-vs-base question the wire's cleanup turns on: a worktree
     /// nobody wrote in has no rounds, and one round is one commit.
-    #[serial(tug_data_dir)]
     #[test]
     fn round_count_reads_the_branch_against_its_base() {
-        let (_temp, root) = repo_for_create();
-        create_in(&root, "counted", None, false, None).unwrap();
+        let (_temp, root, paths) = repo_for_create();
+        create_in(&paths, &root, "counted", None, false, None).unwrap();
         assert_eq!(round_count_in(&root, "counted"), 0);
         assert_eq!(
             round_count_in(&root, "never-created"),
@@ -1905,14 +1927,14 @@ mod tests {
 
     /// The read verbs answer about the universe: a caller standing in it is
     /// told about its arcs, with worktree paths under it.
-    #[serial(tug_data_dir, tug_repo_universe)]
+    #[serial(tug_repo_universe)]
     #[test]
     fn test_universe_detail_entries_resolve_to_the_universe() {
         let temp = TempDir::new().unwrap();
-        let (base, universe, _universe) = base_with_universe(&temp);
-        create_in(&universe, "listed", None, false, Some("feature")).unwrap();
+        let (base, universe, _universe, paths) = base_with_universe(&temp);
+        create_in(&paths, &universe, "listed", None, false, Some("feature")).unwrap();
 
-        let entries = arc_detail_entries_in(&universe);
+        let entries = arc_detail_entries_in(&paths, &universe);
         let entry = entries
             .iter()
             .find(|d| d.name == "listed")
@@ -2129,25 +2151,29 @@ mod tests {
 
     /// `status` walks an arc's whole lifecycle: fresh → a round → an authored
     /// draft → an interrupted join (Spec S05, [P06]).
-    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn test_arc_status_reports_each_stage() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         let home = temp.path().join("state");
         init_git_repo(repo);
-        redirect_state_dir(&home);
+        let mut paths = redirect_state_dir(&home);
 
         let changes_db = tugcore::test_fixtures::ledgers(temp.path()).changes_db();
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::set_var("TUG_CHANGES_DB", &changes_db);
-        }
+        paths.changes_db = changes_db.clone();
 
-        let created = create_in(repo, "status-arc", Some("Test".to_string()), false, None).unwrap();
+        let created = create_in(
+            &paths,
+            repo,
+            "status-arc",
+            Some("Test".to_string()),
+            false,
+            None,
+        )
+        .unwrap();
         let owner_key = created.id.clone().unwrap();
 
-        let fresh = status_in(repo, "status-arc").unwrap();
+        let fresh = status_in(&paths, repo, "status-arc").unwrap();
         assert_eq!(fresh.stage, "created");
         assert_eq!(fresh.id, owner_key);
         assert_eq!(fresh.branch, "tugarc/status-arc");
@@ -2161,15 +2187,15 @@ mod tests {
         // Uncommitted work is already `working`.
         let worktree = repo.join(".tug/worktrees/status-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        let dirty = status_in(repo, "status-arc").unwrap();
+        let dirty = status_in(&paths, repo, "status-arc").unwrap();
         assert_eq!(dirty.stage, "working");
         assert!(dirty.worktree_dirty);
 
         // A committed round on a plan-less arc is a finished unit of asked
         // work, so the arc is offerable the moment its worktree is clean
         // ([P02]) — no mark, no build, nothing declared.
-        commit_in(repo, "status-arc", "Add f", None).unwrap();
-        let after_round = status_in(repo, "status-arc").unwrap();
+        commit_in(&paths, repo, "status-arc", "Add f", None, None).unwrap();
+        let after_round = status_in(&paths, repo, "status-arc").unwrap();
         assert_eq!(after_round.stage, "ready");
         assert_eq!(after_round.rounds, 1);
         assert!(!after_round.worktree_dirty);
@@ -2192,7 +2218,7 @@ mod tests {
         // The draft is recorded, but `ready` outranks `draft-ready`: an arc the
         // machine will offer says so, and the draft becomes the message that
         // offer carries rather than a stage of its own.
-        let drafted = status_in(repo, "status-arc").unwrap();
+        let drafted = status_in(&paths, repo, "status-arc").unwrap();
         assert_eq!(drafted.stage, "ready");
         assert!(drafted.draft);
 
@@ -2201,12 +2227,13 @@ mod tests {
         // what `find_repo_root` (and so `status`) resolves — the state-dir
         // slug must agree.
         seed_interrupted_join(
+            &paths,
             repo,
             "status-arc",
             crate::oplog::JoinPhase::WorktreeRemoved,
             "abc1234",
         );
-        let joining = status_in(repo, "status-arc").unwrap();
+        let joining = status_in(&paths, repo, "status-arc").unwrap();
         assert_eq!(joining.stage, "joining");
         assert_eq!(
             joining.join_journal_phase.as_deref(),
@@ -2216,33 +2243,24 @@ mod tests {
         // No sessions.db with a binding, so the arc reads as unbound ([P08]).
         assert!(joining.bound_session.is_none());
 
-        assert!(status_in(repo, "no-such-arc").is_err());
-
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::remove_var("TUG_CHANGES_DB");
-        }
+        assert!(status_in(&paths, repo, "no-such-arc").is_err());
     }
 
     /// `bound_session` names a **live** session only, so an arc whose bound
     /// card has closed reads as unbound ([P08]) — the CLI-side face of the
     /// [L27] pin.
-    #[serial(tug_data_dir, tug_sessions_db)]
     #[test]
     fn test_arc_status_bound_session_is_live_only() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let mut paths = redirect_state_dir(&temp.path().join("state"));
 
         let ledgers = tugcore::test_fixtures::ledgers(temp.path());
         let sessions_db = ledgers.sessions_db();
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::set_var("TUG_SESSIONS_DB", &sessions_db);
-        }
+        paths.sessions_db = sessions_db.clone();
 
-        let owner_key = create_in(repo, "unbound-arc", None, false, None)
+        let owner_key = create_in(&paths, repo, "unbound-arc", None, false, None)
             .unwrap()
             .id
             .unwrap();
@@ -2260,7 +2278,7 @@ mod tests {
         }
 
         assert_eq!(
-            status_in(repo, "unbound-arc")
+            status_in(&paths, repo, "unbound-arc")
                 .unwrap()
                 .bound_session
                 .as_deref(),
@@ -2275,32 +2293,26 @@ mod tests {
                 .unwrap();
         }
         assert!(
-            status_in(repo, "unbound-arc")
+            status_in(&paths, repo, "unbound-arc")
                 .unwrap()
                 .bound_session
                 .is_none()
         );
-
-        // SAFETY: serial test; see redirect_state_dir.
-        unsafe {
-            std::env::remove_var("TUG_SESSIONS_DB");
-        }
     }
 
-    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_list_and_show() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        redirect_state_dir(&temp.path().join("state"));
+        let paths = redirect_state_dir(&temp.path().join("state"));
 
-        create_in(repo, "arc1", None, false, None).unwrap();
-        create_in(repo, "arc2", None, false, None).unwrap();
+        create_in(&paths, repo, "arc1", None, false, None).unwrap();
+        create_in(&paths, repo, "arc2", None, false, None).unwrap();
 
-        assert_eq!(list_in(repo).unwrap().len(), 2);
-        assert!(show_in(repo, "arc1").is_ok());
-        assert!(show_in(repo, "nonexistent").is_err());
+        assert_eq!(list_in(&paths, repo).unwrap().len(), 2);
+        assert!(show_in(&paths, repo, "arc1").is_ok());
+        assert!(show_in(&paths, repo, "nonexistent").is_err());
     }
 
     /// The same class of bug one field over: `worktree_rel` is stripped against
@@ -2308,16 +2320,15 @@ mod tests {
     /// it against the root it asked from gets a path that does not exist — and
     /// every consumer of that path degrades silently. `worktree_abs` is the
     /// answer that does not depend on which root the question came from.
-    #[serial(tug_data_dir)]
     #[test]
     fn arc_detail_asked_from_a_linked_worktree_reports_an_absolute_worktree() {
         let temp = TempDir::new().unwrap();
-        seed_arc_with_a_round(&temp, "abs");
+        let paths = seed_arc_with_a_round(&temp, "abs");
         let repo = temp.path();
         let worktree = repo.join(".tug/worktrees/abs");
 
-        let from_worktree = arc_detail_entries_in(&worktree);
-        let from_root = arc_detail_entries_in(repo);
+        let from_worktree = arc_detail_entries_in(&paths, &worktree);
+        let from_root = arc_detail_entries_in(&paths, repo);
         let asked_there = from_worktree
             .iter()
             .find(|d| d.name == "abs")

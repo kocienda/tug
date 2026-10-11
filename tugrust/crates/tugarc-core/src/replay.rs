@@ -12,6 +12,7 @@
 //! arc, and the landing-time ladder remains the fallback.
 
 use std::path::Path;
+use tugcore::instance::Paths;
 
 use serde::Serialize;
 
@@ -98,27 +99,33 @@ struct OpenOp {
 }
 
 impl OpenOp {
-    fn begin(repo: &Path, name: &str) -> Result<Self, ArcError> {
+    fn begin(paths: &Paths, repo: &Path, name: &str) -> Result<Self, ArcError> {
         let before = crate::oplog::capture_before(repo, name)?;
         let tips = crate::oplog::tips_of(&before);
-        let seq =
-            crate::oplog::record_begin(repo, crate::oplog::OpVerb::Replay, name, before, &tips)?;
+        let seq = crate::oplog::record_begin(
+            paths,
+            repo,
+            crate::oplog::OpVerb::Replay,
+            name,
+            before,
+            &tips,
+        )?;
         Ok(OpenOp { seq })
     }
 
     /// The branch moved: read the tip back rather than trusting what was
     /// computed.
-    fn complete(&self, repo: &Path, branch: &str, mapping: Vec<(String, String)>) {
+    fn complete(&self, paths: &Paths, repo: &Path, branch: &str, mapping: Vec<(String, String)>) {
         let after = crate::oplog::OpAfter {
             arc_tip: git_stdout(repo, &["rev-parse", branch]).ok(),
             mapping,
             ..Default::default()
         };
-        let _ = crate::oplog::record_complete(repo, self.seq, after);
+        let _ = crate::oplog::record_complete(paths, repo, self.seq, after);
     }
 
-    fn abandon(&self, repo: &Path) {
-        crate::oplog::abandon(repo, self.seq);
+    fn abandon(&self, paths: &Paths, repo: &Path) {
+        crate::oplog::abandon(paths, repo, self.seq);
     }
 }
 
@@ -131,7 +138,7 @@ impl OpenOp {
 /// moves the branch — `branch -f` is refused by git on a checked-out branch, and
 /// a bare `update-ref` would leave HEAD, the index, and the working tree
 /// disagreeing.
-pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcError> {
+pub fn replay_onto(paths: &Paths, repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcError> {
     let repo = main_repo_root(repo_root);
     let repo = repo.as_path();
     let branch = branch_name(name);
@@ -146,7 +153,7 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcErr
             "replay needs git 2.40 or newer for `merge-tree --merge-base`",
         ));
     }
-    if join_in_flight(repo, name) {
+    if join_in_flight(paths, repo, name) {
         return Ok(ReplayOutcome::deferred(
             "join-journal",
             format!("a join of arc '{}' is in flight", name),
@@ -179,17 +186,22 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcErr
         // site because this arm returns before the branch move below ever runs;
         // a record placed only there would miss every repair of a hand-rebased
         // arc.
-        let op = OpenOp::begin(repo, name)?;
+        let op = OpenOp::begin(paths, repo, name)?;
         let reconciled = reconcile_ledger_cells(repo, name, &branch, &base_branch, None)?;
         if !reconciled.touched_anything() {
             // Nothing moved, so nothing is recorded: `Current` is the outcome
             // that leaves the repository exactly as it found it, and an op
             // record for a no-op is a row the undo list would have to explain.
-            op.abandon(repo);
+            op.abandon(paths, repo);
             return Ok(ReplayOutcome::Current);
         }
-        log_replay(repo, name, &recorded_note(repo, &base_head, &reconciled))?;
-        op.complete(repo, &branch, Vec::new());
+        log_replay(
+            paths,
+            repo,
+            name,
+            &recorded_note(repo, &base_head, &reconciled),
+        )?;
+        op.complete(paths, repo, &branch, Vec::new());
         return Ok(ReplayOutcome::Recorded {
             base_head,
             remapped: reconciled.remapped,
@@ -216,18 +228,19 @@ pub fn replay_onto(repo_root: &Path, name: &str) -> Result<ReplayOutcome, ArcErr
         ReplayWalk::Clean(replayed) => {
             // Before the compare-and-swap, because that is the moment the
             // pre-replay rounds stop being reachable from any branch.
-            let op = OpenOp::begin(repo, name)?;
+            let op = OpenOp::begin(paths, repo, name)?;
             if let Some(refusal) = cas_reset(&worktree, &tip_at_probe, &replayed.head)? {
-                op.abandon(repo);
+                op.abandon(paths, repo);
                 return Ok(refusal);
             }
             log_replay(
+                paths,
                 repo,
                 name,
                 &replayed_note(repo, &base_head, &replayed.mapping),
             )?;
             reconcile_ledger_cells(repo, name, &branch, &base_branch, Some(&replayed.mapping))?;
-            op.complete(repo, &branch, replayed.mapping.clone());
+            op.complete(paths, repo, &branch, replayed.mapping.clone());
             Ok(ReplayOutcome::Replayed {
                 base_head,
                 mapping: replayed.mapping,
@@ -509,8 +522,9 @@ fn abbreviate(repo: &Path, commit: &str, width: usize) -> String {
 
 /// The arc log's record of a replay (Spec S02) — the one thing git cannot say
 /// for itself, since the rounds it names no longer exist under that branch.
-fn log_replay(repo: &Path, name: &str, note: &str) -> Result<(), ArcError> {
-    append_arc_log(repo, name, "replayed", note).map_err(|e| ArcError::arc_log(repo, e))
+fn log_replay(paths: &Paths, repo: &Path, name: &str, note: &str) -> Result<(), ArcError> {
+    append_arc_log(paths, repo, name, "replayed", note)
+        .map_err(|e| ArcError::arc_log(paths, repo, e))
 }
 
 /// `onto <base>: <old>-><new>[, …]` — an engine replay's note.
@@ -552,7 +566,6 @@ fn is_ancestor(repo: &Path, maybe_ancestor: &str, descendant: &str) -> bool {
 mod tests {
     use super::*;
     use crate::log::read_declarations;
-    use serial_test::serial;
     use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn set(dir: &Path, rel: &str, content: &str) {
@@ -567,12 +580,12 @@ mod tests {
     /// branch must be checked out somewhere for the move to be the move this
     /// module actually performs.
     ///
-    /// `home` redirects `project_state_dir`, so the arc log a replay writes
-    /// lands in the fixture rather than in the developer's real state dir. Every
-    /// test here is `#[serial]` for that reason.
+    /// `paths` roots the engine at `home`, so the arc log a replay writes
+    /// lands in the fixture rather than in the developer's real state dir.
     struct Fixture {
         repo: tempfile::TempDir,
         _home: tempfile::TempDir,
+        paths: Paths,
     }
 
     impl Fixture {
@@ -604,18 +617,15 @@ mod tests {
         /// different slug than the code wrote.
         fn arc_log(&self) -> String {
             let root = main_repo_root(self.path());
-            let path = tugtool_core::project_state_dir(&root).join(tugtool_core::paths::ARC_LOG);
+            let path = tugtool_core::paths::project_state_dir_at(&self.paths, &root)
+                .join(tugtool_core::paths::ARC_LOG);
             std::fs::read_to_string(path).unwrap_or_default()
         }
     }
 
     fn init(rounds: &[(&str, &str, &str)]) -> Fixture {
         let home = tempfile::tempdir().unwrap();
-        // SAFETY: every test in this module is #[serial]; no other thread reads
-        // the environment while this runs.
-        unsafe {
-            std::env::set_var("TUG_DATA_DIR", home.path());
-        }
+        let paths = Paths::under(home.path());
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
         GitFixture::init(repo);
@@ -632,6 +642,7 @@ mod tests {
         let fixture = Fixture {
             repo: temp,
             _home: home,
+            paths,
         };
         for (rel, content, msg) in rounds {
             fixture.round(rel, content, msg);
@@ -666,7 +677,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_replay_records_the_tip_it_actually_left() {
         // Reconciliation rewrites the ledger's cell in place, outside every
         // tree git watches, so the tip a replay leaves is the mapping's tail
@@ -677,12 +687,12 @@ mod tests {
         let pre_replay = f.tip("tugarc/demo");
         f.advance_base("f.txt", "B\n", "base moves");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
             panic!("expected a replay, got {outcome:?}");
         };
 
-        let op = crate::oplog::list_ops(f.path())
+        let op = crate::oplog::list_ops(&f.paths, f.path())
             .into_iter()
             .find(|o| o.verb == crate::oplog::OpVerb::Replay)
             .expect("the replay recorded an operation");
@@ -706,7 +716,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn undo_of_a_remapped_replay_puts_the_branch_back() {
         // The end-to-end version of the tip question: with a ledger cell to
         // rewrite, the replay leaves a bookkeeping round on top, and the undo's
@@ -717,10 +726,10 @@ mod tests {
         plan_with_cells(&f, &[("step-1", "One", &round[..9])]);
         let pre_replay = f.tip("tugarc/demo");
         f.advance_base("f.txt", "B\n", "base moves");
-        replay_onto(f.path(), "demo").unwrap();
+        replay_onto(&f.paths, f.path(), "demo").unwrap();
         assert_ne!(f.tip("tugarc/demo"), pre_replay);
 
-        let out = crate::oplog::undo_in(f.path(), Some("demo")).unwrap();
+        let out = crate::oplog::undo_in(&f.paths, f.path(), Some("demo")).unwrap();
 
         assert_eq!(out.verb, crate::oplog::OpVerb::Replay);
         assert_eq!(
@@ -748,21 +757,20 @@ mod tests {
     /// need no re-running anyway: they are committed content on the branch, so
     /// they move when it does.
     #[test]
-    #[serial(tug_data_dir)]
     fn redo_of_a_replay_lands_the_recorded_tip_exactly() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         let round = f.tip("tugarc/demo");
         plan_with_cells(&f, &[("step-1", "One", &round[..9])]);
         let pre_replay = f.tip("tugarc/demo");
         f.advance_base("f.txt", "B\n", "base moves");
-        replay_onto(f.path(), "demo").unwrap();
+        replay_onto(&f.paths, f.path(), "demo").unwrap();
         let replayed = f.tip("tugarc/demo");
         let replayed_cells = cells(&f);
 
-        crate::oplog::undo_in(f.path(), Some("demo")).unwrap();
+        crate::oplog::undo_in(&f.paths, f.path(), Some("demo")).unwrap();
         assert_eq!(f.tip("tugarc/demo"), pre_replay);
 
-        let out = crate::oplog::redo_in(f.path(), Some("demo")).unwrap();
+        let out = crate::oplog::redo_in(&f.paths, f.path(), Some("demo")).unwrap();
 
         assert_eq!(out.verb, crate::oplog::OpVerb::Replay);
         assert_eq!(
@@ -777,7 +785,7 @@ mod tests {
         );
 
         // The undo that follows must still find a world it recognises.
-        crate::oplog::undo_in(f.path(), Some("demo")).unwrap();
+        crate::oplog::undo_in(&f.paths, f.path(), Some("demo")).unwrap();
         assert_eq!(
             f.tip("tugarc/demo"),
             pre_replay,
@@ -786,16 +794,15 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn undo_of_a_replay_refuses_when_a_round_landed_since() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
-        replay_onto(f.path(), "demo").unwrap();
+        replay_onto(&f.paths, f.path(), "demo").unwrap();
         // A round committed after the replay would be silently dropped by a
         // reset that did not check.
         let later = f.round("h.txt", "typed later\n", "later round");
 
-        let err = crate::oplog::undo_in(f.path(), Some("demo"))
+        let err = crate::oplog::undo_in(&f.paths, f.path(), Some("demo"))
             .unwrap_err()
             .to_string();
         assert!(err.starts_with("tip-moved:"), "{err}");
@@ -803,24 +810,22 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_replay_with_nothing_to_do_records_no_operation() {
         // `Current` leaves the repository exactly as it found it, so there is
         // nothing to undo and the log must not grow a row that says otherwise.
         let f = init(&[("g.txt", "arc\n", "add g")]);
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         assert!(
             matches!(outcome, ReplayOutcome::Current),
             "the base has not moved, got {outcome:?}"
         );
         assert!(
-            crate::oplog::list_ops(f.path()).is_empty(),
+            crate::oplog::list_ops(&f.paths, f.path()).is_empty(),
             "a no-op replay records nothing"
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn clean_replay_moves_the_branch_under_its_live_worktree() {
         // The arc edits g.txt; the base separately edits f.txt — disjoint, so
         // every round replays clean.
@@ -829,7 +834,7 @@ mod tests {
         let wt = f.worktree();
         let before = f.tip("tugarc/demo");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
             panic!("expected a replay, got {outcome:?}");
         };
@@ -855,7 +860,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_dirty_worktree_defers_and_touches_nothing() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -863,7 +867,7 @@ mod tests {
         set(&wt, "g.txt", "half-written\n");
         let before = f.tip("tugarc/demo");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         assert_eq!(
             outcome,
             ReplayOutcome::Deferred {
@@ -880,14 +884,13 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_conflicting_round_names_itself_and_moves_nothing() {
         // Both sides rewrite the same line of f.txt.
         let f = init(&[("f.txt", "arc\n", "arc rewrites f")]);
         f.advance_base("f.txt", "base\n", "base rewrites f");
         let before = f.tip("tugarc/demo");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         let ReplayOutcome::Conflicted {
             round,
             round_subject,
@@ -904,7 +907,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_tip_that_moves_between_probe_and_reset_defers() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -926,11 +928,10 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_unmoved_base_is_current() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         assert_eq!(
-            replay_onto(f.path(), "demo").unwrap(),
+            replay_onto(&f.paths, f.path(), "demo").unwrap(),
             ReplayOutcome::Current
         );
 
@@ -940,13 +941,12 @@ mod tests {
         f.advance_base("f.txt", "B\n", "base moves");
         git(&f.worktree(), &["rebase", "main"]);
         assert_eq!(
-            replay_onto(f.path(), "demo").unwrap(),
+            replay_onto(&f.paths, f.path(), "demo").unwrap(),
             ReplayOutcome::Current
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_branch_without_a_worktree_defers() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -957,7 +957,7 @@ mod tests {
         );
         let before = f.tip("tugarc/demo");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         assert!(matches!(
             &outcome,
             ReplayOutcome::Deferred { reason, .. } if reason == "no-worktree"
@@ -966,11 +966,10 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_arc_with_no_rounds_defers() {
         let f = init(&[]);
         f.advance_base("f.txt", "B\n", "base moves");
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         assert!(matches!(
             &outcome,
             ReplayOutcome::Deferred { reason, .. } if reason == "no-rounds"
@@ -978,16 +977,14 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_unknown_arc_is_an_error() {
         let f = init(&[]);
-        assert!(replay_onto(f.path(), "nope").is_err());
+        assert!(replay_onto(&f.paths, f.path(), "nope").is_err());
     }
 
     // ---- bookkeeping ----
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_replay_remaps_the_ledger_without_committing() {
         let f = init(&[]);
         let round = f.round("g.txt", "arc\n", "add g");
@@ -995,7 +992,7 @@ mod tests {
         f.advance_base("f.txt", "B\n", "base moves");
         let tip_before = f.tip("tugarc/demo");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         let ReplayOutcome::Replayed { mapping, .. } = &outcome else {
             panic!("expected a replay, got {outcome:?}");
         };
@@ -1031,7 +1028,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_hand_rebase_is_reconciled_by_subject_and_refuses_a_duplicate() {
         let f = init(&[]);
         let unique = f.round("g.txt", "one\n", "a unique subject");
@@ -1049,7 +1045,7 @@ mod tests {
         // The rebase the agent would have done by hand.
         git(&f.worktree(), &["rebase", "main"]);
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         let ReplayOutcome::Recorded {
             remapped, unmapped, ..
         } = &outcome
@@ -1081,24 +1077,22 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_arc_with_no_plan_still_records_the_replay() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
 
-        let outcome = replay_onto(f.path(), "demo").unwrap();
+        let outcome = replay_onto(&f.paths, f.path(), "demo").unwrap();
         assert!(matches!(outcome, ReplayOutcome::Replayed { .. }));
         assert!(f.arc_log().contains("replayed"));
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn the_replayed_marker_is_invisible_to_stage_derivation() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
-        let before = read_declarations(f.path(), "demo");
+        let before = read_declarations(&f.paths, f.path(), "demo");
         f.advance_base("f.txt", "B\n", "base moves");
-        replay_onto(f.path(), "demo").unwrap();
-        let after = read_declarations(f.path(), "demo");
+        replay_onto(&f.paths, f.path(), "demo").unwrap();
+        let after = read_declarations(&f.paths, f.path(), "demo");
 
         assert!(f.arc_log().contains("replayed"), "the line was written");
         assert_eq!(

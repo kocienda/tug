@@ -6,21 +6,29 @@ use super::*;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
+use tugcore::instance::Paths;
 pub(crate) use tugcore::test_fixtures::git::{GitFixture, git};
 
 pub(crate) fn porcelain_of(repo: &Path) -> String {
     git_stdout(repo, &["status", "--porcelain"]).unwrap()
 }
 
-/// Redirect `project_state_dir`'s base off the real data dir for the
-/// duration of a (serial) test, so the arc log lands under `home`.
-pub(crate) fn redirect_state_dir(home: &Path) {
-    // SAFETY: every caller is `#[serial(tug_data_dir)]` — no state-dir
-    // parameter exists, so the variable is the only way in — and nextest
-    // runs each test in its own process besides.
-    unsafe {
-        std::env::set_var("TUG_DATA_DIR", home);
-    }
+/// The instance paths a test hands the engine, rooted at `home`, so the arc
+/// log and every ledger land there rather than in the real data dir.
+///
+/// The engine takes its paths as a parameter, so nothing here touches the
+/// process environment and no test serializes on it.
+#[must_use = "the paths are the redirect: pass them to the engine"]
+pub(crate) fn redirect_state_dir(home: &Path) -> Paths {
+    Paths::under(home)
+}
+
+/// Paths under a fresh scratch directory, for a test whose repo has no
+/// fixture-made home of its own. The directory lives as long as the guard.
+pub(crate) fn scratch_paths() -> (TempDir, Paths) {
+    let home = TempDir::new().unwrap();
+    let paths = Paths::under(home.path());
+    (home, paths)
 }
 
 /// A git repo under `temp`, with the redirected project-state dir as its
@@ -31,12 +39,12 @@ pub(crate) fn redirect_state_dir(home: &Path) {
 /// `create` appends — read as untracked dirt in the base checkout, which
 /// then shows up in dirt censuses and join preflights that have nothing to
 /// do with it.
-pub(crate) fn repo_beside_state(temp: &TempDir) -> std::path::PathBuf {
+pub(crate) fn repo_beside_state(temp: &TempDir) -> (std::path::PathBuf, Paths) {
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
     init_git_repo(&repo);
-    redirect_state_dir(&temp.path().join("state"));
-    repo
+    let paths = redirect_state_dir(&temp.path().join("state"));
+    (repo, paths)
 }
 
 pub(crate) fn commit_all(path: &Path, message: &str) {
@@ -78,6 +86,7 @@ pub(crate) fn mechanics() -> JoinOptions {
 /// record, attach progress. Never a hand-written payload — a fixture that
 /// spelled the record itself would stop testing the writer.
 pub(crate) fn seed_interrupted_join(
+    paths: &Paths,
     repo: &Path,
     name: &str,
     phase: crate::oplog::JoinPhase,
@@ -86,9 +95,17 @@ pub(crate) fn seed_interrupted_join(
     let root = fs::canonicalize(repo).unwrap();
     let before = crate::oplog::capture_before(&root, name).unwrap();
     let tips = crate::oplog::tips_of(&before);
-    let seq =
-        crate::oplog::record_begin(&root, crate::oplog::OpVerb::Join, name, before, &tips).unwrap();
+    let seq = crate::oplog::record_begin(
+        paths,
+        &root,
+        crate::oplog::OpVerb::Join,
+        name,
+        before,
+        &tips,
+    )
+    .unwrap();
     crate::oplog::record_join_progress(
+        paths,
         &root,
         seq,
         crate::oplog::JoinProgress {
@@ -107,12 +124,9 @@ pub(crate) fn seed_interrupted_join(
 /// Canonicalizes `repo` to match `find_repo_root()`, which resolves the cwd
 /// (e.g. `/var/...` → `/private/var/...` on macOS) — the slug must agree.
 pub(crate) fn arc_log_path(home: &Path, repo: &Path) -> std::path::PathBuf {
-    // SAFETY: serial test; see redirect_state_dir.
-    unsafe {
-        std::env::set_var("TUG_DATA_DIR", home);
-    }
     let root = fs::canonicalize(repo).unwrap();
-    tugtool_core::project_state_dir(&root).join(tugtool_core::paths::ARC_LOG)
+    tugtool_core::paths::project_state_dir_at(&Paths::under(home), &root)
+        .join(tugtool_core::paths::ARC_LOG)
 }
 
 /// Write a `.tugtool/config.toml` with the given post_create commands.
@@ -244,17 +258,17 @@ pub(crate) fn author_round(worktree: &Path, n: u32) {
 
 /// Stand up a repo with an arc whose documents home holds [`TWO_STEP_PLAN`].
 /// Returns the temp dir and the canonical repo root the verbs resolve to.
-pub(crate) fn stepped_arc(name: &str) -> (TempDir, std::path::PathBuf) {
+pub(crate) fn stepped_arc(name: &str) -> (TempDir, std::path::PathBuf, Paths) {
     let temp = TempDir::new().unwrap();
-    let repo = repo_beside_state(&temp);
-    create_in(&repo, name, None, false, None).unwrap();
+    let (repo, paths) = repo_beside_state(&temp);
+    create_in(&paths, &repo, name, None, false, None).unwrap();
 
     let plan = plan_file(&repo, name);
     fs::create_dir_all(plan.parent().unwrap()).unwrap();
     fs::write(&plan, TWO_STEP_PLAN).unwrap();
 
     let root = fs::canonicalize(&repo).unwrap();
-    (temp, root)
+    (temp, root, paths)
 }
 
 /// The arc worktree's current commit, short — a sha `step done --commit`
@@ -268,9 +282,11 @@ pub(crate) fn worktree_head(root: &Path, name: &str) -> String {
 }
 
 /// The project's whole arc log, as text.
-pub(crate) fn log_text(root: &Path) -> String {
-    fs::read_to_string(tugtool_core::project_state_dir(root).join(tugtool_core::paths::ARC_LOG))
-        .unwrap_or_default()
+pub(crate) fn log_text(paths: &Paths, root: &Path) -> String {
+    fs::read_to_string(
+        tugtool_core::paths::project_state_dir_at(paths, root).join(tugtool_core::paths::ARC_LOG),
+    )
+    .unwrap_or_default()
 }
 
 /// The ledger row for `anchor`, as the plan on disk now reads.
@@ -287,24 +303,32 @@ pub(crate) fn ledger_row(root: &Path, name: &str, anchor: &str) -> tugtool_core:
 /// A finished one-step run with an arc record over it — a live wheel
 /// seated in `implement`, which is where an arc is when its run ends and
 /// its audit has not started.
-pub(crate) fn wheeled_arc(name: &str) -> (TempDir, std::path::PathBuf) {
-    let (temp, root) = stepped_arc(name);
-    crate::arc::append_arc_start(&root, name, &format!(".tug/arcs/{name}/plan.md")).unwrap();
-    crate::arc::append_arc_stage(&root, name, crate::arc::ArcStage::Implement, "sess-1", None)
+pub(crate) fn wheeled_arc(name: &str) -> (TempDir, std::path::PathBuf, Paths) {
+    let (temp, root, paths) = stepped_arc(name);
+    crate::arc::append_arc_start(&paths, &root, name, &format!(".tug/arcs/{name}/plan.md"))
         .unwrap();
-    step_start_in(&root, name, 1, 1).unwrap();
+    crate::arc::append_arc_stage(
+        &paths,
+        &root,
+        name,
+        crate::arc::ArcStage::Implement,
+        "sess-1",
+        None,
+    )
+    .unwrap();
+    step_start_in(&paths, &root, name, 1, 1).unwrap();
     fs::write(worktree_path(&root, name).join("one.txt"), "first\n").unwrap();
-    commit_in(&root, name, "r1", None).unwrap();
-    step_done_in(&root, name, 1, None).unwrap();
-    (temp, root)
+    commit_in(&paths, &root, name, "r1", None, None).unwrap();
+    step_done_in(&paths, &root, name, 1, None).unwrap();
+    (temp, root, paths)
 }
 
 /// A repo with no arc yet.
-pub(crate) fn repo_for_create() -> (TempDir, std::path::PathBuf) {
+pub(crate) fn repo_for_create() -> (TempDir, std::path::PathBuf, Paths) {
     let temp = TempDir::new().unwrap();
-    let repo = repo_beside_state(&temp);
+    let (repo, paths) = repo_beside_state(&temp);
     let root = fs::canonicalize(&repo).unwrap();
-    (temp, root)
+    (temp, root, paths)
 }
 
 pub(crate) fn dirt_entry<'a>(out: &'a CreateOutcome, path: &str) -> &'a BaseDirtPath {
@@ -321,7 +345,7 @@ pub(crate) fn dirt_entry<'a>(out: &'a CreateOutcome, path: &str) -> &'a BaseDirt
 /// test resolve its root against a path that no longer exists.
 #[must_use = "the universe is unpinned when the guard drops"]
 pub(crate) fn set_universe(path: &Path) -> UniverseGuard {
-    // SAFETY: every caller is `#[serial(tug_repo_universe, …)]` — the
+    // SAFETY: every caller is `#[serial(tug_repo_universe)]` — the
     // resolver takes the boundary from the environment alone — and nextest
     // runs each test in its own process besides.
     unsafe {
@@ -346,16 +370,16 @@ impl Drop for UniverseGuard {
 /// that is itself the universe — the shape an app-test run has, where the
 /// worktree is the project the instance under test has open.
 ///
-/// Returns `(base, universe, guard)`, the two paths canonicalized so they
-/// compare equal to what the resolver returns; the universe stays pinned
-/// while `guard` lives.
+/// Returns `(base, universe, guard, paths)`, the two paths canonicalized so
+/// they compare equal to what the resolver returns; the universe stays
+/// pinned while `guard` lives.
 pub(crate) fn base_with_universe(
     temp: &TempDir,
-) -> (std::path::PathBuf, std::path::PathBuf, UniverseGuard) {
+) -> (std::path::PathBuf, std::path::PathBuf, UniverseGuard, Paths) {
     let base = temp.path().join("base");
     fs::create_dir_all(&base).unwrap();
     init_git_repo(&base);
-    redirect_state_dir(&temp.path().join("state"));
+    let paths = redirect_state_dir(&temp.path().join("state"));
     let universe = temp.path().join("universe");
     git(
         &base,
@@ -372,6 +396,7 @@ pub(crate) fn base_with_universe(
         fs::canonicalize(&base).unwrap(),
         fs::canonicalize(&universe).unwrap(),
         guard,
+        paths,
     )
 }
 
@@ -381,24 +406,26 @@ pub(crate) fn rev_parse_at(repo: &Path, rev: &str) -> String {
 }
 
 /// Seed a repo with one commit and an arc carrying one round, returning the
-/// repo path's owner so it outlives the call. The shared fixture for the
+/// paths its arc state lives under. The shared fixture for the
 /// preview-blocker tests ([P02]).
-pub(crate) fn seed_arc_with_a_round(temp: &TempDir, name: &str) {
+pub(crate) fn seed_arc_with_a_round(temp: &TempDir, name: &str) -> Paths {
     let repo = temp.path();
     init_git_repo(repo);
-    redirect_state_dir(&temp.path().join("state"));
+    let paths = redirect_state_dir(&temp.path().join("state"));
     fs::write(repo.join("shared.txt"), "base\n").unwrap();
     git_output(repo, &["add", "."]).unwrap();
     git_output(repo, &["commit", "-m", "seed"]).unwrap();
-    create_in(repo, name, None, false, None).unwrap();
+    create_in(&paths, repo, name, None, false, None).unwrap();
     let worktree = repo.join(".tug/worktrees").join(name);
     fs::write(worktree.join("shared.txt"), "base\narc change\n").unwrap();
-    commit_in(repo, name, "touch shared", None).unwrap();
+    commit_in(&paths, repo, name, "touch shared", None, None).unwrap();
+    paths
 }
 
 /// A join preview of `name` against `root`, unwrapped.
-pub(crate) fn preview_in(root: &Path, name: &str) -> JoinOutcome {
+pub(crate) fn preview_in(paths: &Paths, root: &Path, name: &str) -> JoinOutcome {
     join_in(
+        paths,
         root,
         name,
         JoinOptions {
@@ -413,16 +440,10 @@ pub(crate) fn blocker<'a>(outcome: &'a JoinOutcome, kind: &str) -> Option<&'a Jo
     outcome.blockers.iter().find(|b| b.kind == kind)
 }
 
-/// Point the draft reader at an empty tempdir path for the duration of a
-/// (serial) test, so a message composition never reads — or is coloured by —
-/// the live machine ledger.
-pub(crate) fn isolate_changes_db(temp: &TempDir) {
-    // SAFETY: every caller is `#[serial(tug_changes_db, …)]` — the draft
-    // reader takes no path parameter — and nextest runs each test in its
-    // own process besides.
-    unsafe {
-        std::env::set_var("TUG_CHANGES_DB", temp.path().join("changes.db"));
-    }
+/// Point the draft reader at an empty tempdir path, so a message
+/// composition never reads — or is coloured by — the live machine ledger.
+pub(crate) fn isolate_changes_db(paths: &mut Paths, temp: &TempDir) {
+    paths.changes_db = temp.path().join("changes.db");
 }
 
 /// Seed a draft row directly into the isolated ledger, bootstrapping the
@@ -447,10 +468,10 @@ pub(crate) fn canonical(p: &Path) -> std::path::PathBuf {
 /// A temp home for the arc log and a temp repo to open arcs in, with no
 /// git and no instance — `open_arc` reads documents off disk and writes
 /// log lines, and neither needs a checkout.
-pub(crate) fn open_arc_fixture() -> (TempDir, TempDir) {
+pub(crate) fn open_arc_fixture() -> (TempDir, TempDir, Paths) {
     let home = tempfile::tempdir().expect("tempdir");
-    redirect_state_dir(home.path());
-    (home, tempfile::tempdir().expect("tempdir"))
+    let paths = redirect_state_dir(home.path());
+    (home, tempfile::tempdir().expect("tempdir"), paths)
 }
 
 /// Write one of an arc's documents into its own documents home.
@@ -467,17 +488,17 @@ pub(crate) fn checked_out_branch(repo: &Path) -> String {
 }
 
 /// A repo with one plain arc and no documents anywhere.
-pub(crate) fn plain_arc(name: &str) -> (TempDir, std::path::PathBuf) {
+pub(crate) fn plain_arc(name: &str) -> (TempDir, std::path::PathBuf, Paths) {
     let temp = TempDir::new().unwrap();
-    let repo = repo_beside_state(&temp);
-    create_in(&repo, name, None, false, None).unwrap();
+    let (repo, paths) = repo_beside_state(&temp);
+    create_in(&paths, &repo, name, None, false, None).unwrap();
     let root = fs::canonicalize(&repo).unwrap();
-    (temp, root)
+    (temp, root, paths)
 }
 
 /// A repository with no `.gitignore` at all, which is what makes the
 /// exclusion in `create` load-bearing rather than incidental.
-pub(crate) fn bare_repo_beside_state(temp: &TempDir) -> std::path::PathBuf {
+pub(crate) fn bare_repo_beside_state(temp: &TempDir) -> (std::path::PathBuf, Paths) {
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
     GitFixture::init(&repo);
@@ -486,8 +507,8 @@ pub(crate) fn bare_repo_beside_state(temp: &TempDir) -> std::path::PathBuf {
     fs::write(repo.join("README.md"), "# Test\n").unwrap();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-m", "init"]);
-    redirect_state_dir(&temp.path().join("state"));
-    repo
+    let paths = redirect_state_dir(&temp.path().join("state"));
+    (repo, paths)
 }
 
 /// The fingerprint helper the no-hand-back tests measure with: every
@@ -526,9 +547,9 @@ pub(crate) fn base_fingerprint(root: &Path) -> Vec<(String, String)> {
 
 /// Every join op recorded for `name`, read from the canonical repo root the
 /// state dir is slugged from.
-pub(crate) fn ops_for(repo: &Path, name: &str) -> Vec<crate::oplog::OpPayload> {
+pub(crate) fn ops_for(paths: &Paths, repo: &Path, name: &str) -> Vec<crate::oplog::OpPayload> {
     let root = std::fs::canonicalize(repo).unwrap();
-    crate::oplog::list_ops(&root)
+    crate::oplog::list_ops(paths, &root)
         .into_iter()
         .filter(|op| op.arc == name && op.verb == crate::oplog::OpVerb::Join)
         .collect()
@@ -539,15 +560,15 @@ pub(crate) fn ops_for(repo: &Path, name: &str) -> Vec<crate::oplog::OpPayload> {
 ///
 /// Real rather than synthetic because `read_conflict` parses the record out
 /// of the root commit's message: a hand-made ref is not a chain.
-pub(crate) fn park_conflict(repo: &Path, name: &str) -> String {
+pub(crate) fn park_conflict(paths: &Paths, repo: &Path, name: &str) -> String {
     let worktree = worktree_path(repo, name);
     fs::write(worktree.join("shared.txt"), "base\narc side\n").unwrap();
-    commit_in(repo, name, "arc edits shared", None).unwrap();
+    commit_in(paths, repo, name, "arc edits shared", None, None).unwrap();
     fs::write(repo.join("shared.txt"), "base\nbase side\n").unwrap();
     git_output(repo, &["add", "."]).unwrap();
     git_output(repo, &["commit", "-m", "base edits shared"]).unwrap();
 
-    let outcome = crate::resolve::resolve_conflicts(repo, name, None).unwrap();
+    let outcome = crate::resolve::resolve_conflicts(paths, repo, name, None).unwrap();
     assert_eq!(
         outcome.unresolved,
         vec!["shared.txt".to_string()],
@@ -591,22 +612,22 @@ pub(crate) fn resolve_parked_conflict(repo: &Path, name: &str) -> (String, Strin
 
 /// A chain a resolver has opened but not finished — the state a second
 /// process must be able to read.
-pub(crate) fn lease_a_parked_conflict(repo: &Path, name: &str) -> String {
-    park_conflict(repo, name);
+pub(crate) fn lease_a_parked_conflict(paths: &Paths, repo: &Path, name: &str) -> String {
+    park_conflict(paths, repo, name);
     crate::resolve::mark_resolve_begun(repo, name).expect("the begin marker lands")
 }
 
 /// Helper: a fresh repo with an arc carrying one commit that adds `f.txt`.
-pub(crate) fn repo_with_committed_arc(name: &str) -> (TempDir, std::path::PathBuf) {
+pub(crate) fn repo_with_committed_arc(name: &str) -> (TempDir, std::path::PathBuf, Paths) {
     let temp = TempDir::new().unwrap();
     let repo = fs::canonicalize(temp.path()).unwrap();
     init_git_repo(&repo);
-    redirect_state_dir(&temp.path().join("state"));
-    create_in(&repo, name, None, false, None).unwrap();
+    let paths = redirect_state_dir(&temp.path().join("state"));
+    create_in(&paths, &repo, name, None, false, None).unwrap();
     let worktree = repo.join(format!(".tug/worktrees/{name}"));
     fs::write(worktree.join("f.txt"), "arc\n").unwrap();
-    commit_in(&repo, name, &format!("{name}-only"), None).unwrap();
-    (temp, repo)
+    commit_in(&paths, &repo, name, &format!("{name}-only"), None, None).unwrap();
+    (temp, repo, paths)
 }
 
 /// What a failed landing must leave exactly as it found it.
@@ -629,11 +650,12 @@ pub(crate) fn base_snapshot(
 
 /// An arc that edits one file and adds two — the shape whose base copies
 /// come in all three index states.
-pub(crate) fn seed_arc_that_adds_files(temp: &TempDir, name: &str) {
-    seed_arc_with_a_round(temp, name);
+pub(crate) fn seed_arc_that_adds_files(temp: &TempDir, name: &str) -> Paths {
+    let paths = seed_arc_with_a_round(temp, name);
     let worktree = temp.path().join(".tug/worktrees").join(name);
     fs::write(worktree.join("added.txt"), "new in the arc\n").unwrap();
     fs::create_dir_all(worktree.join("nested")).unwrap();
     fs::write(worktree.join("nested/extra.txt"), "also new\n").unwrap();
-    commit_in(temp.path(), name, "add files", None).unwrap();
+    commit_in(&paths, temp.path(), name, "add files", None, None).unwrap();
+    paths
 }

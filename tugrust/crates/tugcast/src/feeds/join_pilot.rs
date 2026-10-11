@@ -62,6 +62,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use tugcore::instance::Paths;
 
 use async_trait::async_trait;
 
@@ -220,7 +221,7 @@ async fn run_dispatch(
 /// `(<base_sha>:<arc_head>, arc_head)` for an arc, or `None` when either side
 /// will not resolve.
 fn head_pair(repo_root: &Path, arc: &str) -> Option<(String, String)> {
-    let detail = tugarc_core::ops::arc_detail_entry_in(repo_root, arc)?;
+    let detail = tugarc_core::ops::arc_detail_entry_in(&Paths::from_env(), repo_root, arc)?;
     let base = tugarc_core::ops::rev_parse(repo_root, &detail.base).ok()?;
     let head = tugarc_core::ops::rev_parse(repo_root, &detail.branch).ok()?;
     Some((format!("{base}:{head}"), head))

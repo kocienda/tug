@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use tugcore::instance::Paths;
 
 use tugcast_core::types::{
     ArcStep, ChangesetDraft, ChangesetEntry, ChangesetFile, ChangesetSnapshot, DocumentArcEntry,
@@ -1492,7 +1493,7 @@ fn document_arc_entries_in(
         // that reports it; `read_arc` below deliberately cannot, since its
         // generation reset empties the record at the same terminal line. The
         // documents are untouched, so `arc run <name>` still reopens on them.
-        .filter(|name| !tugarc_core::arc_has_ended(root, name))
+        .filter(|name| !tugarc_core::arc_has_ended(&Paths::from_env(), root, name))
         .filter_map(|name| {
             let documents = tugarc_core::ArcDocuments::read(root, &name);
             let owner_id = tugarc_core::ops::arc_owner_key(root, &name);
@@ -1507,7 +1508,7 @@ fn document_arc_entries_in(
             // kind are two facts off the same read, exactly as the live arc's
             // composition takes them. The kind is what the branchless row was
             // missing, and it is the row every plain arc starts on.
-            let record = tugarc_core::read_arc(root, &name);
+            let record = tugarc_core::read_arc(&Paths::from_env(), root, &name);
             // Read before the literal moves `bound_session` into its own
             // field. The board's key is that seat ([P02]) — nothing is threaded
             // in — and an unbound arc composes `None`, which is right: nobody
@@ -1680,7 +1681,7 @@ async fn arc_entries(
     // second scheduling round trip for a file read that costs less than one of
     // the git subprocesses already in here ([P04]).
     let Ok(details) = tokio::task::spawn_blocking(move || {
-        let details = tugarc_core::arc_detail_entries_in(&root);
+        let details = tugarc_core::arc_detail_entries_in(&Paths::from_env(), &root);
         // Which branch the base checkout has out is a property of the
         // repository, not of an arc, so it is read once for the whole recompute
         // and handed to each arc's composition rather than re-read per arc.
@@ -3744,8 +3745,20 @@ Some context.
         let (_dir, root) = init_repo();
         write_arc_brief(&root, "plain-arc", "The plain brief");
         write_arc_task_list(&root, "plain-arc", &["pending", "pending"]);
-        tugarc_core::append_arc_start(&root, "plain-arc", ".tug/arcs/plain-arc/tasks.md").unwrap();
-        tugarc_core::append_arc_kind(&root, "plain-arc", tugarc_core::ArcKind::Plain).unwrap();
+        tugarc_core::append_arc_start(
+            &Paths::from_env(),
+            &root,
+            "plain-arc",
+            ".tug/arcs/plain-arc/tasks.md",
+        )
+        .unwrap();
+        tugarc_core::append_arc_kind(
+            &Paths::from_env(),
+            &root,
+            "plain-arc",
+            tugarc_core::ArcKind::Plain,
+        )
+        .unwrap();
         // And one whose log never said, beside it.
         write_arc_brief(&root, "pre-kind", "The pre-kind brief");
 
@@ -3778,10 +3791,17 @@ Some context.
         let (_dir, root) = init_repo();
         write_arc_brief(&root, "ghost", "The ghost brief");
         write_arc_task_list(&root, "ghost", &["pending"]);
-        tugarc_core::append_arc_start(&root, "ghost", ".tug/arcs/ghost/tasks.md").unwrap();
+        tugarc_core::append_arc_start(
+            &Paths::from_env(),
+            &root,
+            "ghost",
+            ".tug/arcs/ghost/tasks.md",
+        )
+        .unwrap();
         // A live arc beside it, so this is the filter rather than an empty scan.
         write_arc_brief(&root, "live", "The live brief");
-        tugarc_core::append_arc_start(&root, "live", ".tug/arcs/live/brief.md").unwrap();
+        tugarc_core::append_arc_start(&Paths::from_env(), &root, "live", ".tug/arcs/live/brief.md")
+            .unwrap();
 
         assert_eq!(
             document_entries(&root)
@@ -3792,7 +3812,8 @@ Some context.
             "both are listed while both are live"
         );
 
-        tugarc_core::append_arc_log(&root, "ghost", "discarded", "via cli").unwrap();
+        tugarc_core::append_arc_log(&Paths::from_env(), &root, "ghost", "discarded", "via cli")
+            .unwrap();
 
         assert_eq!(
             document_entries(&root)
@@ -3821,11 +3842,24 @@ Some context.
         }
         let (_dir, root) = init_repo();
         write_arc_brief(&root, "revived", "The revived brief");
-        tugarc_core::append_arc_start(&root, "revived", ".tug/arcs/revived/brief.md").unwrap();
-        tugarc_core::append_arc_log(&root, "revived", "discarded", "via cli").unwrap();
+        tugarc_core::append_arc_start(
+            &Paths::from_env(),
+            &root,
+            "revived",
+            ".tug/arcs/revived/brief.md",
+        )
+        .unwrap();
+        tugarc_core::append_arc_log(&Paths::from_env(), &root, "revived", "discarded", "via cli")
+            .unwrap();
         assert!(document_entries(&root).is_empty());
 
-        tugarc_core::append_arc_start(&root, "revived", ".tug/arcs/revived/brief.md").unwrap();
+        tugarc_core::append_arc_start(
+            &Paths::from_env(),
+            &root,
+            "revived",
+            ".tug/arcs/revived/brief.md",
+        )
+        .unwrap();
 
         let entries = document_entries(&root);
         assert_eq!(

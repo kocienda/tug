@@ -42,7 +42,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tugtool_core::paths::project_state_dir;
+use tugcore::instance::Paths;
+use tugtool_core::paths::project_state_dir_at;
 use tugtool_core::sanitize_branch_name;
 use tugtool_core::session::now_iso8601;
 
@@ -328,8 +329,8 @@ pub fn oplog_ref_name(seq: u64) -> String {
     format!("refs/tug/oplog/{:06}", seq)
 }
 
-fn payload_path(repo: &Path, seq: u64) -> PathBuf {
-    project_state_dir(repo).join(format!("oplog-{:06}.json", seq))
+fn payload_path(paths: &Paths, repo: &Path, seq: u64) -> PathBuf {
+    project_state_dir_at(paths, repo).join(format!("oplog-{:06}.json", seq))
 }
 
 /// Every sequence number this repository currently has a keepalive ref for.
@@ -472,14 +473,15 @@ pub(crate) fn tips_of(before: &OpBefore) -> Vec<String> {
 /// is the only lock this engine uses anywhere. A write that loses the race
 /// fails rather than clobbering, and the loop re-reads and tries again.
 pub fn record_begin(
+    paths: &Paths,
     repo: &Path,
     verb: OpVerb,
     arc: &str,
     before: OpBefore,
     tips: &[String],
 ) -> Result<u64, ArcError> {
-    refuse_unredirected_temp_repo(repo);
-    let dir = project_state_dir(repo);
+    refuse_unredirected_temp_repo(paths, repo);
+    let dir = project_state_dir_at(paths, repo);
     std::fs::create_dir_all(&dir)
         .map_err(|e| ArcError::io(format!("oplog: cannot create {dir:?}"), &dir, e))?;
 
@@ -508,8 +510,8 @@ pub fn record_begin(
             reverses: None,
             stranded: None,
         };
-        write_payload(repo, &payload)?;
-        prune(repo);
+        write_payload(paths, repo, &payload)?;
+        prune(paths, repo);
         return Ok(seq);
     }
     Err(ArcError::git(
@@ -520,26 +522,36 @@ pub fn record_begin(
 }
 
 /// Attach the after-state to a recorded operation, marking it complete.
-pub fn record_complete(repo: &Path, seq: u64, after: OpAfter) -> Result<(), ArcError> {
-    let mut payload = read_op(repo, seq)
+pub fn record_complete(
+    paths: &Paths,
+    repo: &Path,
+    seq: u64,
+    after: OpAfter,
+) -> Result<(), ArcError> {
+    let mut payload = read_op(paths, repo, seq)
         .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to complete")))?;
     payload.after = Some(after);
-    write_payload(repo, &payload)
+    write_payload(paths, repo, &payload)
 }
 
 /// Mark the join `seq` as having left the base in a state nothing could prove
 /// untouched. The record is kept open — no `after` — because the join landed
 /// nothing; what it carries is the warning.
-pub fn record_stranded(repo: &Path, seq: u64, stranded: StrandedBase) -> Result<(), ArcError> {
-    let mut payload = read_op(repo, seq)
+pub fn record_stranded(
+    paths: &Paths,
+    repo: &Path,
+    seq: u64,
+    stranded: StrandedBase,
+) -> Result<(), ArcError> {
+    let mut payload = read_op(paths, repo, seq)
         .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to mark stranded")))?;
     payload.stranded = Some(stranded);
-    write_payload(repo, &payload)
+    write_payload(paths, repo, &payload)
 }
 
 /// The newest join of `arc` that stranded the base and has not been cleared.
-pub fn stranded_join(repo: &Path, arc: &str) -> Option<OpPayload> {
-    list_ops(repo).into_iter().find(|op| {
+pub fn stranded_join(paths: &Paths, repo: &Path, arc: &str) -> Option<OpPayload> {
+    list_ops(paths, repo).into_iter().find(|op| {
         op.arc == arc && op.verb == OpVerb::Join && op.after.is_none() && op.stranded.is_some()
     })
 }
@@ -559,19 +571,29 @@ pub fn stranded_detail(op: &OpPayload) -> String {
 }
 
 /// Mark `seq` as reversed by the undo operation `by`.
-pub fn record_undone_by(repo: &Path, seq: u64, by: Option<u64>) -> Result<(), ArcError> {
-    let mut payload = read_op(repo, seq)
+pub fn record_undone_by(
+    paths: &Paths,
+    repo: &Path,
+    seq: u64,
+    by: Option<u64>,
+) -> Result<(), ArcError> {
+    let mut payload = read_op(paths, repo, seq)
         .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to mark undone")))?;
     payload.undone_by = by;
-    write_payload(repo, &payload)
+    write_payload(paths, repo, &payload)
 }
 
 /// Record which operation `seq` reverses.
-pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), ArcError> {
-    let mut payload = read_op(repo, seq)
+pub fn record_reverses(
+    paths: &Paths,
+    repo: &Path,
+    seq: u64,
+    reverses: u64,
+) -> Result<(), ArcError> {
+    let mut payload = read_op(paths, repo, seq)
         .ok_or_else(|| ArcError::Refused(format!("oplog: no operation {seq} to pair")))?;
     payload.reverses = Some(reverses);
-    write_payload(repo, &payload)
+    write_payload(paths, repo, &payload)
 }
 
 /// Attach or advance a join's teardown progress on its record.
@@ -581,14 +603,19 @@ pub fn record_reverses(repo: &Path, seq: u64, reverses: u64) -> Result<(), ArcEr
 /// leaves a record claiming less than was achieved, which the idempotent
 /// teardown repeats harmlessly, rather than more than was achieved, which it
 /// would skip.
-pub fn record_join_progress(repo: &Path, seq: u64, progress: JoinProgress) -> Result<(), ArcError> {
-    let mut payload = read_op(repo, seq).ok_or_else(|| {
+pub fn record_join_progress(
+    paths: &Paths,
+    repo: &Path,
+    seq: u64,
+    progress: JoinProgress,
+) -> Result<(), ArcError> {
+    let mut payload = read_op(paths, repo, seq).ok_or_else(|| {
         ArcError::Refused(format!(
             "oplog: no operation {seq} to record join progress on"
         ))
     })?;
     payload.join = Some(progress);
-    write_payload(repo, &payload)
+    write_payload(paths, repo, &payload)
 }
 
 /// Every sequence number with a payload on disk, newest first, from the state
@@ -599,9 +626,9 @@ pub fn record_join_progress(repo: &Path, seq: u64, progress: JoinProgress) -> Re
 /// path, recomputed per arc per recompute. The keepalive answers whether the
 /// work can still be collected; in-flight-ness is a property of the payload, so
 /// the refs have nothing to say about it.
-fn payload_seqs_desc(repo: &Path) -> Vec<u64> {
+fn payload_seqs_desc(paths: &Paths, repo: &Path) -> Vec<u64> {
     let mut seqs: Vec<u64> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(project_state_dir(repo)) {
+    if let Ok(entries) = std::fs::read_dir(project_state_dir_at(paths, repo)) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -629,11 +656,11 @@ fn payload_seqs_desc(repo: &Path) -> Vec<u64> {
 /// records an Undo *above* the join it could not reverse. A scan that stopped
 /// at the first record naming the arc would then report no join in flight for
 /// an arc that is half torn down.
-pub fn join_in_flight(repo: &Path, arc: &str) -> Option<OpPayload> {
-    let _ = fold_legacy_join_journal(repo, arc);
-    payload_seqs_desc(repo)
+pub fn join_in_flight(paths: &Paths, repo: &Path, arc: &str) -> Option<OpPayload> {
+    let _ = fold_legacy_join_journal(paths, repo, arc);
+    payload_seqs_desc(paths, repo)
         .into_iter()
-        .filter_map(|seq| read_op(repo, seq))
+        .filter_map(|seq| read_op(paths, repo, seq))
         .find(|op| {
             op.arc == arc && op.verb == OpVerb::Join && op.after.is_none() && op.join.is_some()
         })
@@ -655,8 +682,9 @@ struct LegacyJoinJournal {
     message: Option<String>,
 }
 
-fn legacy_journal_path(repo: &Path, arc: &str) -> PathBuf {
-    project_state_dir(repo).join(format!("join-journal-{}.json", sanitize_branch_name(arc)))
+fn legacy_journal_path(paths: &Paths, repo: &Path, arc: &str) -> PathBuf {
+    project_state_dir_at(paths, repo)
+        .join(format!("join-journal-{}.json", sanitize_branch_name(arc)))
 }
 
 /// Fold a join journal left on disk by an older build onto the operation log,
@@ -671,8 +699,12 @@ fn legacy_journal_path(repo: &Path, arc: &str) -> PathBuf {
 ///
 /// The file is removed **only after** the payload write returns `Ok`. A crash
 /// in between re-enters here and folds again onto the same open record.
-pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, ArcError> {
-    let path = legacy_journal_path(repo, arc);
+pub fn fold_legacy_join_journal(
+    paths: &Paths,
+    repo: &Path,
+    arc: &str,
+) -> Result<Option<u64>, ArcError> {
+    let path = legacy_journal_path(paths, repo, arc);
     let txt = match std::fs::read_to_string(&path) {
         Ok(txt) => txt,
         Err(_) => return Ok(None),
@@ -685,7 +717,7 @@ pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, A
         )
     })?;
 
-    let seq = match newest_incomplete(repo, arc, OpVerb::Join) {
+    let seq = match newest_incomplete(paths, repo, arc, OpVerb::Join) {
         Some(op) => op.seq,
         None => {
             // `capture_before` does not fail once the branch is gone: it falls
@@ -704,11 +736,12 @@ pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, A
             });
             before.base_branch = journal.base_branch.clone();
             let tips = tips_of(&before);
-            record_begin(repo, OpVerb::Join, arc, before, &tips)?
+            record_begin(paths, repo, OpVerb::Join, arc, before, &tips)?
         }
     };
 
     record_join_progress(
+        paths,
         repo,
         seq,
         JoinProgress {
@@ -729,14 +762,14 @@ pub fn fold_legacy_join_journal(repo: &Path, arc: &str) -> Result<Option<u64>, A
 /// empty record is indistinguishable from a verb that ran and changed nothing,
 /// and only one of those is real. The sequence number is spent and not reused;
 /// gaps are ordinary here, since pruning makes them too.
-pub fn abandon(repo: &Path, seq: u64) {
+pub fn abandon(paths: &Paths, repo: &Path, seq: u64) {
     let _ = git_output(repo, &["update-ref", "-d", &oplog_ref_name(seq)]);
-    let _ = std::fs::remove_file(payload_path(repo, seq));
+    let _ = std::fs::remove_file(payload_path(paths, repo, seq));
 }
 
-fn write_payload(repo: &Path, payload: &OpPayload) -> Result<(), ArcError> {
-    refuse_unredirected_temp_repo(repo);
-    let path = payload_path(repo, payload.seq);
+fn write_payload(paths: &Paths, repo: &Path, payload: &OpPayload) -> Result<(), ArcError> {
+    refuse_unredirected_temp_repo(paths, repo);
+    let path = payload_path(paths, repo, payload.seq);
     let body = serde_json::to_string_pretty(payload).map_err(|e| {
         ArcError::io(
             format!("oplog: cannot encode operation {}", payload.seq),
@@ -748,8 +781,8 @@ fn write_payload(repo: &Path, payload: &OpPayload) -> Result<(), ArcError> {
 }
 
 /// Read one operation's payload, if it is there.
-pub fn read_op(repo: &Path, seq: u64) -> Option<OpPayload> {
-    let txt = std::fs::read_to_string(payload_path(repo, seq)).ok()?;
+pub fn read_op(paths: &Paths, repo: &Path, seq: u64) -> Option<OpPayload> {
+    let txt = std::fs::read_to_string(payload_path(paths, repo, seq)).ok()?;
     serde_json::from_str(&txt).ok()
 }
 
@@ -759,11 +792,11 @@ pub fn read_op(repo: &Path, seq: u64) -> Option<OpPayload> {
 /// was hand-deleted, or a ref whose payload was. The log is a recovery aid, and
 /// one that panicked on a repository somebody had poked at by hand would be
 /// worthless exactly when it is needed.
-pub fn list_ops(repo: &Path) -> Vec<OpPayload> {
+pub fn list_ops(paths: &Paths, repo: &Path) -> Vec<OpPayload> {
     let mut seqs = ref_seqs(repo);
     // A payload can outlive its ref; include those too, so the list still
     // reports the operation (as un-undoable — its keepalive is gone).
-    if let Ok(entries) = std::fs::read_dir(project_state_dir(repo)) {
+    if let Ok(entries) = std::fs::read_dir(project_state_dir_at(paths, repo)) {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -781,13 +814,13 @@ pub fn list_ops(repo: &Path) -> Vec<OpPayload> {
     seqs.sort_unstable();
     seqs.reverse();
     seqs.into_iter()
-        .filter_map(|seq| read_op(repo, seq))
+        .filter_map(|seq| read_op(paths, repo, seq))
         .collect()
 }
 
 /// The newest completed, not-yet-undone operation, optionally for one arc.
-pub fn newest_undoable(repo: &Path, arc: Option<&str>) -> Option<OpPayload> {
-    list_ops(repo)
+pub fn newest_undoable(paths: &Paths, repo: &Path, arc: Option<&str>) -> Option<OpPayload> {
+    list_ops(paths, repo)
         .into_iter()
         .filter(|op| arc.is_none_or(|d| op.arc == d))
         .find(|op| op.is_undoable())
@@ -799,21 +832,21 @@ pub fn newest_undoable(repo: &Path, arc: Option<&str>) -> Option<OpPayload> {
 /// [`fold_legacy_join_journal`] is the caller this exists for: a journal an
 /// older build left behind belongs on the record that join already opened, and
 /// the file carries no sequence number to find it by.
-pub fn newest_incomplete(repo: &Path, arc: &str, verb: OpVerb) -> Option<OpPayload> {
-    list_ops(repo)
+pub fn newest_incomplete(paths: &Paths, repo: &Path, arc: &str, verb: OpVerb) -> Option<OpPayload> {
+    list_ops(paths, repo)
         .into_iter()
         .find(|op| op.arc == arc && op.verb == verb && op.after.is_none())
 }
 
 /// Drop everything past [`OPLOG_CAP`], oldest first — both halves.
-fn prune(repo: &Path) {
+fn prune(paths: &Paths, repo: &Path) {
     let seqs = ref_seqs(repo);
     if seqs.len() <= OPLOG_CAP {
         return;
     }
     for seq in &seqs[..seqs.len() - OPLOG_CAP] {
         let _ = git_output(repo, &["update-ref", "-d", &oplog_ref_name(*seq)]);
-        let _ = std::fs::remove_file(payload_path(repo, *seq));
+        let _ = std::fs::remove_file(payload_path(paths, repo, *seq));
     }
 }
 
@@ -859,7 +892,7 @@ pub struct UndoOutcome {
 /// What it restores is git state only. Session bindings live in a per-instance
 /// ledger and are live-sessions-only by design, so a restored arc reads as
 /// unbound and rebinding is the user's gesture.
-pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> {
+pub fn undo_in(paths: &Paths, repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
@@ -867,7 +900,7 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> 
     // the operation a second press means is the join or replay beneath them
     // ([`OpPayload::is_undoable`]). The verb test is asked once, of
     // `OpVerb::is_reversal`, rather than spelled out again here.
-    let candidates: Vec<OpPayload> = list_ops(repo)
+    let candidates: Vec<OpPayload> = list_ops(paths, repo)
         .into_iter()
         .filter(|op| arc.is_none_or(|d| op.arc == d))
         .filter(|op| !op.verb.is_reversal())
@@ -938,7 +971,7 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> 
         broke_lease: None,
     });
     let tips = tips_of(&undo_before);
-    let undo_seq = record_begin(repo, OpVerb::Undo, &name, undo_before, &tips)?;
+    let undo_seq = record_begin(paths, repo, OpVerb::Undo, &name, undo_before, &tips)?;
 
     let outcome = match op.verb {
         OpVerb::Join => undo_join(repo, &op, &after, &mut warnings),
@@ -954,12 +987,13 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> 
         Ok(pair) => pair,
         Err(e) => {
             // The undo declined, so it did not happen.
-            abandon(repo, undo_seq);
+            abandon(paths, repo, undo_seq);
             return Err(e);
         }
     };
 
     record_complete(
+        paths,
         repo,
         undo_seq,
         OpAfter {
@@ -968,10 +1002,11 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> 
             ..Default::default()
         },
     )?;
-    record_undone_by(repo, op.seq, Some(undo_seq))?;
-    record_reverses(repo, undo_seq, op.seq)?;
+    record_undone_by(paths, repo, op.seq, Some(undo_seq))?;
+    record_reverses(paths, repo, undo_seq, op.seq)?;
 
     let _ = crate::log::append_arc_log(
+        paths,
         repo,
         &name,
         "undone",
@@ -1005,15 +1040,19 @@ pub fn undo_in(repo: &Path, arc: Option<&str>) -> Result<UndoOutcome, ArcError> 
 /// So the verb reads the newest undoable operation, refuses by name unless it
 /// is a `resolve-base`, and only then delegates. The refusal is a sentence
 /// rather than a silence because the face has somewhere to put it ([L31]).
-pub fn undo_resolve_base_in(repo: &Path, arc: &str) -> Result<UndoOutcome, ArcError> {
+pub fn undo_resolve_base_in(
+    paths: &Paths,
+    repo: &Path,
+    arc: &str,
+) -> Result<UndoOutcome, ArcError> {
     let repo = crate::ops::main_repo_root(repo);
-    match newest_undoable(&repo, Some(arc)) {
+    match newest_undoable(paths, &repo, Some(arc)) {
         None => Err(ArcError::Refused(format!("nothing to undo on '{arc}'"))),
         Some(op) if op.verb != OpVerb::ResolveBase => Err(ArcError::Refused(format!(
             "the newest operation on '{arc}' is a {}, not a resolve — nothing here to undo",
             op.verb.as_str()
         ))),
-        Some(_) => undo_in(&repo, Some(arc)),
+        Some(_) => undo_in(paths, &repo, Some(arc)),
     }
 }
 
@@ -1052,11 +1091,11 @@ pub struct RedoOutcome {
 ///
 /// Every re-application is a compare-and-swap against the recorded tips, with
 /// the same refusal vocabulary undo established. Nothing forces.
-pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, ArcError> {
+pub fn redo_in(paths: &Paths, repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, ArcError> {
     let repo = crate::ops::main_repo_root(repo);
     let repo = repo.as_path();
 
-    let all = list_ops(repo);
+    let all = list_ops(paths, repo);
     let candidates: Vec<&OpPayload> = all
         .iter()
         .filter(|op| arc.is_none_or(|d| op.arc == d))
@@ -1141,7 +1180,7 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, ArcError> 
         broke_lease: None,
     });
     let tips = tips_of(&redo_before);
-    let redo_seq = record_begin(repo, OpVerb::Redo, &name, redo_before, &tips)?;
+    let redo_seq = record_begin(paths, repo, OpVerb::Redo, &name, redo_before, &tips)?;
 
     let outcome = match original.verb {
         OpVerb::Join => redo_join(repo, &original, &original_after, &mut warnings),
@@ -1160,12 +1199,13 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, ArcError> 
     let (arc_tip, base_tip) = match outcome {
         Ok(pair) => pair,
         Err(e) => {
-            abandon(repo, redo_seq);
+            abandon(paths, repo, redo_seq);
             return Err(e);
         }
     };
 
     record_complete(
+        paths,
         repo,
         redo_seq,
         OpAfter {
@@ -1174,14 +1214,15 @@ pub fn redo_in(repo: &Path, arc: Option<&str>) -> Result<RedoOutcome, ArcError> 
             ..Default::default()
         },
     )?;
-    record_reverses(repo, redo_seq, undo.seq)?;
+    record_reverses(paths, repo, redo_seq, undo.seq)?;
     // The undo is now itself reversed, and the original is undoable again —
     // which is what makes a following `undo` press mean the original rather
     // than descending into bookkeeping.
-    record_undone_by(repo, undo.seq, Some(redo_seq))?;
-    record_undone_by(repo, original.seq, None)?;
+    record_undone_by(paths, repo, undo.seq, Some(redo_seq))?;
+    record_undone_by(paths, repo, original.seq, None)?;
 
     let _ = crate::log::append_arc_log(
+        paths,
         repo,
         &name,
         "redone",
@@ -1650,12 +1691,12 @@ fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serial_test::serial;
     use tugcore::test_fixtures::git::{GitFixture, git};
 
     struct Fixture {
         repo: tempfile::TempDir,
         _home: tempfile::TempDir,
+        paths: Paths,
     }
 
     impl Fixture {
@@ -1673,16 +1714,11 @@ mod tests {
         }
     }
 
-    /// `TUG_DATA_DIR` redirects `project_state_dir` into the fixture, which is
-    /// also what keeps `refuse_unredirected_temp_repo` from firing. Every test
-    /// here is `#[serial]` for that reason.
+    /// `paths` roots the op log in the fixture's own data dir, which is also
+    /// what keeps `refuse_unredirected_temp_repo` from firing.
     fn init() -> Fixture {
         let home = tempfile::tempdir().unwrap();
-        // SAFETY: every test in this module is #[serial]; no other thread reads
-        // the environment while this runs.
-        unsafe {
-            std::env::set_var("TUG_DATA_DIR", home.path());
-        }
+        let paths = Paths::under(home.path());
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
         GitFixture::init(repo);
@@ -1692,6 +1728,7 @@ mod tests {
         Fixture {
             repo: temp,
             _home: home,
+            paths,
         }
     }
 
@@ -1713,28 +1750,28 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_payload_round_trips_through_json() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        let read = read_op(f.path(), seq).expect("the payload is on disk");
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let read = read_op(&f.paths, f.path(), seq).expect("the payload is on disk");
         assert_eq!(read.seq, seq);
         assert_eq!(read.verb, OpVerb::Join);
         assert_eq!(read.arc, "demo");
         // Per-verb fields absent on a fresh record, and absent from the JSON.
         assert!(read.after.is_none());
         assert!(read.undone_by.is_none());
-        let raw = std::fs::read_to_string(payload_path(f.path(), seq)).unwrap();
+        let raw = std::fs::read_to_string(payload_path(&f.paths, f.path(), seq)).unwrap();
         assert!(!raw.contains("handed_back"), "empty vectors are omitted");
         assert!(!raw.contains("\"after\""), "an unfinished op has no after");
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn completing_an_op_attaches_the_after_state() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Replay, "demo", before(&f), &[]).unwrap();
+        let seq =
+            record_begin(&f.paths, f.path(), OpVerb::Replay, "demo", before(&f), &[]).unwrap();
         record_complete(
+            &f.paths,
             f.path(),
             seq,
             OpAfter {
@@ -1744,7 +1781,7 @@ mod tests {
             },
         )
         .unwrap();
-        let read = read_op(f.path(), seq).unwrap();
+        let read = read_op(&f.paths, f.path(), seq).unwrap();
         let after = read.after.clone().expect("after is attached");
         assert_eq!(after.arc_tip.as_deref(), Some("deadbeef"));
         assert_eq!(after.mapping, vec![("old".to_string(), "new".to_string())]);
@@ -1752,7 +1789,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn the_keepalive_holds_a_tip_whose_branch_is_deleted() {
         let f = init();
         git(f.path(), &["branch", "doomed"]);
@@ -1761,6 +1797,7 @@ mod tests {
         git(f.path(), &["reset", "--hard", "HEAD~1"]);
 
         record_begin(
+            &f.paths,
             f.path(),
             OpVerb::Discard,
             "demo",
@@ -1787,25 +1824,28 @@ mod tests {
     /// A payload written before the conflict field existed must still parse —
     /// the log is append-only and old records outlive schema changes.
     #[test]
-    #[serial(tug_data_dir)]
     fn an_old_payload_without_the_conflict_field_still_parses() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        let path = payload_path(f.path(), seq);
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let path = payload_path(&f.paths, f.path(), seq);
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(
             !raw.contains("conflict"),
             "an absent chain is omitted from the JSON entirely"
         );
-        let read = read_op(f.path(), seq).expect("it parses");
+        let read = read_op(&f.paths, f.path(), seq).expect("it parses");
         assert!(read.before.conflict.is_none());
 
         // And a recorded one round-trips.
         let mut with = before(&f);
         with.conflict = Some(f.tip("HEAD"));
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", with, &[]).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", with, &[]).unwrap();
         assert_eq!(
-            read_op(f.path(), seq).unwrap().before.conflict.as_deref(),
+            read_op(&f.paths, f.path(), seq)
+                .unwrap()
+                .before
+                .conflict
+                .as_deref(),
             Some(f.tip("HEAD").as_str())
         );
     }
@@ -1814,7 +1854,6 @@ mod tests {
     /// round left outside it: a checkpoint the resolver committed must survive
     /// the teardown that deletes the conflict ref.
     #[test]
-    #[serial(tug_data_dir)]
     fn the_keepalive_holds_a_conflict_chain_whose_ref_is_deleted() {
         let f = init();
         git(f.path(), &["checkout", "-q", "-b", "chain"]);
@@ -1830,7 +1869,7 @@ mod tests {
         let tips = tips_of(&b);
         assert!(tips.contains(&checkpoint), "and the keepalive parents it");
 
-        record_begin(f.path(), OpVerb::Join, "demo", b, &tips).unwrap();
+        record_begin(&f.paths, f.path(), OpVerb::Join, "demo", b, &tips).unwrap();
 
         // The teardown: the ref goes, the branch goes, nothing else refers to it.
         crate::resolve::clear_conflict(f.path(), "demo");
@@ -1847,7 +1886,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_taken_sequence_number_is_not_reused() {
         let f = init();
         // Pre-create the ref the first allocation would claim, exactly as a
@@ -1855,7 +1893,7 @@ mod tests {
         let squatter = f.tip("HEAD");
         git(f.path(), &["update-ref", &oplog_ref_name(1), &squatter]);
 
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         assert_eq!(seq, 2, "the allocation stepped over the taken number");
         assert_eq!(
             git_stdout(f.path(), &["rev-parse", &oplog_ref_name(1)]).unwrap(),
@@ -1865,37 +1903,39 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn recording_past_the_cap_prunes_the_oldest() {
         let f = init();
         for _ in 0..OPLOG_CAP {
-            record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+            record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         }
         assert!(
-            read_op(f.path(), 1).is_some(),
+            read_op(&f.paths, f.path(), 1).is_some(),
             "op 1 is still here at the cap"
         );
 
-        record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
 
-        assert!(read_op(f.path(), 1).is_none(), "op 1's payload is pruned");
+        assert!(
+            read_op(&f.paths, f.path(), 1).is_none(),
+            "op 1's payload is pruned"
+        );
         assert!(
             git_stdout(f.path(), &["rev-parse", "--verify", &oplog_ref_name(1)]).is_err(),
             "op 1's keepalive ref is pruned — which is what lets gc collect it"
         );
-        assert!(read_op(f.path(), 2).is_some(), "op 2 survives");
+        assert!(read_op(&f.paths, f.path(), 2).is_some(), "op 2 survives");
         assert_eq!(ref_seqs(f.path()).len(), OPLOG_CAP);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn the_list_is_newest_first_and_survives_a_hand_deleted_ref() {
         let f = init();
-        let first = record_begin(f.path(), OpVerb::Join, "a", before(&f), &[]).unwrap();
-        let second = record_begin(f.path(), OpVerb::Discard, "b", before(&f), &[]).unwrap();
+        let first = record_begin(&f.paths, f.path(), OpVerb::Join, "a", before(&f), &[]).unwrap();
+        let second =
+            record_begin(&f.paths, f.path(), OpVerb::Discard, "b", before(&f), &[]).unwrap();
         git(f.path(), &["update-ref", "-d", &oplog_ref_name(first)]);
 
-        let ops = list_ops(f.path());
+        let ops = list_ops(&f.paths, f.path());
         assert_eq!(
             ops.len(),
             2,
@@ -1906,36 +1946,41 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn newest_undoable_skips_the_unfinished_and_the_already_undone() {
         let f = init();
-        let done = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        record_complete(f.path(), done, OpAfter::default()).unwrap();
+        let done = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_complete(&f.paths, f.path(), done, OpAfter::default()).unwrap();
         // A later op that never completed must not shadow the finished one.
-        record_begin(f.path(), OpVerb::Replay, "demo", before(&f), &[]).unwrap();
+        record_begin(&f.paths, f.path(), OpVerb::Replay, "demo", before(&f), &[]).unwrap();
 
-        assert_eq!(newest_undoable(f.path(), None).unwrap().seq, done);
-        assert_eq!(newest_undoable(f.path(), Some("demo")).unwrap().seq, done);
-        assert!(newest_undoable(f.path(), Some("other")).is_none());
+        assert_eq!(newest_undoable(&f.paths, f.path(), None).unwrap().seq, done);
+        assert_eq!(
+            newest_undoable(&f.paths, f.path(), Some("demo"))
+                .unwrap()
+                .seq,
+            done
+        );
+        assert!(newest_undoable(&f.paths, f.path(), Some("other")).is_none());
 
-        record_undone_by(f.path(), done, Some(99)).unwrap();
+        record_undone_by(&f.paths, f.path(), done, Some(99)).unwrap();
         assert!(
-            newest_undoable(f.path(), None).is_none(),
+            newest_undoable(&f.paths, f.path(), None).is_none(),
             "an undone op is no longer offered"
         );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn newest_incomplete_finds_the_op_a_resumed_verb_opened() {
         let f = init();
-        let finished = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        record_complete(f.path(), finished, OpAfter::default()).unwrap();
-        let open = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let finished =
+            record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_complete(&f.paths, f.path(), finished, OpAfter::default()).unwrap();
+        let open = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
 
-        let found = newest_incomplete(f.path(), "demo", OpVerb::Join).expect("the open op");
+        let found =
+            newest_incomplete(&f.paths, f.path(), "demo", OpVerb::Join).expect("the open op");
         assert_eq!(found.seq, open);
-        assert!(newest_incomplete(f.path(), "demo", OpVerb::Discard).is_none());
+        assert!(newest_incomplete(&f.paths, f.path(), "demo", OpVerb::Discard).is_none());
     }
 
     fn progress(phase: JoinPhase, commit: &str) -> JoinProgress {
@@ -1951,7 +1996,7 @@ mod tests {
     /// `serde_json` over the old field set — so the fold is tested against the
     /// artifact rather than against a reconstruction of it.
     fn write_legacy_journal(f: &Fixture, arc: &str, phase: &str, base_branch: &str) {
-        let dir = project_state_dir(f.path());
+        let dir = tugtool_core::paths::project_state_dir_at(&f.paths, f.path());
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join(format!("join-journal-{arc}.json")),
@@ -1964,7 +2009,6 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_payload_with_join_progress_round_trips() {
         let f = init();
         for phase in [
@@ -1972,9 +2016,10 @@ mod tests {
             JoinPhase::WorktreeRemoved,
             JoinPhase::BranchDeleted,
         ] {
-            let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-            record_join_progress(f.path(), seq, progress(phase, "abc123")).unwrap();
-            let read = read_op(f.path(), seq).expect("it parses");
+            let seq =
+                record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+            record_join_progress(&f.paths, f.path(), seq, progress(phase, "abc123")).unwrap();
+            let read = read_op(&f.paths, f.path(), seq).expect("it parses");
             let join = read.join.expect("progress is on the record");
             assert_eq!(join.phase, phase);
             assert_eq!(join.commit_hash, "abc123");
@@ -1984,68 +2029,85 @@ mod tests {
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_old_payload_without_the_join_field_still_parses() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        let raw = std::fs::read_to_string(payload_path(f.path(), seq)).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let raw = std::fs::read_to_string(payload_path(&f.paths, f.path(), seq)).unwrap();
         assert!(
             !raw.contains("\"join\":"),
             "a join that has not integrated yet omits the field entirely"
         );
-        assert!(read_op(f.path(), seq).expect("it parses").join.is_none());
+        assert!(
+            read_op(&f.paths, f.path(), seq)
+                .expect("it parses")
+                .join
+                .is_none()
+        );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn join_in_flight_needs_both_an_open_op_and_progress() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         assert!(
-            join_in_flight(f.path(), "demo").is_none(),
+            join_in_flight(&f.paths, f.path(), "demo").is_none(),
             "an op that never integrated is not a teardown to resume"
         );
 
-        record_join_progress(f.path(), seq, progress(JoinPhase::Integrated, "abc123")).unwrap();
-        assert_eq!(join_in_flight(f.path(), "demo").unwrap().seq, seq);
+        record_join_progress(
+            &f.paths,
+            f.path(),
+            seq,
+            progress(JoinPhase::Integrated, "abc123"),
+        )
+        .unwrap();
+        assert_eq!(join_in_flight(&f.paths, f.path(), "demo").unwrap().seq, seq);
         assert!(
-            join_in_flight(f.path(), "other").is_none(),
+            join_in_flight(&f.paths, f.path(), "other").is_none(),
             "and it answers per arc"
         );
 
-        record_complete(f.path(), seq, OpAfter::default()).unwrap();
+        record_complete(&f.paths, f.path(), seq, OpAfter::default()).unwrap();
         assert!(
-            join_in_flight(f.path(), "demo").is_none(),
+            join_in_flight(&f.paths, f.path(), "demo").is_none(),
             "a completed join is not in flight"
         );
 
         // A verb other than Join carrying progress is impossible in practice;
         // the predicate names the verb anyway, so assert it cheaply.
-        let other = record_begin(f.path(), OpVerb::Discard, "demo", before(&f), &[]).unwrap();
-        record_join_progress(f.path(), other, progress(JoinPhase::Integrated, "abc123")).unwrap();
-        assert!(join_in_flight(f.path(), "demo").is_none());
+        let other =
+            record_begin(&f.paths, f.path(), OpVerb::Discard, "demo", before(&f), &[]).unwrap();
+        record_join_progress(
+            &f.paths,
+            f.path(),
+            other,
+            progress(JoinPhase::Integrated, "abc123"),
+        )
+        .unwrap();
+        assert!(join_in_flight(&f.paths, f.path(), "demo").is_none());
     }
 
     /// `undo_in` skips an incomplete operation rather than stopping at it, so an
     /// undo record can sit above a join that is half torn down. The scan must
     /// read past it.
     #[test]
-    #[serial(tug_data_dir)]
     fn an_undo_recorded_above_an_in_flight_join_does_not_hide_it() {
         let f = init();
-        let join = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let join = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         record_join_progress(
+            &f.paths,
             f.path(),
             join,
             progress(JoinPhase::WorktreeRemoved, "abc123"),
         )
         .unwrap();
 
-        let undo = record_begin(f.path(), OpVerb::Undo, "demo", before(&f), &[]).unwrap();
-        record_complete(f.path(), undo, OpAfter::default()).unwrap();
+        let undo = record_begin(&f.paths, f.path(), OpVerb::Undo, "demo", before(&f), &[]).unwrap();
+        record_complete(&f.paths, f.path(), undo, OpAfter::default()).unwrap();
         assert!(undo > join, "the undo is the newer record");
 
-        let found = join_in_flight(f.path(), "demo").expect("the join is still in flight");
+        let found =
+            join_in_flight(&f.paths, f.path(), "demo").expect("the join is still in flight");
         assert_eq!(found.seq, join);
         assert_eq!(found.join.unwrap().phase, JoinPhase::WorktreeRemoved);
     }
@@ -2053,82 +2115,102 @@ mod tests {
     /// The executable form of "no `for-each-ref`": with every keepalive gone,
     /// a ref-dependent read finds nothing and this one still answers.
     #[test]
-    #[serial(tug_data_dir)]
     fn the_in_flight_read_touches_no_refs() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        record_join_progress(f.path(), seq, progress(JoinPhase::Integrated, "abc123")).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_join_progress(
+            &f.paths,
+            f.path(),
+            seq,
+            progress(JoinPhase::Integrated, "abc123"),
+        )
+        .unwrap();
         git(f.path(), &["update-ref", "-d", &oplog_ref_name(seq)]);
         assert!(ref_seqs(f.path()).is_empty(), "the keepalive is gone");
 
-        assert_eq!(join_in_flight(f.path(), "demo").unwrap().seq, seq);
+        assert_eq!(join_in_flight(&f.paths, f.path(), "demo").unwrap().seq, seq);
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_open_join_with_progress_is_refused_by_undo_as_incomplete() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
         record_join_progress(
+            &f.paths,
             f.path(),
             seq,
             progress(JoinPhase::WorktreeRemoved, "abc123"),
         )
         .unwrap();
-        let err = undo_in(f.path(), Some("demo")).unwrap_err().to_string();
+        let err = undo_in(&f.paths, f.path(), Some("demo"))
+            .unwrap_err()
+            .to_string();
         assert!(err.starts_with("incomplete-op:"), "got {err}");
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn abandon_drops_the_progress_with_the_payload() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
-        record_join_progress(f.path(), seq, progress(JoinPhase::Integrated, "abc123")).unwrap();
+        let seq = record_begin(&f.paths, f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
+        record_join_progress(
+            &f.paths,
+            f.path(),
+            seq,
+            progress(JoinPhase::Integrated, "abc123"),
+        )
+        .unwrap();
 
-        abandon(f.path(), seq);
-        assert!(read_op(f.path(), seq).is_none(), "the payload is gone");
+        abandon(&f.paths, f.path(), seq);
+        assert!(
+            read_op(&f.paths, f.path(), seq).is_none(),
+            "the payload is gone"
+        );
         assert!(ref_seqs(f.path()).is_empty(), "and so is the keepalive");
-        assert!(join_in_flight(f.path(), "demo").is_none());
+        assert!(join_in_flight(&f.paths, f.path(), "demo").is_none());
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_legacy_journal_attaches_to_the_open_op_and_is_deleted() {
         let f = init();
-        let seq = record_begin(f.path(), OpVerb::Join, "resume", before(&f), &[]).unwrap();
+        let seq =
+            record_begin(&f.paths, f.path(), OpVerb::Join, "resume", before(&f), &[]).unwrap();
         write_legacy_journal(&f, "resume", "WorktreeRemoved", "main");
 
-        let folded = fold_legacy_join_journal(f.path(), "resume").unwrap();
+        let folded = fold_legacy_join_journal(&f.paths, f.path(), "resume").unwrap();
         assert_eq!(
             folded,
             Some(seq),
             "it attaches rather than recording a second"
         );
-        let join = read_op(f.path(), seq)
+        let join = read_op(&f.paths, f.path(), seq)
             .unwrap()
             .join
             .expect("progress attached");
         assert_eq!(join.phase, JoinPhase::WorktreeRemoved);
         assert_eq!(join.commit_hash, "deadbeef");
         assert_eq!(join.message.as_deref(), Some("from the journal"));
-        assert!(!legacy_journal_path(f.path(), "resume").exists());
+        assert!(!legacy_journal_path(&f.paths, f.path(), "resume").exists());
 
         // Idempotent: a second fold finds nothing left to do.
-        assert_eq!(fold_legacy_join_journal(f.path(), "resume").unwrap(), None);
-        assert_eq!(join_in_flight(f.path(), "resume").unwrap().seq, seq);
+        assert_eq!(
+            fold_legacy_join_journal(&f.paths, f.path(), "resume").unwrap(),
+            None
+        );
+        assert_eq!(
+            join_in_flight(&f.paths, f.path(), "resume").unwrap().seq,
+            seq
+        );
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn a_legacy_journal_with_no_open_op_records_one() {
         let f = init();
         write_legacy_journal(&f, "orphan", "BranchDeleted", "trunk");
 
-        let seq = fold_legacy_join_journal(f.path(), "orphan")
+        let seq = fold_legacy_join_journal(&f.paths, f.path(), "orphan")
             .unwrap()
             .expect("a record was created for it");
-        let op = read_op(f.path(), seq).expect("the payload is on disk");
+        let op = read_op(&f.paths, f.path(), seq).expect("the payload is on disk");
         assert_eq!(op.verb, OpVerb::Join);
         assert_eq!(op.arc, "orphan");
         assert!(
@@ -2140,19 +2222,18 @@ mod tests {
             "the journal's base branch wins over what capture_before guesses"
         );
         assert_eq!(op.join.unwrap().phase, JoinPhase::BranchDeleted);
-        assert!(!legacy_journal_path(f.path(), "orphan").exists());
+        assert!(!legacy_journal_path(&f.paths, f.path(), "orphan").exists());
     }
 
     #[test]
-    #[serial(tug_data_dir)]
     fn an_unreadable_legacy_journal_is_left_in_place_and_named() {
         let f = init();
-        let dir = project_state_dir(f.path());
+        let dir = tugtool_core::paths::project_state_dir_at(&f.paths, f.path());
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("join-journal-broken.json");
         std::fs::write(&path, "{ not json at all").unwrap();
 
-        let err = fold_legacy_join_journal(f.path(), "broken")
+        let err = fold_legacy_join_journal(&f.paths, f.path(), "broken")
             .unwrap_err()
             .to_string();
         assert!(
@@ -2161,7 +2242,7 @@ mod tests {
         );
         assert!(path.exists(), "a file nobody could read is never deleted");
         assert!(
-            join_in_flight(f.path(), "broken").is_none(),
+            join_in_flight(&f.paths, f.path(), "broken").is_none(),
             "and the predicate says no rather than guessing"
         );
     }
