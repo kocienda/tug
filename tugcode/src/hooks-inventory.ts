@@ -19,12 +19,11 @@ import type {
   HooksInventory,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
+import { isRecord } from "./claude-wire.ts";
 
 /** Narrow an unknown to a plain object (not null, not array). */
 function asObject(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  return isRecord(value) ? value : null;
 }
 
 /** Parse one hook command entry, or `null` when malformed. */

@@ -2,7 +2,7 @@
 // These interfaces describe the data shapes consumed by web UI components.
 // Pure type definitions; no runtime logic.
 
-import type { StructuredPatchHunk } from "./protocol-types.ts";
+import type { StructuredPatchHunk } from "./claude-wire.ts";
 
 // ---------------------------------------------------------------------------
 // Session and tool tracking

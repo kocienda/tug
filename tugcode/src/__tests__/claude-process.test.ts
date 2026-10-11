@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ClaudeProcess,
   type ClaudeProcessHost,
@@ -96,6 +99,41 @@ describe("ClaudeProcess stdout drain", () => {
 
     expect(host.lines).toEqual(['{"a":1}', '{"b":2}', '{"c":3}']);
     expect(host.ends).toBe(1);
+  });
+
+  /** Drain `chunks` through a process built with `wireTap`, and return what the host saw. */
+  async function drainWithTap(chunks: string[], wireTap: string | null): Promise<string[]> {
+    const host = recordingHost();
+    const proc = new ClaudeProcess({ cwd: "/tmp", host, spawner: fakeSpawner(() => null), wireTap });
+    let exit!: (code: number) => void;
+    const child = fakeChild({
+      stdout: streamOf(chunks),
+      exited: new Promise((res) => {
+        exit = res;
+      }),
+      onEnd: () => exit(0),
+    });
+    proc.child = child;
+    proc.startStdoutDrain(child);
+    await proc.terminate({ escalate: false, graceMs: 50 });
+    return host.lines;
+  }
+
+  test("with the wire tap on, appends every dispatched line to the tap file, in order", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tugcode-wire-tap-"));
+    try {
+      const tap = join(dir, "wire.jsonl");
+      const lines = await drainWithTap(['{"type":"system"}\n\n{"type":', '"result"}'], tap);
+      expect(lines).toEqual(['{"type":"system"}', '{"type":"result"}']);
+      expect(readFileSync(tap, "utf8")).toBe('{"type":"system"}\n{"type":"result"}\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a tap that cannot be written costs the session no line", async () => {
+    const lines = await drainWithTap(['{"a":1}\n{"b":2}\n'], "/nonexistent-dir/wire.jsonl");
+    expect(lines).toEqual(['{"a":1}', '{"b":2}']);
   });
 });
 

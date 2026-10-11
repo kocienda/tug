@@ -1,8 +1,16 @@
 // stream-json → IPC event mapping: the top-level event router, the stream-event
 // mapper, and the `build*Message` helpers they share. Pure: each takes an event
-// and a context and returns the frames to emit; the wire stays untyped
-// (`Record<string, unknown>`) here.
+// and a context and returns the frames to emit. Each entry point takes the
+// parsed line as it arrived and narrows it once, against the wire's one
+// declaration in `claude-wire.ts`; every read past that point is typed.
 
+import {
+  hasClaudeWireType,
+  isRecord,
+  isWireStreamPayload,
+  type WireControlRequest,
+  type WireStreamPayload,
+} from "./claude-wire.ts";
 import { errorFrame } from "./ipc.ts";
 import type {
   OutboundMessage,
@@ -19,6 +27,7 @@ import type {
   TaskUpdated,
   TaskProgress,
   BackgroundTasksChanged,
+  ToolUseStructured,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import { extractTaskNotificationWake } from "./replay.ts";
@@ -152,23 +161,26 @@ export function buildWakeStartedMessage(
   event: Record<string, unknown>,
   sessionId: string,
 ): WakeStarted | null {
-  if (event.type !== "system" || event.subtype !== "task_notification") {
+  if (
+    !hasClaudeWireType(event) ||
+    event.type !== "system" ||
+    event.subtype !== "task_notification"
+  ) {
     return null;
   }
   const taskId = event.task_id;
   if (typeof taskId !== "string" || taskId.length === 0) {
     return null;
   }
-  const status = event.status as "completed" | "failed" | "stopped" | undefined;
   return {
     type: "wake_started",
     session_id: sessionId,
     wake_trigger: {
       task_id: taskId,
-      tool_use_id: (event.tool_use_id as string) ?? "",
-      status: status ?? "stopped",
-      summary: terseWakeSummary((event.summary as string) ?? ""),
-      output_file: (event.output_file as string) ?? "",
+      tool_use_id: event.tool_use_id ?? "",
+      status: event.status ?? "stopped",
+      summary: terseWakeSummary(event.summary ?? ""),
+      output_file: event.output_file ?? "",
     },
     ipc_version: IPC_VERSION,
   };
@@ -249,10 +261,7 @@ export function buildTaskUpdatedMessage(
   }
   const taskId = event.task_id;
   if (typeof taskId !== "string" || taskId.length === 0) return null;
-  const patch =
-    typeof event.patch === "object" && event.patch !== null
-      ? (event.patch as Record<string, unknown>)
-      : null;
+  const patch = isRecord(event.patch) ? event.patch : null;
   const status = patch?.status;
   if (typeof status !== "string" || status.length === 0) return null;
   const endTime = patch?.end_time;
@@ -297,20 +306,19 @@ export function extractAsyncLaunch(
 ): AsyncLaunch | undefined {
   if (event.type !== "user") return undefined;
   const result = event.tool_use_result;
-  if (result === null || typeof result !== "object") return undefined;
-  const r = result as Record<string, unknown>;
-  if (r.isAsync !== true && r.status !== "async_launched") return undefined;
-  const agentId = r.agentId;
-  const outputFile = r.outputFile;
+  if (!isRecord(result)) return undefined;
+  if (result.isAsync !== true && result.status !== "async_launched") return undefined;
+  const agentId = result.agentId;
+  const outputFile = result.outputFile;
   if (typeof agentId !== "string" || agentId.length === 0) return undefined;
   if (typeof outputFile !== "string" || outputFile.length === 0) {
     return undefined;
   }
-  const message = event.message as Record<string, unknown> | undefined;
-  const content = message?.content;
+  const content = isRecord(event.message) ? event.message.content : undefined;
   if (!Array.isArray(content)) return undefined;
-  for (const block of content as Array<Record<string, unknown>>) {
+  for (const block of content) {
     if (
+      isRecord(block) &&
       block.type === "tool_result" &&
       typeof block.tool_use_id === "string" &&
       block.tool_use_id.length > 0
@@ -344,10 +352,7 @@ export function buildTaskProgressMessage(
   if (typeof toolUseId !== "string" || toolUseId.length === 0) return null;
   const subagentType = event.subagent_type;
   const lastToolName = event.last_tool_name;
-  const rawUsage =
-    typeof event.usage === "object" && event.usage !== null
-      ? (event.usage as Record<string, unknown>)
-      : null;
+  const rawUsage = isRecord(event.usage) ? event.usage : null;
   const usage = rawUsage
     ? {
         ...(typeof rawUsage.total_tokens === "number"
@@ -410,8 +415,8 @@ export interface TopLevelRoutingResult {
   messages: OutboundMessage[];
   gotResult: boolean;
   sessionId?: string;
-  streamEvent?: Record<string, unknown>;
-  controlRequest?: Record<string, unknown>;
+  streamEvent?: WireStreamPayload;
+  controlRequest?: WireControlRequest;
   cancelledRequestId?: string;
   parentToolUseId?: string;
   resultMetadata?: ResultMetadata;
@@ -466,6 +471,14 @@ export function payloadHexPreview(payload: unknown, maxBytes = 64): string {
 }
 
 /**
+ * A tool call's `input` as the IPC frame's `input: object` carries it: the
+ * value when it is an object, `{}` when it is absent.
+ */
+function objectOr(value: unknown): object {
+  return typeof value === "object" && value !== null ? value : {};
+}
+
+/**
  * Route a single top-level stdout message to IPC outbound messages.
  * Handles all 8+ top-level message types per D03.
  * Exported for unit testing.
@@ -479,17 +492,21 @@ export function payloadHexPreview(payload: unknown, maxBytes = 64): string {
  * over-report context by ~K×. `result.usage` still flows into
  * `resultMetadata.usage` untouched. Omitted (pure-function callers
  * with no turn) → `cost_update.usage` is `{}`.
+ *
+ * `raw` is the parsed line as it arrived. It is narrowed once, by its
+ * top-level `type` ({@link hasClaudeWireType}); a line whose `type` the wire
+ * declaration does not know falls to the `unknown_event` arm.
  */
 export function routeTopLevelEvent(
-  event: Record<string, unknown>,
+  raw: Record<string, unknown>,
   ctx: EventMappingContext,
   lastIterationUsage?: Record<string, unknown> | null
 ): TopLevelRoutingResult {
   const messages: OutboundMessage[] = [];
   let gotResult = false;
   let sessionId: string | undefined;
-  let streamEvent: Record<string, unknown> | undefined;
-  let controlRequest: Record<string, unknown> | undefined;
+  let streamEvent: WireStreamPayload | undefined;
+  let controlRequest: WireControlRequest | undefined;
   let cancelledRequestId: string | undefined;
   let parentToolUseId: string | undefined;
   let resultMetadata: ResultMetadata | undefined;
@@ -501,18 +518,18 @@ export function routeTopLevelEvent(
   let pendingCompactSummary: boolean | undefined;
 
   // parent_tool_use_id is present on all 5 message types per PN-8.
-  const rawParentId = event.parent_tool_use_id;
+  const rawParentId = raw.parent_tool_use_id;
   if (typeof rawParentId === "string" && rawParentId.length > 0) {
     parentToolUseId = rawParentId;
   }
 
-  const eventType = event.type as string | undefined;
+  const event = hasClaudeWireType(raw) ? raw : null;
 
-  switch (eventType) {
+  switch (event?.type) {
     case "system": {
-      const subtype = event.subtype as string | undefined;
+      const subtype = event.subtype;
       if (subtype === "init") {
-        const sid = event.session_id as string | undefined;
+        const sid = event.session_id;
         if (sid) {
           sessionId = sid;
         }
@@ -540,15 +557,15 @@ export function routeTopLevelEvent(
         const sysMsg: SystemMetadata = {
           type: "system_metadata",
           session_id: sid || "",
-          cwd: (event.cwd as string) || "",
-          tools: (event.tools as unknown[]) || [],
-          model: (event.model as string) || "",
-          permissionMode: (event.permissionMode as string) || "",
-          slash_commands: (event.slash_commands as unknown[]) || [],
-          plugins: (event.plugins as unknown[]) || [],
-          agents: (event.agents as unknown[]) || [],
-          skills: (event.skills as unknown[]) || [],
-          mcp_servers: (event.mcp_servers as unknown[]) || [],
+          cwd: event.cwd || "",
+          tools: event.tools || [],
+          model: event.model || "",
+          permissionMode: event.permissionMode || "",
+          slash_commands: event.slash_commands || [],
+          plugins: event.plugins || [],
+          agents: event.agents || [],
+          skills: event.skills || [],
+          mcp_servers: event.mcp_servers || [],
           // Only include `version` when claude's init event actually
           // carried `claude_code_version`. An empty string here would
           // race the live init through the merge layer and mislead
@@ -556,9 +573,9 @@ export function routeTopLevelEvent(
           // of letting its fallback chain fire — see the rename plan
           // and the merge rules in `session_metadata_merge.rs`.
           ...(ccVersion !== undefined ? { version: ccVersion } : {}),
-          output_style: (event.output_style as string) || "",
-          fast_mode_state: (event.fast_mode_state as string) || "",
-          apiKeySource: (event.apiKeySource as string) || "",
+          output_style: event.output_style || "",
+          fast_mode_state: event.fast_mode_state || "",
+          apiKeySource: event.apiKeySource || "",
           ipc_version: IPC_VERSION,
         };
         messages.push(sysMsg);
@@ -568,13 +585,8 @@ export function routeTopLevelEvent(
         // the bare marker stands alone otherwise. The SDK shape is
         // snake_case (`compact_metadata.pre_tokens`); tolerate a camelCase
         // variant defensively.
-        const meta = (event.compact_metadata ?? event.compactMetadata ?? {}) as {
-          trigger?: unknown;
-          pre_tokens?: unknown;
-          preTokens?: unknown;
-          post_tokens?: unknown;
-          postTokens?: unknown;
-        };
+        const rawMeta = event.compact_metadata ?? event.compactMetadata;
+        const meta: Record<string, unknown> = isRecord(rawMeta) ? rawMeta : {};
         const preTokens =
           typeof meta.pre_tokens === "number"
             ? meta.pre_tokens
@@ -603,11 +615,11 @@ export function routeTopLevelEvent(
       } else if (subtype === "api_retry") {
         messages.push({
           type: "api_retry",
-          attempt: (event.attempt as number) || 0,
-          max_retries: (event.max_retries as number) || 10,
-          retry_delay_ms: (event.retry_delay_ms as number) || 0,
-          error_status: (event.error_status as number | null) ?? null,
-          error: (event.error as string) || "unknown",
+          attempt: event.attempt || 0,
+          max_retries: event.max_retries || 10,
+          retry_delay_ms: event.retry_delay_ms || 0,
+          error_status: event.error_status ?? null,
+          error: event.error || "unknown",
           ipc_version: IPC_VERSION,
         });
       } else if (subtype === "model_refusal_fallback") {
@@ -617,15 +629,15 @@ export function routeTopLevelEvent(
         messages.push({
           type: "model_refusal_fallback",
           original_model:
-            (event.originalModel as string) ??
-            (event.original_model as string) ??
+            event.originalModel ??
+            (typeof event.original_model === "string" ? event.original_model : undefined) ??
             "",
           fallback_model:
-            (event.fallbackModel as string) ??
-            (event.fallback_model as string) ??
+            event.fallbackModel ??
+            (typeof event.fallback_model === "string" ? event.fallback_model : undefined) ??
             "",
-          trigger: (event.trigger as string) || "",
-          direction: (event.direction as string) || "",
+          trigger: event.trigger || "",
+          direction: event.direction || "",
           ipc_version: IPC_VERSION,
         });
       } else if (subtype === "task_started") {
@@ -635,13 +647,13 @@ export function routeTopLevelEvent(
         // v2.1.173-jobs-spike capture). Forward both verbatim.
         const frame = buildTaskStartedMessage(
           event,
-          (event.session_id as string) || "",
+          event.session_id || "",
         );
         if (frame !== null) messages.push(frame);
       } else if (subtype === "task_updated") {
         const frame = buildTaskUpdatedMessage(
           event,
-          (event.session_id as string) || "",
+          event.session_id || "",
         );
         if (frame !== null) messages.push(frame);
       } else if (subtype === "task_progress") {
@@ -653,7 +665,7 @@ export function routeTopLevelEvent(
         // with the launching turn).
         const frame = buildTaskProgressMessage(
           event,
-          (event.session_id as string) || "",
+          event.session_id || "",
         );
         if (frame !== null) messages.push(frame);
       } else if (subtype === "background_tasks_changed") {
@@ -663,7 +675,7 @@ export function routeTopLevelEvent(
         // tugcast's own open-job set diagnosable after the fact.
         const frame = buildBackgroundTasksChangedMessage(
           event,
-          (event.session_id as string) || "",
+          event.session_id || "",
         );
         if (frame !== null) messages.push(frame);
       } else if (subtype === "status") {
@@ -700,7 +712,7 @@ export function routeTopLevelEvent(
       // EXCEPTION: Synthetic messages (model: "<synthetic>") are produced by
       // built-in slash commands like /cost, /compact. These have no streaming
       // events — the assistant message is the only source of text. Emit it.
-      const message = event.message as Record<string, unknown> | undefined;
+      const message = event.message;
       const rawId = message?.id;
       if (typeof rawId === "string" && rawId.length > 0) {
         messageId = rawId;
@@ -712,9 +724,9 @@ export function routeTopLevelEvent(
       // after this function returns; the messages built below already
       // carry it via this local.
       const effectiveMsgId = messageId ?? ctx.msgId;
-      const model = (message?.model as string) || "";
+      const model = message?.model || "";
       const isSynthetic = model === "<synthetic>";
-      const content = (message?.content as Array<Record<string, unknown>>) || [];
+      const content = message?.content || [];
 
       // A message that closed on `max_tokens` was cut off at the output
       // ceiling, not a clean `end_turn`. Surface a one-shot notice so the
@@ -728,7 +740,7 @@ export function routeTopLevelEvent(
       for (let blockIndex = 0; blockIndex < content.length; blockIndex++) {
         const block = content[blockIndex];
         if (block.type === "text" && isSynthetic) {
-          const text = (block.text as string) || "";
+          const text = block.text || "";
           if (text.length > 0) {
             // Synthetic messages have no streaming `content_block_start`
             // (they arrive as a complete snapshot). Synthesize one so
@@ -771,8 +783,8 @@ export function routeTopLevelEvent(
           // snapshot is supposed to be the complete summary of the
           // message). Missing fields surface as a console.error;
           // emission proceeds so the reducer at least mints something.
-          const toolUseId = (block.id as string) || "";
-          const toolName = (block.name as string) || "";
+          const toolUseId = block.id || "";
+          const toolName = block.name || "";
           if (toolUseId === "" || toolName === "") {
             console.error(
               `[tugcode] assistant snapshot tool_use missing id or name (msg_id=${effectiveMsgId}, block_index=${blockIndex}, id="${toolUseId}", name="${toolName}")`,
@@ -793,7 +805,7 @@ export function routeTopLevelEvent(
             seq: ctx.seq,
             tool_name: toolName,
             tool_use_id: toolUseId,
-            input: (block.input as object) || {},
+            input: objectOr(block.input),
             ipc_version: IPC_VERSION,
           });
         }
@@ -802,8 +814,7 @@ export function routeTopLevelEvent(
     }
 
     case "user": {
-      const message = event.message as Record<string, unknown> | undefined;
-      const rawContent = message?.content;
+      const rawContent = event.message?.content;
 
       // The `<task-notification>` envelope ([P03]). A background completion
       // is not a submission, and the anchor capture below would read it as
@@ -869,9 +880,7 @@ export function routeTopLevelEvent(
         const isSubmissionEcho =
           typeof rawContent === "string" ||
           (Array.isArray(rawContent) &&
-            (rawContent as Array<Record<string, unknown>>).some(
-              (b) => b.type !== "tool_result",
-            ));
+            rawContent.some((b) => b.type !== "tool_result"));
         if (isSubmissionEcho) {
           promptUuid = echoUuid;
         }
@@ -916,7 +925,7 @@ export function routeTopLevelEvent(
         break;
       }
 
-      const content = (rawContent as Array<Record<string, unknown>>) || [];
+      const content = Array.isArray(rawContent) ? rawContent : [];
 
       let firstToolUseId: string | undefined;
 
@@ -935,12 +944,9 @@ export function routeTopLevelEvent(
               output = blockContent;
             }
           } else if (Array.isArray(blockContent)) {
-            output = (blockContent as Array<Record<string, unknown>>)
-              .filter((b) => b.type === "text")
-              .map((b) => b.text as string)
-              .join("");
+            output = blockContent.map((b) => (b.type === "text" ? b.text : "")).join("");
           }
-          const toolUseId = (block.tool_use_id as string) || "";
+          const toolUseId = block.tool_use_id || "";
           if (!firstToolUseId) {
             firstToolUseId = toolUseId;
           }
@@ -955,13 +961,19 @@ export function routeTopLevelEvent(
       }
 
       // Check outer event for tool_use_result (structured result) per PN-4.
-      const toolUseResult = event.tool_use_result as Record<string, unknown> | undefined;
+      // A failed tool reports a bare string here rather than an object, and
+      // it is forwarded as it came; `ToolUseStructured` declares the field a
+      // record, which is the one assertion this arm still makes.
+      const toolUseResult = event.tool_use_result;
       if (toolUseResult && firstToolUseId) {
         messages.push({
           type: "tool_use_structured",
           tool_use_id: firstToolUseId,
-          tool_name: (toolUseResult.toolName as string) || "",
-          structured_result: toolUseResult,
+          tool_name:
+            isRecord(toolUseResult) && typeof toolUseResult.toolName === "string"
+              ? toolUseResult.toolName
+              : "",
+          structured_result: toolUseResult as ToolUseStructured["structured_result"],
           ipc_version: IPC_VERSION,
         });
       }
@@ -1013,8 +1025,8 @@ export function routeTopLevelEvent(
       // Disarm the summary capture ([P08]) so a summary-less compaction can't
       // leak the armed state into the next turn.
       pendingCompactSummary = false;
-      const subtype = (event.subtype as string) || "error";
-      const resultText = event.result as string | undefined;
+      const subtype = event.subtype || "error";
+      const resultText = event.result;
 
       let isApiError = false;
       if (subtype === "success" && typeof resultText === "string" && resultText.startsWith("API Error:")) {
@@ -1024,13 +1036,13 @@ export function routeTopLevelEvent(
       resultMetadata = {
         subtype,
         is_error: event.is_error === true,
-        total_cost_usd: event.total_cost_usd as number | undefined,
-        num_turns: event.num_turns as number | undefined,
-        duration_ms: event.duration_ms as number | undefined,
-        duration_api_ms: event.duration_api_ms as number | undefined,
-        usage: event.usage as Record<string, unknown> | undefined,
-        modelUsage: event.modelUsage as Record<string, unknown> | undefined,
-        permission_denials: event.permission_denials as unknown[] | undefined,
+        total_cost_usd: event.total_cost_usd,
+        num_turns: event.num_turns,
+        duration_ms: event.duration_ms,
+        duration_api_ms: event.duration_api_ms,
+        usage: event.usage,
+        modelUsage: event.modelUsage,
+        permission_denials: event.permission_denials,
         is_api_error: isApiError || undefined,
       };
 
@@ -1045,12 +1057,12 @@ export function routeTopLevelEvent(
       // cache_creation + output` IS the resident context after the turn.
       const costMsg: CostUpdate = {
         type: "cost_update",
-        total_cost_usd: (event.total_cost_usd as number) || 0,
-        num_turns: (event.num_turns as number) || 0,
-        duration_ms: (event.duration_ms as number) || 0,
-        duration_api_ms: (event.duration_api_ms as number) || 0,
+        total_cost_usd: event.total_cost_usd || 0,
+        num_turns: event.num_turns || 0,
+        duration_ms: event.duration_ms || 0,
+        duration_api_ms: event.duration_api_ms || 0,
         usage: lastIterationUsage ?? {},
-        modelUsage: (event.modelUsage as Record<string, unknown>) || {},
+        modelUsage: event.modelUsage || {},
         // Forward the turn's denials so the session card can surface them in its
         // Recently-denied tab; omit the field entirely when there were none.
         ...(resultMetadata.permission_denials &&
@@ -1067,7 +1079,7 @@ export function routeTopLevelEvent(
     }
 
     case "stream_event": {
-      streamEvent = event.event as Record<string, unknown> | undefined;
+      streamEvent = event.event;
       break;
     }
 
@@ -1088,15 +1100,15 @@ export function routeTopLevelEvent(
       // the claude top-level `uuid` and `session_id` are dropped
       // because tugcode tracks session_id authoritatively and the
       // UI doesn't need claude's per-event uuid.
-      const info = event.rate_limit_info as Record<string, unknown> | undefined;
+      const info = event.rate_limit_info;
       if (info && typeof info === "object") {
         const evt: RateLimitEvent = {
           type: "rate_limit_event",
           rate_limit_info: {
-            status: (info.status as string) || "",
-            resetsAt: (info.resetsAt as number) || 0,
-            rateLimitType: (info.rateLimitType as string) || "",
-            overageStatus: (info.overageStatus as string) || "",
+            status: info.status || "",
+            resetsAt: info.resetsAt || 0,
+            rateLimitType: info.rateLimitType || "",
+            overageStatus: info.overageStatus || "",
             ...(typeof info.overageDisabledReason === "string"
               ? { overageDisabledReason: info.overageDisabledReason }
               : {}),
@@ -1148,7 +1160,7 @@ export function routeTopLevelEvent(
     }
 
     case "control_cancel_request": {
-      const cancelId = event.request_id as string | undefined;
+      const cancelId = event.request_id;
       if (cancelId) {
         cancelledRequestId = cancelId;
         const cancelMsg: ControlRequestCancel = {
@@ -1164,7 +1176,7 @@ export function routeTopLevelEvent(
     }
 
     default: {
-      const originalType = eventType ?? "unknown";
+      const originalType = typeof raw.type === "string" ? raw.type : "unknown";
       // Forward-compat: keep the operator-visible log AND emit an
       // `unknown_event` IPC frame instead of silently dropping, so a
       // newer claude that streams an event type this build doesn't
@@ -1173,7 +1185,7 @@ export function routeTopLevelEvent(
       messages.push({
         type: "unknown_event",
         original_type: originalType,
-        payload_hex_preview: payloadHexPreview(event),
+        payload_hex_preview: payloadHexPreview(raw),
         ipc_version: IPC_VERSION,
       });
       break;
@@ -1221,8 +1233,8 @@ export function streamingUsageFrame(
   usage: unknown,
 ): StreamingUsage | null {
   if (msgId.length === 0) return null;
-  if (typeof usage !== "object" || usage === null) return null;
-  const u = usage as Record<string, unknown>;
+  if (!isRecord(usage)) return null;
+  const u = usage;
   if (!USAGE_TOKEN_KEYS.some((k) => typeof u[k] === "number")) return null;
   return { type: "streaming_usage", msg_id: msgId, usage: u, ipc_version: IPC_VERSION };
 }
@@ -1289,9 +1301,8 @@ export function parseGoalFeedbackText(
   if (typeof rawContent === "string") {
     text = rawContent;
   } else if (Array.isArray(rawContent)) {
-    text = (rawContent as Array<Record<string, unknown>>)
-      .filter((b) => b.type === "text")
-      .map((b) => (b.text as string) || "")
+    text = rawContent
+      .map((b) => (isRecord(b) && b.type === "text" && typeof b.text === "string" ? b.text : ""))
       .join("");
   }
   const match = text.match(/^Stop hook feedback:\s*\n\[([\s\S]*)\]:\s([\s\S]*)$/);
@@ -1299,8 +1310,14 @@ export function parseGoalFeedbackText(
   return { condition: match[1], reason: match[2].trim() };
 }
 
+/**
+ * Map one `stream_event` payload (the raw Messages-API stream event on its
+ * `event` field) to IPC messages. `raw` is narrowed once by its `type`
+ * ({@link isWireStreamPayload}); a payload the wire declaration does not
+ * know maps to nothing.
+ */
 export function mapStreamEvent(
-  event: Record<string, unknown>,
+  raw: unknown,
   ctx: EventMappingContext,
   accumulatedPartialText: string
 ): EventMappingResult {
@@ -1312,9 +1329,9 @@ export function mapStreamEvent(
   let messageStartUsage: Record<string, unknown> | undefined;
   let messageDeltaUsage: Record<string, unknown> | undefined;
 
-  const eventType = event.type as string | undefined;
+  const event = isWireStreamPayload(raw) ? raw : null;
 
-  if (eventType === "message_start") {
+  if (event?.type === "message_start") {
     // claude reveals its message.id in the message_start frame BEFORE any
     // emit-bearing event for the message (content_block_start / _delta
     // land after). Surface it so dispatchEventToTurn can slide
@@ -1322,7 +1339,7 @@ export function mapStreamEvent(
     // for this message. Multi-message claude turns (text → tool_use →
     // tool_result → second text) trigger another `message_start` with a
     // fresh id; the slide simply overwrites — no rejection, no warning.
-    const message = event.message as Record<string, unknown> | undefined;
+    const message = event.message;
     const rawId = message?.id;
     if (typeof rawId === "string" && rawId.length > 0) {
       messageId = rawId;
@@ -1341,7 +1358,7 @@ export function mapStreamEvent(
       // `message_start` when it produced no `message_delta` at all.
       messageStartUsage = startUsage.usage;
     }
-  } else if (eventType === "message_delta") {
+  } else if (event?.type === "message_delta") {
     // The terminal per-message frame: carries the message's final,
     // authoritative four-token `usage`. `ctx.msgId` is the current
     // message id, slid by this message's earlier `message_start`.
@@ -1353,8 +1370,8 @@ export function mapStreamEvent(
       // emits it as `cost_update.usage` at the terminal `result`.
       messageDeltaUsage = deltaUsage.usage;
     }
-  } else if (eventType === "content_block_start") {
-    const contentBlock = event.content_block as Record<string, unknown> | undefined;
+  } else if (event?.type === "content_block_start") {
+    const contentBlock = event.content_block;
     const blockIndex = typeof event.index === "number" ? event.index : 0;
     if (contentBlock?.type === "text") {
       // Surface the block open to tugdeck so the reducer can mint an
@@ -1390,8 +1407,8 @@ export function mapStreamEvent(
       // we surface the anomaly loudly — a regression in claude's wire
       // shape would otherwise produce a tool Message with an empty
       // toolUseId that no tool_result could correlate against.
-      const toolUseId = (contentBlock.id as string) || "";
-      const toolName = (contentBlock.name as string) || "";
+      const toolUseId = contentBlock.id || "";
+      const toolName = contentBlock.name || "";
       if (toolUseId === "" || toolName === "") {
         console.error(
           `[tugcode] content_block_start tool_use missing id or name on live wire (msg_id=${ctx.msgId}, block_index=${blockIndex}, id="${toolUseId}", name="${toolName}")`,
@@ -1416,8 +1433,8 @@ export function mapStreamEvent(
         ipc_version: IPC_VERSION,
       });
     }
-  } else if (eventType === "content_block_delta") {
-    const delta = event.delta as Record<string, unknown> | undefined;
+  } else if (event?.type === "content_block_delta") {
+    const delta = event.delta;
     const blockIndex = typeof event.index === "number" ? event.index : 0;
     if (delta?.type === "text_delta" && typeof delta.text === "string") {
       partialText += delta.text;
@@ -1456,24 +1473,6 @@ export function mapStreamEvent(
     // `tool_input_progress` frame is emitted from `dispatchEventToTurn`,
     // which holds the per-turn block state needed to correlate the delta's
     // block_index to its tool_use_id / tool_name.
-  } else if (eventType === "tool_use") {
-    messages.push({
-      type: "tool_use",
-      msg_id: ctx.msgId,
-      seq: ctx.seq,
-      tool_name: event.name as string,
-      tool_use_id: event.id as string,
-      input: (event.input as object) || {},
-      ipc_version: IPC_VERSION,
-    });
-  } else if (eventType === "tool_result" || eventType === "tool_progress") {
-    messages.push({
-      type: "tool_result",
-      tool_use_id: (event.tool_use_id as string) || "",
-      output: (event.output as string) || "",
-      is_error: event.is_error === true,
-      ipc_version: IPC_VERSION,
-    });
   }
 
   return {

@@ -15,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type JsonlContentBlock,
   type JsonlEntry,
+  type JsonlMessage,
   type ReplayInput,
   type ReplayTelemetry,
   type TranslateContext,
@@ -22,6 +23,7 @@ import {
   extractTurnCostFromUsage,
   isRealModelName,
   makeTranslateContext,
+  narrowJsonlEntry,
   translateJsonlEntry,
   translateJsonlSession,
 } from "../replay.ts";
@@ -87,17 +89,24 @@ async function collectSession(
  * Trailing newline is included so callers don't need to worry about
  * the EOF-no-newline edge case (the translator handles both, but
  * fixtures are easier to read with a uniform trailing \n). */
-function makeJsonl(entries: JsonlEntry[]): string {
+function makeJsonl(entries: ReadonlyArray<object>): string {
   return entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+}
+
+/** Narrow a raw parsed line the way the readers do; a fixture is never `null`. */
+function narrowed(value: unknown): JsonlEntry {
+  const entry = narrowJsonlEntry(value);
+  if (entry === null) throw new Error("fixture narrowed to null");
+  return entry;
 }
 
 /** A minimal `assistant` entry constructor for fixture brevity. */
 function assistantEntry(opts: {
   msgId: string;
   stopReason: "end_turn" | "tool_use" | null;
-  content: NonNullable<JsonlEntry["message"]>["content"];
+  content: JsonlMessage["content"];
   model?: string;
-  usage?: NonNullable<JsonlEntry["message"]>["usage"];
+  usage?: JsonlMessage["usage"];
 }): JsonlEntry {
   return {
     type: "assistant",
@@ -121,7 +130,7 @@ function assistantEntry(opts: {
  * path's `tool_use_structured` emit.
  */
 function userEntry(
-  content: NonNullable<JsonlEntry["message"]>["content"],
+  content: JsonlMessage["content"],
   toolUseResult?: Record<string, unknown>,
 ): JsonlEntry {
   return {
@@ -808,7 +817,7 @@ describe("translateJsonlSession — same-msg_id continuation", () => {
     const summaryIso = "2026-06-17T13:00:00.000Z";
     const turnIso = "2026-06-17T13:11:56.000Z";
     const jsonl = makeJsonl([
-      { type: "summary", timestamp: summaryIso } as JsonlEntry,
+      { type: "summary", timestamp: summaryIso },
       { ...userEntry([{ type: "text", text: "hello" }]), timestamp: turnIso },
       assistantEntry({
         msgId: "m1",
@@ -1770,7 +1779,7 @@ describe("translateJsonlEntry — direct unit tests", () => {
   test("unknown top-level type returns [] and fires telemetry", () => {
     const tel = makeCapturingTelemetry();
     const ctx = makeTranslateContext(tel);
-    const out = translateJsonlEntry({ type: "made-up" }, ctx);
+    const out = translateJsonlEntry(narrowed({ type: "made-up" }), ctx);
     expect(out).toEqual([]);
     expect(tel.unknownShapes).toEqual([
       { kind: "top_level", type: "made-up" },
@@ -1780,7 +1789,7 @@ describe("translateJsonlEntry — direct unit tests", () => {
   test("entry with missing type fires unknown_shape with a recognizable marker", () => {
     const tel = makeCapturingTelemetry();
     const ctx = makeTranslateContext(tel);
-    translateJsonlEntry({}, ctx);
+    translateJsonlEntry(narrowed({}), ctx);
     expect(tel.unknownShapes.length).toBe(1);
     expect(tel.unknownShapes[0].kind).toBe("top_level");
     expect(tel.unknownShapes[0].type).toBe("<missing>");
@@ -1888,5 +1897,46 @@ describe("content_block_start timestamp", () => {
 
     const out = await collectSession({ kind: "ok", jsonl });
     expect(blockStartTimestamps(out)).toEqual([undefined]);
+  });
+});
+
+describe("narrowJsonlEntry", () => {
+  test("returns a record whose type the union declares as itself", () => {
+    const line = { type: "user", uuid: "u1", message: { content: "hi" }, extra: 1 };
+    expect<unknown>(narrowJsonlEntry(line)).toBe(line);
+  });
+
+  test("keeps an undeclared type as unrecognized, with its raw type and envelope", () => {
+    expect(
+      narrowJsonlEntry({
+        type: "frobnicate",
+        uuid: "u2",
+        parentUuid: null,
+        timestamp: "2026-10-10T00:00:00.000Z",
+        isSidechain: false,
+        message: { content: "dropped" },
+      }),
+    ).toEqual({
+      type: "unrecognized",
+      rawType: "frobnicate",
+      uuid: "u2",
+      parentUuid: null,
+      timestamp: "2026-10-10T00:00:00.000Z",
+      isSidechain: false,
+    });
+  });
+
+  test("reads a line with no string type, or no object at all, as unrecognized with an empty raw type", () => {
+    expect(narrowJsonlEntry({ type: 7, uuid: "u3" })).toMatchObject({
+      type: "unrecognized",
+      rawType: "",
+      uuid: "u3",
+    });
+    expect(narrowJsonlEntry(42)).toEqual({ type: "unrecognized", rawType: "" });
+    expect(narrowJsonlEntry([{ type: "user" }])).toEqual({ type: "unrecognized", rawType: "" });
+  });
+
+  test("reads a parsed null as no record, as a blank line reads", () => {
+    expect(narrowJsonlEntry(null)).toBeNull();
   });
 });

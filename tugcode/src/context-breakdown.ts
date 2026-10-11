@@ -32,6 +32,7 @@ import { countTokens } from "./tokenizer.ts";
 import type { ClaudeCodeSettings } from "./claude-code-settings.ts";
 import type { ContextBreakdown, ContextBreakdownCategory } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
+import { isRecord } from "./claude-wire.ts";
 
 /**
  * Heuristic estimate of the CLI's internal system prompt in tokens.
@@ -397,8 +398,8 @@ export function extractContextMax(
 ): number {
   if (!modelUsage) return DEFAULT_CONTEXT_MAX;
   for (const v of Object.values(modelUsage)) {
-    if (typeof v === "object" && v !== null) {
-      const cw = (v as Record<string, unknown>).contextWindow;
+    if (isRecord(v)) {
+      const cw = v.contextWindow;
       if (typeof cw === "number" && Number.isFinite(cw) && cw > 0) return cw;
     }
   }

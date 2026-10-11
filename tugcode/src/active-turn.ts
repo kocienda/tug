@@ -9,6 +9,7 @@ import type {
   ToolInputProgress,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
+import { isRecord } from "./claude-wire.ts";
 import { parseToolInputProgress } from "./event-mapping.ts";
 
 /**
@@ -442,7 +443,8 @@ export class ActiveTurn {
    * replay bracket's re-emitted frames never generate activity — the flush
    * is gated the same way ([Q06]).
    */
-  accountActivity(msg: Record<string, unknown>): void {
+  accountActivity(frame: object): void {
+    const msg: Readonly<Record<string, unknown>> = { ...frame };
     const t = msg.type;
     const toolUseId =
       typeof msg.tool_use_id === "string" ? msg.tool_use_id : null;
@@ -514,7 +516,7 @@ export class ActiveTurn {
     } else if (t === "streaming_usage") {
       // Enhancement: real output-token velocity. `output_tokens` is
       // cumulative within a `msg_id`; record its per-bin growth.
-      const usage = msg.usage as Record<string, unknown> | undefined;
+      const usage = isRecord(msg.usage) ? msg.usage : undefined;
       const cur =
         usage && typeof usage.output_tokens === "number"
           ? usage.output_tokens
@@ -665,8 +667,8 @@ export class ActiveTurn {
           );
           continue;
         }
-        if (Object.keys(msg.input).length > 0) {
-          block.toolInput = msg.input as Record<string, unknown>;
+        if (isRecord(msg.input) && Object.keys(msg.input).length > 0) {
+          block.toolInput = msg.input;
         }
         block.toolName = msg.tool_name;
       } else if (msg.type === "tool_result") {

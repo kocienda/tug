@@ -17,6 +17,7 @@ import type {
   RewindResult,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
+import { isRecord } from "./claude-wire.ts";
 import { realpath } from "node:fs/promises";
 import { writeLine } from "./ipc.ts";
 import { sendControlRequest, generateRequestId } from "./control.ts";
@@ -593,9 +594,9 @@ export class Rewind {
   tryHandleRewindControlResponse(
     event: Record<string, unknown>,
   ): boolean {
-    const response = event.response as Record<string, unknown> | undefined;
-    if (!response || typeof response !== "object") return false;
-    const requestId = response.request_id as string | undefined;
+    const response = event.response;
+    if (!isRecord(response)) return false;
+    const requestId = response.request_id;
     if (typeof requestId !== "string") return false;
     const pending = this.pendingRewindRequests.get(requestId);
     if (!pending) return false;
@@ -605,25 +606,20 @@ export class Rewind {
     // ({canRewind, error?, filesChanged?, insertions?, deletions?}) per
     // the [#step-7a] envelope. A `subtype:"error"` or a missing inner
     // payload degrades to a non-rewindable result rather than throwing.
-    const inner = response.response as Record<string, unknown> | undefined;
+    const inner = isRecord(response.response) ? response.response : undefined;
     const canRewind = inner?.canRewind === true;
-    const error =
-      typeof inner?.error === "string" ? (inner.error as string) : undefined;
+    const error = typeof inner?.error === "string" ? inner.error : undefined;
 
     if (pending.kind === "preview") {
       const filesChanged = Array.isArray(inner?.filesChanged)
-        ? (inner!.filesChanged as unknown[]).filter(
+        ? inner.filesChanged.filter(
             (f): f is string => typeof f === "string",
           )
         : undefined;
       const insertions =
-        typeof inner?.insertions === "number"
-          ? (inner.insertions as number)
-          : undefined;
+        typeof inner?.insertions === "number" ? inner.insertions : undefined;
       const deletions =
-        typeof inner?.deletions === "number"
-          ? (inner.deletions as number)
-          : undefined;
+        typeof inner?.deletions === "number" ? inner.deletions : undefined;
       this.emitRewindPreviewResult(pending.promptUuid, {
         canRewind,
         error,

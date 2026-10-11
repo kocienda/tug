@@ -8,11 +8,13 @@ import { readdir } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import type { Attachment, ContentBlock } from "./types.ts";
 import type { ClaudeHome } from "./claude-home.ts";
-import type {
-  JsonlEntry,
-  SubagentTranscript,
-  SubagentTranscriptMeta,
+import {
+  type JsonlEntry,
+  type SubagentTranscript,
+  type SubagentTranscriptMeta,
+  parseJsonlEntry,
 } from "./replay.ts";
+import { isRecord } from "./claude-wire.ts";
 
 // ---------------------------------------------------------------------------
 // Image attachment validation constants (per PN-12)
@@ -136,24 +138,15 @@ export function extractUserMessageTextCounts(jsonl: string): Map<string, number>
   for (const rawLine of jsonl.split("\n")) {
     const line = rawLine.trim();
     if (line.length === 0) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null) continue;
-    const entry = parsed as { type?: unknown; message?: unknown };
-    if (entry.type !== "user") continue;
-    const message = entry.message as { content?: unknown } | undefined;
-    const content = message?.content;
+    const entry = parseJsonlEntry(line);
+    if (entry?.type !== "user") continue;
+    const content = entry.message?.content;
     if (!Array.isArray(content)) continue;
     const textParts: string[] = [];
     for (const block of content) {
-      if (typeof block !== "object" || block === null) continue;
-      const b = block as { type?: unknown; text?: unknown };
-      if (b.type === "text" && typeof b.text === "string") {
-        textParts.push(b.text);
+      if (!isRecord(block)) continue;
+      if (block.type === "text" && typeof block.text === "string") {
+        textParts.push(block.text);
       }
     }
     if (textParts.length === 0) continue;
@@ -193,14 +186,10 @@ export type ConversationTruncation =
  */
 export function recordTimestampMs(line: string | undefined): number | undefined {
   if (line === undefined) return undefined;
-  try {
-    const parsed = JSON.parse(line) as { timestamp?: unknown };
-    if (typeof parsed.timestamp !== "string") return undefined;
-    const ms = Date.parse(parsed.timestamp);
-    return Number.isFinite(ms) ? ms : undefined;
-  } catch {
-    return undefined;
-  }
+  const timestamp = parseJsonlEntry(line)?.timestamp;
+  if (typeof timestamp !== "string") return undefined;
+  const ms = Date.parse(timestamp);
+  return Number.isFinite(ms) ? ms : undefined;
 }
 
 /**
@@ -251,26 +240,12 @@ export function computeConversationTruncation(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (line.length === 0) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null) continue;
-    const entry = parsed as {
-      type?: unknown;
-      subtype?: unknown;
-      uuid?: unknown;
-      isCompactSummary?: unknown;
-      message?: { content?: unknown } | undefined;
-    };
+    const entry = parseJsonlEntry(line);
+    if (entry === null) continue;
     // Compaction markers: a `compact_boundary` system record or an
     // `isCompactSummary` user record. Track whether one appears at or after
     // the anchor (the chop range).
-    const isCompaction =
-      (entry.type === "system" && entry.subtype === "compact_boundary") ||
-      entry.isCompactSummary === true;
+    const isCompaction = isCompactionEntry(entry);
     const isUserSubmission =
       entry.type === "user" &&
       isUserSubmissionContent(entry.message?.content);
@@ -303,21 +278,8 @@ export function computeConversationTruncation(
     for (let i = boundary; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.length === 0) continue;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const entry = parsed as {
-        type?: unknown;
-        subtype?: unknown;
-        isCompactSummary?: unknown;
-      };
-      if (
-        (entry.type === "system" && entry.subtype === "compact_boundary") ||
-        entry.isCompactSummary === true
-      ) {
+      const entry = parseJsonlEntry(line);
+      if (entry !== null && isCompactionEntry(entry)) {
         return { kind: "compaction_blocked" };
       }
     }
@@ -336,9 +298,16 @@ function isUserSubmissionContent(content: unknown): boolean {
   if (typeof content === "string") return true;
   if (!Array.isArray(content)) return false;
   return content.some((block) => {
-    if (typeof block !== "object" || block === null) return false;
-    return (block as { type?: unknown }).type !== "tool_result";
+    return isRecord(block) && block.type !== "tool_result";
   });
+}
+
+/** A `/compact` marker: a `compact_boundary` system record or an `isCompactSummary` user record. */
+function isCompactionEntry(entry: JsonlEntry): boolean {
+  return (
+    (entry.type === "system" && entry.subtype === "compact_boundary") ||
+    (entry.type === "user" && entry.isCompactSummary === true)
+  );
 }
 
 /**
@@ -383,8 +352,8 @@ export async function defaultJsonlReader(
  * string `toolUseId` is unusable and yields `undefined` so the caller skips it.
  */
 function narrowSubagentMeta(value: unknown): SubagentTranscriptMeta | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const v = value;
   if (typeof v.toolUseId !== "string" || v.toolUseId.length === 0) {
     return undefined;
   }
@@ -406,12 +375,10 @@ function parseSubagentEntries(jsonl: string): JsonlEntry[] {
   for (const rawLine of jsonl.split("\n")) {
     const line = rawLine.trim();
     if (line.length === 0) continue;
-    try {
-      entries.push(JSON.parse(line) as JsonlEntry);
-    } catch {
-      // Skip the malformed line; a partial transcript still restores the
-      // calls that did parse.
-    }
+    // A malformed line is skipped; a partial transcript still restores the
+    // calls that did parse.
+    const entry = parseJsonlEntry(line);
+    if (entry !== null) entries.push(entry);
   }
   return entries;
 }
@@ -480,12 +447,9 @@ export function collectJsonlUuids(jsonl: string): Set<string> {
   const uuids = new Set<string>();
   for (const line of jsonl.split("\n")) {
     if (line.trim().length === 0) continue;
-    try {
-      const entry = JSON.parse(line) as { uuid?: unknown };
-      if (typeof entry.uuid === "string" && entry.uuid.length > 0) uuids.add(entry.uuid);
-    } catch {
-      // A torn or foreign line carries no uuid worth knowing.
-    }
+    // A torn or foreign line carries no uuid worth knowing.
+    const uuid = parseJsonlEntry(line)?.uuid;
+    if (typeof uuid === "string" && uuid.length > 0) uuids.add(uuid);
   }
   return uuids;
 }
@@ -499,25 +463,15 @@ export function collectJsonlUuids(jsonl: string): Set<string> {
 export function firstUncarriedPromptUuid(jsonl: string, carried: Set<string>): string | null {
   for (const line of jsonl.split("\n")) {
     if (line.trim().length === 0) continue;
-    let entry: {
-      type?: unknown;
-      uuid?: unknown;
-      isMeta?: unknown;
-      message?: { content?: unknown };
-    };
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (entry.type !== "user" || entry.isMeta === true) continue;
+    const entry = parseJsonlEntry(line);
+    if (entry?.type !== "user" || entry.isMeta === true) continue;
     if (typeof entry.uuid !== "string" || carried.has(entry.uuid)) continue;
     const content = entry.message?.content;
     const isPrompt =
       typeof content === "string" ||
       (Array.isArray(content) &&
         content.some(
-          (block: { type?: unknown }) => block?.type === "text" || block?.type === "image",
+          (block) => block?.type === "text" || block?.type === "image",
         ));
     if (isPrompt) return entry.uuid;
   }

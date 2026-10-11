@@ -69,6 +69,7 @@ import type {
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import type { ReplayWindow } from "@tugproto/inbound";
+import { isRecord } from "./claude-wire.ts";
 
 /**
  * Default continuous-work budget for the session-level async
@@ -112,29 +113,6 @@ export interface JsonlContentBlock {
 }
 
 /**
- * Permissive shape for a single JSONL line, covering the variants
- * observed across surveyed JSONL files. Fields are optional and
- * loosely typed because Claude's per-session JSONL is an internal
- * persistence format whose shape evolves across releases. The
- * translator handles the surveyed cases explicitly and dispatches
- * unknown shapes to the `dev::replay::unknown_shape`
- * skip-with-telemetry path.
- *
- * Top-level `type` values seen across surveyed JSONLs:
- *   - `user`                    — user submission (text, image, or
- *                                  tool_result content)
- *   - `assistant`               — assistant turn or tool-use intermediate
- *   - `attachment`              — Claude bookkeeping (tool listings,
- *                                  skill listings, file references) —
- *                                  not transcript-visible
- *   - `queue-operation`         — Claude's internal scheduling marker
- *   - `last-prompt`             — bookmark for `--continue`
- *   - `file-history-snapshot`   — Claude's file-tracking metadata
- *   - `ai-title`                — auto-generated session title
- *   - `system`                  — `system_init`-style bookkeeping
- *   - `permission-mode`         — UI-visible at the chrome layer
- */
-/**
  * Per-message token usage as Claude Code persists it on an assistant
  * JSONL entry — the API's snake_case shape. Each field is optional: a
  * turn that used no cache omits the cache fields entirely.
@@ -146,44 +124,39 @@ export interface JsonlUsage {
   cache_read_input_tokens?: number;
 }
 
-export interface JsonlEntry {
-  type?: string;
-  message?: {
-    id?: string;
-    role?: string;
-    model?: string;
-    stop_reason?: string | null;
-    /**
-     * Per-message token usage Claude Code persists on every assistant
-     * entry — the same four-token shape the live `cost_update` /
-     * `streaming_usage` frames carry, in the API's snake_case form. The
-     * terminal entry of a turn carries that turn's last-iteration
-     * resident-context usage (the figure the live `cost_update` froze).
-     * Replay reads it via {@link extractTurnCostFromUsage} to
-     * reconstruct per-turn cost from the file itself, independent of the
-     * `turn_telemetry` side-table.
-     */
-    usage?: JsonlUsage;
-    /**
-     * Message content. Usually an array of {@link JsonlContentBlock}s,
-     * but Claude Code persists a plain-text message — a `user`
-     * submission with no attachments, or (defensively) an `assistant`
-     * message — as a bare STRING. {@link contentBlocks} normalises
-     * both shapes before the per-entry content walk.
-     */
-    content?: string | ReadonlyArray<JsonlContentBlock>;
-  };
+/**
+ * The `message` body a `user` or `assistant` record persists: the same
+ * Messages-API body the stream-json `assistant`/`user` members carry, read
+ * loosely. A transcript holds records written by every Claude version that
+ * ever appended to it, so the reader accepts what older writers left —
+ * notably a bare-STRING `content` (a plain-text `user` submission, or
+ * defensively an `assistant` one), which {@link contentBlocks} normalises
+ * before the per-entry content walk.
+ */
+export interface JsonlMessage {
+  id?: string;
+  role?: string;
+  model?: string;
+  stop_reason?: string | null;
+  /**
+   * Per-message token usage Claude Code persists on every assistant
+   * entry — the same four-token shape the live `cost_update` /
+   * `streaming_usage` frames carry, in the API's snake_case form. The
+   * terminal entry of a turn carries that turn's last-iteration
+   * resident-context usage (the figure the live `cost_update` froze).
+   * Replay reads it via {@link extractTurnCostFromUsage} to
+   * reconstruct per-turn cost from the file itself, independent of the
+   * `turn_telemetry` side-table.
+   */
+  usage?: JsonlUsage;
+  content?: string | ReadonlyArray<JsonlContentBlock>;
+}
+
+/** The fields every JSONL record may carry, whatever its `type`. */
+interface JsonlEnvelope {
   uuid?: string;
   parentUuid?: string | null;
   timestamp?: string;
-  /**
-   * Present on `type: "system"` entries — `"compact_boundary"` marks a
-   * `/compact` point. The parent chain BREAKS at each compaction (the
-   * boundary record carries `parentUuid: null` and the continuation
-   * summary parents to it), so {@link computeDeadEntryIndices}'s live
-   * walk bridges backwards across these records by file position.
-   */
-  subtype?: string;
   /**
    * True on subagent sidechain entries (older sessions persisted agent
    * transcripts inline in the main JSONL). Sidechains root their own
@@ -191,20 +164,12 @@ export interface JsonlEntry {
    * — {@link computeDeadEntryIndices} never marks them dead.
    */
   isSidechain?: boolean;
-  /**
-   * Present on `type: "attachment"` entries. Most attachment subtypes are
-   * Claude bookkeeping (skipped — see {@link SKIPPED_TOP_LEVEL_TYPES}),
-   * but `queued_command` is how Claude Code persists a **steered mid-turn
-   * message** (the user typed while a turn ran): there is no `type: "user"`
-   * row for it, only this. {@link handleQueuedCommandEntry} translates it
-   * into a mid-turn `add_user_message` so reload reconstructs the steered
-   * user row ([P07]/Step 6). `prompt` is the submitted content blocks.
-   */
-  attachment?: {
-    type?: string;
-    prompt?: string | ReadonlyArray<JsonlContentBlock>;
-    commandMode?: string;
-  };
+}
+
+/** A `user` record: a submission, a tool-result echo, or SDK bookkeeping. */
+export interface JsonlUserEntry extends JsonlEnvelope {
+  type: "user";
+  message?: JsonlMessage;
   /**
    * Set by Claude Code on the `user` JSONL entry carrying a `/compact`
    * continuation summary ("This session is being continued from a
@@ -261,8 +226,8 @@ export interface JsonlEntry {
    * Structured tool result, sibling to `message.content`. Claude Code
    * persists this as the camelCase `toolUseResult` field on `user`
    * entries that carry a `tool_result` block (the wire-side analog is
-   * the snake_case `tool_use_result` field on stream-json events; see
-   * `session.ts:670` for the live path). Shape is tool-specific —
+   * the snake_case `tool_use_result` field on stream-json events, read
+   * in `event-mapping.ts`). Shape is tool-specific —
    * Read carries `{type: "text", file: {filePath, content, ...}}`,
    * Edit carries `{toolName, filePath, structuredPatch, ...}`, etc.
    * The translator forwards this payload verbatim as the
@@ -270,20 +235,166 @@ export interface JsonlEntry {
    * so the reducer/wrappers see the same shape on replay as on live.
    */
   toolUseResult?: Record<string, unknown>;
+}
+
+/** An `assistant` record: one assistant message, or one half of a split one. */
+export interface JsonlAssistantEntry extends JsonlEnvelope {
+  type: "assistant";
+  message?: JsonlMessage;
+}
+
+/** A `system` record. Skipped, except a `/compact` point. */
+export interface JsonlSystemEntry extends JsonlEnvelope {
+  type: "system";
   /**
-   * Present on `type: "system"` + `subtype: "compact_boundary"` entries —
-   * Claude Code's compaction metadata. The JSONL persists it **camelCase**
-   * (`compactMetadata.preTokens`), whereas the live stream carries the same
-   * payload **snake_case** (`compact_metadata.pre_tokens`, parsed separately
-   * in `session.ts`). The two parsers stay separate for exactly this reason.
-   * {@link translateJsonlEntry} reads `preTokens` to carry the pre-compaction
-   * context size onto the emitted `compact_boundary` frame.
+   * `"compact_boundary"` marks a `/compact` point. The parent chain
+   * BREAKS at each compaction (the boundary record carries
+   * `parentUuid: null` and the continuation summary parents to it), so
+   * {@link computeDeadEntryIndices}'s live walk bridges backwards across
+   * these records by file position.
+   */
+  subtype?: string;
+  /**
+   * Claude Code's compaction metadata on a `compact_boundary`. The JSONL
+   * persists it **camelCase** (`compactMetadata.preTokens`), whereas the
+   * live stream carries the same payload **snake_case**
+   * (`compact_metadata.pre_tokens`, parsed separately in `session.ts`).
+   * The two parsers stay separate for exactly this reason.
+   * {@link translateJsonlEntry} reads `preTokens` to carry the
+   * pre-compaction context size onto the emitted `compact_boundary` frame.
    */
   compactMetadata?: {
     trigger?: string;
     preTokens?: number;
     postTokens?: number;
   };
+}
+
+/**
+ * An `attachment` record. Most attachment subtypes are Claude bookkeeping
+ * (skipped — see {@link SKIPPED_TOP_LEVEL_TYPES}), but `queued_command` is
+ * how Claude Code persists a **steered mid-turn message** (the user typed
+ * while a turn ran): there is no `type: "user"` row for it, only this.
+ * {@link handleQueuedCommandEntry} translates it into a mid-turn
+ * `add_user_message` so reload reconstructs the steered user row ([P07]).
+ * `prompt` is the submitted content blocks.
+ */
+export interface JsonlAttachmentEntry extends JsonlEnvelope {
+  type: "attachment";
+  attachment?: {
+    type?: string;
+    prompt?: string | ReadonlyArray<JsonlContentBlock>;
+    commandMode?: string;
+  };
+}
+
+/**
+ * A bookkeeping record the translator skips by `type`:
+ *   - `queue-operation`         — Claude's internal scheduling marker
+ *   - `last-prompt`             — bookmark for `--continue`
+ *   - `file-history-snapshot`   — Claude's file-tracking metadata
+ *   - `ai-title`                — auto-generated session title
+ *   - `permission-mode`         — UI-visible at the chrome layer
+ *   - `mode`                    — the terminal app's normal/plan toggle
+ */
+export interface JsonlBookkeepingEntry extends JsonlEnvelope {
+  type:
+    | "queue-operation"
+    | "last-prompt"
+    | "file-history-snapshot"
+    | "ai-title"
+    | "permission-mode"
+    | "mode";
+}
+
+/**
+ * A record whose `type` none of the members above declares — a kind a newer
+ * Claude writes, or a line with no string `type` at all (`rawType` is then
+ * `""`). It keeps its place in the parent chain and is otherwise routed to
+ * the `dev::replay::unknown_shape` telemetry by `rawType`.
+ */
+export interface JsonlUnrecognizedEntry extends JsonlEnvelope {
+  type: "unrecognized";
+  rawType: string;
+}
+
+/**
+ * One line of Claude's per-session JSONL, as a union over `type`. The file
+ * is an internal persistence format whose shape evolves across releases, so
+ * a line is narrowed once — {@link narrowJsonlEntry} — and every reader
+ * past it reads typed fields; a `type` the union does not declare becomes
+ * {@link JsonlUnrecognizedEntry} rather than a type error or a lost line.
+ */
+export type JsonlEntry =
+  | JsonlUserEntry
+  | JsonlAssistantEntry
+  | JsonlSystemEntry
+  | JsonlAttachmentEntry
+  | JsonlBookkeepingEntry
+  | JsonlUnrecognizedEntry;
+
+type JsonlDeclaredType = Exclude<JsonlEntry["type"], "unrecognized">;
+
+// Keyed by the union's own discriminant, so a member added without its row
+// (or a row with no member) fails to compile.
+const JSONL_TYPES: Record<JsonlDeclaredType, true> = {
+  user: true,
+  assistant: true,
+  system: true,
+  attachment: true,
+  "queue-operation": true,
+  "last-prompt": true,
+  "file-history-snapshot": true,
+  "ai-title": true,
+  "permission-mode": true,
+  mode: true,
+};
+
+function hasDeclaredJsonlType(value: Record<string, unknown>): value is Record<string, unknown> & JsonlEntry {
+  return (
+    typeof value.type === "string" &&
+    Object.prototype.hasOwnProperty.call(JSONL_TYPES, value.type)
+  );
+}
+
+/**
+ * Narrow one parsed JSONL line to a {@link JsonlEntry}. A record whose
+ * `type` the union declares is returned as itself — its fields behind the
+ * discriminant are trusted to the declared shape and still read
+ * defensively. Any other record, or a non-object value, becomes a
+ * {@link JsonlUnrecognizedEntry} carrying the envelope fields it had. A
+ * parsed `null` is no record at all and reads as `null`, as a blank line
+ * does.
+ */
+export function narrowJsonlEntry(value: unknown): JsonlEntry | null {
+  if (value === null) return null;
+  if (!isRecord(value)) return { type: "unrecognized", rawType: "" };
+  if (hasDeclaredJsonlType(value)) return value;
+  return {
+    type: "unrecognized",
+    rawType: typeof value.type === "string" ? value.type : "",
+    uuid: typeof value.uuid === "string" ? value.uuid : undefined,
+    parentUuid:
+      typeof value.parentUuid === "string" || value.parentUuid === null
+        ? value.parentUuid
+        : undefined,
+    timestamp: typeof value.timestamp === "string" ? value.timestamp : undefined,
+    isSidechain: typeof value.isSidechain === "boolean" ? value.isSidechain : undefined,
+  };
+}
+
+/** Parse and narrow one JSONL line; `null` when it is not JSON or is `null`. */
+export function parseJsonlEntry(line: string): JsonlEntry | null {
+  try {
+    return narrowJsonlEntry(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+
+/** The `message` body of a `user` or `assistant` record; `undefined` for any other. */
+export function messageOf(entry: JsonlEntry): JsonlMessage | undefined {
+  return entry.type === "user" || entry.type === "assistant" ? entry.message : undefined;
 }
 
 /**
@@ -342,10 +453,11 @@ export function synthesizeSubagentChildFrames(
   const parentId = transcript.meta.toolUseId;
   const out: OutboundMessage[] = [];
   for (const entry of transcript.entries) {
-    const content = entry.message?.content;
+    const message = messageOf(entry);
+    const content = message?.content;
     if (!Array.isArray(content)) continue;
     const msgId =
-      typeof entry.message?.id === "string" ? entry.message.id : "";
+      typeof message?.id === "string" ? message.id : "";
     // First `tool_use_id` in this entry — binds an entry-level
     // `toolUseResult` to its call, mirroring `handleUserEntry`.
     let firstToolUseId = "";
@@ -389,7 +501,7 @@ export function synthesizeSubagentChildFrames(
     // Entry-level structured result (e.g. a child `Read`'s `file.content`),
     // bound to the entry's first tool_use_id. Emitted after the tool_result
     // so the reducer's last-write-wins merge lands the richer payload.
-    const toolUseResult = entry.toolUseResult;
+    const toolUseResult = entry.type === "user" ? entry.toolUseResult : undefined;
     if (toolUseResult !== undefined && firstToolUseId.length > 0) {
       const structured: ToolUseStructured = {
         type: "tool_use_structured",
@@ -426,25 +538,26 @@ export function composeAgentStructuredResult(
   // tool_use (the tool calls themselves restore as children, not content).
   let content: Array<{ type: "text"; text: string }> = [];
   for (let i = entries.length - 1; i >= 0; i--) {
-    const c = entries[i].message?.content;
+    const c = messageOf(entries[i])?.content;
     if (!Array.isArray(c)) continue;
-    const texts = c.filter(
-      (b) => b.type === "text" && typeof b.text === "string",
+    const texts = c.flatMap((b) =>
+      b.type === "text" && typeof b.text === "string" ? [b.text] : [],
     );
     const hasTool = c.some((b) => b.type === "tool_use");
     if (texts.length > 0 && !hasTool) {
-      content = texts.map((b) => ({ type: "text", text: b.text as string }));
+      content = texts.map((text) => ({ type: "text", text }));
       break;
     }
   }
   let totalToolUseCount = 0;
   let totalTokens = 0;
   for (const e of entries) {
-    const c = e.message?.content;
+    const message = messageOf(e);
+    const c = message?.content;
     if (Array.isArray(c)) {
       totalToolUseCount += c.filter((b) => b.type === "tool_use").length;
     }
-    const usage = e.message?.usage;
+    const usage = message?.usage;
     if (usage !== undefined) totalTokens += usageTokens(usage.output_tokens);
   }
   const firstTs = entries.length > 0 ? parseEntryTimestamp(entries[0]) : undefined;
@@ -1113,8 +1226,9 @@ const COMMAND_ENVELOPE_ARGS_RE = /<command-args>([\s\S]*?)<\/command-args>/;
 function submissionAsSent(content: readonly unknown[]): string {
   const text = content
     .map((block) => {
-      const b = block as { type?: unknown; text?: unknown };
-      return b.type === "text" && typeof b.text === "string" ? b.text : "";
+      return isRecord(block) && block.type === "text" && typeof block.text === "string"
+        ? block.text
+        : "";
     })
     .join("");
   if (!isCommandEnvelope(text.trimStart())) return text;
@@ -1266,7 +1380,7 @@ export interface TranslateJsonlEntryOptions {
  * turn opener ([P05]). Only `commandMode: "prompt"` (a plain steered
  * message) is surfaced; other modes (e.g. a queued slash command) skip.
  */
-function handleQueuedCommandEntry(entry: JsonlEntry): OutboundMessage[] {
+function handleQueuedCommandEntry(entry: JsonlAttachmentEntry): OutboundMessage[] {
   if (entry.attachment?.commandMode !== "prompt") return [];
   const submittedContent: ContentBlock[] = [];
   for (const block of contentBlocks(entry.attachment?.prompt)) {
@@ -1300,12 +1414,11 @@ export function translateJsonlEntry(
   ctx: TranslateContext,
   options?: TranslateJsonlEntryOptions,
 ): OutboundMessage[] {
-  const topType = typeof entry.type === "string" ? entry.type : "";
   // A steered mid-turn message persists ONLY as a `queued_command`
   // attachment (no `type: "user"` row). Intercept before the blanket
   // `attachment` skip so reload reconstructs the steered user row
   // ([P07]/Step 6). Other attachment subtypes still skip below.
-  if (topType === "attachment" && entry.attachment?.type === "queued_command") {
+  if (entry.type === "attachment" && entry.attachment?.type === "queued_command") {
     return handleQueuedCommandEntry(entry);
   }
   // A `compact_boundary` system record marks a compaction point. `system` is
@@ -1313,7 +1426,7 @@ export function translateJsonlEntry(
   // divider frame carrying the pre-compaction context size. Purely emissive:
   // it never opens a turn, latches `openTurnMsgId`, or triggers orphan
   // synthesis — the summary that follows (`isCompactSummary`) does the same.
-  if (topType === "system" && entry.subtype === "compact_boundary") {
+  if (entry.type === "system" && entry.subtype === "compact_boundary") {
     return [
       {
         type: "compact_boundary",
@@ -1325,18 +1438,19 @@ export function translateJsonlEntry(
       },
     ];
   }
-  if (SKIPPED_TOP_LEVEL_TYPES.has(topType)) {
+  if (SKIPPED_TOP_LEVEL_TYPES.has(entry.type)) {
     return [];
   }
 
-  if (topType === "user") {
+  if (entry.type === "user") {
     return handleUserEntry(entry, ctx, options);
   }
 
-  if (topType === "assistant") {
+  if (entry.type === "assistant") {
     return handleAssistantEntry(entry, ctx, options);
   }
 
+  const topType = entry.type === "unrecognized" ? entry.rawType : entry.type;
   ctx.telemetry.unknownShape({ kind: "top_level", type: topType || "<missing>" });
   return [];
 }
@@ -1392,7 +1506,7 @@ const INTERRUPT_MARKER_PREFIX = "[Request interrupted by user";
  * fails *closed* in the safe direction — we miss the marker and the
  * phantom-turn symptom returns, but no real user message gets lost.
  */
-function isInterruptMarkerEntry(entry: JsonlEntry, text: string): boolean {
+function isInterruptMarkerEntry(entry: JsonlUserEntry, text: string): boolean {
   if (!text.startsWith(INTERRUPT_MARKER_PREFIX)) return false;
   if (!text.endsWith("]")) return false;
   // Exact match for the base form is OK; the suffix form requires a
@@ -1447,7 +1561,7 @@ function isInterruptMarkerEntry(entry: JsonlEntry, text: string): boolean {
  * the wire.
  */
 function handleUserEntry(
-  entry: JsonlEntry,
+  entry: JsonlUserEntry,
   ctx: TranslateContext,
   options?: TranslateJsonlEntryOptions,
 ): OutboundMessage[] {
@@ -1707,12 +1821,11 @@ function coerceToolResultContent(content: unknown): string {
     let allText = true;
     for (const item of content) {
       if (
-        item !== null &&
-        typeof item === "object" &&
-        (item as { type?: unknown }).type === "text" &&
-        typeof (item as { text?: unknown }).text === "string"
+        isRecord(item) &&
+        item.type === "text" &&
+        typeof item.text === "string"
       ) {
-        parts.push((item as { text: string }).text);
+        parts.push(item.text);
       } else {
         allText = false;
         break;
@@ -1757,7 +1870,7 @@ function coerceToolResultContent(content: unknown): string {
  * already fired from {@link handleUserEntry}.
  */
 function handleAssistantEntry(
-  entry: JsonlEntry,
+  entry: JsonlAssistantEntry,
   ctx: TranslateContext,
   options?: TranslateJsonlEntryOptions,
 ): OutboundMessage[] {
@@ -2425,7 +2538,7 @@ export function computeDeadEntryIndices(
 
   const isCompactionRecord = (entry: JsonlEntry): boolean =>
     (entry.type === "system" && entry.subtype === "compact_boundary") ||
-    entry.isCompactSummary === true;
+    (entry.type === "user" && entry.isCompactSummary === true);
 
   // Live = the ancestor closure of the newest leaf, bridged backwards
   // across /compact chain breaks.
@@ -2650,11 +2763,7 @@ export function segmentJsonlOrigins(
     .map((raw) => {
       const line = raw.trim();
       if (line.length === 0) return null;
-      try {
-        return JSON.parse(line) as JsonlEntry;
-      } catch {
-        return null;
-      }
+      return parseJsonlEntry(line);
     });
   nullNonEffectiveEntries(parsedEntries);
   return computeTurns(parsedEntries).map((t) => t.origin);
@@ -2914,7 +3023,7 @@ export async function* translateJsonlSession(
       return null;
     }
     try {
-      return JSON.parse(line) as JsonlEntry;
+      return narrowJsonlEntry(JSON.parse(line));
     } catch (err) {
       sawAnyMalformed = true;
       telemetry.malformedLine({

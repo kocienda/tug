@@ -6,6 +6,7 @@ import {
   payloadHexPreview,
   routeTopLevelEvent,
 } from "../event-mapping.ts";
+import type { WireStreamPayload } from "../claude-wire.ts";
 import type { EventMappingContext } from "../event-mapping.ts";
 import type { StreamingUsage } from "../types.ts";
 
@@ -289,7 +290,11 @@ describe("routeTopLevelEvent", () => {
   });
 
   test("stream_event returns unwrapped inner event", () => {
-    const innerEvent = { type: "content_block_delta", delta: { type: "text_delta", text: "hi" } };
+    const innerEvent: WireStreamPayload = {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "hi" },
+    };
     const event = { type: "stream_event", event: innerEvent };
     const result = routeTopLevelEvent(event, baseCtx);
     expect(result.streamEvent).toBeDefined();
@@ -324,7 +329,7 @@ describe("routeTopLevelEvent", () => {
     };
     const result = routeTopLevelEvent(event, baseCtx);
     expect(result.controlRequest).toBeDefined();
-    expect(result.controlRequest).toBe(event);
+    expect<unknown>(result.controlRequest).toBe(event);
     expect(result.messages).toHaveLength(0);
     expect(result.gotResult).toBe(false);
   });

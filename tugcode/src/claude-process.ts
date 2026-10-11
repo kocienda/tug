@@ -4,6 +4,8 @@
 // SessionManager owns what the process means — session identity, turns, the
 // handshake — and drives this through the few verbs below.
 
+import { appendFileSync } from "node:fs";
+
 import { LineSplitter } from "./line-splitter.ts";
 import { logSessionLifecycle } from "./session-lifecycle-log.ts";
 import { resolveClaudeCodeVersion, resolveClaudePath } from "./spawn-config.ts";
@@ -29,6 +31,16 @@ export type ClaudeSpawner = (
 
 /** Definitive failure cause read from claude's stderr; see {@link ClaudeProcess.stderrClassification}. */
 export type ClaudeStderrClassification = "resume_failed" | "collision";
+
+/**
+ * The raw-wire tap's environment variable. When set to a path, every line
+ * claude writes to its stdout is appended there, verbatim, before tugcode
+ * parses it. A dev-only instrument: the stream-json catalog capture sets it
+ * so each `v<version>/` gains a `wire/` record of what Claude actually sent,
+ * which is the side of tugcode the IPC fixtures cannot show. Unset in
+ * production, and read once, when the {@link ClaudeProcess} is made.
+ */
+export const WIRE_TAP_ENV = "TUGCODE_WIRE_TAP";
 
 /**
  * Force-terminate signal grace. {@link ClaudeProcess.terminate} in `escalate`
@@ -166,6 +178,8 @@ export class ClaudeProcess {
   private readonly spawner: ClaudeSpawner;
   private readonly cwd: string;
   private readonly host: ClaudeProcessHost;
+  /** The raw-wire tap's path, or `null` when the tap is off; see {@link WIRE_TAP_ENV}. */
+  private wireTap: string | null;
 
   constructor(opts: {
     /** Working directory the default spawner launches claude in. */
@@ -173,10 +187,14 @@ export class ClaudeProcess {
     host: ClaudeProcessHost;
     /** Omit → {@link spawnReal}. */
     spawner?: ClaudeSpawner;
+    /** Omit → the {@link WIRE_TAP_ENV} environment variable; `null` → off. */
+    wireTap?: string | null;
   }) {
     this.cwd = opts.cwd;
     this.host = opts.host;
     this.spawner = opts.spawner ?? ((args, env) => this.spawnReal(args, env));
+    const tap = opts.wireTap === undefined ? process.env[WIRE_TAP_ENV] : opts.wireTap;
+    this.wireTap = tap ? tap : null;
   }
 
   /**
@@ -272,12 +290,12 @@ export class ClaudeProcess {
         }
         if (result.done) {
           const remaining = splitter.end()?.trim() ?? "";
-          if (remaining.length > 0) this.host.onStdoutLine(remaining);
+          if (remaining.length > 0) this.dispatchStdoutLine(remaining);
           break;
         }
         for (const raw of splitter.push(result.value)) {
           const line = raw.trim();
-          if (line.length > 0) this.host.onStdoutLine(line);
+          if (line.length > 0) this.dispatchStdoutLine(line);
         }
       }
     } finally {
@@ -285,6 +303,27 @@ export class ClaudeProcess {
       // died doesn't hang on its completion promise.
       this.host.onStdoutEnd();
     }
+  }
+
+  /**
+   * Hand one stdout line to the host, appending it to the raw-wire tap first
+   * when the tap is on. A tap that cannot be written is logged once and
+   * turned off: it is an instrument, and it never costs the session a line.
+   */
+  private dispatchStdoutLine(line: string): void {
+    if (this.wireTap !== null) {
+      try {
+        appendFileSync(this.wireTap, line + "\n");
+      } catch (err) {
+        logSessionLifecycle("tugcode.wire_tap_failed", {
+          session_id: this.host.sessionId(),
+          path: this.wireTap,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        this.wireTap = null;
+      }
+    }
+    this.host.onStdoutLine(line);
   }
 
   /**

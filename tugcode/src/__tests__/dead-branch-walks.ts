@@ -77,7 +77,7 @@ export function makeResolveParent(
 export function isCompactionRecord(entry: JsonlEntry): boolean {
   return (
     (entry.type === "system" && entry.subtype === "compact_boundary") ||
-    entry.isCompactSummary === true
+    (entry.type === "user" && entry.isCompactSummary === true)
   );
 }
 

@@ -16,7 +16,9 @@
 //! - Derives a per-event-type [`Schema`] and per-probe event-sequence
 //!   via [`derive_schema`]
 //! - Writes JSONL + `manifest.json` + `schema.json` under
-//!   `tests/fixtures/stream-json-catalog/v<version>/`
+//!   `tests/fixtures/stream-json-catalog/v<version>/`, and Claude's raw
+//!   stdout per probe — recorded by tugcode's `TUGCODE_WIRE_TAP` and
+//!   normalized the same way — under `v<version>/wire/`
 //!
 //! # What this binary does *not* do
 //!
@@ -54,8 +56,8 @@ use serde_json::{Value, json};
 // `cargo nextest run` invocations.
 use common::catalog::{
     CapturedProbe, canonical_sequence, derive_schema, diff_capabilities, extract_capabilities,
-    extract_version, normalize_event, schema_to_json, stability_outcome, stability_runs,
-    summarize_capabilities,
+    extract_version, normalize_event, normalize_wire_value, read_wire_tap, schema_to_json,
+    stability_outcome, stability_runs, summarize_capabilities, wire_tap_path,
 };
 use common::probes::ProbeStatus;
 
@@ -143,6 +145,17 @@ pub fn write_fixtures(
             jsonl.push('\n');
         }
         std::fs::write(dir.join(format!("{}.jsonl", probe.name)), jsonl)?;
+    }
+
+    // Claude's side of the wire, as tugcode's raw-wire tap recorded it.
+    // One file per probe that spawned claude; tugcode's drift is the IPC
+    // files above, Claude's is these.
+    let wire_dir = dir.join("wire");
+    std::fs::create_dir_all(&wire_dir)?;
+    for probe in captures.iter().filter(|p| !p.wire.is_empty()) {
+        let mut jsonl = probe.wire.join("\n");
+        jsonl.push('\n');
+        std::fs::write(wire_dir.join(format!("{}.jsonl", probe.name)), jsonl)?;
     }
 
     std::fs::write(
@@ -447,6 +460,84 @@ mod tests {
         }
     }
 
+    // ---- raw-wire tap ----
+
+    #[test]
+    fn wire_tap_sits_beside_the_bank_file() {
+        let bank = std::path::Path::new("/tmp/capture/probe-3-run-0.db");
+        assert_eq!(
+            wire_tap_path(bank),
+            std::path::Path::new("/tmp/capture/probe-3-run-0.wire.jsonl")
+        );
+    }
+
+    #[test]
+    fn read_wire_tap_normalizes_json_lines_and_masks_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let tap = dir.path().join("t.wire.jsonl");
+        std::fs::write(
+            &tap,
+            concat!(
+                r#"{"type":"assistant","session_id":"0f3c1e5a-1111-2222-3333-444455556666","message":{"content":[{"type":"text","text":"hello"}]}}"#,
+                "\n\n",
+                "not json\n",
+                r#"{"type":"result","subtype":"success","duration_ms":12}"#,
+                "\n",
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            read_wire_tap(&tap),
+            vec![
+                r#"{"message":{"content":[{"text":"{{text:len=5}}","type":"text"}]},"session_id":"{{uuid}}","type":"assistant"}"#.to_string(),
+                "{{nonjson:len=8}}".to_string(),
+                r#"{"duration_ms":"{{i64}}","subtype":"success","type":"result"}"#.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_wire_value_keeps_discriminants_and_collapses_everything_else() {
+        let mut v = json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "account": {"email": "someone@example.com", "organization": "Someone's Org"},
+                "memory_paths": {"auto": "/Users/someone/.claude/projects/-Users-someone-src/memory/"},
+                "models": [{"name": "Opus", "model": "opus"}],
+                "seq": 3,
+                "duration_ms": 40,
+                "at": "2026-10-10T16:30:00Z",
+            }
+        });
+        normalize_wire_value(&mut v);
+        assert_eq!(
+            v,
+            json!({
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "account": {"email": "{{text:len=19}}", "organization": "{{text:len=13}}"},
+                    "memory_paths": {"auto": "{{text:len=58}}"},
+                    "models": [{"name": "Opus", "model": "opus"}],
+                    "seq": 3,
+                    "duration_ms": "{{i64}}",
+                    "at": "{{iso}}",
+                }
+            })
+        );
+        // Idempotent: a second pass moves nothing.
+        let once = v.clone();
+        normalize_wire_value(&mut v);
+        assert_eq!(v, once);
+    }
+
+    #[test]
+    fn read_wire_tap_of_a_missing_file_is_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_wire_tap(&dir.path().join("absent.wire.jsonl")).is_empty());
+    }
+
     // ---- derive_schema ----
 
     fn mk_capture(name: &str, events: Vec<Value>) -> CapturedProbe {
@@ -455,6 +546,7 @@ mod tests {
             events,
             status: ProbeStatus::Passed,
             runtime_ms: 0,
+            wire: Vec::new(),
         }
     }
 
@@ -658,6 +750,7 @@ mod tests {
                 events: vec![],
                 status: ProbeStatus::Skipped("reason"),
                 runtime_ms: 500,
+                wire: Vec::new(),
             },
         ];
         let manifest = build_manifest("2.1.104", 3, &captures);

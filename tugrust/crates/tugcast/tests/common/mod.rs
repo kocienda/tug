@@ -199,6 +199,18 @@ impl TestTugcast {
     /// cannot collide on `~/.tugbank.db`. The tmux session name is
     /// derived from the port so each test owns a distinct session.
     pub async fn spawn(project_dir: &Path, bank_path: PathBuf) -> Self {
+        Self::spawn_with_wire_tap(project_dir, bank_path, None).await
+    }
+
+    /// [`TestTugcast::spawn`], with tugcode's raw-wire tap pointed at
+    /// `wire_tap` when one is given: the spawned tugcode appends every
+    /// line claude writes to its stdout there (`TUGCODE_WIRE_TAP`). The
+    /// catalog capture uses it to record Claude's side of the wire.
+    pub async fn spawn_with_wire_tap(
+        project_dir: &Path,
+        bank_path: PathBuf,
+        wire_tap: Option<&Path>,
+    ) -> Self {
         // Defense-in-depth (C): on the first spawn in this test process,
         // reap any leftover `tug-test-*` tmux sessions from prior crashed
         // runs. Covers the gap where a test died before Drop could fire
@@ -288,6 +300,12 @@ impl TestTugcast {
             .tempdir()
             .expect("changes db tempdir");
         command.env("TUG_CHANGES_DB", changes_db_dir.path().join("changes.db"));
+        // The raw-wire tap is opt-in per spawn; never inherit one from the
+        // developer's shell, or every test spawn would append to it.
+        match wire_tap {
+            Some(path) => command.env("TUGCODE_WIRE_TAP", path),
+            None => command.env_remove("TUGCODE_WIRE_TAP"),
+        };
         let mut child = command.spawn().expect("failed to spawn tugcast");
         if let Some(stderr) = child.stderr.take() {
             tokio::spawn(async move {

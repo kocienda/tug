@@ -28,14 +28,13 @@ import type {
   SessionCapabilities,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
+import { isRecord } from "./claude-wire.ts";
 import { extractFrontmatter } from "./context-breakdown.ts";
 import { readFrontmatterField } from "./skills-inventory.ts";
 
 /** Narrow an unknown to a plain object (not null, not array). */
 function asObject(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  return isRecord(value) ? value : null;
 }
 
 /** Read a required string field; returns null if absent / wrong type. */

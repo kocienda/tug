@@ -267,6 +267,11 @@ pub struct CapturedProbe {
     pub events: Vec<Value>,
     pub status: ProbeStatus,
     pub runtime_ms: u128,
+    /// Claude's own stdout for the probe, as tugcode's raw-wire tap
+    /// (`TUGCODE_WIRE_TAP`) recorded it before parsing: one normalized
+    /// JSON line per entry, in arrival order. Empty when the probe never
+    /// spawned claude. Written to `v<version>/wire/<probe>.jsonl`.
+    pub wire: Vec<String>,
 }
 
 /// Shape schema derived from one full capture run. Serializes to
@@ -514,6 +519,7 @@ pub async fn execute_probe(
             events: Vec::new(),
             status: ProbeStatus::Skipped(reason),
             runtime_ms: 0,
+            wire: Vec::new(),
         };
     }
 
@@ -538,6 +544,7 @@ pub async fn execute_probe(
                         events: Vec::new(),
                         status: ProbeStatus::Skipped("tugplug plugin not loaded"),
                         runtime_ms: 0,
+                        wire: Vec::new(),
                     };
                 }
             }
@@ -551,7 +558,8 @@ pub async fn execute_probe(
 
     let start = Instant::now();
 
-    let tugcast = TestTugcast::spawn(project_dir, bank_path).await;
+    let wire_tap = wire_tap_path(&bank_path);
+    let tugcast = TestTugcast::spawn_with_wire_tap(project_dir, bank_path, Some(&wire_tap)).await;
     let mut ws = TestWs::connect(tugcast.port).await;
 
     let card_id = format!("probe-{}", probe.name);
@@ -578,6 +586,7 @@ pub async fn execute_probe(
             events: Vec::new(),
             status: ProbeStatus::Failed(format!("session never reached pending: {e}")),
             runtime_ms: start.elapsed().as_millis(),
+            wire: Vec::new(),
         };
     }
 
@@ -633,6 +642,7 @@ pub async fn execute_probe(
                             "tool_approval without prior control_request_forward".to_string(),
                         ),
                         runtime_ms: start.elapsed().as_millis(),
+                        wire: Vec::new(),
                     };
                 };
                 ws.send_tool_approval(&tug_session_id, rid, decision, None, *message)
@@ -647,6 +657,7 @@ pub async fn execute_probe(
                             "question_answer without prior control_request_forward".to_string(),
                         ),
                         runtime_ms: start.elapsed().as_millis(),
+                        wire: Vec::new(),
                     };
                 };
                 let mut map = Map::new();
@@ -674,6 +685,7 @@ pub async fn execute_probe(
                             "rewind_preview without a prior prompt_anchor".to_string(),
                         ),
                         runtime_ms: start.elapsed().as_millis(),
+                        wire: Vec::new(),
                     };
                 };
                 ws.send_rewind_preview(&tug_session_id, uuid).await;
@@ -702,6 +714,7 @@ pub async fn execute_probe(
                             events: Vec::new(),
                             status: ProbeStatus::Failed(format!("capture_anchor failed: {e}")),
                             runtime_ms: start.elapsed().as_millis(),
+                            wire: Vec::new(),
                         };
                     }
                 }
@@ -726,6 +739,7 @@ pub async fn execute_probe(
                         events: Vec::new(),
                         status: ProbeStatus::Failed(format!("consume {event_type} failed: {e}")),
                         runtime_ms: start.elapsed().as_millis(),
+                        wire: Vec::new(),
                     };
                 }
             }
@@ -738,6 +752,7 @@ pub async fn execute_probe(
                             "session_rewind without a prior prompt_anchor".to_string(),
                         ),
                         runtime_ms: start.elapsed().as_millis(),
+                        wire: Vec::new(),
                     };
                 };
                 ws.send_session_rewind(&tug_session_id, uuid, scope, *fork)
@@ -790,6 +805,7 @@ pub async fn execute_probe(
                                 "wait for {event_type} failed: {e}"
                             )),
                             runtime_ms: start.elapsed().as_millis(),
+                            wire: Vec::new(),
                         };
                     }
                 }
@@ -843,6 +859,7 @@ pub async fn execute_probe(
                         .collect::<Vec<_>>(),
                 )),
                 runtime_ms: start.elapsed().as_millis(),
+                wire: Vec::new(),
             };
         }
     };
@@ -873,7 +890,104 @@ pub async fn execute_probe(
         events,
         status,
         runtime_ms: start.elapsed().as_millis(),
+        wire: Vec::new(),
     }
+}
+
+/// Where a probe run's raw-wire tap lands: beside its bank file, in the
+/// capture's scratch directory, so the run's guard sweeps it.
+pub fn wire_tap_path(bank_path: &std::path::Path) -> PathBuf {
+    bank_path.with_extension("wire.jsonl")
+}
+
+/// Keys whose string values a `wire/` line keeps verbatim: the
+/// discriminants a typed reading of the wire narrows on (`type`,
+/// `subtype`, `role`) and the small closed vocabularies beside them.
+/// Every other string on the raw wire is collapsed by
+/// [`normalize_wire_value`].
+const WIRE_VERBATIM_KEYS: &[&str] = &[
+    "type",
+    "subtype",
+    "role",
+    "stop_reason",
+    "name",
+    "model",
+    "status",
+    "permissionMode",
+    "apiKeySource",
+    "output_style",
+    "media_type",
+    "behavior",
+    "rateLimitType",
+    "claude_code_version",
+];
+
+/// Normalize one raw-wire value for `wire/`. Stricter than
+/// [`normalize_event`]: the raw wire carries what tugcode never
+/// forwards — the account block of the `initialize` response, tool
+/// output quoting whatever the probe touched, home paths mid-string —
+/// so every string leaf collapses to `{{text:len=N}}` (or `{{uuid}}` /
+/// `{{iso}}` where it is one) unless its key is in
+/// [`WIRE_VERBATIM_KEYS`]. Numbers follow [`normalize_event`]. A string
+/// that is already a `{{…}}` placeholder passes through, so the walk is
+/// idempotent. Object keys and array structure are preserved exactly.
+pub fn normalize_wire_value(value: &mut Value) {
+    normalize_wire_inner(value, None);
+}
+
+fn normalize_wire_inner(value: &mut Value, parent_key: Option<&str>) {
+    match value {
+        Value::Object(map) => {
+            for (k, v) in map.iter_mut() {
+                let k_owned = k.clone();
+                normalize_wire_inner(v, Some(k_owned.as_str()));
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                normalize_wire_inner(v, parent_key);
+            }
+        }
+        Value::String(s) => {
+            let keep = parent_key.is_some_and(|k| WIRE_VERBATIM_KEYS.contains(&k))
+                || (s.starts_with("{{") && s.ends_with("}}"));
+            if !keep {
+                *value = Value::String(if is_uuid_like(s) {
+                    "{{uuid}}".to_string()
+                } else if is_iso_timestamp(s) {
+                    "{{iso}}".to_string()
+                } else {
+                    format!("{{{{text:len={}}}}}", s.len())
+                });
+            }
+        }
+        Value::Number(n) => {
+            *value = normalize_number(parent_key, n);
+        }
+        Value::Bool(_) | Value::Null => {}
+    }
+}
+
+/// Read a raw-wire tap back as fixture lines. Each JSON line passes
+/// through [`normalize_wire_value`], so a capture commits no ids, paths,
+/// account details, or prose; a line that is not JSON is recorded as
+/// `{{nonjson:len=N}}`, because its presence on Claude's stdout is a fact
+/// about the wire and its content is not ours to commit. A missing tap
+/// (the probe never spawned claude) reads as no lines.
+pub fn read_wire_tap(path: &std::path::Path) -> Vec<String> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    raw.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| match serde_json::from_str::<Value>(line) {
+            Ok(mut value) => {
+                normalize_wire_value(&mut value);
+                serde_json::to_string(&value).unwrap_or_else(|_| line.to_string())
+            }
+            Err(_) => format!("{{{{nonjson:len={}}}}}", line.len()),
+        })
+        .collect()
 }
 
 /// Canonicalize an event list for shape-stability comparison:
@@ -1186,7 +1300,11 @@ pub async fn capture_with_stability(
         for run_idx in 0..n {
             let bank = bank_dir.join(format!("probe-{i}-run-{run_idx}.db"));
             let run_start = std::time::Instant::now();
-            let captured = execute_probe(probe, bank, project_dir).await;
+            let wire_tap = wire_tap_path(&bank);
+            let mut captured = execute_probe(probe, bank, project_dir).await;
+            // The probe's tugcast has dropped by now, so tugcode and claude
+            // are gone and the tap is complete.
+            captured.wire = read_wire_tap(&wire_tap);
             let tag = match &captured.status {
                 ProbeStatus::Passed => "ok",
                 ProbeStatus::Skipped(_) => "skip",
@@ -1215,6 +1333,7 @@ pub async fn capture_with_stability(
                 events: first.events,
                 status: ProbeStatus::ShapeUnstable(diagnostic),
                 runtime_ms: first.runtime_ms,
+                wire: first.wire,
             },
             None => first,
         };

@@ -28,7 +28,7 @@ import {
   writeSync,
 } from "node:fs";
 import { computeDeadEntryIndices, segmentJsonlOrigins } from "./replay.ts";
-import type { JsonlEntry } from "./replay.ts";
+import { parseJsonlEntry } from "./replay.ts";
 
 // Process-start wall clock for the boot-latency split. Captured at
 // module evaluation — before arg parsing, settings reads, or the
@@ -157,11 +157,7 @@ if (args[0] === "dead") {
         .split("\n")
         .map((line) => {
           if (line.trim().length === 0) return null;
-          try {
-            return JSON.parse(line) as JsonlEntry;
-          } catch {
-            return null;
-          }
+          return parseJsonlEntry(line);
         });
       out[base] = [...computeDeadEntryIndices(parsed)].sort((a, b) => a - b);
     } catch (err) {

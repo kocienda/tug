@@ -25,6 +25,7 @@ import {
 import { ClaudeHome } from "../claude-home.ts";
 import {
   composeAgentStructuredResult,
+  messageOf,
   synthesizeSubagentChildFrames,
   translateJsonlSession,
   type SubagentTranscript,
@@ -70,7 +71,7 @@ describe("readSubagentTranscripts", () => {
     // + the final answer).
     expect(t.entries.length).toBeGreaterThan(0);
     const toolUses = t.entries.flatMap((e) => {
-      const c = e.message?.content;
+      const c = messageOf(e)?.content;
       return Array.isArray(c) ? c.filter((b) => b.type === "tool_use") : [];
     });
     expect(toolUses.length).toBeGreaterThanOrEqual(3);

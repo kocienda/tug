@@ -80,7 +80,7 @@ describe("compact re-append fixture", () => {
     const compaction = entries
       .map((e, i) =>
         (e.type === "system" && e.subtype === "compact_boundary") ||
-        e.isCompactSummary === true
+        (e.type === "user" && e.isCompactSummary === true)
           ? i
           : -1,
       )
@@ -156,7 +156,7 @@ describe("a real rewind branch alongside compactions", () => {
     const compaction = adversarial
       .map((e, i) =>
         (e.type === "system" && e.subtype === "compact_boundary") ||
-        e.isCompactSummary === true
+        (e.type === "user" && e.isCompactSummary === true)
           ? i
           : -1,
       )

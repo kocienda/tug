@@ -317,7 +317,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * The wire shape is `request.input` as Claude Code's `AskUserQuestion`
  * tool input — `{ questions: [{ question, header?, multiSelect?,
  * options?: [{ label, description? }] }] }` (see tugcode's
- * `protocol-types.ts`). `ControlRequestForward` types `input` as
+ * `claude-wire.ts`, `AskUserQuestionInput`). `ControlRequestForward` types `input` as
  * `unknown` and is "intentionally loose", so this reads defensively:
  * a non-object input, a missing/!array `questions`, a question with
  * no text, or a question with no usable options each drop out rather
