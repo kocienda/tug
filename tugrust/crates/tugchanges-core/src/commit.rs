@@ -711,26 +711,12 @@ fn build_receipt(repo_root: &Path, message: &str) -> Result<CommitReceipt, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git(root: &Path, args: &[&str]) {
-        assert!(
-            tugcore::git_command()
-                .args(args)
-                .current_dir(root)
-                .output()
-                .expect("git")
-                .status
-                .success(),
-            "git {args:?}"
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn init_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.test"]);
-        git(root, &["config", "user.name", "t"]);
+        GitFixture::init(root);
         std::fs::write(root.join("base.txt"), "base\n").unwrap();
         git(root, &["add", "base.txt"]);
         git(root, &["commit", "-q", "-m", "init"]);
@@ -1005,20 +991,6 @@ mod tests {
 
     // ── hunk-elected landing ([P07]) ───────────────────────────────────────
 
-    fn git_out(root: &Path, args: &[&str]) -> String {
-        let out = tugcore::git_command()
-            .args(args)
-            .current_dir(root)
-            .output()
-            .expect("git");
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    }
-
     /// Commit `f.txt` with 60 numbered lines, then dirty it in three regions
     /// far enough apart that git emits three hunks. Returns the edited text.
     fn seed_three_hunk_file(root: &Path, name: &str) -> String {
@@ -1077,7 +1049,7 @@ mod tests {
         .expect("partial commit succeeds");
 
         assert_eq!(receipt.files.len(), 1);
-        let shown = git_out(root, &["show", "--no-color", "HEAD"]);
+        let shown = git(root, &["show", "--no-color", "HEAD"]);
         assert!(shown.contains("+CHANGED-B"), "commit was: {shown}");
         assert!(!shown.contains("INSERTED-A"), "commit was: {shown}");
         assert!(!shown.contains("-line58"), "commit was: {shown}");
@@ -1085,11 +1057,11 @@ mod tests {
         // The working tree still carries all three edits, so the unelected two
         // are still dirty.
         assert_eq!(std::fs::read_to_string(root.join("f.txt")).unwrap(), edited);
-        let after = git_out(root, &["diff", "--no-color", "--", "f.txt"]);
+        let after = git(root, &["diff", "--no-color", "--", "f.txt"]);
         assert!(after.contains("INSERTED-A"), "worktree diff was: {after}");
         assert!(after.contains("-line58"), "worktree diff was: {after}");
         assert!(!after.contains("CHANGED-B"), "worktree diff was: {after}");
-        assert!(git_out(root, &["diff", "--cached", "--name-only"]).is_empty());
+        assert!(git(root, &["diff", "--cached", "--name-only"]).is_empty());
     }
 
     /// `diff.context = 0` makes every diff zero-context, which `git apply`
@@ -1120,10 +1092,10 @@ mod tests {
         .expect("zero-context partial commit succeeds");
 
         assert_eq!(receipt.files.len(), 1);
-        let shown = git_out(root, &["show", "--no-color", "HEAD"]);
+        let shown = git(root, &["show", "--no-color", "HEAD"]);
         assert!(shown.contains("+CHANGED-B"), "commit was: {shown}");
         assert!(!shown.contains("INSERTED-A"), "commit was: {shown}");
-        assert!(git_out(root, &["diff", "--cached", "--name-only"]).is_empty());
+        assert!(git(root, &["diff", "--cached", "--name-only"]).is_empty());
     }
 
     #[test]
@@ -1143,10 +1115,10 @@ mod tests {
         })
         .expect("mixed commit succeeds");
 
-        let shown = git_out(root, &["show", "--no-color", "--name-only", "HEAD"]);
+        let shown = git(root, &["show", "--no-color", "--name-only", "HEAD"]);
         assert!(shown.contains("f.txt"));
         assert!(shown.contains("whole.txt"));
-        let body = git_out(root, &["show", "--no-color", "HEAD"]);
+        let body = git(root, &["show", "--no-color", "HEAD"]);
         assert!(body.contains("+INSERTED-A"), "commit was: {body}");
         assert!(body.contains("+all of me"), "commit was: {body}");
         assert!(!body.contains("CHANGED-B"), "commit was: {body}");
@@ -1160,7 +1132,7 @@ mod tests {
         // A second, whole-file path so the refusal has to unwind a mixed set.
         std::fs::write(root.join("whole.txt"), "all of me\n").unwrap();
 
-        let head_before = git_out(root, &["rev-parse", "HEAD"]);
+        let head_before = git(root, &["rev-parse", "HEAD"]);
         let err = commit(CommitOptions {
             project: Some(root.to_path_buf()),
             message: "elect a hunk that moved".to_string(),
@@ -1177,9 +1149,9 @@ mod tests {
             }
             other => panic!("expected HunkDrift, got {other:?}"),
         }
-        assert_eq!(git_out(root, &["rev-parse", "HEAD"]), head_before);
+        assert_eq!(git(root, &["rev-parse", "HEAD"]), head_before);
         assert!(
-            git_out(root, &["diff", "--cached", "--name-only"]).is_empty(),
+            git(root, &["diff", "--cached", "--name-only"]).is_empty(),
             "a refusal must leave nothing staged"
         );
     }
@@ -1221,7 +1193,7 @@ mod tests {
         })
         .expect_err("an untracked path refuses");
         assert!(err.to_string().contains("not tracked"), "detail was: {err}");
-        assert!(git_out(root, &["diff", "--cached", "--name-only"]).is_empty());
+        assert!(git(root, &["diff", "--cached", "--name-only"]).is_empty());
     }
 
     #[test]

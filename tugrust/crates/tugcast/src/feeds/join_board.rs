@@ -561,25 +561,14 @@ fn candidate_files(
 mod tests {
     use super::*;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A repo on `main` with a conflicting arc and a stub merge driver, so the
     /// ladder reaches a candidate without the AI rung.
     fn fixture() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);

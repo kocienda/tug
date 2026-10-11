@@ -179,16 +179,6 @@ pub struct ResolveOutcome {
     pub preview_conflicts: Vec<String>,
 }
 
-/// Like [`resolve_conflicts`], but discovering the repo root from the process
-/// cwd (the `tugarc` CLI entry point).
-pub fn resolve_conflicts_cwd(
-    name: &str,
-    merger: Option<&dyn FileMerger>,
-) -> Result<ResolveOutcome, ArcError> {
-    let repo = crate::ops::cwd_repo_root()?;
-    resolve_conflicts(&repo, name, merger)
-}
-
 /// Run the resolution ladder against an arc's current conflict set ([P31]).
 ///
 /// Commits outstanding arc-worktree dirt first (so the branch tip is the real
@@ -2451,17 +2441,7 @@ pub fn candidate_status(repo: &Path, name: &str, base_branch: &str) -> Candidate
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn set(dir: &Path, rel: &str, content: &str) {
         std::fs::write(dir.join(rel), content).unwrap();
@@ -2472,9 +2452,7 @@ mod tests {
     fn init(rounds_on_branch: &[(&str, &str, &str)]) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         set(repo, "f.txt", "A\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
@@ -2708,9 +2686,7 @@ mod tests {
         // fixture built on one would prove nothing about the driver.
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         set(repo, "f.txt", "A\n");
         set(repo, "g.txt", "g base\n");
         git(repo, &["add", "-A"]);
@@ -2912,9 +2888,7 @@ mod tests {
     fn init_two_file_conflict() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         set(repo, "a.txt", "orig\n");
         set(repo, "b.txt", "orig\n");
         set(repo, "spare.txt", "orig\n");
@@ -3151,7 +3125,7 @@ mod tests {
             std::fs::write(dir.join("base"), "A\n").unwrap();
             std::fs::write(dir.join("ours"), "B\n").unwrap();
             std::fs::write(dir.join("theirs"), "C\n").unwrap();
-            let mut cmd = tugcore::git_command();
+            let mut cmd = tugcore::test_fixtures::git::command();
             cmd.arg("merge-file").arg("-p");
             if let Some(style) = style {
                 cmd.arg(style);
@@ -3381,7 +3355,7 @@ mod tests {
             );
             assert_ne!(old, new, "the round was rebuilt onto the moved base");
             // Each rebuilt commit is reachable from the replayed head.
-            let ok = tugcore::git_command()
+            let ok = tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(repo)
                 .args(["merge-base", "--is-ancestor", new, &replayed.head])
@@ -3401,7 +3375,7 @@ mod tests {
         assert!(outcome.unresolved.is_empty());
         let candidate = outcome.candidate_commit.expect("replay candidate");
         // The candidate's f.txt is the arc's final state, C.
-        let show = tugcore::git_command()
+        let show = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])
@@ -3457,7 +3431,7 @@ mod tests {
         set(repo, "g.txt", "M\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "main side"]);
-        let _ = tugcore::git_command()
+        let _ = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["merge", "--no-edit", "seed"])
@@ -3505,7 +3479,7 @@ mod tests {
             .expect("driver produced a candidate");
         assert_eq!(outcome.resolved.len(), 1);
         assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Driver);
-        let show = tugcore::git_command()
+        let show = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])
@@ -3650,7 +3624,7 @@ mod tests {
         set(repo, "f.txt", "C\n");
         git(repo, &["commit", "-am", "main to C"]);
         let main_c = String::from_utf8(
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(repo)
                 .args(["rev-parse", "HEAD"])
@@ -3664,7 +3638,7 @@ mod tests {
 
         // Record: a real merge conflicts, we resolve to R and commit → rerere
         // learns the preimage→resolution. Then reset main back to C.
-        let _ = tugcore::git_command()
+        let _ = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["merge", "--no-edit", "tugarc/demo"])
@@ -3678,7 +3652,7 @@ mod tests {
         assert_eq!(outcome.resolved.len(), 1, "rerere resolved f.txt");
         assert_eq!(outcome.resolved[0].resolved_by, ResolvedBy::Rerere);
         let candidate = outcome.candidate_commit.expect("rerere candidate");
-        let show = tugcore::git_command()
+        let show = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])

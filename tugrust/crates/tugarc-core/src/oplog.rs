@@ -1651,17 +1651,7 @@ fn restore_arc(repo: &Path, op: &OpPayload, warnings: &mut Vec<String>) -> Resul
 mod tests {
     use super::*;
     use serial_test::serial;
-
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     struct Fixture {
         repo: tempfile::TempDir,
@@ -1695,9 +1685,7 @@ mod tests {
         }
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
@@ -1725,7 +1713,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_payload_round_trips_through_json() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -1742,7 +1730,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn completing_an_op_attaches_the_after_state() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Replay, "demo", before(&f), &[]).unwrap();
@@ -1764,7 +1752,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_keepalive_holds_a_tip_whose_branch_is_deleted() {
         let f = init();
         git(f.path(), &["branch", "doomed"]);
@@ -1799,7 +1787,7 @@ mod tests {
     /// A payload written before the conflict field existed must still parse —
     /// the log is append-only and old records outlive schema changes.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_old_payload_without_the_conflict_field_still_parses() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -1826,7 +1814,7 @@ mod tests {
     /// round left outside it: a checkpoint the resolver committed must survive
     /// the teardown that deletes the conflict ref.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_keepalive_holds_a_conflict_chain_whose_ref_is_deleted() {
         let f = init();
         git(f.path(), &["checkout", "-q", "-b", "chain"]);
@@ -1859,7 +1847,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_taken_sequence_number_is_not_reused() {
         let f = init();
         // Pre-create the ref the first allocation would claim, exactly as a
@@ -1877,7 +1865,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn recording_past_the_cap_prunes_the_oldest() {
         let f = init();
         for _ in 0..OPLOG_CAP {
@@ -1900,7 +1888,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_list_is_newest_first_and_survives_a_hand_deleted_ref() {
         let f = init();
         let first = record_begin(f.path(), OpVerb::Join, "a", before(&f), &[]).unwrap();
@@ -1918,7 +1906,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn newest_undoable_skips_the_unfinished_and_the_already_undone() {
         let f = init();
         let done = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -1938,7 +1926,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn newest_incomplete_finds_the_op_a_resumed_verb_opened() {
         let f = init();
         let finished = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -1976,7 +1964,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_payload_with_join_progress_round_trips() {
         let f = init();
         for phase in [
@@ -1996,7 +1984,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_old_payload_without_the_join_field_still_parses() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -2009,7 +1997,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn join_in_flight_needs_both_an_open_op_and_progress() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -2042,7 +2030,7 @@ mod tests {
     /// undo record can sit above a join that is half torn down. The scan must
     /// read past it.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_undo_recorded_above_an_in_flight_join_does_not_hide_it() {
         let f = init();
         let join = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -2065,7 +2053,7 @@ mod tests {
     /// The executable form of "no `for-each-ref`": with every keepalive gone,
     /// a ref-dependent read finds nothing and this one still answers.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_in_flight_read_touches_no_refs() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -2077,7 +2065,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_open_join_with_progress_is_refused_by_undo_as_incomplete() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -2092,7 +2080,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn abandon_drops_the_progress_with_the_payload() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "demo", before(&f), &[]).unwrap();
@@ -2105,7 +2093,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_legacy_journal_attaches_to_the_open_op_and_is_deleted() {
         let f = init();
         let seq = record_begin(f.path(), OpVerb::Join, "resume", before(&f), &[]).unwrap();
@@ -2132,7 +2120,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_legacy_journal_with_no_open_op_records_one() {
         let f = init();
         write_legacy_journal(&f, "orphan", "BranchDeleted", "trunk");
@@ -2156,7 +2144,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_unreadable_legacy_journal_is_left_in_place_and_named() {
         let f = init();
         let dir = project_state_dir(f.path());

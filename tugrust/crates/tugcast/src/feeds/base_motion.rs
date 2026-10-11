@@ -1394,23 +1394,10 @@ mod tests {
         dir: TempDir,
     }
 
-    fn git(dir: &Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn read(dir: &Path, args: &[&str]) -> String {
-        let out = tugcore::git_command()
+        let out = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -1453,9 +1440,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().to_path_buf();
         let repo = repo.as_path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-q", "-m", "base"]);

@@ -499,28 +499,12 @@ index 1111111..2222222 100644
     #[test]
     fn git_applies_a_filtered_patch_to_the_index() {
         use std::io::Write;
-        use std::path::Path;
         use std::process::Stdio;
-
-        fn git(root: &Path, args: &[&str]) -> String {
-            let out = tugcore::git_command()
-                .args(args)
-                .current_dir(root)
-                .output()
-                .expect("git");
-            assert!(
-                out.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            String::from_utf8_lossy(&out.stdout).into_owned()
-        }
+        use tugcore::test_fixtures::git::{GitFixture, git};
 
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.test"]);
-        git(root, &["config", "user.name", "t"]);
+        GitFixture::init(root);
 
         // 60 numbered lines with edits far enough apart that git's context
         // regions do not merge them into one hunk.
@@ -545,7 +529,7 @@ index 1111111..2222222 100644
         let selected: BTreeSet<String> = [hunks[1].id.clone()].into_iter().collect();
         let patch = filtered_patch(&file_header(&diff), &hunks, &selected).unwrap();
 
-        let mut child = tugcore::git_command()
+        let mut child = tugcore::test_fixtures::git::command()
             .args(["apply", "--cached", "-"])
             .current_dir(root)
             .stdin(Stdio::piped())

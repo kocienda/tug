@@ -96,25 +96,13 @@ pub fn write_pilot_mark(repo: &Path, name: &str, head_pair: &str) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A repo with an arc branch, which is all a branch-config mark needs.
     fn init() -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);

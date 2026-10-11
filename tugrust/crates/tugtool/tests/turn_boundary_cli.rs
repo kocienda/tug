@@ -24,6 +24,7 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -402,16 +403,6 @@ fn no_instance_running_at_all_denies_nothing() {
 
 // ── The verb's own voice, and what it tells the server ──────────────────────
 
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
-
 fn tug(tmp: &Path, root: &Path) -> Command {
     let mut cmd = tugtool();
     cmd.current_dir(root);
@@ -423,9 +414,7 @@ fn tug(tmp: &Path, root: &Path) -> Command {
 
 /// A checkout holding an arc named `demo` with a two-row ledger.
 fn repo_with_a_two_step_plan(root: &Path) {
-    git(root, &["init", "-b", "main"]);
-    git(root, &["config", "user.name", "t"]);
-    git(root, &["config", "user.email", "t@t"]);
+    GitFixture::init(root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
     std::fs::write(root.join("a.txt"), "base\n").unwrap();

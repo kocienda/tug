@@ -13,7 +13,7 @@ use super::{
 use crate::error::ArcError;
 use crate::log::{append_arc_log, validate_arc_name};
 
-/// Outcome of [`discard`].
+/// Outcome of [`discard_in`].
 #[derive(Debug, Clone, Serialize)]
 pub struct DiscardOutcome {
     pub name: String,
@@ -105,8 +105,8 @@ pub fn delete_documents_in(
     })
 }
 
-/// Like [`discard`], but against an explicit repo root instead of the process
-/// cwd — for callers such as tugcast.
+/// Release an arc in `repo_root`: tear down its worktree + branch without
+/// merging.
 pub fn discard_in(
     repo_root: &Path,
     name: &str,
@@ -388,7 +388,6 @@ fn apply_hand_back(
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 mod tests {
     use super::*;
     use crate::ops::test_support::*;
@@ -435,7 +434,7 @@ mod tests {
     /// **An arc that still has a branch is refused by name.** Deleting the
     /// brief out from under a running arc would strand it, and ending an arc
     /// is `discard`'s job — the two verbs stay distinct ([B05]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn deleting_documents_refuses_an_arc_that_still_has_a_branch() {
         let (_temp, root) = repo_for_create();
@@ -461,30 +460,30 @@ mod tests {
         assert!(delete_documents_in(temp.path(), "../escape").is_err());
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn discard_ends_an_arc_that_never_made_a_arc() {
         let (_temp, root) = repo_for_create();
         crate::arc::append_arc_start(&root, "arc-only", "arc/idea.md").unwrap();
         assert!(crate::arc::read_arc(&root, "arc-only").is_some());
 
-        let out = discard("arc-only", Some("cli"), false).unwrap();
+        let out = discard_in(&root, "arc-only", Some("cli"), false).unwrap();
         assert_eq!(out.documents_kept, None);
         assert!(out.work_restored.is_empty());
         assert_eq!(out.warnings.len(), 1, "it says what it ended");
         assert_eq!(crate::arc::read_arc(&root, "arc-only"), None);
         // With the record ended there is nothing left under the name.
-        assert!(discard("arc-only", Some("cli"), false).is_err());
+        assert!(discard_in(&root, "arc-only", Some("cli"), false).is_err());
     }
 
     /// The inverse: a discarded arc's decisions are the only trace the user
     /// may want back, so they stay and the receipt says where ([P11]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_discarded_arc_keeps_its_documents_and_says_so() {
         let temp = TempDir::new().unwrap();
         let repo = bare_repo_beside_state(&temp);
-        create("kept", None, false, None).unwrap();
+        create_in(&repo, "kept", None, false, None).unwrap();
         let root = fs::canonicalize(&repo).unwrap();
 
         let documents = documents_dir(&root, "kept");
@@ -492,7 +491,7 @@ mod tests {
         fs::write(documents.join("brief.md"), "# The brief\n").unwrap();
         fs::write(documents.join("plan.md"), TWO_STEP_PLAN).unwrap();
 
-        let out = discard("kept", Some("cli"), false).unwrap();
+        let out = discard_in(&root, "kept", Some("cli"), false).unwrap();
         assert_eq!(
             out.documents_kept.as_deref(),
             Some(&*documents.to_string_lossy())
@@ -506,15 +505,15 @@ mod tests {
     /// design, so the worktree holds the only copy of it — without the
     /// hand-back, `--carry` would move a developer's work somewhere a routine
     /// discard destroys it, which is the tool creating the hazard.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn discard_returns_carried_work_to_the_base() {
         let (_temp, root) = repo_for_create();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
-        create("returner", None, true, None).unwrap();
+        create_in(&root, "returner", None, true, None).unwrap();
         assert!(!root.join("scratch.txt").exists());
 
-        let out = discard("returner", None, false).unwrap();
+        let out = discard_in(&root, "returner", None, false).unwrap();
         assert_eq!(out.work_restored, vec!["scratch.txt".to_string()]);
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
@@ -526,16 +525,16 @@ mod tests {
     /// The guard is not carry-specific: work typed in the worktree and never
     /// committed is destroyed by a discard today, and that is the more useful
     /// rule as well as the one that needs no provenance tracking.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn discard_returns_work_that_never_arrived_by_carry() {
         let (_temp, root) = repo_for_create();
-        create("typed", None, false, None).unwrap();
+        create_in(&root, "typed", None, false, None).unwrap();
         let worktree = worktree_path(&root, "typed");
         fs::write(worktree.join("typed.txt"), "written in the arc\n").unwrap();
         fs::write(worktree.join("README.md"), "# edited in the arc\n").unwrap();
 
-        let out = discard("typed", None, false).unwrap();
+        let out = discard_in(&root, "typed", None, false).unwrap();
         assert_eq!(out.work_restored, vec!["README.md", "typed.txt"]);
         assert_eq!(
             fs::read_to_string(root.join("typed.txt")).unwrap(),
@@ -551,16 +550,18 @@ mod tests {
     /// overwrite the user's own uncommitted edit. The work stays reachable
     /// rather than being destroyed to complete a discard, and the refusal comes
     /// before anything has moved.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn discard_refuses_rather_than_overwrite_a_conflicting_base_edit() {
         let (_temp, root) = repo_for_create();
-        create("clash", None, false, None).unwrap();
+        create_in(&root, "clash", None, false, None).unwrap();
         let worktree = worktree_path(&root, "clash");
         fs::write(worktree.join("README.md"), "# the arc's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
 
-        let err = discard("clash", None, false).unwrap_err().to_string();
+        let err = discard_in(&root, "clash", None, false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("README.md"), "{err}");
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
@@ -571,12 +572,12 @@ mod tests {
         assert!(branch_present(&root, "tugarc/clash"));
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn discard_of_a_clean_worktree_behaves_exactly_as_before() {
         let (_temp, root) = repo_for_create();
-        create("spotless", None, false, None).unwrap();
-        let out = discard("spotless", None, false).unwrap();
+        create_in(&root, "spotless", None, false, None).unwrap();
+        let out = discard_in(&root, "spotless", None, false).unwrap();
         assert!(out.work_restored.is_empty());
         assert!(out.warnings.is_empty(), "{:?}", out.warnings);
         assert!(!worktree_path(&root, "spotless").exists());
@@ -589,11 +590,11 @@ mod tests {
     /// watched. Restoring it onto the user's checkout is not a courtesy — it is
     /// an edit the user did not make, and it is the incident this mode exists
     /// to close.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_agent_arc_is_discarded_without_handing_a_byte_back() {
         let (_temp, root) = repo_for_create();
-        create("agent-ci-abc12345", None, false, None).unwrap();
+        create_in(&root, "agent-ci-abc12345", None, false, None).unwrap();
         let worktree = worktree_path(&root, "agent-ci-abc12345");
         fs::write(worktree.join("agent.txt"), "the agent's leftovers\n").unwrap();
         fs::write(worktree.join("README.md"), "# the agent's words\n").unwrap();
@@ -616,11 +617,11 @@ mod tests {
     /// right protection. For an agent's arc it is a leak wearing a message:
     /// the discard fails, the worktree survives, and the wire's next firing
     /// meets an arc that already exists.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_agent_arc_is_discarded_even_when_the_base_holds_a_conflicting_edit() {
         let (_temp, root) = repo_for_create();
-        create("agent-ci-clash", None, false, None).unwrap();
+        create_in(&root, "agent-ci-clash", None, false, None).unwrap();
         let worktree = worktree_path(&root, "agent-ci-clash");
         fs::write(worktree.join("README.md"), "# the agent's words\n").unwrap();
         fs::write(root.join("README.md"), "# the user's words\n").unwrap();
@@ -640,11 +641,11 @@ mod tests {
     /// The same bug wearing its other face. `apply_hand_back` **deletes** base
     /// files for every entry in `hand.deletions`, so an agent that removed a
     /// file is one hand-back away from removing it from the user's checkout.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_agent_arc_that_deleted_a_file_does_not_delete_it_from_the_base() {
         let (_temp, root) = repo_for_create();
-        create("agent-ci-deleter", None, false, None).unwrap();
+        create_in(&root, "agent-ci-deleter", None, false, None).unwrap();
         let worktree = worktree_path(&root, "agent-ci-deleter");
         assert!(worktree.join("README.md").exists());
         fs::remove_file(worktree.join("README.md")).unwrap();
@@ -662,11 +663,11 @@ mod tests {
     /// An agent's arc with committed rounds is torn down the same way. The
     /// caller decided the work was not worth keeping; the mode's promise is
     /// only that nothing reaches the base checkout.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_agent_arc_with_rounds_is_discarded_and_the_base_does_not_move() {
         let (_temp, root) = repo_for_create();
-        create("agent-ci-rounds", None, false, None).unwrap();
+        create_in(&root, "agent-ci-rounds", None, false, None).unwrap();
         let worktree = worktree_path(&root, "agent-ci-rounds");
         fs::write(worktree.join("fixed.rs"), "the agent's fix\n").unwrap();
         for args in [
@@ -687,12 +688,12 @@ mod tests {
 
     /// Teardown is symmetric: a discard from inside the universe removes the
     /// branch and the worktree there, leaving the base alone.
-    #[serial]
+    #[serial(tug_data_dir, tug_repo_universe)]
     #[test]
     fn test_universe_discard_tears_down_inside_the_universe() {
         let temp = TempDir::new().unwrap();
-        let (base, universe) = base_with_universe(&temp);
-        create("goner", None, false, Some("feature")).unwrap();
+        let (base, universe, _universe) = base_with_universe(&temp);
+        create_in(&universe, "goner", None, false, Some("feature")).unwrap();
         let worktree = universe.join(".tug/worktrees/goner");
         assert!(worktree.exists());
 
@@ -705,7 +706,7 @@ mod tests {
 
     /// A discard records its route the same way — its marker already carries
     /// the word `discarded`, so the note carries the route alone.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_discard_records_the_route_that_asked_for_it() {
         let temp = TempDir::new().unwrap();
@@ -713,10 +714,9 @@ mod tests {
         let home = temp.path().join("state");
         init_git_repo(repo);
         redirect_state_dir(&home);
-        std::env::set_current_dir(repo).unwrap();
 
-        create("dropped", None, false, None).unwrap();
-        discard("dropped", Some("cli"), false).unwrap();
+        create_in(repo, "dropped", None, false, None).unwrap();
+        discard_in(repo, "dropped", Some("cli"), false).unwrap();
 
         let dlog = fs::read_to_string(arc_log_path(&home, repo)).unwrap();
         assert!(
@@ -725,14 +725,14 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn undo_of_a_discard_rebuilds_the_arc_and_leaves_handed_back_work_alone() {
         let (_temp, root) = repo_for_create();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
-        create("backagain", None, true, None).unwrap();
+        create_in(&root, "backagain", None, true, None).unwrap();
         let arc_tip = git_stdout(&root, &["rev-parse", "tugarc/backagain"]).unwrap();
-        discard("backagain", None, false).unwrap();
+        discard_in(&root, "backagain", None, false).unwrap();
         assert_eq!(
             fs::read_to_string(root.join("scratch.txt")).unwrap(),
             "notes\n"
@@ -759,7 +759,7 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_discard_over_a_live_chain_is_refused_the_same_way() {
         let temp = TempDir::new().unwrap();
@@ -768,7 +768,9 @@ mod tests {
         let marker = lease_a_parked_conflict(repo, "leased");
         let ops_before = crate::oplog::list_ops(repo).len();
 
-        let err = discard("leased", None, false).unwrap_err().to_string();
+        let err = discard_in(repo, "leased", None, false)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("A resolve may still be running"), "{err}");
         assert!(err.contains("to discard anyway"), "{err}");
 
@@ -787,7 +789,7 @@ mod tests {
     /// A discard, because that is the shape where a lease genuinely still
     /// stands: a join lands a *candidate*, and a candidate standing beside the
     /// chain is the resolver's own receipt that it finished ([P02]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn breaking_the_lease_tears_down_records_the_age_and_is_undoable() {
         let temp = TempDir::new().unwrap();
@@ -803,7 +805,8 @@ mod tests {
         let chain_tip = crate::resolve::read_conflict(repo, "broken").unwrap().tip;
         assert!(crate::resolve::resolve_lease(repo, "broken", SystemTime::now()).is_some());
 
-        let out = discard("broken", Some("cli"), true).expect("the break tears the arc down");
+        let out =
+            discard_in(repo, "broken", Some("cli"), true).expect("the break tears the arc down");
         let warning = out
             .warnings
             .iter()
@@ -830,7 +833,7 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn undo_of_a_discard_restores_the_conflict_ref_too() {
         let temp = TempDir::new().unwrap();
@@ -839,7 +842,7 @@ mod tests {
         park_conflict(repo, "tossed");
         let (chain_tip, _candidate) = resolve_parked_conflict(repo, "tossed");
 
-        discard("tossed", None, false).unwrap();
+        discard_in(repo, "tossed", None, false).unwrap();
         assert!(crate::resolve::read_conflict(repo, "tossed").is_none());
 
         crate::oplog::undo_in(repo, None).unwrap();
@@ -849,13 +852,13 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_discard_undone_is_redone_without_repeating_the_hand_back() {
         let (_temp, root) = repo_for_create();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
-        create("backandgone", None, true, None).unwrap();
-        discard("backandgone", None, false).unwrap();
+        create_in(&root, "backandgone", None, true, None).unwrap();
+        discard_in(&root, "backandgone", None, false).unwrap();
         crate::oplog::undo_in(&root, None).unwrap();
         assert!(branch_exists(&root, "tugarc/backandgone"));
 
@@ -877,15 +880,15 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_discard_records_what_it_handed_back() {
         let (_temp, root) = repo_for_create();
         fs::write(root.join("scratch.txt"), "notes\n").unwrap();
-        create("recorder", None, true, None).unwrap();
+        create_in(&root, "recorder", None, true, None).unwrap();
         let arc_tip = git_stdout(&root, &["rev-parse", "tugarc/recorder"]).unwrap();
 
-        discard("recorder", None, false).unwrap();
+        discard_in(&root, "recorder", None, false).unwrap();
 
         let op = crate::oplog::list_ops(&root)
             .into_iter()
@@ -907,7 +910,7 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_discard_full_lifecycle() {
         let temp = TempDir::new().unwrap();
@@ -915,13 +918,12 @@ mod tests {
         let home = temp.path().join("state");
         init_git_repo(repo);
         redirect_state_dir(&home);
-        std::env::set_current_dir(repo).unwrap();
 
-        create("test-arc", Some("Test".to_string()), false, None).unwrap();
+        create_in(repo, "test-arc", Some("Test".to_string()), false, None).unwrap();
         let worktree = repo.join(".tug/worktrees/test-arc");
         fs::write(worktree.join("test.txt"), "test\n").unwrap();
 
-        let result = discard("test-arc", None, false);
+        let result = discard_in(repo, "test-arc", None, false);
         assert!(result.is_ok());
 
         assert!(!worktree.exists());
@@ -934,16 +936,15 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_discard_nonexistent_fails() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
-        let result = discard("nonexistent", None, false);
+        let result = discard_in(repo, "nonexistent", None, false);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }

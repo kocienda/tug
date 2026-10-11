@@ -32,6 +32,8 @@ pub mod session_index;
 pub mod session_transcript;
 #[cfg(test)]
 mod source_scan;
+#[cfg(any(test, feature = "test-fixtures"))]
+pub mod test_fixtures;
 pub mod version;
 
 pub use git_cmd::{git_command, git_command_for_check_ignore};

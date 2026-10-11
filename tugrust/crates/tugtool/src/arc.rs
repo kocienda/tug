@@ -63,6 +63,7 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
                 // `TUG_SESSION_ID` is the answer and nothing needs passing.
                 session_id: None,
                 break_lease,
+                caller_cwd: std::env::current_dir().ok(),
             },
             json,
             quiet,
@@ -169,6 +170,14 @@ fn engine_failed(e: &ArcError) -> ExitCode {
     ExitCode::from(exit_code_for(e))
 }
 
+/// The repository the verb acts on, resolved once from the cwd — the CLI's
+/// one cwd read; everything below takes the root as a fact. A cwd outside
+/// any repository is the caller standing in the wrong place, which the verb
+/// declines in `find_repo_root`'s own words.
+fn arc_repo_root() -> Result<std::path::PathBuf, ArcError> {
+    tugtool_core::find_repo_root().map_err(|e| ArcError::Refused(e.to_string()))
+}
+
 /// Refuse an arc verb the machine's git cannot carry out, by name and up front.
 ///
 /// An arc *is* a git branch plus a worktree, so without a usable git every verb
@@ -202,7 +211,8 @@ fn run_create(
     json: bool,
     quiet: bool,
 ) -> Result<(), AppError> {
-    let data = ops::create(name, description, carry, base)?;
+    let repo = arc_repo_root()?;
+    let data = ops::create_in(&repo, name, description, carry, base)?;
     let claim = claim_arc(name);
     if json {
         print_ok("arc create", merge_claim(&data, &claim)?);
@@ -363,7 +373,8 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
         None
     };
 
-    let data = ops::commit(name, message, round_meta)?;
+    let repo = arc_repo_root()?;
+    let data = ops::commit_in(&repo, name, message, round_meta)?;
     // Deliberately no `claim_arc` here. A round is the plainest statement
     // that this session is working this arc, but the claim costs an HTTP walk
     // over every live instance, and `commit` is the one arc verb that runs on
@@ -391,20 +402,19 @@ fn run_commit(name: &str, message: &str, json: bool, quiet: bool) -> Result<(), 
 /// `git branch -D`, which deletes `branch.tugarc/<name>.tugid` with the
 /// branch — a key read afterwards is the legacy form and names none of the
 /// id-keyed rows the `arc_gone` sweep must reach ([L23], [P05], Risk R02).
-fn capture_owner_key(name: &str) -> Option<(std::path::PathBuf, String)> {
-    let repo = tugtool_core::find_repo_root().ok()?;
-    let key = tugarc_core::ops::arc_owner_key(&repo, name);
-    Some((repo, key))
+fn capture_owner_key(repo: &std::path::Path, name: &str) -> String {
+    tugarc_core::ops::arc_owner_key(repo, name)
 }
 
 fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<(), AppError> {
+    let repo = arc_repo_root()?;
     let previewing = opts.preview;
-    let captured = (!previewing).then(|| capture_owner_key(name)).flatten();
-    let data = ops::join(name, opts)?;
+    let captured = (!previewing).then(|| capture_owner_key(&repo, name));
+    let data = ops::join_in(&repo, name, opts)?;
     // Only a real join that landed tore the arc down.
     if !data.previewed
         && data.conflicts.is_empty()
-        && let Some((repo, owner_key)) = captured
+        && let Some(owner_key) = captured
     {
         broadcast_arc_gone(&repo, &owner_key, ArcGone::Joined);
     }
@@ -486,7 +496,7 @@ fn run_join_resolve(
     // callers are the join pilot and the supervisor, both already holding the
     // in-process guard, and a check in the core would wedge the pilot for the
     // whole window after any resolver crash ([P06]).
-    let repo_root = tugtool_core::find_repo_root().map_err(|e| e.to_string())?;
+    let repo_root = arc_repo_root()?;
     if !break_lease
         && let Some(lease) = resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
     {
@@ -495,7 +505,7 @@ fn run_join_resolve(
         )));
     }
 
-    let outcome = resolve::resolve_conflicts_cwd(name, None)?;
+    let outcome = resolve::resolve_conflicts(&repo_root, name, None)?;
 
     let Some(candidate) = outcome.candidate_commit.clone() else {
         // Some files could not be resolved algorithmically.
@@ -521,8 +531,9 @@ fn run_join_resolve(
     };
 
     // Captured before the teardown, for the reason `capture_owner_key` states.
-    let captured = capture_owner_key(name);
-    let landed = ops::join(
+    let owner_key = capture_owner_key(&repo_root, name);
+    let landed = ops::join_in(
+        &repo_root,
         name,
         JoinOptions {
             strategy,
@@ -536,12 +547,11 @@ fn run_join_resolve(
             // join below sees no lease — carried anyway so the two halves of
             // one gesture cannot disagree.
             break_lease,
+            caller_cwd: std::env::current_dir().ok(),
         },
     )?;
-    if landed.conflicts.is_empty()
-        && let Some((repo, owner_key)) = captured
-    {
-        broadcast_arc_gone(&repo, &owner_key, ArcGone::Joined);
+    if landed.conflicts.is_empty() {
+        broadcast_arc_gone(&repo_root, &owner_key, ArcGone::Joined);
     }
 
     if json {
@@ -570,11 +580,10 @@ fn run_join_resolve(
 
 fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result<(), AppError> {
     // Captured before the teardown, for the reason `capture_owner_key` states.
-    let captured = capture_owner_key(name);
-    let data = ops::discard(name, Some("cli"), break_lease)?;
-    if let Some((repo, owner_key)) = captured {
-        broadcast_arc_gone(&repo, &owner_key, ArcGone::Discarded);
-    }
+    let repo = arc_repo_root()?;
+    let owner_key = capture_owner_key(&repo, name);
+    let data = ops::discard_in(&repo, name, Some("cli"), break_lease)?;
+    broadcast_arc_gone(&repo, &owner_key, ArcGone::Discarded);
     if json {
         print_ok("arc discard", &data);
     } else if !quiet {
@@ -604,7 +613,8 @@ fn run_discard(name: &str, break_lease: bool, json: bool, quiet: bool) -> Result
 /// changed, and a row that was drawn off the documents stops being drawn
 /// because the documents stopped existing. The scan recomputes on its own.
 fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
-    let data = ops::delete_documents(name)?;
+    let repo = arc_repo_root()?;
+    let data = ops::delete_documents_in(&repo, name)?;
     if json {
         print_ok("arc delete-documents", &data);
     } else if !quiet {
@@ -623,7 +633,9 @@ fn run_delete_documents(name: &str, json: bool, quiet: bool) -> Result<(), AppEr
 }
 
 fn run_status(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
-    let data = ops::status(name)?;
+    let repo = arc_repo_root()?;
+    ops::reconcile_branches(&repo, &mut Vec::new());
+    let data = ops::status_in(&repo, name)?;
     // **What the wheel is waiting for**, asked only when the answer will be
     // printed and there is a seat to ask about. `--quiet` must not pay an HTTP
     // walk over every live instance for a line it will not print, and an
@@ -745,7 +757,8 @@ fn status_lines(data: &ops::ArcStatus, waiting: Option<&serde_json::Value>) -> V
 /// left for a person — the arc is not healthy just because the doctor did
 /// what it could.
 fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), AppError> {
-    let outcome = tugarc_core::doctor::doctor_here(name, repair)?;
+    let repo = arc_repo_root()?;
+    let outcome = tugarc_core::doctor::doctor(&repo, name, repair)?;
 
     if json {
         print_ok("arc doctor", &outcome);
@@ -821,27 +834,29 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             // Opening a step is the resume path's "I am working this arc".
             // A run that picks a plan up mid-way never calls `create`, so this
             // is the only place the claim can be made for it.
-            let outcome = ops::step_start(name, step, through)?;
+            let outcome = ops::step_start_in(&arc_repo_root()?, name, step, through)?;
             claim = Some(claim_arc(name));
             outcome
         }
-        StepAction::Done { step, commit } => ops::step_done(name, step, commit.as_deref())?,
+        StepAction::Done { step, commit } => {
+            ops::step_done_in(&arc_repo_root()?, name, step, commit.as_deref())?
+        }
         StepAction::Withdraw { step } => {
             // Withdrawing is a run act like opening a step, so it registers
             // the same claim: a run that picks a plan up mid-way to withdraw
             // one step has still taken the arc.
-            let outcome = ops::step_withdraw(name, step)?;
+            let outcome = ops::step_withdraw_in(&arc_repo_root()?, name, step)?;
             claim = Some(claim_arc(name));
             outcome
         }
         // Parking and reopening are run acts too, on the same grounds.
         StepAction::Reset { step, why } => {
-            let outcome = ops::step_reset(name, step, why.as_deref())?;
+            let outcome = ops::step_reset_in(&arc_repo_root()?, name, step, why.as_deref())?;
             claim = Some(claim_arc(name));
             outcome
         }
         StepAction::Reopen { step, why } => {
-            let outcome = ops::step_reopen(name, step, &why)?;
+            let outcome = ops::step_reopen_in(&arc_repo_root()?, name, step, &why)?;
             claim = Some(claim_arc(name));
             outcome
         }
@@ -886,7 +901,8 @@ fn run_mark(
     json: bool,
     quiet: bool,
 ) -> Result<(), AppError> {
-    let data = ops::mark(name, stage, note.as_deref())?;
+    let repo = arc_repo_root()?;
+    let data = ops::mark_in(&repo, name, stage, note.as_deref())?;
     if json {
         print_ok("arc mark", &data);
     } else if !quiet {
@@ -999,7 +1015,7 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
 /// `arc replay` owns its exit code rather than borrowing the dispatcher's;
 /// [`replay_exit_status`] states which outcome means what.
 fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
-    let outcome = match replay::replay(name) {
+    let outcome = match arc_repo_root().and_then(|repo| replay::replay_onto(&repo, name)) {
         Ok(o) => o,
         Err(e) => return engine_failed(&e),
     };
@@ -2434,7 +2450,8 @@ fn run_config(json: bool, quiet: bool) -> Result<(), AppError> {
 }
 
 fn run_list(json: bool, quiet: bool) -> Result<(), AppError> {
-    let items = ops::list()?;
+    let repo = arc_repo_root()?;
+    let items = ops::list_in(&repo)?;
     if json {
         print_ok("arc list", ListPayload { arcs: items });
     } else if !quiet {
@@ -2493,7 +2510,8 @@ fn document_words(item: &ops::ArcListItem) -> String {
 }
 
 fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
-    let data = ops::show(name)?;
+    let repo = arc_repo_root()?;
+    let data = ops::show_in(&repo, name)?;
     if json {
         print_ok("arc show", &data);
     } else if !quiet {

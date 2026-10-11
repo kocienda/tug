@@ -855,7 +855,7 @@ mod tests {
     /// that can — the announcement names a claude session id nobody knows
     /// until claude announces it. A record still carrying a dispatch says a
     /// rotation was tried and never landed.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_dispatch_stands_until_the_stage_it_anticipates_announces() {
         let fixture = log_repo("");
@@ -884,7 +884,7 @@ mod tests {
     /// **The kind is recorded, and a log without one reads `None`.**
     /// That `None` is the whole of the pre-kind story: the runner falls back
     /// to sniffing the documents for it, which is what it did before.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_recorded_kind_reads_back_and_its_absence_is_a_pre_kind_arc() {
         let fixture = log_repo("");
@@ -911,7 +911,7 @@ mod tests {
     /// record written by a build that spells a third kind reads `None` here,
     /// which is exactly a pre-kind arc — the one behavior every reader in
     /// the tree already knows how to take.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_kind_this_build_cannot_read_is_a_pre_kind_arc() {
         let fixture = log_repo(
@@ -930,7 +930,7 @@ mod tests {
     /// unknown-word arm any third word takes. No arm here knows the old words:
     /// a pre-kind arc's reader sniffs the documents, which is the right answer
     /// for a record written before the kind was `plain` or `planned`.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_retired_kind_words_read_as_a_pre_kind_arc() {
         for word in ["dash", "trek"] {
@@ -955,7 +955,7 @@ mod tests {
     /// a log that still carries one reads back as a pre-kind arc — the same
     /// `None` any unknown marker earns, through the reader's standing
     /// unknown-marker fall-through rather than an arm that knows the old word.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_retired_arc_course_marker_reads_as_a_pre_kind_arc() {
         let fixture = log_repo(
@@ -976,7 +976,7 @@ mod tests {
     /// An old `read_arc` does the same through its own `_` arm — which this
     /// cannot drive from here, so what it pins is the half that shares a file
     /// with everything else.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_dispatch_line_moves_no_declaration() {
         let steps = [
@@ -1080,7 +1080,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_log_with_no_arc_lines_has_no_arc() {
         let fixture = log_repo(&log_line("d", "step-start", "1/3 Step 1: First"));
         assert_eq!(read_arc(fixture.root(), "d"), None);
@@ -1091,7 +1091,7 @@ mod tests {
     /// takes over an arc the first abandoned — and the record must name the
     /// instance whose tugcast is seating it *now*, not the first one that ever
     /// did.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_owner_line_is_read_back_and_the_last_one_wins() {
         let fixture = log_repo(
@@ -1114,7 +1114,7 @@ mod tests {
     /// record from scratch after each terminal line, and ownership is a fact
     /// about a live seat rather than about the arc's name — an arc joined by
     /// one instance and re-opened by another must not read as the first one's.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_owner_does_not_survive_the_generation_reset() {
         let fixture = log_repo(
@@ -1138,7 +1138,7 @@ mod tests {
     /// unowned arc as every runner's to judge, which is what every runner did
     /// before ownership existed. This is what keeps single-instance and
     /// standalone launches unchanged.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_pre_owner_log_reads_as_unowned() {
         let fixture = log_repo(
@@ -1165,7 +1165,7 @@ mod tests {
     /// `read_arc` parses that note whole with `ArcStage::parse`, so a second
     /// field there would lose the dispatch intent and reintroduce the false
     /// `CardTaken` the marker exists to prevent.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_owner_line_does_not_disturb_the_stage_or_dispatch_readers() {
         let without = [
@@ -1208,14 +1208,14 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_missing_log_has_no_arc() {
         let fixture = log_repo("");
         assert_eq!(read_arc(fixture.root(), "d"), None);
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_full_arc_reads_back_document_plan_stages_and_done() {
         let fixture = log_repo(&full_arc_log());
         let arc = read_arc(fixture.root(), "d").expect("arc");
@@ -1241,14 +1241,14 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn another_arcs_lines_are_not_this_ones() {
         let fixture = log_repo(&log_line("other", "arc-start", "arc/idea.md"));
         assert_eq!(read_arc(fixture.root(), "d"), None);
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_arc_before_a_teardown_is_a_previous_generation() {
         let log = format!(
             "{}{}",
@@ -1260,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_reused_name_reads_only_its_own_generation() {
         let log = format!(
             "{}{}{}",
@@ -1276,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_stop_reads_as_stopped_and_the_next_rotation_clears_it() {
         let stopped = format!(
             "{}{}",
@@ -1312,7 +1312,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn notes_accumulate_in_order() {
         let log = format!(
             "{}{}{}",
@@ -1332,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_unreadable_stage_line_is_skipped_not_guessed_at() {
         let log = format!(
             "{}{}{}",
@@ -1346,7 +1346,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn arc_lines_are_invisible_to_the_declarations_reader() {
         // The pin rests on: `read_declarations` matches its markers
         // exhaustively, so arc lines change nothing it reports — except the
@@ -1380,7 +1380,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_discarded_arc_has_no_arc() {
         let fixture = log_repo("");
         let root = fixture.root();
@@ -1456,7 +1456,7 @@ mod tests {
     /// clears `stopped` before anything composes a prompt, so a stage being
     /// resumed would be told nothing about what it was resuming from.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn last_stop_survives_the_resume_that_clears_stopped() {
         let fixture = log_repo("");
         let root = fixture.root();
@@ -1500,7 +1500,7 @@ mod tests {
     /// then carries both, decides nothing, and the next press writes a fresh
     /// `arc-resume` that clears `stopped` and makes the arm fire.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_stop_over_a_standing_resume_keeps_it() {
         let fixture = log_repo("");
         let root = fixture.root();
@@ -1531,7 +1531,7 @@ mod tests {
     /// so the arc is running again and nobody is owed a rotation. `arc-resume`
     /// alone would leave one standing.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_audit_stage_line_clears_the_resume_it_answers() {
         // A resume from a stop at the seam is answered by a rotation to the
         // audit, not to the stage the stop named. The `arc-stage audit` line
@@ -1560,7 +1560,7 @@ mod tests {
     /// so the arc is running again and nobody is owed a rotation. `arc-resume`
     /// alone would leave one standing.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn arc_continue_clears_the_stop_and_the_resume_and_adds_no_stage() {
         let fixture = log_repo("");
         let root = fixture.root();
@@ -1629,6 +1629,7 @@ mod tests {
         );
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn the_append_helpers_round_trip_through_the_reader() {
         let fixture = log_repo("");
@@ -1678,7 +1679,7 @@ mod tests {
     /// rotation's announcement then arrives, and if that line cleared the mark
     /// the stop would be erased mid-protocol. The next reader will otherwise
     /// "tidy" this into the neighbouring `record.stopped = None`.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_arc_stage_line_does_not_clear_a_standing_stop_mark() {
         let fixture = log_repo("");
@@ -1695,7 +1696,7 @@ mod tests {
 
     /// The abandon line clears the mark, and a fresh set stands again: the
     /// two states ride one marker so nothing can know one without the other.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_abandon_line_clears_the_mark() {
         let fixture = log_repo("");
@@ -1720,7 +1721,7 @@ mod tests {
 
     /// The `arc-stop` that ends a successful protocol clears the mark, so no
     /// mark ever stands with no press outstanding.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_arc_stop_line_clears_the_mark() {
         let fixture = log_repo("");
@@ -1739,7 +1740,7 @@ mod tests {
     /// **Skew.** A reader with no `arc-stopping` arm falls through `_ => {}`
     /// and reads every other field exactly as it would without the line: the
     /// marker adds a mark and changes nothing else on the record.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_older_reader_skips_the_marker() {
         let fixture = log_repo("");

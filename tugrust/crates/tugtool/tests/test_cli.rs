@@ -131,7 +131,7 @@ fn a_run_recorded_in_a_subdirectory_is_read_from_the_checkout_root() {
     let checkout = dir.path().join("checkout");
     let sub = checkout.join("sub");
     std::fs::create_dir_all(&sub).unwrap();
-    let init = tugcore::git_command()
+    let init = tugcore::test_fixtures::git::command()
         .args(["init", "-q"])
         .current_dir(&checkout)
         .output()

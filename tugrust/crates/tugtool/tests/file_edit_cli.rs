@@ -10,28 +10,17 @@
 
 mod common;
 use common::{tugedit as tugedit_bin, tugtool};
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::SystemTime;
 
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("run git");
-    assert!(out.status.success(), "git {args:?} failed");
-}
-
 fn init_repo() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
-    git(&root, &["config", "user.email", "t@t.test"]);
-    git(&root, &["config", "user.name", "t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("a.txt"), "one\ntwo\nthree\n").unwrap();
     std::fs::write(root.join("b.txt"), "alpha\nbeta\n").unwrap();
     git(&root, &["add", "-A"]);

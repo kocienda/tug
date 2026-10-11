@@ -8,32 +8,17 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("run git");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+use std::process::Output;
 
 /// A temp git repo with one committed file, one in a subdirectory, and an
 /// ignored directory that must never enter the universe.
 fn init_repo() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
-    git(&root, &["config", "user.email", "t@t.test"]);
-    git(&root, &["config", "user.name", "t"]);
+    GitFixture::init(&root);
     std::fs::create_dir_all(root.join("sub")).unwrap();
     std::fs::create_dir_all(root.join("build")).unwrap();
     std::fs::write(root.join(".gitignore"), "build\n").unwrap();

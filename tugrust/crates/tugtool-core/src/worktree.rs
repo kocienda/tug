@@ -144,6 +144,7 @@ mod tests {
     use super::*;
     use std::ffi::OsString;
     use tempfile::TempDir;
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// The universe tests below set a process-global environment variable.
     /// That is safe here only because the workspace runs its tests under
@@ -176,29 +177,13 @@ mod tests {
         }
     }
 
-    fn git(dir: &Path, args: &[&str]) {
-        let output = tugcore::git_command()
-            .args(args)
-            .current_dir(dir)
-            .output()
-            .unwrap_or_else(|e| panic!("git {:?} failed to spawn: {}", args, e));
-        assert!(
-            output.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
     /// A scratch checkout on `main` plus a linked worktree on `feature`,
     /// returned as `(temp, base, worktree)`.
     fn repo_with_linked_worktree() -> (TempDir, PathBuf, PathBuf) {
         let temp = TempDir::new().unwrap();
         let base = temp.path().join("base");
         std::fs::create_dir(&base).unwrap();
-        git(&base, &["init", "-b", "main"]);
-        git(&base, &["config", "user.email", "test@example.com"]);
-        git(&base, &["config", "user.name", "Test"]);
+        GitFixture::init(&base);
         git(&base, &["commit", "--allow-empty", "-m", "root"]);
         let worktree = temp.path().join("wt");
         git(
@@ -343,11 +328,7 @@ mod tests {
         let repo = temp.path();
 
         // Initialize a git repo
-        tugcore::git_command()
-            .args(["init", "-b", "main"])
-            .current_dir(repo)
-            .output()
-            .expect("git init should succeed");
+        GitFixture::init(repo);
 
         let result = find_repo_root_from(repo);
         assert!(

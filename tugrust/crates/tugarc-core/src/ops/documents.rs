@@ -462,7 +462,6 @@ pub fn ensure_tug_excluded(repo: &Path) {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 mod tests {
     use super::*;
     use crate::ops::test_support::*;
@@ -557,11 +556,11 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn documents_dir_answers_the_main_root_from_a_linked_worktree() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        let outcome = create("wt-arc", None, false, None).unwrap();
+        let outcome = create_in(&repo, "wt-arc", None, false, None).unwrap();
         let worktree = Path::new(&outcome.worktree);
 
         let from_worktree = documents_dir(worktree, "wt-arc");
@@ -669,31 +668,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().join("bare-project");
         fs::create_dir_all(&repo).unwrap();
-        for args in [
-            vec!["init", "-b", "main"],
-            vec!["config", "user.name", "Test User"],
-            vec!["config", "user.email", "test@example.com"],
-        ] {
-            tugcore::git_command()
-                .arg("-C")
-                .arg(&repo)
-                .args(&args)
-                .output()
-                .unwrap();
-        }
+        GitFixture::init(&repo);
         fs::write(repo.join("README.md"), "# Test\n").unwrap();
-        tugcore::git_command()
-            .arg("-C")
-            .arg(&repo)
-            .args(["add", "-A"])
-            .output()
-            .unwrap();
-        tugcore::git_command()
-            .arg("-C")
-            .arg(&repo)
-            .args(["commit", "-m", "init"])
-            .output()
-            .unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "init"]);
 
         let dir = repo.join(".tug").join("arcs").join("x");
         fs::create_dir_all(&dir).unwrap();
@@ -737,7 +715,7 @@ mod tests {
     /// The document is the arc's own, and the brief comes first — an arc that
     /// has reached devise opens on what it was briefed with, not on its output.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn open_arc_opens_on_the_brief_then_the_plan() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "plan-only", "plan.md");
@@ -761,7 +739,7 @@ mod tests {
     /// brief — the task list is the ledger, not the document the stages read
     /// for intent.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_plain_arc_opens_on_the_brief() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "both-docs", "brief.md");
@@ -780,7 +758,7 @@ mod tests {
     /// set is planned, because `plan.md` outranks `tasks.md` here exactly as
     /// it does for `ledger_file`.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn opening_an_arc_records_the_kind_its_documents_name() {
         let planned = Some(crate::arc::ArcKind::Planned);
         let plain = Some(crate::arc::ArcKind::Plain);
@@ -807,7 +785,7 @@ mod tests {
     /// of that arc, not a second one wearing a different progression — so a
     /// task list written after the opening does not turn a planned arc plain.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_resume_keeps_the_kind_the_opening_recorded() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "settled", "brief.md");
@@ -821,7 +799,7 @@ mod tests {
     /// A task list alone still opens an arc: the wheel has a document to read
     /// and a ledger to walk, which is all opening requires.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_task_list_alone_opens_an_arc() {
         let (_home, repo) = open_arc_fixture();
         write_arc_document(repo.path(), "tasks-only", "tasks.md");

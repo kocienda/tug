@@ -7,28 +7,10 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::path::Path;
 use std::process::{Command, Output};
-
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
-
-fn git_stdout(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
 
 fn tug(tmp: &Path) -> Command {
     let mut cmd = tugtool();
@@ -42,9 +24,7 @@ fn tug(tmp: &Path) -> Command {
 /// A project with an arc whose worktree carries `config`, and whose one round
 /// touches `files`.
 fn project(root: &Path, config: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
-    git(root, &["init", "-b", "main"]);
-    git(root, &["config", "user.name", "t"]);
-    git(root, &["config", "user.email", "t@t"]);
+    GitFixture::init(root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), config).unwrap();
     std::fs::write(root.join("seed.txt"), "base\n").unwrap();
@@ -208,7 +188,7 @@ fn an_empty_range_reports_the_range_and_runs_nothing() {
         "[[tugtool.arc.surface]]\nname = \"src\"\npaths = [\"src/\"]\ncheck = [\"touch ran.sentinel\"]\n",
         &[("src/a.rs", "a\n")],
     );
-    let head = git_stdout(&worktree, &["rev-parse", "HEAD"]);
+    let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
 
     let output = verify(tmp.path(), &root, &["--base", &head, "--head", &head]);
     let text = stdout_of(&output);
@@ -265,15 +245,17 @@ fn the_derived_range_is_the_arcs_own_contribution_and_the_overrides_narrow_it() 
     let derived: serde_json::Value =
         serde_json::from_str(&stdout_of(&verify(tmp.path(), &root, &["--json"])))
             .expect("valid JSON");
-    let merge_base = git_stdout(&root, &["merge-base", "main", "tugarc/demo"]);
-    let tip = git_stdout(&root, &["rev-parse", "tugarc/demo"]);
+    let merge_base = git(&root, &["merge-base", "main", "tugarc/demo"])
+        .trim()
+        .to_string();
+    let tip = git(&root, &["rev-parse", "tugarc/demo"]).trim().to_string();
     assert_eq!(derived["data"]["base"], merge_base);
     assert_eq!(derived["data"]["head"], tip);
     // Both rounds are in the derived range, so both surfaces are in the run.
     assert_eq!(derived["data"]["surfaces"].as_array().unwrap().len(), 2);
 
     // Narrowed to the second round alone, only `docs` moved.
-    let first = git_stdout(&worktree, &["rev-parse", "HEAD~1"]);
+    let first = git(&worktree, &["rev-parse", "HEAD~1"]).trim().to_string();
     let narrowed: serde_json::Value = serde_json::from_str(&stdout_of(&verify(
         tmp.path(),
         &root,

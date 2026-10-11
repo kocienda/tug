@@ -10,11 +10,11 @@
 //! Each verb (`create` / `commit` / `join` / `discard` / `list` / `show`)
 //! returns a typed outcome and never prints — the `tugarc` CLI (and the
 //! Changeset card, via tugcast) own presentation. Each verb takes its repo
-//! root as an argument; the cwd-relative doors the CLI calls live in `cwd`.
+//! root as an argument and never reads the process cwd — the CLI resolves
+//! the root once and passes it, exactly as tugcast does.
 
 mod commit;
 mod create;
-mod cwd;
 mod discard;
 mod documents;
 mod git;
@@ -28,7 +28,6 @@ mod test_support;
 
 pub use commit::*;
 pub use create::*;
-pub use cwd::*;
 pub use discard::*;
 pub use documents::*;
 pub use git::*;

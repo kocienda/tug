@@ -11,26 +11,12 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rusqlite::Connection;
-
-/// Run a git command in `dir`, asserting success.
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("run git");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
 
 /// A temp git repo with one committed file and an untracked `feature.rs`. The
 /// returned root is canonicalized (macOS tempdirs live under a `/private/var`
@@ -40,9 +26,7 @@ fn git(dir: &Path, args: &[&str]) {
 fn init_repo() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
-    git(&root, &["config", "user.email", "t@t.test"]);
-    git(&root, &["config", "user.name", "t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("base.rs"), "base\n").unwrap();
     git(&root, &["add", "base.rs"]);
     git(&root, &["commit", "-q", "-m", "init"]);
@@ -291,7 +275,7 @@ fn commit_json_stages_the_session_file_and_matches_numstat() {
     assert_eq!(data["aggregate"]["insertions"], 2);
 
     // The commit really landed: feature.rs is now committed (clean tree).
-    let status = Command::new("git")
+    let status = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&root)
         .args(["status", "--porcelain"])
@@ -422,7 +406,7 @@ fn seed_ledger_events(repo_root: &Path, events: &[(&str, &str)]) -> tempfile::Te
 
 /// `git status --porcelain` output at `root`.
 fn status_porcelain(root: &Path) -> String {
-    let out = Command::new("git")
+    let out = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(root)
         .args(["status", "--porcelain"])
@@ -1181,7 +1165,7 @@ fn arc_replay_moves_a_behind_arc_onto_the_new_base_tip() {
 
     // The arc now carries the base's commit under its own round, and the
     // worktree came along.
-    let out = Command::new("git")
+    let out = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&worktree)
         .args(["merge-base", "--is-ancestor", "main", "HEAD"])
@@ -1202,7 +1186,7 @@ fn arc_replay_records_a_rebase_the_agent_already_made() {
     let worktree = arc_with_a_round(&root, "demo");
 
     // A plan whose ledger cell names the pre-rebase round.
-    let round = Command::new("git")
+    let round = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&worktree)
         .args(["rev-parse", "--short=9", "HEAD"])
@@ -1251,7 +1235,7 @@ fn arc_replay_reports_a_conflict_and_exits_one_without_moving_anything() {
     std::fs::write(worktree.join("base.rs"), "arc\n").unwrap();
     git(&worktree, &["add", "-A"]);
     git(&worktree, &["commit", "-q", "-m", "the arc rewrites base"]);
-    let before = Command::new("git")
+    let before = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&worktree)
         .args(["rev-parse", "HEAD"])
@@ -1269,7 +1253,7 @@ fn arc_replay_reports_a_conflict_and_exits_one_without_moving_anything() {
     assert_eq!(v["data"]["round_subject"], "the arc rewrites base");
     assert_eq!(v["data"]["paths"][0], "base.rs");
 
-    let after = Command::new("git")
+    let after = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&worktree)
         .args(["rev-parse", "HEAD"])

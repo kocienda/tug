@@ -364,31 +364,10 @@ fn test_init_check_force_mutually_exclusive() {
 fn git_project() -> tempfile::TempDir {
     let temp = tempfile::tempdir().expect("failed to create temp dir");
     let path = temp.path();
-    for args in [
-        vec!["init", "-b", "main"],
-        vec!["config", "user.name", "Test User"],
-        vec!["config", "user.email", "test@example.com"],
-    ] {
-        Command::new("git")
-            .arg("-C")
-            .arg(path)
-            .args(&args)
-            .output()
-            .expect("git");
-    }
+    let fixture = tugcore::test_fixtures::git::GitFixture::init(path);
     std::fs::write(path.join("README.md"), "# Test\n").expect("write README");
-    Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(["add", "-A"])
-        .output()
-        .expect("git add");
-    Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(["commit", "-m", "init"])
-        .output()
-        .expect("git commit");
+    fixture.git(&["add", "-A"]);
+    fixture.git(&["commit", "-m", "init"]);
     temp
 }
 
@@ -473,7 +452,7 @@ fn test_arc_documents_reports_a_state_not_an_error() {
     assert!(output.status.success());
     assert!(temp.path().join(".tug/arcs/unwritten").is_dir());
 
-    let porcelain = Command::new("git")
+    let porcelain = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(temp.path())
         .args(["status", "--porcelain"])

@@ -350,28 +350,18 @@ mod tests {
         }
     }
 
-    fn git_in(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A repo with one commit on `main` and one `tugarc/<name>` branch — the
     /// shape `arc_detail_entry_in` reads a base and a head off.
     fn repo_with_arc(name: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        git_in(&root, &["init", "-b", "main"]);
-        git_in(&root, &["config", "user.name", "t"]);
-        git_in(&root, &["config", "user.email", "t@t"]);
+        GitFixture::init(&root);
         std::fs::write(root.join("a.txt"), "base\n").unwrap();
-        git_in(&root, &["add", "-A"]);
-        git_in(&root, &["commit", "-m", "base"]);
-        git_in(&root, &["branch", &format!("tugarc/{name}")]);
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base"]);
+        git(&root, &["branch", &format!("tugarc/{name}")]);
         (dir, root)
     }
 
@@ -417,8 +407,8 @@ mod tests {
 
         // A moved base is new work, so the mark stops matching.
         std::fs::write(root.join("a.txt"), "moved\n").unwrap();
-        git_in(&root, &["add", "-A"]);
-        git_in(&root, &["commit", "-m", "base moved"]);
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-m", "base moved"]);
         run_dispatch(
             &runner,
             root.clone(),

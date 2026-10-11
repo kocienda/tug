@@ -274,26 +274,12 @@ fn diff_stats(repo_root: &Path, scope: &[&str]) -> Result<Vec<FileStat>, String>
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git(root: &Path, args: &[&str]) {
-        assert!(
-            tugcore::git_command()
-                .args(args)
-                .current_dir(root)
-                .output()
-                .expect("git")
-                .status
-                .success(),
-            "git {args:?}"
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn init_repo_with_commits(subjects: &[&str]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.email", "t@t.test"]);
-        git(root, &["config", "user.name", "t"]);
+        GitFixture::init(root);
         for subject in subjects {
             std::fs::write(root.join(format!("{subject}.txt")), "x\n").unwrap();
             git(root, &["add", "-A"]);

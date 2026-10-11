@@ -545,40 +545,17 @@ fn git(args: &[&str], paths: &[&Path]) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tugcore::test_fixtures::git as fixture;
 
     fn init_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path();
-        for args in [
-            vec!["init", "-q"],
-            vec!["config", "user.email", "t@t.test"],
-            vec!["config", "user.name", "t"],
-        ] {
-            assert!(
-                tugcore::git_command()
-                    .args(&args)
-                    .current_dir(root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success()
-            );
-        }
+        fixture::GitFixture::init(dir.path());
         dir
     }
 
     fn commit_all(root: &Path) {
-        for args in [vec!["add", "-A"], vec!["commit", "-q", "-m", "seed"]] {
-            assert!(
-                tugcore::git_command()
-                    .args(&args)
-                    .current_dir(root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success()
-            );
-        }
+        fixture::git(root, &["add", "-A"]);
+        fixture::git(root, &["commit", "-q", "-m", "seed"]);
     }
 
     fn tracked(root: &Path, rel: &str) -> bool {
@@ -861,20 +838,6 @@ mod tests {
 
     // ── stage ([P13]) ──────────────────────────────────────────────────────
 
-    fn git_out(root: &Path, args: &[&str]) -> String {
-        let out = tugcore::git_command()
-            .args(args)
-            .current_dir(root)
-            .output()
-            .expect("git");
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8_lossy(&out.stdout).into_owned()
-    }
-
     /// A repo with a committed `f.txt`, plus the patch that would add a line to
     /// it and the file's committed bytes.
     #[allow(clippy::disallowed_methods)] // the verb reads cwd; nextest gives each test its own process
@@ -906,7 +869,7 @@ mod tests {
 
         run_stage(&patch_file.to_string_lossy()).expect("stage succeeds");
 
-        let staged = git_out(root, &["diff", "--cached", "--no-color"]);
+        let staged = fixture::git(root, &["diff", "--cached", "--no-color"]);
         assert!(staged.contains("+added"), "staged was: {staged}");
         assert_eq!(
             std::fs::read_to_string(root.join("f.txt")).unwrap(),
@@ -941,7 +904,7 @@ mod tests {
             "the refusal carries git's own words: {err:?}",
         );
         assert!(
-            git_out(root, &["diff", "--cached", "--name-only"]).is_empty(),
+            fixture::git(root, &["diff", "--cached", "--name-only"]).is_empty(),
             "a refusal stages nothing",
         );
         assert_eq!(

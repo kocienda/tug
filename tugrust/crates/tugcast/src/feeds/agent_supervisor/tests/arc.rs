@@ -5,28 +5,18 @@ use super::*;
 
 // --- session↔arc binding (Spec S03/S04, [P05], [P08]) ----------------
 
-fn git_in(dir: &std::path::Path, args: &[&str]) {
-    let ok = tugcore::git_command()
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 /// A repo with one commit and one `tugarc/<name>` branch, plus the
 /// creation id a bind would mint.
 fn repo_with_arc(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git_in(&root, &["init", "-b", "main"]);
-    git_in(&root, &["config", "user.name", "t"]);
-    git_in(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
-    git_in(&root, &["add", "-A"]);
-    git_in(&root, &["commit", "-m", "base"]);
-    git_in(&root, &["branch", &format!("tugarc/{name}")]);
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
+    git(&root, &["branch", &format!("tugarc/{name}")]);
     (dir, root)
 }
 
@@ -210,7 +200,7 @@ async fn a_binding_to_a_deleted_arc_reads_as_unbound() {
         .set_arc_binding("sess-1", Some(("tugarc/demo#1-abc", "demo")))
         .unwrap();
 
-    git_in(&root, &["branch", "-D", "tugarc/demo"]);
+    git(&root, &["branch", "-D", "tugarc/demo"]);
 
     sup.do_list_card_bindings().await;
     let body = next_action(&mut control_rx, "list_card_bindings_ok").await;
@@ -393,16 +383,14 @@ fn api_arc_gone_clears_bindings_and_the_draft_and_counts_them() {
 async fn joining_a_arc_sweeps_its_draft_and_bindings_after_the_branch_is_gone() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git_in(&root, &["init", "-b", "main"]);
-    git_in(&root, &["config", "user.name", "t"]);
-    git_in(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
-    git_in(&root, &["add", "-A"]);
-    git_in(&root, &["commit", "-m", "base"]);
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
 
     // A real arc, with a round, so the join has something to land.
     let worktree = root.join(".tug/worktrees/demo");
-    git_in(
+    git(
         &root,
         &[
             "worktree",
@@ -414,8 +402,8 @@ async fn joining_a_arc_sweeps_its_draft_and_bindings_after_the_branch_is_gone() 
         ],
     );
     std::fs::write(worktree.join("b.txt"), "work\n").unwrap();
-    git_in(&worktree, &["add", "-A"]);
-    git_in(&worktree, &["commit", "-m", "round"]);
+    git(&worktree, &["add", "-A"]);
+    git(&worktree, &["commit", "-m", "round"]);
     let owner_key = tugarc_core::ops::ensure_arc_id(&root, "demo").unwrap();
     assert!(owner_key.contains('#'), "id-qualified: {owner_key}");
 
@@ -485,14 +473,12 @@ async fn joining_a_arc_sweeps_its_draft_and_bindings_after_the_branch_is_gone() 
 async fn joining_an_arc_records_the_landed_commit_as_a_fact() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git_in(&root, &["init", "-b", "main"]);
-    git_in(&root, &["config", "user.name", "t"]);
-    git_in(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
-    git_in(&root, &["add", "-A"]);
-    git_in(&root, &["commit", "-m", "base"]);
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-m", "base"]);
     let worktree = root.join(".tug/worktrees/demo");
-    git_in(
+    git(
         &root,
         &[
             "worktree",
@@ -504,8 +490,8 @@ async fn joining_an_arc_records_the_landed_commit_as_a_fact() {
         ],
     );
     std::fs::write(worktree.join("b.txt"), "work\n").unwrap();
-    git_in(&worktree, &["add", "-A"]);
-    git_in(&worktree, &["commit", "-m", "round"]);
+    git(&worktree, &["add", "-A"]);
+    git(&worktree, &["commit", "-m", "round"]);
     tugarc_core::ops::ensure_arc_id(&root, "demo").unwrap();
 
     let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
@@ -534,7 +520,7 @@ async fn joining_an_arc_records_the_landed_commit_as_a_fact() {
     .unwrap();
     sup.handle_control("changeset_join", &payload, 1).await;
 
-    let landed = tugcore::git_command()
+    let landed = tugcore::test_fixtures::git::command()
         .args(["-C", &project, "rev-parse", "main"])
         .output()
         .unwrap();

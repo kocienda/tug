@@ -8918,8 +8918,8 @@ mod tests {
     #[test]
     fn a_pre_branch_arc_binding_is_reported_from_its_tugid_alone() {
         let repo = tempfile::tempdir().unwrap();
-        git_init(repo.path());
-        run_git(
+        GitFixture::init(repo.path());
+        git(
             repo.path(),
             &["config", "branch.tugarc/arc.tugid", "1755-aabbcc"],
         );
@@ -8943,9 +8943,9 @@ mod tests {
     #[test]
     fn a_branch_without_a_tugid_is_still_a_record() {
         let repo = tempfile::tempdir().unwrap();
-        git_init(repo.path());
-        run_git(repo.path(), &["commit", "--allow-empty", "-m", "root"]);
-        run_git(repo.path(), &["branch", "tugarc/legacy"]);
+        GitFixture::init(repo.path());
+        git(repo.path(), &["commit", "--allow-empty", "-m", "root"]);
+        git(repo.path(), &["branch", "tugarc/legacy"]);
 
         let records = AgentSupervisor::live_arc_records(repo.path().to_str().unwrap());
         assert_eq!(
@@ -8963,7 +8963,7 @@ mod tests {
     #[test]
     fn a_repo_with_no_arcs_answers_known_and_empty() {
         let repo = tempfile::tempdir().unwrap();
-        git_init(repo.path());
+        GitFixture::init(repo.path());
 
         match AgentSupervisor::live_arc_records(repo.path().to_str().unwrap()) {
             ArcRecords::Known(records) => assert!(records.is_empty()),
@@ -8983,21 +8983,7 @@ mod tests {
         ));
     }
 
-    fn run_git(repo: &std::path::Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(repo)
-            .args(args)
-            .output()
-            .expect("git runs");
-        assert!(out.status.success(), "git {args:?}: {out:?}");
-    }
-
-    fn git_init(repo: &std::path::Path) {
-        run_git(repo, &["init", "--quiet", "-b", "main"]);
-        run_git(repo, &["config", "user.email", "t@example.com"]);
-        run_git(repo, &["config", "user.name", "T"]);
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// The rotation seat's two frames, in the order the deck needs them.
     ///

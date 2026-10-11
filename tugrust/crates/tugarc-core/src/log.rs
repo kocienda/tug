@@ -966,7 +966,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn declarations_are_empty_without_a_log() {
         let fixture = log_repo("");
         assert_eq!(
@@ -976,7 +976,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_discarded_arc_reads_as_ended() {
         let fixture = log_repo(&format!(
             "{}{}",
@@ -987,7 +987,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_historical_released_spelling_still_ends_an_arc() {
         let fixture = log_repo(&format!(
             "{}{}",
@@ -1001,7 +1001,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn both_join_spellings_end_an_arc() {
         let bare = log_repo(&format!(
             "{}{}",
@@ -1022,7 +1022,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_name_restarted_after_a_terminal_line_has_not_ended() {
         let fixture = log_repo(&format!(
             "{}{}{}",
@@ -1037,7 +1037,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_late_line_after_a_teardown_does_not_reopen_an_arc() {
         let fixture = log_repo(&format!(
             "{}{}{}",
@@ -1049,7 +1049,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_live_arc_and_an_unknown_name_have_not_ended() {
         let fixture = log_repo(&format!(
             "{}{}",
@@ -1064,7 +1064,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn another_arcs_teardown_never_ends_this_one() {
         let fixture = log_repo(&format!(
             "{}{}",
@@ -1075,14 +1075,14 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_missing_log_ends_nothing() {
         let fixture = log_repo("");
         assert!(!arc_has_ended(fixture.root(), "d"));
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_later_step_start_demotes_a_built_arc() {
         let log = format!(
             "{}{}{}",
@@ -1103,7 +1103,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_step_survives_a_later_mark_for_the_step_fields() {
         let log = format!(
             "{}{}",
@@ -1117,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_step_start_carries_its_title_and_a_done_keeps_it() {
         let log = format!(
             "{}{}",
@@ -1135,7 +1135,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_declared_run_completes_when_its_final_step_is_done() {
         let log = format!(
             "{}{}{}{}{}",
@@ -1181,7 +1181,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_run_without_a_declaration_never_completes() {
         // Every generation whose log predates `--through`: steps done, no run
         // declared, so the completion arithmetic has nothing to compare against.
@@ -1207,7 +1207,7 @@ mod tests {
     /// `read_arc` reads only `arc-*` markers — so a new marker between two
     /// step declarations moves neither.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_compact_marker_moves_no_declaration_and_no_arc_fact() {
         let without = format!(
             "{}{}{}",
@@ -1244,7 +1244,7 @@ mod tests {
     /// re-latched by the next `run-through` — so a second selection on one arc
     /// reports its own span rather than the first one's.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_run_latches_the_step_that_opened_it() {
         let first_run = format!(
             "{}{}{}",
@@ -1291,7 +1291,7 @@ mod tests {
     /// The number every glanceable counter shows: position within the declared
     /// selection, not within the plan.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_run_fraction_counts_the_selection_not_the_plan() {
         // The case that opened this work: `Steps 1-3` of a ten-step plan.
         let log = format!(
@@ -1348,7 +1348,7 @@ mod tests {
     /// Every shape the arithmetic cannot be trusted on degrades to `None`, so
     /// the display falls back to the plan's own counters ([P05]).
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_untrustworthy_span_yields_no_run_fraction() {
         // No declared run at all — every log written before `--through`.
         let log = format!(
@@ -1390,7 +1390,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_terminal_line_resets_the_run_facts() {
         let log = format!(
             "{}{}{}{}",
@@ -1409,7 +1409,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_bare_step_start_reads_as_untitled() {
         let fixture = log_repo(&log_line("d", "step-start", "4/9"));
         let found = read_declarations(fixture.root(), "d");
@@ -1418,7 +1418,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_withdrawal_closes_the_run_as_a_completion_does() {
         let log = format!(
             "{}{}{}{}",
@@ -1444,7 +1444,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_withdrawal_leaves_the_runs_span_alone() {
         let log = format!(
             "{}{}{}{}",
@@ -1465,7 +1465,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_withdrawal_after_a_terminal_line_starts_a_fresh_generation() {
         let log = format!(
             "{}{}{}{}{}",
@@ -1491,7 +1491,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_reused_name_inherits_nothing_across_a_terminal_line() {
         for terminal in [
             log_line("d", "discarded", ""),
@@ -1533,7 +1533,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_logs_newest_line_dates_the_arc() {
         let log = format!(
             "{}{}{}",
@@ -1556,7 +1556,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_terminal_line_resets_the_date() {
         let log = format!(
             "{}{}{}",
@@ -1575,7 +1575,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_arc_with_no_surviving_lines_has_no_date() {
         let log = format!(
             "{}{}",
@@ -1587,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_created_marker_does_not_move_the_stage() {
         let fixture = log_repo(&log_line_at("2026-08-10T09:00:00Z", "d", "created", ""));
         let found = read_declarations(fixture.root(), "d");
@@ -1601,7 +1601,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_unparseable_step_note_is_skipped() {
         let log = format!(
             "{}{}",
@@ -1614,7 +1614,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn another_arcs_declarations_never_leak_in() {
         let log = format!(
             "{}{}",
@@ -1636,7 +1636,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_writers_round_trip_through_the_reader() {
         let fixture = log_repo("");
         let root = fixture.root();

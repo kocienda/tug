@@ -1536,16 +1536,7 @@ mod tests {
 
     // -- the resolve flow, over a real conflicted repo -----------------------
 
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn write_exec(path: &Path, body: &str) {
         std::fs::write(path, body).unwrap();
@@ -1560,9 +1551,7 @@ mod tests {
     fn conflicted_repo(resolver: &str) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
@@ -1598,7 +1587,7 @@ mod tests {
         let tip = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("a chain stands")
             .tip;
-        let out = tugcore::git_command()
+        let out = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["log", "-1", "--format=%s", &tip])
@@ -1648,7 +1637,7 @@ mod tests {
             tugarc_core::resolve::CandidateStatus::Valid(sha) => sha,
             other => panic!("expected a valid candidate, got {other:?}"),
         };
-        let merged = tugcore::git_command()
+        let merged = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(repo)
             .args(["show", &format!("{candidate}:f.txt")])
@@ -1722,9 +1711,7 @@ mod tests {
     fn replay_shaped_repo(resolver: &str) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         std::fs::write(repo.join(".gitignore"), ".tug/\n").unwrap();
         std::fs::write(repo.join("f.txt"), "A\n").unwrap();
         std::fs::create_dir_all(repo.join(".tugtool")).unwrap();
@@ -2031,7 +2018,7 @@ mod tests {
         let chain = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("the chain outlives the failed resolve");
         assert_ne!(chain.tip, root, "the chain advanced past its root");
-        let settled = tugcore::git_command()
+        let settled = tugcore::test_fixtures::git::command()
             .current_dir(repo)
             .args(["show", &format!("{}:g.txt", chain.tip)])
             .output()
@@ -2091,7 +2078,7 @@ mod tests {
         );
         let chain = tugarc_core::resolve::read_conflict(repo, "demo")
             .expect("the chain outlives the failed resolve");
-        let head = tugcore::git_command()
+        let head = tugcore::test_fixtures::git::command()
             .current_dir(&workshop)
             .args(["rev-parse", "HEAD"])
             .output()
@@ -2101,7 +2088,7 @@ mod tests {
             chain.tip,
             "and the workshop is parked exactly on it"
         );
-        let status = tugcore::git_command()
+        let status = tugcore::test_fixtures::git::command()
             .current_dir(&workshop)
             .args(["status", "--porcelain"])
             .output()

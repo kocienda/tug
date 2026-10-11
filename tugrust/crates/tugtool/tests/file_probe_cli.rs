@@ -7,32 +7,16 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::SystemTime;
-
-fn git(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("run git");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
 
 /// A temp git repo holding one committed file, `src/x.ts`.
 fn init_repo() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-q", "-b", "main"]);
-    git(&root, &["config", "user.email", "t@t.test"]);
-    git(&root, &["config", "user.name", "t"]);
+    GitFixture::init(&root);
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(root.join("src/x.ts"), "const a = 1;\n").unwrap();
     git(&root, &["add", "-A"]);
@@ -149,7 +133,7 @@ fn a_probe_leaves_git_status_exactly_as_it_found_it() {
     let (_dir, root) = init_repo();
     let patch = write_patch(&root, EDIT_PATCH);
     let status = |root: &Path| {
-        let out = Command::new("git")
+        let out = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(root)
             .args(["status", "--porcelain=v2", "--untracked-files=all"])
@@ -301,7 +285,7 @@ fn a_rename_riding_along_with_a_hunked_file_is_still_restored() {
     std::fs::write(root.join("src/x.ts"), "const a = 2;\n").unwrap();
     git(&root, &["mv", "src/keep.ts", "src/moved.ts"]);
     git(&root, &["add", "-A"]);
-    let out = Command::new("git")
+    let out = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&root)
         .args(["diff", "--cached"])
@@ -359,7 +343,7 @@ fn a_mode_only_change_is_restored() {
     perms.set_mode(before | 0o111);
     std::fs::set_permissions(&target, perms).unwrap();
     git(&root, &["add", "-A"]);
-    let out = Command::new("git")
+    let out = tugcore::test_fixtures::git::command()
         .arg("-C")
         .arg(&root)
         .args(["diff", "--cached"])

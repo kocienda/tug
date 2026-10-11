@@ -590,17 +590,8 @@ fn ensure_tug_ignored(repo: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use serial_test::serial;
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn set(dir: &Path, rel: &str, content: &str) {
         std::fs::write(dir.join(rel), content).unwrap();
@@ -611,9 +602,7 @@ mod tests {
     fn init(ignore_tug: bool) -> tempfile::TempDir {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         set(repo, "f.txt", "A\n");
         if ignore_tug {
             set(repo, ".gitignore", ".tug/\n");
@@ -940,6 +929,7 @@ mod tests {
     /// workshop from rendering as a phantom arc on every surface that globs
     /// that namespace — and what gives the checkout a stable derived-data slug
     /// instead of a per-candidate `detached-<sha>`.
+    #[serial(tug_data_dir)]
     #[test]
     fn the_workshop_branch_is_outside_the_arc_namespace() {
         let temp = init(true);

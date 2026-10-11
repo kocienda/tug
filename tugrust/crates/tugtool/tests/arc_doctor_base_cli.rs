@@ -8,19 +8,10 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::path::Path;
-use std::process::{Command, Output};
-
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
+use std::process::Output;
 
 fn tug(tmp: &Path, root: &Path, args: &[&str]) -> Output {
     let mut cmd = tugtool();
@@ -37,9 +28,7 @@ fn tug(tmp: &Path, root: &Path, args: &[&str]) -> Output {
 /// A project whose arc `demo` edits one file and adds another, with that
 /// squash staged on the base and left there.
 fn stranded_project(root: &Path) {
-    git(root, &["init", "-q", "-b", "main"]);
-    git(root, &["config", "user.name", "t"]);
-    git(root, &["config", "user.email", "t@t"]);
+    GitFixture::init(root);
     std::fs::write(root.join("seed.txt"), "base\n").unwrap();
     git(root, &["add", "-A"]);
     git(root, &["commit", "-qm", "base"]);

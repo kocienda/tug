@@ -2088,22 +2088,10 @@ mod tests {
     fn init_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        let run = |args: &[&str]| {
-            let ok = tugcore::git_command()
-                .args(args)
-                .current_dir(root)
-                .output()
-                .expect("git")
-                .status
-                .success();
-            assert!(ok, "git {args:?} failed");
-        };
-        run(&["init", "-q"]);
-        run(&["config", "user.email", "t@t.test"]);
-        run(&["config", "user.name", "t"]);
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(root);
         std::fs::write(root.join("a.txt"), "one\n").expect("write a.txt");
-        run(&["add", "a.txt"]);
-        run(&["commit", "-q", "-m", "init"]);
+        fixture.git(&["add", "a.txt"]);
+        fixture.git(&["commit", "-q", "-m", "init"]);
         dir
     }
 
@@ -2155,7 +2143,7 @@ mod tests {
         let repo = init_repo();
         let root = repo.path().to_path_buf();
         let run = |args: &[&str]| {
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .args(args)
                 .current_dir(&root)
                 .output()

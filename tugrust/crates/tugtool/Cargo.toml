@@ -50,3 +50,5 @@ tugarc-core.workspace = true
 # The app-wide settings store, so a CLI test can seed the briefs-path key the
 # way the app would rather than a substitute for it.
 tugbank-core.workspace = true
+# The hermetic git fixture, so no test reads the developer's git config.
+tugcore = { workspace = true, features = ["test-fixtures"] }

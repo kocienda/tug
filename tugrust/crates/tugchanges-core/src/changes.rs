@@ -672,30 +672,17 @@ fn repo_relative(repo_root: &Path, file_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tugcore::test_fixtures::git::GitFixture;
 
     /// A git repo with one committed (clean) file and, for each name in
     /// `untracked`, an untracked (dirty) file.
     fn init_repo(untracked: &[&str]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
-        };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
+        let fixture = GitFixture::init(root);
         std::fs::write(root.join("clean.rs"), "clean\n").unwrap();
-        git(&["add", "clean.rs"]);
-        git(&["commit", "-q", "-m", "init"]);
+        fixture.git(&["add", "clean.rs"]);
+        fixture.git(&["commit", "-q", "-m", "init"]);
         for name in untracked {
             std::fs::write(root.join(name), "dirty\n").unwrap();
         }
@@ -1036,25 +1023,11 @@ mod tests {
     fn init_renamed_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
-        };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
+        let fixture = GitFixture::init(root);
         std::fs::write(root.join("tracked.rs"), "body\n").unwrap();
-        git(&["add", "tracked.rs"]);
-        git(&["commit", "-q", "-m", "init"]);
-        git(&["mv", "tracked.rs", "moved.rs"]);
+        fixture.git(&["add", "tracked.rs"]);
+        fixture.git(&["commit", "-q", "-m", "init"]);
+        fixture.git(&["mv", "tracked.rs", "moved.rs"]);
         dir
     }
 
@@ -1270,25 +1243,11 @@ mod tests {
     fn init_two_region_repo() -> (tempfile::TempDir, String) {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
-        let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
-        };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
+        let fixture = GitFixture::init(root);
         let original: String = (1..=60).map(|n| format!("line{n:03}\n")).collect();
         std::fs::write(root.join("both.rs"), &original).unwrap();
-        git(&["add", "-A"]);
-        git(&["commit", "-q", "-m", "init"]);
+        fixture.git(&["add", "-A"]);
+        fixture.git(&["commit", "-q", "-m", "init"]);
         let edited = original
             .replace("line005\n", "TOP-EDIT\n")
             .replace("line050\n", "BOTTOM-EDIT\n");

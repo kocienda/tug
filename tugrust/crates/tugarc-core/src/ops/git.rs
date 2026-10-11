@@ -236,7 +236,6 @@ pub fn current_branch(repo_root: &Path) -> Result<String, ArcError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 mod tests {
     use super::*;
     use crate::ops::test_support::*;

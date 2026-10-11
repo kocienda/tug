@@ -11,7 +11,8 @@ name = "tugcore"
 path = "src/lib.rs"
 
 [features]
-# The hostile-filename fixture [B05], compiled only where a test asks for it.
+# The hostile-filename fixture [B05] and the hermetic git fixture
+# (`test_fixtures::git`), compiled only where a test asks for them.
 # Downstream crates enable it from dev-dependencies.
 test-fixtures = []
 

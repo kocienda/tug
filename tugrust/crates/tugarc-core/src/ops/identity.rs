@@ -110,7 +110,10 @@ fn migrate_branch_prefix(repo: &Path, warnings: &mut Vec<String>) {
 
 /// The top-of-verb git reconciliation, in the order the two passes need: the
 /// branch namespace settles first, then the worktrees under it.
-pub(super) fn reconcile_branches(repo: &Path, warnings: &mut Vec<String>) {
+///
+/// Public for the one verb whose `*_in` form is a pure read: `status_in`
+/// reconciles nothing, so the CLI's `arc status` runs this before it.
+pub fn reconcile_branches(repo: &Path, warnings: &mut Vec<String>) {
     migrate_branch_prefix(repo, warnings);
     migrate_worktrees(repo, warnings);
 }
@@ -445,7 +448,6 @@ pub fn legacy_owner_key(owner_key: &str) -> &str {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 mod tests {
     use super::*;
     use crate::ops::test_support::*;
@@ -500,41 +502,43 @@ mod tests {
     /// `create` mints once and every later touch reports the same identity;
     /// an arc with no `tugid` reads under its legacy branch-ref key until a
     /// write verb backfills it ([P01], [P02], Risk R01).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_id_minted_once_and_backfilled_on_write() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
-        let first = create("id-arc", None, false, None).unwrap();
+        let first = create_in(repo, "id-arc", None, false, None).unwrap();
         let id = first.id.clone().expect("create mints an id");
         assert!(id.starts_with("tugarc/id-arc#"), "owner key shape: {id}");
 
         // The idempotent revisit reports the same identity, not a fresh mint.
-        let second = create("id-arc", None, false, None).unwrap();
+        let second = create_in(repo, "id-arc", None, false, None).unwrap();
         assert!(!second.created);
         assert_eq!(second.id.as_deref(), Some(id.as_str()));
 
         // Every read verb agrees.
         assert_eq!(arc_owner_key(repo, "id-arc"), id);
-        assert_eq!(show("id-arc").unwrap().id.as_deref(), Some(id.as_str()));
-        let listed = list().unwrap();
+        assert_eq!(
+            show_in(repo, "id-arc").unwrap().id.as_deref(),
+            Some(id.as_str())
+        );
+        let listed = list_in(repo).unwrap();
         let entry = listed.iter().find(|d| d.name == "id-arc").unwrap();
         assert_eq!(entry.id.as_deref(), Some(id.as_str()));
 
         // An id-less arc (an older build's) reads under the legacy key, and a
         // read verb must not mint one ([P02]).
-        run_git(repo, &["config", "--unset", "branch.tugarc/id-arc.tugid"]);
+        git(repo, &["config", "--unset", "branch.tugarc/id-arc.tugid"]);
         assert_eq!(arc_owner_key(repo, "id-arc"), "tugarc/id-arc");
-        let _ = show("id-arc").unwrap();
+        let _ = show_in(repo, "id-arc").unwrap();
         assert_eq!(arc_owner_key(repo, "id-arc"), "tugarc/id-arc");
 
         // A round is a write path: it backfills.
         fs::write(repo.join(".tug/worktrees/id-arc/f.txt"), "x\n").unwrap();
-        commit("id-arc", "Add f", None).unwrap();
+        commit_in(repo, "id-arc", "Add f", None).unwrap();
         let backfilled = arc_owner_key(repo, "id-arc");
         assert!(backfilled.starts_with("tugarc/id-arc#"));
         assert_ne!(
@@ -549,15 +553,14 @@ mod tests {
     /// won't override), `remove_arc_worktree` must still leave the directory
     /// gone via its filesystem-wipe fallback — no stranded worktree, no
     /// warning. This drives the real fallback code path on real files.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_remove_arc_worktree_fallback_when_git_refuses() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
-        std::env::set_current_dir(repo).unwrap();
 
-        create("test-arc", None, false, None).unwrap();
+        create_in(repo, "test-arc", None, false, None).unwrap();
         let branch = branch_name("test-arc");
         let worktree = worktree_path(repo, "test-arc");
         assert!(worktree.exists());
@@ -591,14 +594,13 @@ mod tests {
     /// A clean legacy `.tugtree/` worktree migrates to `.tug/worktrees/` on the
     /// next tugarc command; a dirty one stays put and still operates from its
     /// old path ([P13], migration risk mitigation).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_legacy_worktree_migrates_but_dirty_stays() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
         // Stand up two legacy-layout arcs by hand, as pre-migration builds did.
         for name in ["clean", "dirty"] {
@@ -628,8 +630,8 @@ mod tests {
         }
         fs::write(repo.join(".tugtree/tugdash__dirty/scratch.txt"), "wip\n").unwrap();
 
-        // A single list() runs the migration pass.
-        list().unwrap();
+        // A single list_in(&repo) runs the migration pass.
+        list_in(repo).unwrap();
 
         // Clean legacy arc moved to the new home; dirty one stayed at .tugtree.
         assert!(
@@ -650,7 +652,7 @@ mod tests {
         );
 
         // The dirty arc still operates from its old path — commit works on it.
-        let out = commit("dirty", "wip: scratch", None).unwrap();
+        let out = commit_in(repo, "dirty", "wip: scratch", None).unwrap();
         assert!(out.committed, "commit operates on the un-migrated worktree");
     }
 
@@ -664,21 +666,20 @@ mod tests {
     /// key. The second `list()` is the idempotence claim, made byte-for-byte
     /// against `for-each-ref` and `config --list` rather than by re-reading a
     /// few keys, because "changed nothing" is stronger than "still right".
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_branch_prefix_migrates_once_and_carries_everything() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
         // Two arcs under the retired prefix, standing where a pre-rename build
         // left them: a worktree apiece and all four config keys set.
         for name in ["clean", "dirty"] {
             let legacy = format!("tugdash/{name}");
             let wt = repo.join(format!(".tug/worktrees/{name}"));
-            run_git(
+            git(
                 repo,
                 &[
                     "worktree",
@@ -695,13 +696,13 @@ mod tests {
                 ("laidby", "agent/ci"),
                 ("tugid", "1723500000000-a1b2c3"),
             ] {
-                run_git(repo, &["config", &format!("branch.{legacy}.{key}"), value]);
+                git(repo, &["config", &format!("branch.{legacy}.{key}"), value]);
             }
         }
         // The dirty one carries work no rename is allowed to disturb.
         let dirty_wt = repo.join(".tug/worktrees/dirty");
         fs::write(dirty_wt.join("staged.txt"), "staged\n").unwrap();
-        run_git(&dirty_wt, &["add", "staged.txt"]);
+        git(&dirty_wt, &["add", "staged.txt"]);
         fs::write(dirty_wt.join("untracked.txt"), "untracked\n").unwrap();
 
         let heads_before: Vec<String> = ["clean", "dirty"]
@@ -737,7 +738,7 @@ mod tests {
         let worktrees_before = worktree_paths(repo);
 
         // Any verb runs the pass; `list` is the cheapest.
-        list().unwrap();
+        list_in(repo).unwrap();
 
         // The namespace moved, wholesale.
         for name in ["clean", "dirty"] {
@@ -791,7 +792,7 @@ mod tests {
         // Idempotent: a second pass finds nothing to do and changes nothing.
         let refs_after = git_stdout(repo, &["for-each-ref", "--format=%(refname)"]).unwrap();
         let config_after = git_stdout(repo, &["config", "--list"]).unwrap();
-        list().unwrap();
+        list_in(repo).unwrap();
         assert_eq!(
             git_stdout(repo, &["for-each-ref", "--format=%(refname)"]).unwrap(),
             refs_after,
@@ -810,18 +811,17 @@ mod tests {
     /// branch` until a person resolves it — which is the whole point: the two
     /// branches may hold different work, and a migration is not the place to
     /// decide which one somebody meant.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_branch_prefix_clash_leaves_both_and_warns() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
-        run_git(repo, &["branch", "tugdash/clash", "main"]);
-        run_git(repo, &["branch", "tugarc/clash", "main"]);
-        run_git(repo, &["config", "branch.tugarc/clash.tugbase", "main"]);
+        git(repo, &["branch", "tugdash/clash", "main"]);
+        git(repo, &["branch", "tugarc/clash", "main"]);
+        git(repo, &["config", "branch.tugarc/clash.tugbase", "main"]);
 
         let mut warnings = Vec::new();
         migrate_branch_prefix(repo, &mut warnings);
@@ -840,7 +840,7 @@ mod tests {
     /// worktree is gone is named, `--repair` makes the seat through the same
     /// idempotent `create_in` the dispatch calls, and the finding clears;
     /// a name with no arc behind it is refused rather than called healthy.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_doctor_finds_a_missing_seat_and_repair_makes_it() {
         let (_temp, root) = stepped_arc("seat-arc");
@@ -868,7 +868,7 @@ mod tests {
 
         // The worktree deleted by hand — or never made, which read the same.
         let worktree = worktree_path(&root, "seat-arc");
-        run_git(
+        git(
             &root,
             &["worktree", "remove", "--force", &worktree.to_string_lossy()],
         );
@@ -907,7 +907,7 @@ mod tests {
 
         // A worktree parked on some other branch is a seat no round may use,
         // and not one the doctor rebuilds.
-        run_git(&worktree, &["checkout", "-b", "somewhere-else"]);
+        git(&worktree, &["checkout", "-b", "somewhere-else"]);
         let found = crate::doctor::diagnose(&root, "seat-arc")
             .findings
             .into_iter()
@@ -929,7 +929,7 @@ mod tests {
     }
 
     /// A devise-stage arc is owed no seat, so a missing one is not a finding.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_devise_stage_arc_with_no_seat_is_quiet() {
         let temp = TempDir::new().unwrap();

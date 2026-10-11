@@ -3929,31 +3929,20 @@ Some context.
         std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
-        for args in [
-            vec!["init", "-b", "main"],
-            vec!["config", "user.name", "Test User"],
-            vec!["config", "user.email", "test@example.com"],
-        ] {
-            tugcore::git_command()
-                .arg("-C")
-                .arg(root)
-                .args(&args)
-                .output()
-                .unwrap();
-        }
+        tugcore::test_fixtures::git::GitFixture::init(root);
         std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
         let brief = root.join(".tug/arcs/demo/brief.md");
         std::fs::write(&brief, "# A brief\n\n[F01] `src/a.rs` holds it.\n").unwrap();
         tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
 
         let commit = |message: &str| {
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(root)
                 .args(["add", "-A"])
                 .output()
                 .unwrap();
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(root)
                 .args(["commit", "-m", message])
@@ -5338,30 +5327,11 @@ Some context.
     /// what `create_in` needs to make a seat. The arc's own homes are ignored
     /// so the worktree it makes is not base dirt.
     fn git_project(root: &Path) {
-        for args in [
-            vec!["init", "-b", "main"],
-            vec!["config", "user.name", "Test User"],
-            vec!["config", "user.email", "test@example.com"],
-        ] {
-            let out = tugcore::git_command()
-                .arg("-C")
-                .arg(root)
-                .args(&args)
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "git {args:?}");
-        }
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(root);
         std::fs::write(root.join(".gitignore"), ".tug/\n.tugtool/\n").unwrap();
         std::fs::write(root.join("README.md"), "# Test\n").unwrap();
-        for args in [vec!["add", "-A"], vec!["commit", "-m", "Initial commit"]] {
-            let out = tugcore::git_command()
-                .arg("-C")
-                .arg(root)
-                .args(&args)
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "git {args:?}");
-        }
+        fixture.git(&["add", "-A"]);
+        fixture.git(&["commit", "-m", "Initial commit"]);
     }
 
     /// The text of every user-message frame in a drained queue.
@@ -5501,7 +5471,7 @@ Some context.
         let worktree = PathBuf::from(&outcome.worktree);
         std::fs::write(worktree.join("round.txt"), "work\n").unwrap();
         for args in [vec!["add", "-A"], vec!["commit", "-m", "A round"]] {
-            let out = tugcore::git_command()
+            let out = tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(&worktree)
                 .args(&args)
@@ -5510,7 +5480,7 @@ Some context.
             assert!(out.status.success(), "git {args:?}");
         }
         let tip = String::from_utf8(
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(root)
                 .args(["rev-parse", "tugarc/demo"])
@@ -5519,7 +5489,7 @@ Some context.
                 .stdout,
         )
         .unwrap();
-        let out = tugcore::git_command()
+        let out = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(root)
             .args(["worktree", "remove", "--force"])
@@ -5558,7 +5528,7 @@ Some context.
         );
         // And the rounds are still there.
         let still = String::from_utf8(
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(root)
                 .args(["rev-parse", "tugarc/demo"])

@@ -653,7 +653,7 @@ mod tests {
         let worktree = dir.path().join("arcs/tugcast-perf");
         std::fs::create_dir_all(&main).unwrap();
         let git = |args: &[&str]| {
-            let ok = crate::git_command()
+            let ok = crate::test_fixtures::git::command()
                 .arg("-C")
                 .arg(&main)
                 .args(args)

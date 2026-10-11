@@ -9,31 +9,13 @@
 
 mod common;
 use common::tugtool;
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc;
-
-fn git(dir: &Path, args: &[&str]) {
-    let ok = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
-}
-
-fn git_stdout(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
-}
 
 /// A one-shot stand-in for a running tugcast: accepts POSTs, hands each JSON
 /// body back over a channel, and answers `{"status":"ok"}`.
@@ -236,9 +218,7 @@ fn tug(tmp: &Path) -> Command {
 
 /// A repo with an arc that has one round, and a known creation id.
 fn repo_with_arc(root: &Path, name: &str) -> String {
-    git(root, &["init", "-b", "main"]);
-    git(root, &["config", "user.name", "t"]);
-    git(root, &["config", "user.email", "t@t"]);
+    GitFixture::init(root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
@@ -303,13 +283,23 @@ fn a_join_broadcasts_arc_gone_with_the_key_captured_before_teardown() {
 
     // The teardown really happened: nothing could re-derive the key now.
     assert_eq!(
-        git_stdout(&root, &["branch", "--list", "tugarc/demo"]),
+        git(&root, &["branch", "--list", "tugarc/demo"])
+            .trim()
+            .to_string(),
         "",
         "the branch is gone"
     );
     assert_eq!(
-        git_stdout(&root, &["config", "--get", "branch.tugarc/demo.tugid"]),
-        "",
+        // `config --get` exits 1 when the key is absent.
+        tugcore::test_fixtures::git::command()
+            .arg("-C")
+            .arg(&root)
+            .args(["config", "--get", "branch.tugarc/demo.tugid"])
+            .output()
+            .unwrap()
+            .status
+            .code(),
+        Some(1),
         "and its config with it"
     );
 
@@ -561,7 +551,7 @@ fn arc_documents_ensure_bind_posts_the_bind_and_bare_ensure_does_not() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
+    GitFixture::init(&root);
 
     let (port, requests) = fake_tugcast();
     register_fake_instance(&tmp_path, port);
@@ -694,9 +684,12 @@ fn arc_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
     };
 
     assert!(run(&["arc", "join", "cli"]).status.success());
-    let landed = git_stdout(&root, &["rev-parse", "main"]);
+    let landed = git(&root, &["rev-parse", "main"]).trim().to_string();
     assert!(run(&["arc", "undo"]).status.success());
-    assert_ne!(git_stdout(&root, &["rev-parse", "main"]), landed);
+    assert_ne!(
+        git(&root, &["rev-parse", "main"]).trim().to_string(),
+        landed
+    );
 
     let redo = run(&["arc", "redo"]);
     assert!(
@@ -705,7 +698,7 @@ fn arc_redo_reverses_an_undo_and_then_says_there_is_nothing_left() {
         String::from_utf8_lossy(&redo.stderr)
     );
     assert_eq!(
-        git_stdout(&root, &["rev-parse", "main"]),
+        git(&root, &["rev-parse", "main"]).trim().to_string(),
         landed,
         "the redo re-landed the join"
     );
@@ -875,7 +868,7 @@ fn assert_finished(tmp: &Path, root: &Path, name: &str) {
 }
 
 fn branch_exists(root: &Path, branch: &str) -> bool {
-    Command::new("git")
+    tugcore::test_fixtures::git::command()
         .current_dir(root)
         .args(["rev-parse", "--verify", "--quiet", branch])
         .status()
@@ -1017,7 +1010,7 @@ fn a_legacy_journal_on_disk_is_folded_and_continued_by_the_binary() {
     // no operation at all.
     kill_join_at(&tmp_path, &root, "demo", "worktree remove");
     let state = state_dir_with_payloads(&tmp_path);
-    let head = git_stdout(&root, &["rev-parse", "HEAD"]);
+    let head = git(&root, &["rev-parse", "HEAD"]).trim().to_string();
     for entry in std::fs::read_dir(&state).unwrap().flatten() {
         let path = entry.path();
         if path
@@ -1135,9 +1128,7 @@ fn a_refused_claim_fails_arc_create_and_says_so_in_the_json() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
@@ -1195,9 +1186,7 @@ fn a_run_with_no_session_reports_the_claim_skipped_and_succeeds() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
@@ -1236,9 +1225,7 @@ fn a_session_in_another_checkout_skips_the_claim_and_succeeds() {
     let root = repo_dir.path().canonicalize().unwrap();
     let elsewhere = tempfile::tempdir().unwrap();
     let elsewhere = elsewhere.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
@@ -1291,9 +1278,7 @@ fn a_refusal_from_an_instance_that_cannot_place_the_session_only_warns() {
     let tmp_path = tmp.path().canonicalize().unwrap();
     let repo_dir = tempfile::tempdir().unwrap();
     let root = repo_dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::create_dir_all(root.join(".tugtool")).unwrap();
     std::fs::write(root.join(".tugtool/config.toml"), "").unwrap();
     std::fs::write(root.join("a.txt"), "base\n").unwrap();

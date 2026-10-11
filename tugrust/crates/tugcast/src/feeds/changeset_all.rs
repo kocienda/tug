@@ -464,25 +464,10 @@ mod tests {
     use std::time::Duration;
     use tugcast_core::spawn_snapshot_feed;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .expect("run git");
-        assert!(
-            out.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn init_repo(dir: &Path) {
-        git(dir, &["init", "-q", "-b", "main"]);
-        git(dir, &["config", "user.email", "t@t"]);
-        git(dir, &["config", "user.name", "t"]);
+        GitFixture::init(dir);
         std::fs::write(dir.join("committed.txt"), "base\n").unwrap();
         git(dir, &["add", "."]);
         git(dir, &["commit", "-q", "-m", "base commit"]);

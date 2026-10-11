@@ -13,8 +13,6 @@
 //! Run: `cargo nextest run -p tugcast --test feed_subscriptions`
 
 use std::collections::HashMap;
-use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use tempfile::{NamedTempFile, TempDir};
@@ -25,27 +23,14 @@ use common::{TestTugcast, TestWs};
 
 const WIRE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Run a git subcommand in `repo`, asserting success.
-fn git(repo: &Path, args: &[&str]) {
-    let mut full = vec!["-C", repo.to_str().unwrap()];
-    full.extend_from_slice(args);
-    let out = Command::new("git").args(&full).output().expect("run git");
-    assert!(
-        out.status.success(),
-        "git {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 /// A committed one-file repo — enough for tugcast to resolve a bootstrap
 /// workspace and start pushing its snapshot feeds.
 fn make_repo() -> TempDir {
     let temp = TempDir::new().expect("repo tempdir");
     let repo = temp.path();
-    git(repo, &["init"]);
-    git(repo, &["config", "user.name", "test"]);
-    git(repo, &["config", "user.email", "test@test.com"]);
+    GitFixture::init(repo);
     std::fs::write(repo.join("a.txt"), "stable\n").unwrap();
     git(repo, &["add", "-A"]);
     git(repo, &["commit", "-m", "init"]);

@@ -122,15 +122,6 @@ impl OpenOp {
     }
 }
 
-/// Like [`replay_onto`], but discovering the repo root from the process cwd —
-/// the `tugtool arc replay` entry point. `main_repo_root` normalization inside
-/// means it answers the same from the base checkout and from inside any arc
-/// worktree, the way `join` does.
-pub fn replay(name: &str) -> Result<ReplayOutcome, ArcError> {
-    let repo = crate::ops::cwd_repo_root()?;
-    replay_onto(&repo, name)
-}
-
 /// Replay arc `name`'s rounds onto its base branch's current tip.
 ///
 /// Every refusal path leaves the repository exactly as it found it. The move
@@ -562,17 +553,7 @@ mod tests {
     use super::*;
     use crate::log::read_declarations;
     use serial_test::serial;
-
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn set(dir: &Path, rel: &str, content: &str) {
         if let Some(parent) = dir.join(rel).parent() {
@@ -637,9 +618,7 @@ mod tests {
         }
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path();
-        git(repo, &["init", "-b", "main"]);
-        git(repo, &["config", "user.name", "t"]);
-        git(repo, &["config", "user.email", "t@t"]);
+        GitFixture::init(repo);
         set(repo, "f.txt", "A\n");
         git(repo, &["add", "-A"]);
         git(repo, &["commit", "-m", "base"]);
@@ -687,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_replay_records_the_tip_it_actually_left() {
         // Reconciliation rewrites the ledger's cell in place, outside every
         // tree git watches, so the tip a replay leaves is the mapping's tail
@@ -727,7 +706,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn undo_of_a_remapped_replay_puts_the_branch_back() {
         // The end-to-end version of the tip question: with a ledger cell to
         // rewrite, the replay leaves a bookkeeping round on top, and the undo's
@@ -769,7 +748,7 @@ mod tests {
     /// need no re-running anyway: they are committed content on the branch, so
     /// they move when it does.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn redo_of_a_replay_lands_the_recorded_tip_exactly() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         let round = f.tip("tugarc/demo");
@@ -807,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn undo_of_a_replay_refuses_when_a_round_landed_since() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -824,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_replay_with_nothing_to_do_records_no_operation() {
         // `Current` leaves the repository exactly as it found it, so there is
         // nothing to undo and the log must not grow a row that says otherwise.
@@ -841,7 +820,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn clean_replay_moves_the_branch_under_its_live_worktree() {
         // The arc edits g.txt; the base separately edits f.txt — disjoint, so
         // every round replays clean.
@@ -876,7 +855,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_dirty_worktree_defers_and_touches_nothing() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -901,7 +880,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_conflicting_round_names_itself_and_moves_nothing() {
         // Both sides rewrite the same line of f.txt.
         let f = init(&[("f.txt", "arc\n", "arc rewrites f")]);
@@ -925,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_tip_that_moves_between_probe_and_reset_defers() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -947,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_unmoved_base_is_current() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         assert_eq!(
@@ -967,7 +946,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_branch_without_a_worktree_defers() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -987,7 +966,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_arc_with_no_rounds_defers() {
         let f = init(&[]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -999,7 +978,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn an_unknown_arc_is_an_error() {
         let f = init(&[]);
         assert!(replay_onto(f.path(), "nope").is_err());
@@ -1008,7 +987,7 @@ mod tests {
     // ---- bookkeeping ----
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_replay_remaps_the_ledger_without_committing() {
         let f = init(&[]);
         let round = f.round("g.txt", "arc\n", "add g");
@@ -1052,7 +1031,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_hand_rebase_is_reconciled_by_subject_and_refuses_a_duplicate() {
         let f = init(&[]);
         let unique = f.round("g.txt", "one\n", "a unique subject");
@@ -1102,7 +1081,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn a_arc_with_no_plan_still_records_the_replay() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         f.advance_base("f.txt", "B\n", "base moves");
@@ -1113,7 +1092,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn the_replayed_marker_is_invisible_to_stage_derivation() {
         let f = init(&[("g.txt", "arc\n", "add g")]);
         let before = read_declarations(f.path(), "demo");

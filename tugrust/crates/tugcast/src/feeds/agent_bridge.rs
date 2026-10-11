@@ -3873,26 +3873,11 @@ mod tests {
     /// repo-relative. Drives the real `record_cmd_event` against a real
     /// ledger and reads the rows back.
     #[cfg(unix)]
-    fn init_git_repo(root: &Path) {
-        for args in [
-            &["init", "-q"][..],
-            &["config", "user.email", "t@t"][..],
-            &["config", "user.name", "t"][..],
-        ] {
-            tugcore::git_command()
-                .current_dir(root)
-                .args(args)
-                .status()
-                .expect("git");
-        }
-    }
-
-    #[cfg(unix)]
     #[tokio::test]
     async fn record_cmd_event_skips_paths_outside_the_repo() {
         let repo_dir = tempfile::tempdir().expect("tempdir");
         let root = repo_dir.path().canonicalize().expect("canonicalize");
-        init_git_repo(&root);
+        tugcore::test_fixtures::git::GitFixture::init(&root);
         std::fs::write(root.join("a.rs"), "x").expect("write");
 
         let away = tempfile::tempdir().expect("tempdir");
@@ -3955,11 +3940,11 @@ mod tests {
     async fn record_exact_pending_homes_a_file_in_another_repo() {
         let session_dir = tempfile::tempdir().expect("tempdir");
         let session_root = session_dir.path().canonicalize().expect("canonicalize");
-        init_git_repo(&session_root);
+        tugcore::test_fixtures::git::GitFixture::init(&session_root);
 
         let other_dir = tempfile::tempdir().expect("tempdir");
         let other_root = other_dir.path().canonicalize().expect("canonicalize");
-        init_git_repo(&other_root);
+        tugcore::test_fixtures::git::GitFixture::init(&other_root);
         std::fs::create_dir(other_root.join("src")).expect("mkdir");
         std::fs::write(other_root.join("src/b.rs"), "x").expect("write");
 
@@ -4016,7 +4001,7 @@ mod tests {
     async fn record_exact_pending_writes_the_calls_spans_with_its_row() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().canonicalize().expect("canonicalize");
-        init_git_repo(&root);
+        tugcore::test_fixtures::git::GitFixture::init(&root);
         std::fs::write(root.join("a.rs"), "x").expect("write");
 
         let ledger = crate::session_ledger::SessionLedger::open_in_memory().expect("ledger");
@@ -4083,12 +4068,7 @@ mod tests {
             "cache stays None so the next event re-probes"
         );
 
-        tugcore::git_command()
-            .arg("-C")
-            .arg(&dir)
-            .args(["init", "-q"])
-            .output()
-            .expect("git init");
+        tugcore::test_fixtures::git::GitFixture::init(&dir);
 
         let root = ensure_repo_root(&mut cache, dir.to_str().unwrap()).await;
         assert!(
@@ -5298,21 +5278,10 @@ mod tests {
     fn init_bracket_repo() -> tempfile::TempDir {
         let repo = tempfile::tempdir().expect("tempdir");
         let root = repo.path().to_path_buf();
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(&root);
         let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(&root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
+            fixture.git(args);
         };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-q", "-m", "init"]);
@@ -5634,7 +5603,7 @@ mod tests {
         let moved_root = root.clone();
         let rows = bash_bracket_rows(&root, "tug-mv", "git mv a.txt b.txt", move || {
             assert!(
-                tugcore::git_command()
+                tugcore::test_fixtures::git::command()
                     .args(["mv", "a.txt", "b.txt"])
                     .current_dir(&moved_root)
                     .output()
@@ -5709,7 +5678,7 @@ mod tests {
         let cached_root = root.clone();
         let rows = bash_bracket_rows(&root, "tug-cached", "git rm --cached a.txt", move || {
             assert!(
-                tugcore::git_command()
+                tugcore::test_fixtures::git::command()
                     .args(["rm", "-q", "--cached", "a.txt"])
                     .current_dir(&cached_root)
                     .output()
@@ -5733,21 +5702,10 @@ mod tests {
         // Real git repo with a committed file (clean pre-snapshot).
         let repo = tempfile::tempdir().expect("tempdir");
         let root = repo.path().to_path_buf();
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(&root);
         let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(&root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
+            fixture.git(args);
         };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-q", "-m", "init"]);
@@ -5869,21 +5827,10 @@ mod tests {
 
         let repo = tempfile::tempdir().expect("tempdir");
         let root = repo.path().to_path_buf();
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(&root);
         let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(&root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
+            fixture.git(args);
         };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-q", "-m", "init"]);
@@ -5981,21 +5928,10 @@ mod tests {
         // Real git repo with a committed file (clean pre-snapshot).
         let repo = tempfile::tempdir().expect("tempdir");
         let root = repo.path().to_path_buf();
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(&root);
         let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(&root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
+            fixture.git(args);
         };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-q", "-m", "init"]);
@@ -6138,21 +6074,10 @@ mod tests {
         // Real git repo, clean.
         let repo = tempfile::tempdir().expect("tempdir");
         let root = repo.path().to_path_buf();
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(&root);
         let git = |args: &[&str]| {
-            assert!(
-                tugcore::git_command()
-                    .args(args)
-                    .current_dir(&root)
-                    .output()
-                    .expect("git")
-                    .status
-                    .success(),
-                "git {args:?}"
-            );
+            fixture.git(args);
         };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@t.test"]);
-        git(&["config", "user.name", "t"]);
         std::fs::write(root.join("a.txt"), "one\n").unwrap();
         git(&["add", "a.txt"]);
         git(&["commit", "-q", "-m", "init"]);

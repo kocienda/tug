@@ -672,21 +672,7 @@ mod tests {
     /// real project the arc record belongs to.
     fn on_arc_card(root: &std::path::Path) -> SessionLedger {
         // A real repo: `ensure_arc_id` mints through git config.
-        for args in [
-            &["init", "-q"][..],
-            &["config", "user.email", "t@example.com"][..],
-            &["config", "user.name", "T"][..],
-        ] {
-            let ok = tugcore::git_command()
-                .arg("-C")
-                .arg(root)
-                .args(args)
-                .output()
-                .expect("git runs")
-                .status
-                .success();
-            assert!(ok, "git {args:?} failed");
-        }
+        tugcore::test_fixtures::git::GitFixture::init(root);
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
         std::fs::write(
             root.join(".tugtool/config.toml"),
@@ -1776,20 +1762,10 @@ mod tests {
         let main = root.join("checkout");
         let worktree = root.join("arcs/join-arc");
         std::fs::create_dir_all(&main).unwrap();
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(&main);
         let git = |args: &[&str]| {
-            let ok = tugcore::git_command()
-                .arg("-C")
-                .arg(&main)
-                .args(args)
-                .output()
-                .expect("git runs")
-                .status
-                .success();
-            assert!(ok, "git {args:?} failed");
+            fixture.git(args);
         };
-        git(&["init", "-q"]);
-        git(&["config", "user.email", "t@example.com"]);
-        git(&["config", "user.name", "T"]);
         std::fs::write(main.join("seed"), b"seed").unwrap();
         git(&["add", "seed"]);
         git(&["commit", "-qm", "seed"]);

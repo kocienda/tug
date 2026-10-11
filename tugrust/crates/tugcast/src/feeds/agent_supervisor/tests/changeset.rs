@@ -588,14 +588,7 @@ async fn changeset_refresh_fires_the_aggregate_bump() {
 
 #[tokio::test]
 async fn changeset_join_previews_and_executes() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let status = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// The next control frame that is not one of the join's beats.
     ///
@@ -635,9 +628,7 @@ async fn changeset_join_previews_and_executes() {
     // commit ahead, checked out in a `.tug/worktrees/demo` worktree.
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("keep.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -677,7 +668,7 @@ async fn changeset_join_previews_and_executes() {
     assert_eq!(done["action"], "changeset_join_ok");
     assert_eq!(done["previewed"], false);
     assert!(done["commit_hash"].is_string(), "real join lands a commit");
-    let tree = tugcore::git_command()
+    let tree = tugcore::test_fixtures::git::command()
         .current_dir(&root)
         .args(["ls-tree", "--name-only", "HEAD"])
         .output()
@@ -686,7 +677,7 @@ async fn changeset_join_previews_and_executes() {
         String::from_utf8_lossy(&tree.stdout).contains("round.txt"),
         "squash landed the arc file on main"
     );
-    let branches = tugcore::git_command()
+    let branches = tugcore::test_fixtures::git::command()
         .current_dir(&root)
         .args(["branch", "--list", "tugarc/demo"])
         .output()
@@ -723,22 +714,13 @@ async fn changeset_join_previews_and_executes() {
 /// ([L29]) — the same rule `changeset_join_resolve_delta` already follows.
 #[tokio::test]
 async fn a_join_narrates_its_beats_on_the_wire() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let status = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("keep.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -870,22 +852,13 @@ async fn a_join_narrates_its_beats_on_the_wire() {
 /// remove ([B04], [B05]).
 #[tokio::test]
 async fn changeset_delete_documents_removes_only_the_documents() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let status = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("keep.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -940,14 +913,7 @@ async fn changeset_delete_documents_removes_only_the_documents() {
 
 #[tokio::test]
 async fn changeset_discard_discards_arc() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let status = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// The next control frame that is not one of the join's beats.
     ///
@@ -973,9 +939,7 @@ async fn changeset_discard_discards_arc() {
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("keep.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -1002,7 +966,7 @@ async fn changeset_discard_discards_arc() {
     assert_eq!(done["action"], "changeset_discard_ok");
     assert_eq!(done["name"], "demo");
 
-    let branches = tugcore::git_command()
+    let branches = tugcore::test_fixtures::git::command()
         .current_dir(&root)
         .args(["branch", "--list", "tugarc/demo"])
         .output()
@@ -1071,22 +1035,13 @@ async fn changeset_replay_guards_refuse_with_err() {
 /// dead button if the frame carried no word.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changeset_replay_reports_current_when_the_base_has_not_moved() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let status = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("keep.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -1145,15 +1100,7 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
         }
     }
 
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
     sup.set_scribe(ScribeContext {
@@ -1165,9 +1112,7 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
     // rungs can't resolve it, so the scribe AI rung does.
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("f.txt"), "A\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -1249,7 +1194,7 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
 
     // The candidate's f.txt carries the scribe's merged content.
     let candidate = ok["candidate_commit"].as_str().unwrap();
-    let show = tugcore::git_command()
+    let show = tugcore::test_fixtures::git::command()
         .current_dir(&root)
         .args(["show", &format!("{candidate}:f.txt")])
         .output()
@@ -1262,21 +1207,11 @@ async fn changeset_join_resolve_uses_scribe_and_reports_candidate() {
 /// A repo on `main` with an arc that changed a shared path, and the base
 /// dirty over that same path — the overlap a fold exists to clear.
 fn base_dirt_repo() -> (tempfile::TempDir, std::path::PathBuf) {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("f.txt"), "A\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -1444,7 +1379,7 @@ async fn changeset_join_resolve_base_undo_reverts_the_fold_and_bumps() {
     let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
     assert_eq!(body["action"], "changeset_join_resolve_base_ok", "{body}");
 
-    let porcelain = tugcore::git_command()
+    let porcelain = tugcore::test_fixtures::git::command()
         .current_dir(&root)
         .args(["status", "--porcelain", "--", "f.txt"])
         .output()
@@ -1481,7 +1416,7 @@ async fn changeset_join_resolve_base_undo_reverts_the_fold_and_bumps() {
         "and where the base was put back: {body}"
     );
 
-    let porcelain = tugcore::git_command()
+    let porcelain = tugcore::test_fixtures::git::command()
         .current_dir(&root)
         .args(["status", "--porcelain", "--", "f.txt"])
         .output()
@@ -1504,15 +1439,7 @@ async fn changeset_join_resolve_base_undo_reverts_the_fold_and_bumps() {
 /// `reset --hard` on the workshop the first one's resolver was editing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_live_resolve_refuses_every_other_run_on_that_arc() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// The next frame whose action is one of `wanted`, ignoring deltas.
     async fn await_action(
@@ -1540,9 +1467,7 @@ async fn a_live_resolve_refuses_every_other_run_on_that_arc() {
     // the resolver rung runs — which is what keeps the arc held.
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("f.txt"), "A\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -1939,23 +1864,13 @@ fn a_receipt_from_a_transcript_less_session_still_lands_unanchored() {
 /// in git and still has to show up in the state the feed composes.
 #[tokio::test]
 async fn a_resolve_survives_losing_every_control_frame() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (sup, _state_rx, _meta_rx, control_rx) = make_supervisor_with_store();
 
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("f.txt"), "A\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -2096,15 +2011,7 @@ fn draft_session_snapshot(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changeset_draft_request_spawns_generation_over_snapshot() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
     sup.session_ledger = Some(Arc::new(
@@ -2118,9 +2025,7 @@ async fn changeset_draft_request_spawns_generation_over_snapshot() {
     // A repo with a committed file and one tracked modification.
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
-    git(&root, &["init", "-b", "main"]);
-    git(&root, &["config", "user.name", "t"]);
-    git(&root, &["config", "user.email", "t@t"]);
+    GitFixture::init(&root);
     std::fs::write(root.join("a.txt"), "base\n").unwrap();
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
@@ -2486,25 +2391,11 @@ async fn a_failed_draft_delete_is_logged_and_still_bumps() {
 /// `session_id` writes no row (R02).
 #[tokio::test]
 async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
-    fn git(dir: &std::path::Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .expect("run git");
-        assert!(
-            out.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     let temp = tempfile::tempdir().expect("tempdir");
     let repo = temp.path().canonicalize().expect("canonicalize");
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["config", "user.email", "t@t"]);
-    git(&repo, &["config", "user.name", "t"]);
+    GitFixture::init(&repo);
     std::fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "init"]);

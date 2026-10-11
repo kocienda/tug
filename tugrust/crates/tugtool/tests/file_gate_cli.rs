@@ -12,18 +12,14 @@ use common::{tugtool, tugtool_bin};
 
 use std::path::Path;
 use std::process::{Command, Output};
+use tugcore::test_fixtures::git::GitFixture;
 
 /// The gate resolves a path against a checkout, so the test needs a real one.
 /// `git init` rather than a hand-written `.git` because this is the process
 /// tier: the thing under test is what happens on a real tree.
 fn checkout() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("temp");
-    let out = Command::new("git")
-        .args(["init", "-q", "-b", "main"])
-        .current_dir(dir.path())
-        .output()
-        .expect("git init");
-    assert!(out.status.success(), "git init failed");
+    GitFixture::init(dir.path());
     dir
 }
 

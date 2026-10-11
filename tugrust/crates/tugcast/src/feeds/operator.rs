@@ -2481,24 +2481,10 @@ mod tests {
     /// A real git repo with two commits — the crate's git-feed tests' pattern.
     fn git_repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
+        let fixture = tugcore::test_fixtures::git::GitFixture::init(dir.path());
         let run = |args: &[&str]| {
-            let status = tugcore::git_command()
-                .arg("-C")
-                .arg(dir.path())
-                .args(args)
-                .env("GIT_AUTHOR_NAME", "Test")
-                .env("GIT_AUTHOR_EMAIL", "test@example.com")
-                .env("GIT_COMMITTER_NAME", "Test")
-                .env("GIT_COMMITTER_EMAIL", "test@example.com")
-                .output()
-                .expect("git");
-            assert!(
-                status.status.success(),
-                "git {args:?}: {}",
-                String::from_utf8_lossy(&status.stderr)
-            );
+            fixture.git(args);
         };
-        run(&["init", "-q", "-b", "main"]);
         std::fs::write(dir.path().join("alpha.txt"), "hello overview\n").unwrap();
         // The incident's shape, reproduced: a document in a subdirectory whose
         // text contains `zone`, so `%design-notes.md` — the LIKE-contaminated
@@ -3584,7 +3570,7 @@ mod tests {
                 "big",
             ],
         ] {
-            let out = tugcore::git_command()
+            let out = tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(f.repo.path())
                 .args(&args)
@@ -3597,7 +3583,7 @@ mod tests {
             );
         }
         let head = String::from_utf8(
-            tugcore::git_command()
+            tugcore::test_fixtures::git::command()
                 .arg("-C")
                 .arg(f.repo.path())
                 .args(["rev-parse", "HEAD"])

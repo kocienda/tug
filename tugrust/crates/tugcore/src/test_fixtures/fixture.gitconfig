@@ -1,0 +1,7 @@
+# The hermetic git fixture's global config (`test_fixtures::git`): an
+# identity and the default branch, and nothing else.
+[user]
+	name = Test User
+	email = test@example.com
+[init]
+	defaultBranch = main

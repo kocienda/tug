@@ -1,12 +1,12 @@
 //! Fixtures shared by the `ops` test modules.
 
 #![cfg(test)]
-#![allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 
 use super::*;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
+pub(crate) use tugcore::test_fixtures::git::{GitFixture, git};
 
 pub(crate) fn porcelain_of(repo: &Path) -> String {
     git_stdout(repo, &["status", "--porcelain"]).unwrap()
@@ -15,15 +15,16 @@ pub(crate) fn porcelain_of(repo: &Path) -> String {
 /// Redirect `project_state_dir`'s base off the real data dir for the
 /// duration of a (serial) test, so the arc log lands under `home`.
 pub(crate) fn redirect_state_dir(home: &Path) {
-    // SAFETY: arc tests are #[serial]; no other thread reads the
-    // environment concurrently while this runs.
+    // SAFETY: every caller is `#[serial(tug_data_dir)]` — no state-dir
+    // parameter exists, so the variable is the only way in — and nextest
+    // runs each test in its own process besides.
     unsafe {
         std::env::set_var("TUG_DATA_DIR", home);
     }
 }
 
 /// A git repo under `temp`, with the redirected project-state dir as its
-/// *sibling* rather than a child, and the cwd left on it.
+/// *sibling* rather than a child.
 ///
 /// Production never puts project state inside a working tree. A fixture
 /// that does makes every arc log write — including the birth record
@@ -35,44 +36,16 @@ pub(crate) fn repo_beside_state(temp: &TempDir) -> std::path::PathBuf {
     fs::create_dir_all(&repo).unwrap();
     init_git_repo(&repo);
     redirect_state_dir(&temp.path().join("state"));
-    std::env::set_current_dir(&repo).unwrap();
     repo
 }
 
 pub(crate) fn commit_all(path: &Path, message: &str) {
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["add", "-A"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["commit", "-m", message])
-        .output()
-        .unwrap();
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-m", message]);
 }
 
 pub(crate) fn init_git_repo(path: &Path) {
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["init", "-b", "main"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["config", "user.name", "Test User"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["config", "user.email", "test@example.com"])
-        .output()
-        .unwrap();
+    GitFixture::init(path);
 
     // Both worktree homes, matching what a real tugtool checkout ignores —
     // the census reads untracked files with `--exclude-standard`, so a test
@@ -83,39 +56,12 @@ pub(crate) fn init_git_repo(path: &Path) {
     fs::write(path.join(".tugtool/.keep"), "").unwrap();
 
     fs::write(path.join("README.md"), "# Test\n").unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["add", "-A"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(path)
-        .args(["commit", "-m", "Initial commit"])
-        .output()
-        .unwrap();
+    git(path, &["add", "-A"]);
+    git(path, &["commit", "-m", "Initial commit"]);
 }
 
 pub(crate) fn branch_present(repo: &Path, branch: &str) -> bool {
-    let out = tugcore::git_command()
-        .arg("-C")
-        .arg(repo)
-        .args(["branch", "--list", branch])
-        .output()
-        .unwrap();
-    !String::from_utf8_lossy(&out.stdout).trim().is_empty()
-}
-
-pub(crate) fn run_git(repo: &Path, args: &[&str]) {
-    let ok = tugcore::git_command()
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "git {args:?} failed");
+    !git(repo, &["branch", "--list", branch]).trim().is_empty()
 }
 
 /// Join options for a test whose subject is the join's **mechanics** — the
@@ -244,14 +190,8 @@ Some context.
 /// worktree's own git dir — for a linked worktree that is
 /// `…/.git/worktrees/<name>/`, not a `.git` directory beside the files.
 pub(crate) fn index_lock_path(worktree: &Path) -> std::path::PathBuf {
-    let git_dir = tugcore::git_command()
-        .arg("-C")
-        .arg(worktree)
-        .args(["rev-parse", "--absolute-git-dir"])
-        .output()
-        .unwrap();
-    let dir = String::from_utf8_lossy(&git_dir.stdout).trim().to_string();
-    Path::new(&dir).join("index.lock")
+    let dir = git(worktree, &["rev-parse", "--absolute-git-dir"]);
+    Path::new(dir.trim()).join("index.lock")
 }
 
 /// Take the index lock and release it after `hold`.
@@ -272,13 +212,7 @@ pub(crate) fn hold_index_lock(
 }
 
 pub(crate) fn head_sha(dir: &Path) -> String {
-    let out = tugcore::git_command()
-        .arg("-C")
-        .arg(dir)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
+    git(dir, &["rev-parse", "HEAD"]).trim().to_string()
 }
 
 /// A plain repo with one commit and one uncommitted change — the shape
@@ -288,18 +222,8 @@ pub(crate) fn dirty_repo(temp: &TempDir) -> std::path::PathBuf {
     fs::create_dir_all(&repo).unwrap();
     init_git_repo(&repo);
     fs::write(repo.join("a.txt"), "base\n").unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(&repo)
-        .args(["add", "-A"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(&repo)
-        .args(["commit", "-q", "-m", "base"])
-        .output()
-        .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
     fs::write(repo.join("a.txt"), "dirty\n").unwrap();
     repo
 }
@@ -311,18 +235,11 @@ pub(crate) fn author_round(worktree: &Path, n: u32) {
         format!("work {n}\n"),
     )
     .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(worktree)
-        .args(["add", "-A"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(worktree)
-        .args(["commit", "-q", "-m", &format!("tugarc(d): round {n}")])
-        .output()
-        .unwrap();
+    git(worktree, &["add", "-A"]);
+    git(
+        worktree,
+        &["commit", "-q", "-m", &format!("tugarc(d): round {n}")],
+    );
 }
 
 /// Stand up a repo with an arc whose documents home holds [`TWO_STEP_PLAN`].
@@ -330,7 +247,7 @@ pub(crate) fn author_round(worktree: &Path, n: u32) {
 pub(crate) fn stepped_arc(name: &str) -> (TempDir, std::path::PathBuf) {
     let temp = TempDir::new().unwrap();
     let repo = repo_beside_state(&temp);
-    create(name, None, false, None).unwrap();
+    create_in(&repo, name, None, false, None).unwrap();
 
     let plan = plan_file(&repo, name);
     fs::create_dir_all(plan.parent().unwrap()).unwrap();
@@ -375,10 +292,10 @@ pub(crate) fn wheeled_arc(name: &str) -> (TempDir, std::path::PathBuf) {
     crate::arc::append_arc_start(&root, name, &format!(".tug/arcs/{name}/plan.md")).unwrap();
     crate::arc::append_arc_stage(&root, name, crate::arc::ArcStage::Implement, "sess-1", None)
         .unwrap();
-    step_start(name, 1, 1).unwrap();
+    step_start_in(&root, name, 1, 1).unwrap();
     fs::write(worktree_path(&root, name).join("one.txt"), "first\n").unwrap();
-    commit(name, "r1", None).unwrap();
-    step_done(name, 1, None).unwrap();
+    commit_in(&root, name, "r1", None).unwrap();
+    step_done_in(&root, name, 1, None).unwrap();
     (temp, root)
 }
 
@@ -397,11 +314,31 @@ pub(crate) fn dirt_entry<'a>(out: &'a CreateOutcome, path: &str) -> &'a BaseDirt
         .unwrap_or_else(|| panic!("{path} not censused: {:?}", out.base_dirt))
 }
 
-/// Pin the repo universe for the rest of this test's process.
-pub(crate) fn set_universe(path: &Path) {
-    // SAFETY: serial test under nextest; see redirect_state_dir.
+/// Pin the repo universe until the returned guard drops.
+///
+/// The guard is the point: under `cargo test` every test shares one process,
+/// and a universe left pinned after its temp dir is gone makes every later
+/// test resolve its root against a path that no longer exists.
+#[must_use = "the universe is unpinned when the guard drops"]
+pub(crate) fn set_universe(path: &Path) -> UniverseGuard {
+    // SAFETY: every caller is `#[serial(tug_repo_universe, …)]` — the
+    // resolver takes the boundary from the environment alone — and nextest
+    // runs each test in its own process besides.
     unsafe {
         std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, path);
+    }
+    UniverseGuard
+}
+
+/// Unpins the repo universe on drop, including when the test panics.
+pub(crate) struct UniverseGuard;
+
+impl Drop for UniverseGuard {
+    fn drop(&mut self) {
+        // SAFETY: see `set_universe`.
+        unsafe {
+            std::env::remove_var(tugtool_core::REPO_UNIVERSE_ENV);
+        }
     }
 }
 
@@ -409,15 +346,18 @@ pub(crate) fn set_universe(path: &Path) {
 /// that is itself the universe — the shape an app-test run has, where the
 /// worktree is the project the instance under test has open.
 ///
-/// Returns `(base, universe)`, both canonicalized so they compare equal to
-/// what the resolver returns, with the cwd left on the universe.
-pub(crate) fn base_with_universe(temp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
+/// Returns `(base, universe, guard)`, the two paths canonicalized so they
+/// compare equal to what the resolver returns; the universe stays pinned
+/// while `guard` lives.
+pub(crate) fn base_with_universe(
+    temp: &TempDir,
+) -> (std::path::PathBuf, std::path::PathBuf, UniverseGuard) {
     let base = temp.path().join("base");
     fs::create_dir_all(&base).unwrap();
     init_git_repo(&base);
     redirect_state_dir(&temp.path().join("state"));
     let universe = temp.path().join("universe");
-    run_git(
+    git(
         &base,
         &[
             "worktree",
@@ -427,24 +367,17 @@ pub(crate) fn base_with_universe(temp: &TempDir) -> (std::path::PathBuf, std::pa
             "feature",
         ],
     );
-    set_universe(&universe);
-    std::env::set_current_dir(&universe).unwrap();
+    let guard = set_universe(&universe);
     (
         fs::canonicalize(&base).unwrap(),
         fs::canonicalize(&universe).unwrap(),
+        guard,
     )
 }
 
 /// The commit a revision names, as a full sha.
 pub(crate) fn rev_parse_at(repo: &Path, rev: &str) -> String {
-    let out = tugcore::git_command()
-        .arg("-C")
-        .arg(repo)
-        .args(["rev-parse", rev])
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "git rev-parse {rev} failed");
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
+    git(repo, &["rev-parse", rev]).trim().to_string()
 }
 
 /// Seed a repo with one commit and an arc carrying one round, returning the
@@ -454,18 +387,19 @@ pub(crate) fn seed_arc_with_a_round(temp: &TempDir, name: &str) {
     let repo = temp.path();
     init_git_repo(repo);
     redirect_state_dir(&temp.path().join("state"));
-    std::env::set_current_dir(repo).unwrap();
     fs::write(repo.join("shared.txt"), "base\n").unwrap();
     git_output(repo, &["add", "."]).unwrap();
     git_output(repo, &["commit", "-m", "seed"]).unwrap();
-    create(name, None, false, None).unwrap();
+    create_in(repo, name, None, false, None).unwrap();
     let worktree = repo.join(".tug/worktrees").join(name);
     fs::write(worktree.join("shared.txt"), "base\narc change\n").unwrap();
-    commit(name, "touch shared", None).unwrap();
+    commit_in(repo, name, "touch shared", None).unwrap();
 }
 
-pub(crate) fn preview(name: &str) -> JoinOutcome {
-    join(
+/// A join preview of `name` against `root`, unwrapped.
+pub(crate) fn preview_in(root: &Path, name: &str) -> JoinOutcome {
+    join_in(
+        root,
         name,
         JoinOptions {
             preview: true,
@@ -483,8 +417,9 @@ pub(crate) fn blocker<'a>(outcome: &'a JoinOutcome, kind: &str) -> Option<&'a Jo
 /// (serial) test, so a message composition never reads — or is coloured by —
 /// the live machine ledger.
 pub(crate) fn isolate_changes_db(temp: &TempDir) {
-    // SAFETY: these tests are #[serial]; no other thread reads the
-    // environment concurrently while this runs.
+    // SAFETY: every caller is `#[serial(tug_changes_db, …)]` — the draft
+    // reader takes no path parameter — and nextest runs each test in its
+    // own process besides.
     unsafe {
         std::env::set_var("TUG_CHANGES_DB", temp.path().join("changes.db"));
     }
@@ -539,20 +474,16 @@ pub(crate) fn write_arc_document(root: &Path, arc: &str, file: &str) {
 }
 
 pub(crate) fn checked_out_branch(repo: &Path) -> String {
-    let out = tugcore::git_command()
-        .arg("-C")
-        .arg(repo)
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
+    git(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .trim()
+        .to_string()
 }
 
 /// A repo with one plain arc and no documents anywhere.
 pub(crate) fn plain_arc(name: &str) -> (TempDir, std::path::PathBuf) {
     let temp = TempDir::new().unwrap();
     let repo = repo_beside_state(&temp);
-    create(name, None, false, None).unwrap();
+    create_in(&repo, name, None, false, None).unwrap();
     let root = fs::canonicalize(&repo).unwrap();
     (temp, root)
 }
@@ -562,35 +493,13 @@ pub(crate) fn plain_arc(name: &str) -> (TempDir, std::path::PathBuf) {
 pub(crate) fn bare_repo_beside_state(temp: &TempDir) -> std::path::PathBuf {
     let repo = temp.path().join("repo");
     fs::create_dir_all(&repo).unwrap();
-    for args in [
-        vec!["init", "-b", "main"],
-        vec!["config", "user.name", "Test User"],
-        vec!["config", "user.email", "test@example.com"],
-    ] {
-        tugcore::git_command()
-            .arg("-C")
-            .arg(&repo)
-            .args(&args)
-            .output()
-            .unwrap();
-    }
+    GitFixture::init(&repo);
     fs::create_dir_all(repo.join(".tugtool")).unwrap();
     fs::write(repo.join(".tugtool/.keep"), "").unwrap();
     fs::write(repo.join("README.md"), "# Test\n").unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(&repo)
-        .args(["add", "-A"])
-        .output()
-        .unwrap();
-    tugcore::git_command()
-        .arg("-C")
-        .arg(&repo)
-        .args(["commit", "-m", "init"])
-        .output()
-        .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-m", "init"]);
     redirect_state_dir(&temp.path().join("state"));
-    std::env::set_current_dir(&repo).unwrap();
     repo
 }
 
@@ -646,7 +555,7 @@ pub(crate) fn ops_for(repo: &Path, name: &str) -> Vec<crate::oplog::OpPayload> {
 pub(crate) fn park_conflict(repo: &Path, name: &str) -> String {
     let worktree = worktree_path(repo, name);
     fs::write(worktree.join("shared.txt"), "base\narc side\n").unwrap();
-    commit(name, "arc edits shared", None).unwrap();
+    commit_in(repo, name, "arc edits shared", None).unwrap();
     fs::write(repo.join("shared.txt"), "base\nbase side\n").unwrap();
     git_output(repo, &["add", "."]).unwrap();
     git_output(repo, &["commit", "-m", "base edits shared"]).unwrap();
@@ -706,11 +615,10 @@ pub(crate) fn repo_with_committed_arc(name: &str) -> (TempDir, std::path::PathBu
     let repo = fs::canonicalize(temp.path()).unwrap();
     init_git_repo(&repo);
     redirect_state_dir(&temp.path().join("state"));
-    std::env::set_current_dir(&repo).unwrap();
-    create(name, None, false, None).unwrap();
+    create_in(&repo, name, None, false, None).unwrap();
     let worktree = repo.join(format!(".tug/worktrees/{name}"));
     fs::write(worktree.join("f.txt"), "arc\n").unwrap();
-    commit(name, &format!("{name}-only"), None).unwrap();
+    commit_in(&repo, name, &format!("{name}-only"), None).unwrap();
     (temp, repo)
 }
 
@@ -740,5 +648,5 @@ pub(crate) fn seed_arc_that_adds_files(temp: &TempDir, name: &str) {
     fs::write(worktree.join("added.txt"), "new in the arc\n").unwrap();
     fs::create_dir_all(worktree.join("nested")).unwrap();
     fs::write(worktree.join("nested/extra.txt"), "also new\n").unwrap();
-    commit(name, "add files", None).unwrap();
+    commit_in(temp.path(), name, "add files", None).unwrap();
 }

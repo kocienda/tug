@@ -326,13 +326,17 @@ pub(super) fn step_in(
     })
 }
 
-/// [`step_reset`] against a repo root the caller already holds.
+/// Park a step: the ledger row goes back to `pending`, its commit cell is
+/// cleared, and the log records the park.
 ///
-/// The CLI resolves its root from the cwd, which is the one thing a server
-/// cannot do: the arc runner holds the project path as a fact and runs from
-/// wherever tugcast was launched. So the body lives here and `step_reset`
-/// delegates to it — one park, whichever door reached it, rather than two
-/// that are free to drift.
+/// This is the gesture withdraw was being pressed into meaning and does not
+/// mean. A withdrawal *closes* a step — it advances the run and can arm the
+/// join — which is the right record for "we decided not to walk this" and the
+/// wrong one for "we opened this and are putting it down". A park says the
+/// second thing: nothing is claimed about the step, and the run has not moved
+/// past it.
+///
+/// Refused on `done`, which is [`step_reopen_in`]'s business.
 pub fn step_reset_in(
     repo_root: &Path,
     name: &str,
@@ -341,6 +345,88 @@ pub fn step_reset_in(
 ) -> Result<StepOutcome, ArcError> {
     reconcile_branches(repo_root, &mut Vec::new());
     step_in(repo_root, name, step, StepPhase::Reset, None, None, why)
+}
+
+/// Begin a step: the ledger row goes `in progress` and the log records it.
+///
+/// Idempotent on a row already `in progress` ([P04]), so an interrupted run
+/// re-enters the step it was on without a hand-edit.
+///
+/// `through` is the final step of this run's selection, which the log records
+/// so the join can tell a finished run from a paused one ([P01]).
+pub fn step_start_in(
+    repo_root: &Path,
+    name: &str,
+    step: u32,
+    through: u32,
+) -> Result<StepOutcome, ArcError> {
+    reconcile_branches(repo_root, &mut Vec::new());
+    step_in(
+        repo_root,
+        name,
+        step,
+        StepPhase::Start,
+        None,
+        Some(through),
+        None,
+    )
+}
+
+/// Finish a step: the ledger row goes `done` and records the round's commit.
+pub fn step_done_in(
+    repo_root: &Path,
+    name: &str,
+    step: u32,
+    commit: Option<&str>,
+) -> Result<StepOutcome, ArcError> {
+    reconcile_branches(repo_root, &mut Vec::new());
+    step_in(repo_root, name, step, StepPhase::Done, commit, None, None)
+}
+
+/// Withdraw a step: the ledger row goes `withdrawn` and the commit cell stays
+/// empty, because a step nobody walked produced no round.
+///
+/// A withdrawal closes the step and advances the run exactly as a completion
+/// does, so withdrawing a run's final selected step arms the join rather than
+/// wedging the arc. It is reversible through [`step_start_in`].
+pub fn step_withdraw_in(repo_root: &Path, name: &str, step: u32) -> Result<StepOutcome, ArcError> {
+    reconcile_branches(repo_root, &mut Vec::new());
+    step_in(
+        repo_root,
+        name,
+        step,
+        StepPhase::Withdrawn,
+        None,
+        None,
+        None,
+    )
+}
+
+/// Reopen a finished step: the ledger row goes `done` → `in progress`, its
+/// commit cell stands, and the log records why.
+///
+/// The audit-rejected case, and the reason `done` is no longer the end of the
+/// road. The log line does two things: it names the reason, so a later reader
+/// knows what the re-walk is answering, and it **un-arms the join** — the
+/// generation's last close is gone, so `run_complete` reads false until the
+/// step closes again. An arc whose work an audit rejected must not be offerable
+/// for landing, and that fact now lives in the log rather than in a person.
+pub fn step_reopen_in(
+    repo_root: &Path,
+    name: &str,
+    step: u32,
+    why: &str,
+) -> Result<StepOutcome, ArcError> {
+    reconcile_branches(repo_root, &mut Vec::new());
+    step_in(
+        repo_root,
+        name,
+        step,
+        StepPhase::Reopen,
+        None,
+        None,
+        Some(why),
+    )
 }
 
 /// Resolve `rev` to a commit in `worktree`, or say why it does not.
@@ -374,7 +460,6 @@ fn verify_commit(worktree: &Path, rev: &str) -> Result<String, ArcError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 mod tests {
     use super::*;
     use crate::ops::test_support::*;
@@ -383,12 +468,12 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_verbs_drive_the_ledger_and_the_arc_log_together() {
         let (_temp, root) = stepped_arc("step-arc");
 
-        let started = step_start("step-arc", 1, 2).unwrap();
+        let started = step_start_in(&root, "step-arc", 1, 2).unwrap();
         assert_eq!(
             started.plan,
             plan_file(&root, "step-arc").display().to_string()
@@ -408,7 +493,7 @@ mod tests {
         );
 
         let head = worktree_head(&root, "step-arc");
-        let done = step_done("step-arc", 1, Some(&head)).unwrap();
+        let done = step_done_in(&root, "step-arc", 1, Some(&head)).unwrap();
         assert_eq!(done.commit.as_deref(), Some(head.as_str()));
         let row = ledger_row(&root, "step-arc", "step-1");
         assert_eq!(row.status, "done");
@@ -416,7 +501,7 @@ mod tests {
 
         // Nothing records where the plan is; the next step finds it at the same
         // address the first one did.
-        let next = step_start("step-arc", 2, 2).unwrap();
+        let next = step_start_in(&root, "step-arc", 2, 2).unwrap();
         assert_eq!(
             next.plan,
             plan_file(&root, "step-arc").display().to_string()
@@ -429,13 +514,13 @@ mod tests {
 
     /// The park: an opened step goes back to never-walked, in the table and in
     /// the log, and the run does not advance past it.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_reset_parks_an_open_step_in_both_records() {
         let (_temp, root) = stepped_arc("park-arc");
 
-        step_start("park-arc", 1, 2).unwrap();
-        let parked = step_reset("park-arc", 1, Some("the approach was wrong")).unwrap();
+        step_start_in(&root, "park-arc", 1, 2).unwrap();
+        let parked = step_reset_in(&root, "park-arc", 1, Some("the approach was wrong")).unwrap();
         assert_eq!(parked.status, "pending");
         assert_eq!(parked.commit, None);
         assert_eq!(ledger_row(&root, "park-arc", "step-1").status, "pending");
@@ -454,21 +539,21 @@ mod tests {
         );
 
         // And it is genuinely a park, not a close: the step opens again.
-        let reopened = step_start("park-arc", 1, 2).unwrap();
+        let reopened = step_start_in(&root, "park-arc", 1, 2).unwrap();
         assert_eq!(reopened.status, "in progress");
     }
 
     /// A park is refused on a finished row. Un-finishing is `reopen`'s act,
     /// and the two keep different records for a reason.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_reset_refuses_a_done_row() {
         let (_temp, root) = stepped_arc("park-done-arc");
-        step_start("park-done-arc", 1, 2).unwrap();
-        step_done("park-done-arc", 1, None).unwrap();
+        step_start_in(&root, "park-done-arc", 1, 2).unwrap();
+        step_done_in(&root, "park-done-arc", 1, None).unwrap();
 
         let before = fs::read_to_string(plan_file(&root, "park-done-arc")).unwrap();
-        let err = step_reset("park-done-arc", 1, None)
+        let err = step_reset_in(&root, "park-done-arc", 1, None)
             .unwrap_err()
             .to_string();
         assert!(
@@ -485,20 +570,21 @@ mod tests {
     /// Reopen is the audit-rejected case: the row comes back to `in progress`
     /// keeping its sha, and — the settled decision — the join un-arms until the
     /// step closes again.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_reopen_unarms_the_join_until_the_step_recloses() {
         let (_temp, root) = stepped_arc("reopen-arc");
         let worktree = worktree_path(&root, "reopen-arc");
 
-        step_start("reopen-arc", 1, 1).unwrap();
+        step_start_in(&root, "reopen-arc", 1, 1).unwrap();
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("reopen-arc", "r1", None).unwrap();
-        let done = step_done("reopen-arc", 1, None).unwrap();
+        commit_in(&root, "reopen-arc", "r1", None).unwrap();
+        let done = step_done_in(&root, "reopen-arc", 1, None).unwrap();
         let sha = done.commit.clone().unwrap();
         assert!(arc_detail_entry_in(&root, "reopen-arc").unwrap().join_ready);
 
-        let reopened = step_reopen("reopen-arc", 1, "the audit rejected the approach").unwrap();
+        let reopened =
+            step_reopen_in(&root, "reopen-arc", 1, "the audit rejected the approach").unwrap();
         assert_eq!(reopened.status, "in progress");
         assert_eq!(
             reopened.commit.as_deref(),
@@ -525,8 +611,8 @@ mod tests {
 
         // Re-closing re-arms it, with no further gesture.
         fs::write(worktree.join("one.txt"), "second try\n").unwrap();
-        commit("reopen-arc", "r2", None).unwrap();
-        step_done("reopen-arc", 1, None).unwrap();
+        commit_in(&root, "reopen-arc", "r2", None).unwrap();
+        step_done_in(&root, "reopen-arc", 1, None).unwrap();
         let detail = arc_detail_entry_in(&root, "reopen-arc").unwrap();
         assert!(detail.run_complete);
         assert!(detail.join_ready);
@@ -547,7 +633,7 @@ mod tests {
     /// nothing it passed is open" — which the re-close makes true again. The
     /// companion above covers the *final* step, where the two readings agree
     /// and the wedge never showed.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn reopening_a_middle_step_re_arms_the_join_when_that_step_recloses() {
         let (_temp, root) = stepped_arc("reopen-middle-arc");
@@ -555,15 +641,15 @@ mod tests {
 
         // A two-step run, walked to the end. Step 1 is the middle step here:
         // the run's frontier passes it and settles on 2.
-        step_start("reopen-middle-arc", 1, 2).unwrap();
+        step_start_in(&root, "reopen-middle-arc", 1, 2).unwrap();
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("reopen-middle-arc", "r1", None).unwrap();
-        step_done("reopen-middle-arc", 1, None).unwrap();
+        commit_in(&root, "reopen-middle-arc", "r1", None).unwrap();
+        step_done_in(&root, "reopen-middle-arc", 1, None).unwrap();
 
-        step_start("reopen-middle-arc", 2, 2).unwrap();
+        step_start_in(&root, "reopen-middle-arc", 2, 2).unwrap();
         fs::write(worktree.join("two.txt"), "second\n").unwrap();
-        commit("reopen-middle-arc", "r2", None).unwrap();
-        step_done("reopen-middle-arc", 2, None).unwrap();
+        commit_in(&root, "reopen-middle-arc", "r2", None).unwrap();
+        step_done_in(&root, "reopen-middle-arc", 2, None).unwrap();
 
         let detail = arc_detail_entry_in(&root, "reopen-middle-arc").unwrap();
         assert!(detail.run_complete, "the selection finished");
@@ -571,7 +657,13 @@ mod tests {
 
         // The audit rejects step 1's round. The run is not finished any more,
         // even though the frontier already reached 2.
-        step_reopen("reopen-middle-arc", 1, "the audit rejected the approach").unwrap();
+        step_reopen_in(
+            &root,
+            "reopen-middle-arc",
+            1,
+            "the audit rejected the approach",
+        )
+        .unwrap();
         let detail = arc_detail_entry_in(&root, "reopen-middle-arc").unwrap();
         assert!(
             !detail.run_complete,
@@ -582,8 +674,8 @@ mod tests {
         // Re-closing settles it. The last step line names step 1 — which is
         // exactly the reading the old arithmetic mistook for the frontier.
         fs::write(worktree.join("one.txt"), "second try\n").unwrap();
-        commit("reopen-middle-arc", "r3", None).unwrap();
-        step_done("reopen-middle-arc", 1, None).unwrap();
+        commit_in(&root, "reopen-middle-arc", "r3", None).unwrap();
+        step_done_in(&root, "reopen-middle-arc", 1, None).unwrap();
 
         let detail = arc_detail_entry_in(&root, "reopen-middle-arc").unwrap();
         assert_eq!(
@@ -604,28 +696,28 @@ mod tests {
     /// `step reset` and `step reopen` differ in what they say about the row —
     /// one un-finishes it, the other un-starts it — and not at all in what
     /// they say about the run. Both are debts against the frontier.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn parking_a_middle_step_holds_the_run_open_until_it_closes_again() {
         let (_temp, root) = stepped_arc("reset-middle-arc");
         let worktree = worktree_path(&root, "reset-middle-arc");
 
-        step_start("reset-middle-arc", 1, 2).unwrap();
+        step_start_in(&root, "reset-middle-arc", 1, 2).unwrap();
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("reset-middle-arc", "r1", None).unwrap();
-        step_done("reset-middle-arc", 1, None).unwrap();
-        step_start("reset-middle-arc", 2, 2).unwrap();
+        commit_in(&root, "reset-middle-arc", "r1", None).unwrap();
+        step_done_in(&root, "reset-middle-arc", 1, None).unwrap();
+        step_start_in(&root, "reset-middle-arc", 2, 2).unwrap();
         fs::write(worktree.join("two.txt"), "second\n").unwrap();
-        commit("reset-middle-arc", "r2", None).unwrap();
-        step_done("reset-middle-arc", 2, None).unwrap();
+        commit_in(&root, "reset-middle-arc", "r2", None).unwrap();
+        step_done_in(&root, "reset-middle-arc", 2, None).unwrap();
         assert!(
             arc_detail_entry_in(&root, "reset-middle-arc")
                 .unwrap()
                 .join_ready
         );
 
-        step_reopen("reset-middle-arc", 1, "wrong shape").unwrap();
-        step_reset("reset-middle-arc", 1, Some("parked for now")).unwrap();
+        step_reopen_in(&root, "reset-middle-arc", 1, "wrong shape").unwrap();
+        step_reset_in(&root, "reset-middle-arc", 1, Some("parked for now")).unwrap();
         let detail = arc_detail_entry_in(&root, "reset-middle-arc").unwrap();
         assert!(!detail.run_complete, "a parked step is an open debt");
         assert!(
@@ -633,10 +725,10 @@ mod tests {
             "and it is not in flight either"
         );
 
-        step_start("reset-middle-arc", 1, 2).unwrap();
+        step_start_in(&root, "reset-middle-arc", 1, 2).unwrap();
         fs::write(worktree.join("one.txt"), "third try\n").unwrap();
-        commit("reset-middle-arc", "r3", None).unwrap();
-        step_done("reset-middle-arc", 1, None).unwrap();
+        commit_in(&root, "reset-middle-arc", "r3", None).unwrap();
+        step_done_in(&root, "reset-middle-arc", 1, None).unwrap();
         let detail = arc_detail_entry_in(&root, "reset-middle-arc").unwrap();
         assert!(
             detail.run_complete,
@@ -647,12 +739,12 @@ mod tests {
 
     /// Reopen refuses every row that is not `done` — a step nobody finished is
     /// not a step anybody can un-finish.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_reopen_refuses_a_row_that_was_never_closed() {
         let (_temp, root) = stepped_arc("reopen-open-arc");
-        step_start("reopen-open-arc", 1, 2).unwrap();
-        let err = step_reopen("reopen-open-arc", 1, "because")
+        step_start_in(&root, "reopen-open-arc", 1, 2).unwrap();
+        let err = step_reopen_in(&root, "reopen-open-arc", 1, "because")
             .unwrap_err()
             .to_string();
         assert!(
@@ -669,17 +761,17 @@ mod tests {
     /// legal gesture — an interrupted run does it — and it used to append a
     /// `step-start` line every time, so a log that is the derivation surface
     /// filled with declarations of an act that did not happen.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn re_entering_an_open_step_appends_no_second_log_line() {
         let (_temp, root) = stepped_arc("reentry-arc");
 
-        step_start("reentry-arc", 1, 2).unwrap();
+        step_start_in(&root, "reentry-arc", 1, 2).unwrap();
         let after_first = log_text(&root);
         assert_eq!(after_first.matches("step-start").count(), 1);
 
-        step_start("reentry-arc", 1, 2).unwrap();
-        step_start("reentry-arc", 1, 2).unwrap();
+        step_start_in(&root, "reentry-arc", 1, 2).unwrap();
+        step_start_in(&root, "reentry-arc", 1, 2).unwrap();
         assert_eq!(
             log_text(&root).matches("step-start").count(),
             1,
@@ -693,10 +785,10 @@ mod tests {
 
         // But a *different* step still declares itself, and a re-entry after a
         // park is a genuine reopening of the row.
-        step_start("reentry-arc", 2, 2).unwrap();
+        step_start_in(&root, "reentry-arc", 2, 2).unwrap();
         assert_eq!(log_text(&root).matches("step-start").count(), 2);
-        step_reset("reentry-arc", 2, None).unwrap();
-        step_start("reentry-arc", 2, 2).unwrap();
+        step_reset_in(&root, "reentry-arc", 2, None).unwrap();
+        step_start_in(&root, "reentry-arc", 2, 2).unwrap();
         assert_eq!(
             log_text(&root).matches("step-start").count(),
             3,
@@ -707,7 +799,7 @@ mod tests {
     /// The desync repair rides on the same predicate: a table that already
     /// reads `in progress` while the log declares nothing gets the missing
     /// line rather than being mistaken for a re-entry.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_table_ahead_of_the_log_gets_the_missing_declaration() {
         let (_temp, root) = stepped_arc("desync-arc");
@@ -720,7 +812,7 @@ mod tests {
         fs::write(&plan, &moved).unwrap();
         assert!(!log_text(&root).contains("step-start"));
 
-        step_start("desync-arc", 1, 2).unwrap();
+        step_start_in(&root, "desync-arc", 1, 2).unwrap();
         assert_eq!(
             log_text(&root).matches("step-start").count(),
             1,
@@ -728,12 +820,12 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_run_declares_its_selection_once_and_refuses_a_nonsense_one() {
         let (_temp, root) = stepped_arc("through-arc");
 
-        let started = step_start("through-arc", 1, 2).unwrap();
+        let started = step_start_in(&root, "through-arc", 1, 2).unwrap();
         assert_eq!(started.through, Some(2));
         assert_eq!(
             crate::log::read_declarations(&root, "through-arc").run_through,
@@ -741,7 +833,7 @@ mod tests {
         );
 
         // Re-entering the same step re-declares nothing.
-        step_start("through-arc", 1, 2).unwrap();
+        step_start_in(&root, "through-arc", 1, 2).unwrap();
         let log = fs::read_to_string(
             tugtool_core::project_state_dir(&root).join(tugtool_core::paths::ARC_LOG),
         )
@@ -756,26 +848,30 @@ mod tests {
 
         // A done carries the standing declaration without re-writing it.
         let head = worktree_head(&root, "through-arc");
-        let done = step_done("through-arc", 1, Some(&head)).unwrap();
+        let done = step_done_in(&root, "through-arc", 1, Some(&head)).unwrap();
         assert_eq!(done.through, Some(2));
 
         // A selection ending before the step it starts is not a selection.
-        let err = step_start("through-arc", 2, 1).unwrap_err().to_string();
+        let err = step_start_in(&root, "through-arc", 2, 1)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("--through 1 is before step 2"), "{err}");
 
         // Nor is one naming a row the ledger does not carry.
-        let err = step_start("through-arc", 2, 9).unwrap_err().to_string();
+        let err = step_start_in(&root, "through-arc", 2, 9)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("no ledger row for #step-9"), "{err}");
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_done_records_the_branch_tip_when_no_commit_is_named() {
         let (_temp, root) = stepped_arc("tip-arc");
-        step_start("tip-arc", 1, 2).unwrap();
+        step_start_in(&root, "tip-arc", 1, 2).unwrap();
         let tip = git_stdout(&root, &["rev-parse", "--short", "tugarc/tip-arc"]).unwrap();
 
-        let done = step_done("tip-arc", 1, None).unwrap();
+        let done = step_done_in(&root, "tip-arc", 1, None).unwrap();
         assert_eq!(done.commit.as_deref(), Some(tip.as_str()));
         assert_eq!(
             ledger_row(&root, "tip-arc", "step-1").commit.as_deref(),
@@ -790,13 +886,13 @@ mod tests {
     /// all used to be recorded — a typo, a sha from the base checkout, a
     /// `HEAD~1` that a rebase had moved — so a row could claim there was
     /// something to find where there was not.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_done_refuses_a_commit_the_arc_worktree_cannot_resolve() {
         let (_temp, root) = stepped_arc("bogus-sha-arc");
-        step_start("bogus-sha-arc", 1, 2).unwrap();
+        step_start_in(&root, "bogus-sha-arc", 1, 2).unwrap();
 
-        let err = step_done("bogus-sha-arc", 1, Some("abc1234"))
+        let err = step_done_in(&root, "bogus-sha-arc", 1, Some("abc1234"))
             .unwrap_err()
             .to_string();
         assert!(err.contains("cannot record commit 'abc1234'"), "{err}");
@@ -809,26 +905,26 @@ mod tests {
 
         // And the same row closes on a sha the worktree does hold.
         let head = worktree_head(&root, "bogus-sha-arc");
-        step_done("bogus-sha-arc", 1, Some(&head)).unwrap();
+        step_done_in(&root, "bogus-sha-arc", 1, Some(&head)).unwrap();
         assert_eq!(ledger_row(&root, "bogus-sha-arc", "step-1").status, "done");
     }
 
     /// A sha is recorded in the short form the automatic path writes, so the
     /// ledger's commit cells are one shape rather than two.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_done_records_a_named_commit_in_its_short_form() {
         let (_temp, root) = stepped_arc("long-sha-arc");
-        step_start("long-sha-arc", 1, 2).unwrap();
+        step_start_in(&root, "long-sha-arc", 1, 2).unwrap();
         let worktree = worktree_path(&root, "long-sha-arc");
         let full = git_stdout(&worktree, &["rev-parse", "HEAD"]).unwrap();
         let short = git_stdout(&worktree, &["rev-parse", "--short", "HEAD"]).unwrap();
 
-        let done = step_done("long-sha-arc", 1, Some(&full)).unwrap();
+        let done = step_done_in(&root, "long-sha-arc", 1, Some(&full)).unwrap();
         assert_eq!(done.commit.as_deref(), Some(short.as_str()));
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_verbs_refuse_and_leave_the_plan_untouched() {
         let (_temp, root) = stepped_arc("refuse-arc");
@@ -837,18 +933,24 @@ mod tests {
 
         // An arc with neither document at its own address.
         fs::remove_file(&plan).unwrap();
-        let err = step_start("refuse-arc", 1, 2).unwrap_err().to_string();
+        let err = step_start_in(&root, "refuse-arc", 1, 2)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("has no plan or task list at"), "{err}");
         fs::write(&plan, &before).unwrap();
 
         // An anchor the ledger does not carry.
-        let err = step_start("refuse-arc", 9, 2).unwrap_err().to_string();
+        let err = step_start_in(&root, "refuse-arc", 9, 2)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("no ledger row for #step-9"), "{err}");
 
         // A finished row refuses to be started again, naming its status.
-        step_start("refuse-arc", 1, 2).unwrap();
-        step_done("refuse-arc", 1, None).unwrap();
-        let err = step_start("refuse-arc", 1, 2).unwrap_err().to_string();
+        step_start_in(&root, "refuse-arc", 1, 2).unwrap();
+        step_done_in(&root, "refuse-arc", 1, None).unwrap();
+        let err = step_start_in(&root, "refuse-arc", 1, 2)
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("is 'done'"), "{err}");
 
         // Only the two successful calls moved the document.
@@ -866,7 +968,7 @@ mod tests {
 
     /// The verbs drive the plan where it lives, and the worktree never sees it:
     /// a run's whole ledger walk leaves the arc's tree byte-for-byte clean.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_verbs_drive_the_plan_in_the_arc_directory() {
         let (_temp, root) = stepped_arc("home-arc");
@@ -874,7 +976,7 @@ mod tests {
         let porcelain = || git_stdout(&worktree, &["status", "--porcelain"]).unwrap();
         assert_eq!(porcelain(), "", "the seeded plan is not in the worktree");
 
-        let started = step_start("home-arc", 1, 2).unwrap();
+        let started = step_start_in(&root, "home-arc", 1, 2).unwrap();
         assert_eq!(
             started.plan,
             plan_file(&root, "home-arc").display().to_string()
@@ -882,32 +984,32 @@ mod tests {
         assert_eq!(porcelain(), "");
 
         let tip = git_stdout(&root, &["rev-parse", "--short", "tugarc/home-arc"]).unwrap();
-        step_done("home-arc", 1, None).unwrap();
+        step_done_in(&root, "home-arc", 1, None).unwrap();
         let row = ledger_row(&root, "home-arc", "step-1");
         assert_eq!(row.status, "done");
         assert_eq!(row.commit.as_deref(), Some(tip.as_str()));
         assert_eq!(porcelain(), "", "and the ledger write left no dirt behind");
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_start_re_enters_an_interrupted_step() {
         let (_temp, root) = stepped_arc("resume-arc");
-        step_start("resume-arc", 1, 2).unwrap();
+        step_start_in(&root, "resume-arc", 1, 2).unwrap();
         let interrupted = fs::read_to_string(plan_file(&root, "resume-arc")).unwrap();
 
-        step_start("resume-arc", 1, 2).expect("a resumed run re-enters its own step");
+        step_start_in(&root, "resume-arc", 1, 2).expect("a resumed run re-enters its own step");
         let after = fs::read_to_string(plan_file(&root, "resume-arc")).unwrap();
         assert_eq!(after, interrupted, "re-entry moves no byte of the plan");
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_withdraw_closes_the_row_with_no_commit() {
         let (_temp, root) = stepped_arc("withdraw-arc");
-        step_start("withdraw-arc", 1, 2).unwrap();
+        step_start_in(&root, "withdraw-arc", 1, 2).unwrap();
 
-        let outcome = step_withdraw("withdraw-arc", 1).unwrap();
+        let outcome = step_withdraw_in(&root, "withdraw-arc", 1).unwrap();
         assert_eq!(outcome.status, "withdrawn");
         assert_eq!(outcome.commit, None);
         assert_eq!(
@@ -938,15 +1040,15 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn step_withdraw_refuses_a_done_row() {
         let (_temp, root) = stepped_arc("withdraw-done-arc");
-        step_start("withdraw-done-arc", 1, 2).unwrap();
-        step_done("withdraw-done-arc", 1, None).unwrap();
+        step_start_in(&root, "withdraw-done-arc", 1, 2).unwrap();
+        step_done_in(&root, "withdraw-done-arc", 1, None).unwrap();
         let before = fs::read_to_string(plan_file(&root, "withdraw-done-arc")).unwrap();
 
-        let err = step_withdraw("withdraw-done-arc", 1)
+        let err = step_withdraw_in(&root, "withdraw-done-arc", 1)
             .unwrap_err()
             .to_string();
         assert!(err.contains("is 'done'"), "{err}");
@@ -957,12 +1059,12 @@ mod tests {
         assert_eq!(after, before, "a refusal moves no byte of the plan");
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_withdrawn_step_can_be_taken_up_again() {
         let (_temp, root) = stepped_arc("reopen-arc");
-        step_withdraw("reopen-arc", 1).unwrap();
-        step_start("reopen-arc", 1, 2).expect("changing your mind needs no hand-edit");
+        step_withdraw_in(&root, "reopen-arc", 1).unwrap();
+        step_start_in(&root, "reopen-arc", 1, 2).expect("changing your mind needs no hand-edit");
         assert_eq!(
             ledger_row(&root, "reopen-arc", "step-1").status,
             "in progress"
@@ -971,13 +1073,13 @@ mod tests {
 
     /// The wedge [P02] exists to prevent: a run whose final selected step is
     /// withdrawn is finished, and so joinable.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn withdrawing_the_final_selected_step_completes_the_run() {
         let (_temp, root) = stepped_arc("armed-arc");
-        step_start("armed-arc", 1, 2).unwrap();
-        step_done("armed-arc", 1, None).unwrap();
-        step_withdraw("armed-arc", 2).unwrap();
+        step_start_in(&root, "armed-arc", 1, 2).unwrap();
+        step_done_in(&root, "armed-arc", 1, None).unwrap();
+        step_withdraw_in(&root, "armed-arc", 2).unwrap();
 
         let found = crate::log::read_declarations(&root, "armed-arc");
         assert!(found.run_complete, "the declared selection is finished");
@@ -1050,7 +1152,7 @@ mod tests {
     /// The doctor end to end over a real arc: a table moved by hand is
     /// detected, an ordinary `arc status` says so rather than answering from
     /// one side, and `--repair` appends the declaration that reconciles it.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_doctor_finds_a_hand_moved_table_and_status_says_so() {
         let (_temp, root) = stepped_arc("doctor-arc");
@@ -1121,20 +1223,20 @@ mod tests {
     /// The audit's headline through the real verbs: a run the log says
     /// finished, over a table with an open row inside the selection. Named,
     /// and deliberately not repaired — which record is right is a judgment.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_doctor_names_a_join_armed_over_an_open_row() {
         let (_temp, root) = stepped_arc("armed-arc");
         let worktree = worktree_path(&root, "armed-arc");
 
-        step_start("armed-arc", 1, 2).unwrap();
+        step_start_in(&root, "armed-arc", 1, 2).unwrap();
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("armed-arc", "r1", None).unwrap();
-        step_done("armed-arc", 1, None).unwrap();
-        step_start("armed-arc", 2, 2).unwrap();
+        commit_in(&root, "armed-arc", "r1", None).unwrap();
+        step_done_in(&root, "armed-arc", 1, None).unwrap();
+        step_start_in(&root, "armed-arc", 2, 2).unwrap();
         fs::write(worktree.join("two.txt"), "second\n").unwrap();
-        commit("armed-arc", "r2", None).unwrap();
-        step_done("armed-arc", 2, None).unwrap();
+        commit_in(&root, "armed-arc", "r2", None).unwrap();
+        step_done_in(&root, "armed-arc", 2, None).unwrap();
         assert!(arc_detail_entry_in(&root, "armed-arc").unwrap().join_ready);
 
         // Somebody walks step 2's row back by hand. The log still arms the

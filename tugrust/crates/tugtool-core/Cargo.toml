@@ -22,3 +22,5 @@ roxmltree.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# The hermetic git fixture, so no test reads the developer's git config.
+tugcore = { workspace = true, features = ["test-fixtures"] }

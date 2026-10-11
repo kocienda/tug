@@ -1369,7 +1369,7 @@ old_name.rs
     async fn test_is_within_git_worktree_true_for_repo_and_subdir() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
-        git_in(repo, &["init"]).await;
+        GitFixture::init(repo);
         assert!(is_within_git_worktree(repo).await, "repo root");
 
         let sub = repo.join("a").join("b");
@@ -1576,35 +1576,22 @@ index 1111111..2222222 100644
         assert!(parse_git_diff("", &[]).is_empty());
     }
 
-    /// Run a git subcommand in `repo`, asserting success.
-    async fn git_in(repo: &Path, args: &[&str]) {
-        let mut full = vec!["-C", repo.to_str().unwrap()];
-        full.extend_from_slice(args);
-        let out = Command::from(tugcore::git_command())
-            .args(&full)
-            .output()
-            .await
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// Initialize a committed git repo with three tracked files.
     async fn init_diff_fixture_repo() -> TempDir {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init"]).await;
-        git_in(&repo, &["config", "user.name", "test"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
+        // The identity the snapshot tests read back, so it is set here rather
+        // than taken from the fixture.
+        git(&repo, &["config", "user.name", "test"]);
+        git(&repo, &["config", "user.email", "test@test.com"]);
         fs::write(repo.join("keep.txt"), "v1\n").unwrap();
         fs::write(repo.join("del.txt"), "delete me\n").unwrap();
         fs::write(repo.join("ren_src.txt"), "rename me\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "init"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "init"]);
         temp
     }
 
@@ -1615,10 +1602,10 @@ index 1111111..2222222 100644
 
         // Modify, delete, rename, and add — one of each status.
         fs::write(repo.join("keep.txt"), "v2\n").unwrap();
-        git_in(&repo, &["rm", "del.txt"]).await;
-        git_in(&repo, &["mv", "ren_src.txt", "ren_dst.txt"]).await;
+        git(&repo, &["rm", "del.txt"]);
+        git(&repo, &["mv", "ren_src.txt", "ren_dst.txt"]);
         fs::write(repo.join("new.txt"), "fresh line\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
+        git(&repo, &["add", "-A"]);
 
         let snapshot = build_git_diff_snapshot(&repo, "req-42".to_string(), "ws-key", &[]).await;
 
@@ -1737,8 +1724,8 @@ index 1111111..2222222 100644
         // get back verbatim, and the one field in the header capture that
         // carries newlines of its own.
         fs::write(repo.join("keep.txt"), "v2\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(
+        git(&repo, &["add", "-A"]);
+        git(
             &repo,
             &[
                 "commit",
@@ -1749,8 +1736,7 @@ index 1111111..2222222 100644
                 "-m",
                 "Tug-Session: test (1a2b3c4d)",
             ],
-        )
-        .await;
+        );
 
         let sha = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
         let snap = build_commit_files_snapshot(&repo, "req-w".to_string(), "ws", &sha).await;
@@ -1781,8 +1767,8 @@ index 1111111..2222222 100644
         // A second commit: modify one file, add another.
         fs::write(repo.join("keep.txt"), "v2\n").unwrap();
         fs::write(repo.join("born.txt"), "hello\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "second"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "second"]);
         let sha = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
 
         let snapshot =
@@ -1864,32 +1850,30 @@ index 1111111..2222222 100644
     async fn init_arc_fixture_repo() -> (TempDir, String) {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.name", "test"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
         fs::write(repo.join("keep.txt"), "base\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "base"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "base"]);
 
         // The arc branch + its worktree under `.tug/worktrees/`.
-        git_in(&repo, &["branch", "tugarc/demo"]).await;
-        git_in(&repo, &["config", "branch.tugarc/demo.tugbase", "main"]).await;
+        git(&repo, &["branch", "tugarc/demo"]);
+        git(&repo, &["config", "branch.tugarc/demo.tugbase", "main"]);
         let worktree_rel = ".tug/worktrees/demo";
-        git_in(&repo, &["worktree", "add", worktree_rel, "tugarc/demo"]).await;
+        git(&repo, &["worktree", "add", worktree_rel, "tugarc/demo"]);
         let worktree_abs = repo.join(worktree_rel);
 
         // One committed round in the worktree: add round.txt.
         fs::write(worktree_abs.join("round.txt"), "round\n").unwrap();
-        git_in(&worktree_abs, &["add", "-A"]).await;
-        git_in(&worktree_abs, &["commit", "-m", "round 1"]).await;
+        git(&worktree_abs, &["add", "-A"]);
+        git(&worktree_abs, &["commit", "-m", "round 1"]);
 
         // Tracked worktree dirt: modify keep.txt (uncommitted).
         fs::write(worktree_abs.join("keep.txt"), "base\ndirt\n").unwrap();
 
         // A later commit on main only — must NOT appear in the arc range.
         fs::write(repo.join("mainonly.txt"), "upstream\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "main drift"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "main drift"]);
 
         (temp, worktree_abs.to_string_lossy().into_owned())
     }
@@ -1955,12 +1939,11 @@ index 1111111..2222222 100644
     async fn test_build_arc_diff_snapshot_from_a_linked_worktree_keeps_the_dirt() {
         let (temp, worktree_abs) = init_arc_fixture_repo().await;
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["branch", "sidecar"]).await;
-        git_in(
+        git(&repo, &["branch", "sidecar"]);
+        git(
             &repo,
             &["worktree", "add", ".tug/worktrees/sidecar", "sidecar"],
-        )
-        .await;
+        );
         let asked_from = repo.join(".tug/worktrees/sidecar");
 
         let snapshot = build_arc_diff_snapshot(
@@ -2020,13 +2003,15 @@ index 1111111..2222222 100644
     async fn init_log_fixture_repo() -> TempDir {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.name", "Test Author"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
+        // The identity the log tests read back, so it is set here rather
+        // than taken from the fixture.
+        git(&repo, &["config", "user.name", "Test Author"]);
+        git(&repo, &["config", "user.email", "test@test.com"]);
         for subject in ["first", "second", "third"] {
             fs::write(repo.join(format!("{subject}.txt")), "x\n").unwrap();
-            git_in(&repo, &["add", "-A"]).await;
-            git_in(&repo, &["commit", "-m", subject]).await;
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-m", subject]);
         }
         temp
     }
@@ -2042,16 +2027,14 @@ index 1111111..2222222 100644
     async fn test_git_log_reads_both_arc_trailer_keys() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.name", "Test Author"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
         for (file, trailer) in [
             ("legacy.txt", "Tug-Dash: tugdash/old onto main"),
             ("current.txt", "Tug-Arc: tugarc/new onto main"),
         ] {
             fs::write(repo.join(file), "x\n").unwrap();
-            git_in(&repo, &["add", "-A"]).await;
-            git_in(&repo, &["commit", "-m", &format!("subject\n\n{trailer}")]).await;
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-m", &format!("subject\n\n{trailer}")]);
         }
 
         let snapshot = build_git_log_snapshot(&repo, "gl-t".to_string(), "ws", 0, 20).await;
@@ -2147,27 +2130,24 @@ index 1111111..2222222 100644
     async fn test_build_git_log_snapshot_carries_changed_paths() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.name", "Test Author"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
 
         fs::write(repo.join("alpha.txt"), "a\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "add alpha"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "add alpha"]);
 
         fs::create_dir(repo.join("src")).unwrap();
         fs::write(repo.join("src/beta.rs"), "b\n").unwrap();
         fs::write(repo.join("alpha.txt"), "a2\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
+        git(&repo, &["add", "-A"]);
         // A multi-line body sits between the record and its path list — the
         // parser must not read its lines as paths.
-        git_in(
+        git(
             &repo,
             &["commit", "-m", "add beta", "-m", "with a body\nover lines"],
-        )
-        .await;
+        );
 
-        git_in(&repo, &["commit", "--allow-empty", "-m", "nothing"]).await;
+        git(&repo, &["commit", "--allow-empty", "-m", "nothing"]);
 
         let snapshot = build_git_log_snapshot(&repo, "gl-f".to_string(), "ws", 0, 20).await;
         let by_subject: Vec<(&str, Vec<&str>)> = snapshot
@@ -2198,7 +2178,7 @@ index 1111111..2222222 100644
     async fn test_build_git_log_snapshot_empty_repo_is_not_no_repo() {
         // Fresh `git init` (unborn HEAD): a real repo with no commits.
         let temp = TempDir::new().unwrap();
-        git_in(temp.path(), &["init", "-b", "trunk"]).await;
+        git(temp.path(), &["init", "-b", "trunk"]);
         let snapshot = build_git_log_snapshot(temp.path(), "gl-3".to_string(), "ws", 0, 20).await;
         assert!(
             !snapshot.no_repo,
@@ -2226,7 +2206,7 @@ index 1111111..2222222 100644
         let temp = init_log_fixture_repo().await;
         let repo = temp.path();
         let head = run_git_line(repo, &["rev-parse", "HEAD"]).await.unwrap();
-        git_in(repo, &["checkout", &head]).await;
+        git(repo, &["checkout", &head]);
         let snapshot = build_git_log_snapshot(repo, "gl-5".to_string(), "ws", 0, 20).await;
         assert_eq!(snapshot.branch, "(detached)");
         assert_eq!(
@@ -2240,13 +2220,12 @@ index 1111111..2222222 100644
     async fn test_build_git_log_snapshot_unicode_author_and_empty_subject() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.email", "u@x.com"]).await;
+        GitFixture::init(&repo);
         // A unicode author name and an empty subject must parse without a
         // column shift (the `%x1f` separator keeps fields aligned).
         fs::write(repo.join("a.txt"), "x\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(
+        git(&repo, &["add", "-A"]);
+        git(
             &repo,
             &[
                 "-c",
@@ -2256,8 +2235,7 @@ index 1111111..2222222 100644
                 "-m",
                 "",
             ],
-        )
-        .await;
+        );
 
         let snapshot = build_git_log_snapshot(&repo, "gl-6".to_string(), "ws", 0, 20).await;
         assert_eq!(snapshot.commits.len(), 1);
@@ -2279,14 +2257,12 @@ index 1111111..2222222 100644
     async fn init_two_hunk_repo() -> TempDir {
         let temp = TempDir::new().unwrap();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init"]).await;
-        git_in(&repo, &["config", "user.name", "test"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
 
         let base: String = (1..=120).map(|n| format!("line {n}\n")).collect();
         fs::write(repo.join("wide.txt"), &base).unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "init"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "init"]);
 
         let dirty: String = (1..=120)
             .map(|n| match n {
@@ -2396,11 +2372,10 @@ index 1111111..2222222 100644
         let driver = repo.join("noisy-diff.sh");
         fs::write(&driver, "#!/bin/sh\necho 'not a unified diff at all'\n").unwrap();
         fs::set_permissions(&driver, fs::Permissions::from_mode(0o755)).unwrap();
-        git_in(
+        git(
             &repo,
             &["config", "diff.external", driver.to_str().unwrap()],
-        )
-        .await;
+        );
 
         assert_hunk_ids_agree(&repo).await;
     }

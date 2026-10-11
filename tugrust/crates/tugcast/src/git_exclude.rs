@@ -181,22 +181,13 @@ pub(crate) fn ensure_assets_excluded(assets_dir: &Path) {
 mod tests {
     use super::*;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let status = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A real repo with one committed file, so `git status` has a baseline.
     fn repo() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path();
-        git(path, &["init", "--initial-branch=main", "-q"]);
-        git(path, &["config", "user.email", "t@example.com"]);
-        git(path, &["config", "user.name", "Test"]);
+        GitFixture::init(path);
         std::fs::write(path.join("notes.md"), b"# notes").unwrap();
         git(path, &["add", "notes.md"]);
         git(path, &["commit", "-qm", "init"]);

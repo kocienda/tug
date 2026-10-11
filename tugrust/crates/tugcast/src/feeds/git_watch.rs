@@ -137,23 +137,8 @@ mod tests {
     use super::*;
     use std::time::Duration;
     use tempfile::TempDir;
-    use tokio::process::Command;
 
-    async fn git_in(repo: &Path, args: &[&str]) {
-        let mut full = vec!["-C", repo.to_str().unwrap()];
-        full.extend_from_slice(args);
-        let out = Command::from(tugcore::git_command())
-            .args(&full)
-            .output()
-            .await
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     fn spawn_committed_repo() -> TempDir {
         TempDir::new().unwrap()
@@ -183,12 +168,10 @@ mod tests {
     async fn head_move_signals_working_edit_only_bumps() {
         let temp = spawn_committed_repo();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.name", "test"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
         std::fs::write(repo.join("a.txt"), "one\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "first"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "first"]);
         let head1 = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
 
         let bump = Arc::new(Notify::new());
@@ -219,8 +202,8 @@ mod tests {
 
         // Now actually move HEAD, then feed a `.git`-touching batch.
         std::fs::write(repo.join("b.txt"), "two\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "second"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "second"]);
         let head2 = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
         assert_ne!(head1, head2);
 
@@ -251,12 +234,10 @@ mod tests {
     async fn every_subscriber_on_the_shared_channel_sees_one_head_move() {
         let temp = spawn_committed_repo();
         let repo = temp.path().to_path_buf();
-        git_in(&repo, &["init", "-b", "main"]).await;
-        git_in(&repo, &["config", "user.name", "test"]).await;
-        git_in(&repo, &["config", "user.email", "test@test.com"]).await;
+        GitFixture::init(&repo);
         std::fs::write(repo.join("a.txt"), "one\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "first"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "first"]);
         let head1 = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
 
         let bump = Arc::new(Notify::new());
@@ -277,8 +258,8 @@ mod tests {
         ));
 
         std::fs::write(repo.join("b.txt"), "two\n").unwrap();
-        git_in(&repo, &["add", "-A"]).await;
-        git_in(&repo, &["commit", "-m", "second"]).await;
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-m", "second"]);
         let head2 = run_git_line(&repo, &["rev-parse", "HEAD"]).await.unwrap();
 
         fs_tx

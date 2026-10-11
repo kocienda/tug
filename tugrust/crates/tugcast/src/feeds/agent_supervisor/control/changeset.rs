@@ -1798,6 +1798,9 @@ impl AgentSupervisor {
             // guard is exact: a card join that reaches the lease refusal is by
             // definition a resolve in another process ([P04], [P05]).
             break_lease: false,
+            // tugcast's cwd is the server's, not the card's, so it stands
+            // nowhere and the inside-the-worktree refusal does not apply.
+            caller_cwd: None,
         };
         // The join's own narration ([P03]). It takes real seconds and used to
         // say nothing for all of them — the press landed and the next word was

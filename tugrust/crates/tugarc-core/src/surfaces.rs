@@ -810,33 +810,14 @@ mod tests {
 #[cfg(test)]
 mod fit_tests {
     use super::*;
+    use serial_test::serial;
     use std::path::Path;
-
-    fn git(dir: &Path, args: &[&str]) {
-        let ok = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .status()
-            .unwrap()
-            .success();
-        assert!(ok, "git {args:?} failed");
-    }
-
-    fn git_stdout(dir: &Path, args: &[&str]) -> String {
-        let out = tugcore::git_command()
-            .current_dir(dir)
-            .args(args)
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A repo with an arc whose worktree declares `config` and whose one round
     /// touches `files`.
     fn project(root: &Path, config: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
-        git(root, &["init", "-b", "main"]);
-        git(root, &["config", "user.name", "t"]);
-        git(root, &["config", "user.email", "t@t"]);
+        GitFixture::init(root);
         std::fs::create_dir_all(root.join(".tugtool")).unwrap();
         std::fs::write(root.join(".tugtool/config.toml"), config).unwrap();
         std::fs::write(root.join("seed.txt"), "base\n").unwrap();
@@ -881,6 +862,7 @@ mod fit_tests {
             .collect()
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn a_green_verify_records_both_endpoints_in_full() {
         let tmp = tempfile::tempdir().unwrap();
@@ -891,8 +873,8 @@ mod fit_tests {
         let report = verify_in(&root, "demo", None, None).expect("the verify runs");
         assert_eq!(report.verdict, "verified");
 
-        let head = git_stdout(&worktree, &["rev-parse", "HEAD"]);
-        let base = git_stdout(&root, &["rev-parse", "main"]);
+        let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
+        let base = git(&root, &["rev-parse", "main"]).trim().to_string();
         let lines = verified_lines(&root);
         assert_eq!(lines.len(), 1, "exactly one line: {lines:?}");
         assert!(
@@ -903,6 +885,7 @@ mod fit_tests {
         assert!(lines[0].contains("1 surfaces checked · 0 claimed unchecked"));
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn a_red_a_refused_and_an_empty_range_each_record_nothing() {
         let tmp = tempfile::tempdir().unwrap();
@@ -917,7 +900,7 @@ mod fit_tests {
         );
 
         // An empty range, on the same arc.
-        let head = git_stdout(&worktree, &["rev-parse", "HEAD"]);
+        let head = git(&worktree, &["rev-parse", "HEAD"]).trim().to_string();
         assert_eq!(
             verify_in(&root, "demo", Some(&head), Some(&head))
                 .unwrap()
@@ -945,6 +928,7 @@ mod fit_tests {
         );
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn the_fact_is_collected_without_moving_the_stage() {
         let tmp = tempfile::tempdir().unwrap();
@@ -967,6 +951,7 @@ mod fit_tests {
         );
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn a_terminal_line_resets_the_fact_with_everything_else() {
         let tmp = tempfile::tempdir().unwrap();
@@ -989,6 +974,7 @@ mod fit_tests {
         );
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn currency_needs_both_endpoints_to_still_stand() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1035,6 +1021,7 @@ mod fit_tests {
         );
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn a_note_that_names_no_pair_is_ignored_rather_than_half_believed() {
         assert_eq!(
@@ -1057,6 +1044,7 @@ mod fit_tests {
         );
     }
 
+    #[serial(tug_data_dir)]
     #[test]
     fn status_json_carries_the_fit_and_omits_it_when_there_is_none() {
         let tmp = tempfile::tempdir().unwrap();

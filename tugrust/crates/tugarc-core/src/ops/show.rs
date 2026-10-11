@@ -20,7 +20,7 @@ use super::{
 use crate::error::ArcError;
 use crate::log::{ArcDeclaration, ArcDeclarations, FitFact, read_declarations};
 
-/// One entry in the [`list`] outcome.
+/// One entry in the [`list_in`] outcome.
 ///
 /// Two populations wear this one shape, told apart by `status`. An `active`
 /// item is a `tugarc/*` branch: it has a base, a round count, and (unless it
@@ -60,7 +60,7 @@ pub struct ArcListItem {
     pub laid_by: Option<String>,
 }
 
-/// Outcome of [`show`].
+/// Outcome of [`show_in`].
 #[derive(Debug, Clone, Serialize)]
 pub struct ShowOutcome {
     pub name: String,
@@ -75,7 +75,7 @@ pub struct ShowOutcome {
     pub uncommitted_changes: Option<bool>,
 }
 
-/// One round (commit ahead of base) in the [`show`] outcome.
+/// One round (commit ahead of base) in the [`show_in`] outcome.
 #[derive(Debug, Clone, Serialize)]
 pub struct RoundItem {
     pub commit_hash: String,
@@ -104,7 +104,7 @@ pub struct RoundItem {
 ///
 /// Live work outranks waiting paperwork, so the order is branched arcs first,
 /// then paperwork, each sorted as its own scan yields it.
-pub(crate) fn list_in(repo_root: &Path) -> Result<Vec<ArcListItem>, ArcError> {
+pub fn list_in(repo_root: &Path) -> Result<Vec<ArcListItem>, ArcError> {
     reconcile_branches(repo_root, &mut Vec::new());
 
     // Every tugarc/* branch is an active arc ([P02]).
@@ -197,7 +197,7 @@ pub fn round_count_in(repo_root: &Path, name: &str) -> usize {
     arc_rounds(&repo_root, &base, &branch).len()
 }
 
-/// How many rounds a [`create_in`] revisit would destroy, if it were called
+/// How many rounds a [`create_in`](super::create_in) revisit would destroy, if it were called
 /// now.
 ///
 /// `create_in` is idempotent only where the branch *and* the worktree both
@@ -226,7 +226,7 @@ pub fn rounds_a_rebuild_would_lose(repo_root: &Path, name: &str) -> usize {
 }
 
 /// Show one arc's metadata + rounds (commits ahead of base) + worktree dirt.
-pub(crate) fn show_in(repo_root: &Path, name: &str) -> Result<ShowOutcome, ArcError> {
+pub fn show_in(repo_root: &Path, name: &str) -> Result<ShowOutcome, ArcError> {
     reconcile_branches(repo_root, &mut Vec::new());
     let branch = branch_name(name);
 
@@ -511,7 +511,7 @@ pub(crate) fn name_status_paths(records: &[String]) -> Vec<String> {
 
 /// Every active arc in `repo_root`, with the per-arc detail a display needs.
 ///
-/// The `_in` variant of [`list`] with detail: explicit repo root (the feed
+/// [`list_in`] with detail: explicit repo root (the feed
 /// composing a snapshot has one and is not cwd-relative), the full
 /// `base...branch` file list, round subjects, and worktree dirt.
 ///
@@ -1116,7 +1116,6 @@ pub(crate) fn arc_rounds(repo_root: &Path, base: &str, branch: &str) -> Vec<ArcR
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods)] // set_current_dir is needed for tests with isolated temp dirs
 mod tests {
     use super::*;
     use crate::log::{MarkStage, append_arc_log};
@@ -1171,11 +1170,11 @@ mod tests {
     /// documents was invisible to `arc list`, so a name on screen had no
     /// answer here and read as drift between two surfaces.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn list_reports_the_paperwork_half_beside_the_branched_one() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create("branched", None, false, None).unwrap();
+        create_in(&repo, "branched", None, false, None).unwrap();
         let root = fs::canonicalize(&repo).unwrap();
 
         // Paperwork: a brief and a task list, no branch.
@@ -1186,7 +1185,7 @@ mod tests {
         // Litter: an arc-named directory holding nothing is not an arc.
         fs::create_dir_all(documents_dir(&root, "abandoned")).unwrap();
 
-        let items = list().unwrap();
+        let items = list_in(&root).unwrap();
         let names: Vec<&str> = items.iter().map(|i| i.name.as_str()).collect();
         assert_eq!(
             names,
@@ -1218,16 +1217,16 @@ mod tests {
     /// copy of the documents exactly where it was, so an arc mid-implement has
     /// both a branch and a `.tug/arcs/<name>/` directory for its whole life.
     #[test]
-    #[serial]
+    #[serial(tug_data_dir)]
     fn list_never_reports_one_arc_as_both_active_and_paperwork() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create("adopted", None, false, None).unwrap();
+        create_in(&repo, "adopted", None, false, None).unwrap();
         let dir = documents_dir(&fs::canonicalize(&repo).unwrap(), "adopted");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("plan.md"), "# Adopted\n").unwrap();
 
-        let items = list().unwrap();
+        let items = list_in(&repo).unwrap();
         assert_eq!(items.len(), 1, "one arc, one row");
         assert_eq!(items[0].status, "active");
     }
@@ -1236,12 +1235,12 @@ mod tests {
     // The sweep is marked, and is not a round (Spec S03)
     // -----------------------------------------------------------------------
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_sweep_does_not_inflate_the_round_count_or_the_subject_list() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create("swept-count", None, false, None).unwrap();
+        create_in(&repo, "swept-count", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "swept-count");
         author_round(&worktree, 1);
         author_round(&worktree, 2);
@@ -1266,12 +1265,12 @@ mod tests {
         );
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_arc_whose_only_commit_is_a_sweep_has_no_rounds() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create("sweep-only", None, false, None).unwrap();
+        create_in(&repo, "sweep-only", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "sweep-only");
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
         commit_worktree_dirt(&worktree, "sweep-only").unwrap();
@@ -1297,27 +1296,20 @@ mod tests {
         ));
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_sweep_from_before_the_marker_still_counts() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create("legacy-sweep", None, false, None).unwrap();
+        create_in(&repo, "legacy-sweep", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "legacy-sweep");
         // Exactly what the sweep used to write: the old subject, no trailer.
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
-        tugcore::git_command()
-            .arg("-C")
-            .arg(&worktree)
-            .args(["add", "-A"])
-            .output()
-            .unwrap();
-        tugcore::git_command()
-            .arg("-C")
-            .arg(&worktree)
-            .args(["commit", "-q", "-m", "join: commit outstanding changes"])
-            .output()
-            .unwrap();
+        git(&worktree, &["add", "-A"]);
+        git(
+            &worktree,
+            &["commit", "-q", "-m", "join: commit outstanding changes"],
+        );
 
         let detail = arc_detail_entries_in(&repo)
             .into_iter()
@@ -1329,12 +1321,12 @@ mod tests {
         assert_eq!(detail.rounds, 1);
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn every_round_reader_agrees_about_a_swept_arc() {
         let temp = TempDir::new().unwrap();
         let repo = repo_beside_state(&temp);
-        create("agreeing", None, false, None).unwrap();
+        create_in(&repo, "agreeing", None, false, None).unwrap();
         let worktree = worktree_path(&repo, "agreeing");
         author_round(&worktree, 1);
         fs::write(worktree.join("dirt.txt"), "x\n").unwrap();
@@ -1345,8 +1337,8 @@ mod tests {
             .find(|d| d.name == "agreeing")
             .expect("the arc is listed");
         let status = status_in(&repo, "agreeing").unwrap();
-        let shown = show("agreeing").unwrap();
-        let listed = list()
+        let shown = show_in(&repo, "agreeing").unwrap();
+        let listed = list_in(&repo)
             .unwrap()
             .into_iter()
             .find(|d| d.name == "agreeing")
@@ -1364,7 +1356,7 @@ mod tests {
     /// is recorded and not yet offered; `built` does not offer it; `audited`
     /// does. A stop is not an escape from this (see the test below), only
     /// the unaudited join is, and that is the user's act.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_live_wheel_holds_the_offer_until_the_audit() {
         let (_temp, root) = wheeled_arc("audit-gate-arc");
@@ -1378,7 +1370,7 @@ mod tests {
             "but the audit may still commit rounds, so nothing is offered yet"
         );
 
-        mark("audit-gate-arc", MarkStage::Built, None).unwrap();
+        mark_in(&root, "audit-gate-arc", MarkStage::Built, None).unwrap();
         assert!(
             !arc_detail_entry_in(&root, "audit-gate-arc")
                 .unwrap()
@@ -1386,7 +1378,7 @@ mod tests {
             "`built` is the implement stage's own word and does not arm the join"
         );
 
-        mark("audit-gate-arc", MarkStage::Audited, None).unwrap();
+        mark_in(&root, "audit-gate-arc", MarkStage::Audited, None).unwrap();
         assert!(
             arc_detail_entry_in(&root, "audit-gate-arc")
                 .unwrap()
@@ -1400,11 +1392,11 @@ mod tests {
     /// audit did not mark. A wheel that broke cannot leave finished work
     /// unlandable — `arc join` lands the unaudited branch — but the offer is
     /// never called ready over a tree nothing audited.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_stopped_wheel_holds_the_offer_until_the_audit_marks() {
         let (_temp, root) = wheeled_arc("audit-stop-arc");
-        mark("audit-stop-arc", MarkStage::Built, None).unwrap();
+        mark_in(&root, "audit-stop-arc", MarkStage::Built, None).unwrap();
         assert!(
             !arc_detail_entry_in(&root, "audit-stop-arc")
                 .unwrap()
@@ -1431,7 +1423,7 @@ mod tests {
         );
         assert_ne!(cli.stage, "ready");
 
-        mark("audit-stop-arc", MarkStage::Audited, None).unwrap();
+        mark_in(&root, "audit-stop-arc", MarkStage::Audited, None).unwrap();
         assert!(
             arc_detail_entry_in(&root, "audit-stop-arc")
                 .unwrap()
@@ -1445,7 +1437,7 @@ mod tests {
     /// the thing the gate exists to refuse — whether the wheel stalled or a
     /// person stopped it. The branch stays landable; it is never called
     /// ready. Both readers of the record agree.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_stopped_audit_is_not_offered_over_a_real_log() {
         let (_temp, root) = wheeled_arc("audit-unmarked-arc");
@@ -1477,7 +1469,7 @@ mod tests {
         );
         assert_ne!(cli.stage, "ready");
 
-        mark("audit-unmarked-arc", MarkStage::Audited, None).unwrap();
+        mark_in(&root, "audit-unmarked-arc", MarkStage::Audited, None).unwrap();
         assert!(
             arc_detail_entry_in(&root, "audit-unmarked-arc")
                 .unwrap()
@@ -1497,7 +1489,7 @@ mod tests {
     /// of the observable disagreement [R03] is about. The undeclared run is
     /// the case that discriminates: a `status_in` that skipped the gate would
     /// say `ready` here while the feed said `implementing`.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn status_and_the_feed_agree_mid_audit() {
         let (_temp, root) = wheeled_arc("audit-agree-arc");
@@ -1510,7 +1502,7 @@ mod tests {
         assert_eq!(cli.stage, "implementing", "and both are behind the gate");
 
         // And both move together when the audit declares.
-        mark("audit-agree-arc", MarkStage::Audited, None).unwrap();
+        mark_in(&root, "audit-agree-arc", MarkStage::Audited, None).unwrap();
         let feed = arc_detail_entry_in(&root, "audit-agree-arc").unwrap();
         let cli = status_in(&root, "audit-agree-arc").unwrap();
         assert!(feed.join_ready);
@@ -1524,7 +1516,7 @@ mod tests {
     /// audit where it derived `ready` before. That is the truer word — a stage
     /// is still running — but it must be pinned rather than discovered,
     /// because `implementing` is not in the deck's `JOINABLE_STAGES`.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_gate_moves_the_derived_word_only_for_an_undeclared_run() {
         let (_temp, root) = wheeled_arc("audit-word-arc");
@@ -1536,7 +1528,7 @@ mod tests {
 
         // A declared `built` outranks the `join_ready` arm, so the word a
         // wheel's own implement stage produces is unchanged by the gate.
-        mark("audit-word-arc", MarkStage::Built, None).unwrap();
+        mark_in(&root, "audit-word-arc", MarkStage::Built, None).unwrap();
         assert_eq!(
             arc_detail_entry_in(&root, "audit-word-arc").unwrap().stage,
             "built"
@@ -1545,15 +1537,15 @@ mod tests {
 
     /// The incident's shape, inverted: an arc driven only by the verbs a run
     /// cannot skip is offerable without anybody declaring anything ([P01]–[P04]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn a_finished_run_reads_ready_without_a_mark() {
         let (_temp, root) = stepped_arc("ready-arc");
         let worktree = worktree_path(&root, "ready-arc");
 
-        step_start("ready-arc", 1, 2).unwrap();
+        step_start_in(&root, "ready-arc", 1, 2).unwrap();
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("ready-arc", "r1", None).unwrap();
+        commit_in(&root, "ready-arc", "r1", None).unwrap();
 
         // Mid-run: a step is open and the selection is unfinished.
         let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
@@ -1561,16 +1553,16 @@ mod tests {
         assert_eq!(detail.stage, "implementing");
         assert_eq!(detail.run_through, Some(2));
 
-        step_done("ready-arc", 1, None).unwrap();
+        step_done_in(&root, "ready-arc", 1, None).unwrap();
         // Still short of the declared end.
         let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
         assert!(!detail.join_ready);
         assert!(!detail.run_complete);
 
-        step_start("ready-arc", 2, 2).unwrap();
+        step_start_in(&root, "ready-arc", 2, 2).unwrap();
         fs::write(worktree.join("two.txt"), "second\n").unwrap();
-        commit("ready-arc", "r2", None).unwrap();
-        step_done("ready-arc", 2, None).unwrap();
+        commit_in(&root, "ready-arc", "r2", None).unwrap();
+        step_done_in(&root, "ready-arc", 2, None).unwrap();
 
         let detail = arc_detail_entry_in(&root, "ready-arc").unwrap();
         assert!(detail.run_complete);
@@ -1595,14 +1587,14 @@ mod tests {
 
     /// The two pairs answer different questions and both reach the callers:
     /// the run's counts the selection, the plan's counts the document.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn the_run_pair_counts_the_selection_and_the_plan_pair_the_document() {
         let (_temp, root) = stepped_arc("span-arc");
         let worktree = worktree_path(&root, "span-arc");
 
         // A run of just step 1 against a two-row plan: the numbers diverge.
-        step_start("span-arc", 1, 1).unwrap();
+        step_start_in(&root, "span-arc", 1, 1).unwrap();
         let detail = arc_detail_entry_in(&root, "span-arc").unwrap();
         assert_eq!(
             (detail.step_current, detail.step_total),
@@ -1620,15 +1612,15 @@ mod tests {
 
         // Finishing that selection holds the full fraction.
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("span-arc", "r1", None).unwrap();
-        step_done("span-arc", 1, None).unwrap();
+        commit_in(&root, "span-arc", "r1", None).unwrap();
+        step_done_in(&root, "span-arc", 1, None).unwrap();
         let detail = arc_detail_entry_in(&root, "span-arc").unwrap();
         assert!(detail.run_complete);
         assert_eq!((detail.run_position, detail.run_length), (Some(1), Some(1)));
 
         // A second selection re-declares, and the run pair follows it rather
         // than the plan — step 2 of the document is step 1 of this run.
-        step_start("span-arc", 2, 2).unwrap();
+        step_start_in(&root, "span-arc", 2, 2).unwrap();
         let detail = arc_detail_entry_in(&root, "span-arc").unwrap();
         assert_eq!((detail.step_current, detail.step_total), (Some(2), Some(2)));
         assert_eq!((detail.run_position, detail.run_length), (Some(1), Some(1)));
@@ -1636,13 +1628,13 @@ mod tests {
 
     /// An arc that declared no run reports no run pair, so its displays fall
     /// back to the plan's counters exactly as they did before ([P05]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn an_undeclared_run_reports_no_run_pair() {
         let (_temp, root) = stepped_arc("plain-arc");
         let worktree = worktree_path(&root, "plain-arc");
         fs::write(worktree.join("one.txt"), "first\n").unwrap();
-        commit("plain-arc", "r1", None).unwrap();
+        commit_in(&root, "plain-arc", "r1", None).unwrap();
 
         let detail = arc_detail_entry_in(&root, "plain-arc").unwrap();
         assert_eq!((detail.run_position, detail.run_length), (None, None));
@@ -1652,7 +1644,7 @@ mod tests {
 
     /// A stepped arc reports its declared stage, its progress, and the plan it
     /// is driving; a mark moves the stage; a later step moves it back ([P03]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn status_reports_declared_stage_step_and_plan() {
         let (_temp, root) = stepped_arc("status-arc");
@@ -1667,7 +1659,7 @@ mod tests {
             "the seeded plan is at the arc's own address"
         );
 
-        step_start("status-arc", 1, 2).unwrap();
+        step_start_in(&root, "status-arc", 1, 2).unwrap();
         let stepping = status_in(&root, "status-arc").unwrap();
         assert_eq!(stepping.stage, "implementing");
         assert_eq!(
@@ -1679,17 +1671,17 @@ mod tests {
             Some(&*plan_file(&root, "status-arc").to_string_lossy())
         );
 
-        mark("status-arc", MarkStage::Built, None).unwrap();
+        mark_in(&root, "status-arc", MarkStage::Built, None).unwrap();
         let built = status_in(&root, "status-arc").unwrap();
         assert_eq!(built.stage, "built");
         // The step fields outlive the mark, so a display can still say how far.
         assert_eq!(built.step_current, Some(1));
 
-        mark("status-arc", MarkStage::Audited, Some("good shape")).unwrap();
+        mark_in(&root, "status-arc", MarkStage::Audited, Some("good shape")).unwrap();
         assert_eq!(status_in(&root, "status-arc").unwrap().stage, "audited");
 
         // A follow-up step range demotes the arc back to implementing.
-        step_start("status-arc", 2, 2).unwrap();
+        step_start_in(&root, "status-arc", 2, 2).unwrap();
         let again = status_in(&root, "status-arc").unwrap();
         assert_eq!(again.stage, "implementing");
         assert_eq!(again.step_current, Some(2));
@@ -1698,7 +1690,7 @@ mod tests {
     /// The feed's shared composition carries the same declared stage and step
     /// progress `status` reports — which is what lights up the Arcs card
     /// and the Changes arc lane with no frontend change ([P01]).
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_declared_stage_and_step() {
         let (_temp, root) = stepped_arc("feed-arc");
@@ -1711,13 +1703,13 @@ mod tests {
         assert_eq!(entry.stage, "created");
         assert!(entry.step_current.is_none() && entry.step_total.is_none());
 
-        step_start("feed-arc", 1, 2).unwrap();
+        step_start_in(&root, "feed-arc", 1, 2).unwrap();
         let stepped = arc_detail_entries_in(&root);
         let entry = stepped.iter().find(|d| d.name == "feed-arc").unwrap();
         assert_eq!(entry.stage, "implementing");
         assert_eq!((entry.step_current, entry.step_total), (Some(1), Some(2)));
 
-        mark("feed-arc", MarkStage::Built, None).unwrap();
+        mark_in(&root, "feed-arc", MarkStage::Built, None).unwrap();
         let built = arc_detail_entries_in(&root);
         let entry = built.iter().find(|d| d.name == "feed-arc").unwrap();
         assert_eq!(entry.stage, "built");
@@ -1727,7 +1719,7 @@ mod tests {
     /// The arc rides the same composition, **beside** the derived stage rather
     /// than inside it — the property that lets a face say `implementing` and
     /// `arc stopped in review` at once, which is exactly what a stopped arc is.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_the_arc_beside_the_derived_stage() {
         let (_temp, root) = stepped_arc("arc-run");
@@ -1805,7 +1797,7 @@ mod tests {
 
     /// The arc's documents ride the same composition, so a card bound to an
     /// arc can resolve the plan it is implementing without a shell round-trip.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_the_arc_documents() {
         let (_temp, root) = stepped_arc("plan-path-arc");
@@ -1823,7 +1815,7 @@ mod tests {
         assert!(entry.documents.brief.is_none());
 
         // An arc with no documents at all carries none.
-        create("bare-arc", None, false, None).unwrap();
+        create_in(&root, "bare-arc", None, false, None).unwrap();
         let entries = arc_detail_entries_in(&root);
         let bare = entries.iter().find(|d| d.name == "bare-arc").unwrap();
         assert!(bare.documents.is_empty());
@@ -1832,7 +1824,7 @@ mod tests {
     /// The divergence a join would only reveal at merge time, said on every
     /// recompute instead: how far the base has run ahead, and which of its
     /// uncommitted edits land on files this arc also changed.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_base_divergence() {
         let (_temp, root) = stepped_arc("divergence-arc");
@@ -1870,7 +1862,7 @@ mod tests {
 
     /// A replay's arc log line reaches the snapshot as the settled mark's text
     /// without disturbing the derived stage.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn detail_entries_carry_the_last_replay_note() {
         let (_temp, root) = stepped_arc("replay-note-arc");
@@ -1890,7 +1882,7 @@ mod tests {
 
     /// The tip-vs-base question the wire's cleanup turns on: a worktree
     /// nobody wrote in has no rounds, and one round is one commit.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn round_count_reads_the_branch_against_its_base() {
         let (_temp, root) = repo_for_create();
@@ -1913,12 +1905,12 @@ mod tests {
 
     /// The read verbs answer about the universe: a caller standing in it is
     /// told about its arcs, with worktree paths under it.
-    #[serial]
+    #[serial(tug_data_dir, tug_repo_universe)]
     #[test]
     fn test_universe_detail_entries_resolve_to_the_universe() {
         let temp = TempDir::new().unwrap();
-        let (base, universe) = base_with_universe(&temp);
-        create("listed", None, false, Some("feature")).unwrap();
+        let (base, universe, _universe) = base_with_universe(&temp);
+        create_in(&universe, "listed", None, false, Some("feature")).unwrap();
 
         let entries = arc_detail_entries_in(&universe);
         let entry = entries
@@ -2137,7 +2129,7 @@ mod tests {
 
     /// `status` walks an arc's whole lifecycle: fresh → a round → an authored
     /// draft → an interrupted join (Spec S05, [P06]).
-    #[serial]
+    #[serial(tug_changes_db, tug_data_dir)]
     #[test]
     fn test_arc_status_reports_each_stage() {
         let temp = TempDir::new().unwrap();
@@ -2145,7 +2137,6 @@ mod tests {
         let home = temp.path().join("state");
         init_git_repo(repo);
         redirect_state_dir(&home);
-        std::env::set_current_dir(repo).unwrap();
 
         let changes_db = temp.path().join("changes.db");
         {
@@ -2170,10 +2161,10 @@ mod tests {
             std::env::set_var("TUG_CHANGES_DB", &changes_db);
         }
 
-        let created = create("status-arc", Some("Test".to_string()), false, None).unwrap();
+        let created = create_in(repo, "status-arc", Some("Test".to_string()), false, None).unwrap();
         let owner_key = created.id.clone().unwrap();
 
-        let fresh = status("status-arc").unwrap();
+        let fresh = status_in(repo, "status-arc").unwrap();
         assert_eq!(fresh.stage, "created");
         assert_eq!(fresh.id, owner_key);
         assert_eq!(fresh.branch, "tugarc/status-arc");
@@ -2187,15 +2178,15 @@ mod tests {
         // Uncommitted work is already `working`.
         let worktree = repo.join(".tug/worktrees/status-arc");
         fs::write(worktree.join("f.txt"), "x\n").unwrap();
-        let dirty = status("status-arc").unwrap();
+        let dirty = status_in(repo, "status-arc").unwrap();
         assert_eq!(dirty.stage, "working");
         assert!(dirty.worktree_dirty);
 
         // A committed round on a plan-less arc is a finished unit of asked
         // work, so the arc is offerable the moment its worktree is clean
         // ([P02]) — no mark, no build, nothing declared.
-        commit("status-arc", "Add f", None).unwrap();
-        let after_round = status("status-arc").unwrap();
+        commit_in(repo, "status-arc", "Add f", None).unwrap();
+        let after_round = status_in(repo, "status-arc").unwrap();
         assert_eq!(after_round.stage, "ready");
         assert_eq!(after_round.rounds, 1);
         assert!(!after_round.worktree_dirty);
@@ -2218,7 +2209,7 @@ mod tests {
         // The draft is recorded, but `ready` outranks `draft-ready`: an arc the
         // machine will offer says so, and the draft becomes the message that
         // offer carries rather than a stage of its own.
-        let drafted = status("status-arc").unwrap();
+        let drafted = status_in(repo, "status-arc").unwrap();
         assert_eq!(drafted.stage, "ready");
         assert!(drafted.draft);
 
@@ -2232,7 +2223,7 @@ mod tests {
             crate::oplog::JoinPhase::WorktreeRemoved,
             "abc1234",
         );
-        let joining = status("status-arc").unwrap();
+        let joining = status_in(repo, "status-arc").unwrap();
         assert_eq!(joining.stage, "joining");
         assert_eq!(
             joining.join_journal_phase.as_deref(),
@@ -2242,7 +2233,7 @@ mod tests {
         // No sessions.db with a binding, so the arc reads as unbound ([P08]).
         assert!(joining.bound_session.is_none());
 
-        assert!(status("no-such-arc").is_err());
+        assert!(status_in(repo, "no-such-arc").is_err());
 
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
@@ -2253,14 +2244,13 @@ mod tests {
     /// `bound_session` names a **live** session only, so an arc whose bound
     /// card has closed reads as unbound ([P08]) — the CLI-side face of the
     /// [L27] pin.
-    #[serial]
+    #[serial(tug_data_dir, tug_sessions_db)]
     #[test]
     fn test_arc_status_bound_session_is_live_only() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
         let sessions_db = temp.path().join("sessions.db");
         {
@@ -2280,7 +2270,7 @@ mod tests {
             std::env::set_var("TUG_SESSIONS_DB", &sessions_db);
         }
 
-        let owner_key = create("unbound-arc", None, false, None)
+        let owner_key = create_in(repo, "unbound-arc", None, false, None)
             .unwrap()
             .id
             .unwrap();
@@ -2295,7 +2285,10 @@ mod tests {
         }
 
         assert_eq!(
-            status("unbound-arc").unwrap().bound_session.as_deref(),
+            status_in(repo, "unbound-arc")
+                .unwrap()
+                .bound_session
+                .as_deref(),
             Some("sess-live"),
             "a closed session's row is never reported as a mating"
         );
@@ -2306,7 +2299,12 @@ mod tests {
             conn.execute("UPDATE sessions SET state = 'closed'", [])
                 .unwrap();
         }
-        assert!(status("unbound-arc").unwrap().bound_session.is_none());
+        assert!(
+            status_in(repo, "unbound-arc")
+                .unwrap()
+                .bound_session
+                .is_none()
+        );
 
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
@@ -2314,21 +2312,20 @@ mod tests {
         }
     }
 
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn test_arc_list_and_show() {
         let temp = TempDir::new().unwrap();
         let repo = temp.path();
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
-        std::env::set_current_dir(repo).unwrap();
 
-        create("arc1", None, false, None).unwrap();
-        create("arc2", None, false, None).unwrap();
+        create_in(repo, "arc1", None, false, None).unwrap();
+        create_in(repo, "arc2", None, false, None).unwrap();
 
-        assert_eq!(list().unwrap().len(), 2);
-        assert!(show("arc1").is_ok());
-        assert!(show("nonexistent").is_err());
+        assert_eq!(list_in(repo).unwrap().len(), 2);
+        assert!(show_in(repo, "arc1").is_ok());
+        assert!(show_in(repo, "nonexistent").is_err());
     }
 
     /// The same class of bug one field over: `worktree_rel` is stripped against
@@ -2336,7 +2333,7 @@ mod tests {
     /// it against the root it asked from gets a path that does not exist — and
     /// every consumer of that path degrades silently. `worktree_abs` is the
     /// answer that does not depend on which root the question came from.
-    #[serial]
+    #[serial(tug_data_dir)]
     #[test]
     fn arc_detail_asked_from_a_linked_worktree_reports_an_absolute_worktree() {
         let temp = TempDir::new().unwrap();

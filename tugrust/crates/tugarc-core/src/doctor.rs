@@ -820,12 +820,6 @@ pub fn doctor(repo_root: &Path, name: &str, repair: bool) -> Result<DoctorOutcom
     })
 }
 
-/// [`doctor`] against the cwd's repo — the CLI's entry point.
-pub fn doctor_here(name: &str, repair: bool) -> Result<DoctorOutcome, ArcError> {
-    let repo_root = ops::cwd_repo_root()?;
-    doctor(&repo_root, name, repair)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

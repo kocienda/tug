@@ -2483,29 +2483,14 @@ mod tests {
     use crate::session_ledger::FileEventRow;
     use std::path::PathBuf;
 
-    fn git(dir: &Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .expect("run git");
-        assert!(
-            out.status.success(),
-            "git {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A real repo with one commit; canonicalized so event project_dir
     /// strings match what `repo_root_for` resolves.
     fn init_repo() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path().canonicalize().expect("canonicalize");
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.email", "t@t"]);
-        git(&root, &["config", "user.name", "t"]);
+        GitFixture::init(&root);
         std::fs::write(root.join("committed.txt"), "base\n").unwrap();
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "base commit"]);
@@ -5074,7 +5059,7 @@ Some context.
     fn add_bare_origin(temp: &tempfile::TempDir, repo: &Path) -> PathBuf {
         let origin = temp.path().join("origin.git");
         std::fs::create_dir_all(&origin).unwrap();
-        let out = tugcore::git_command()
+        let out = tugcore::test_fixtures::git::command()
             .arg("init")
             .arg("-q")
             .arg("--bare")
@@ -6514,19 +6499,7 @@ mod m02a_verification {
     const SESSION: &str = "hv-session";
     const FILE: &str = "wide.txt";
 
-    fn git(dir: &Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .expect("run git");
-        assert!(
-            out.status.success(),
-            "git {args:?} failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// 120 committed lines, then edits at 20 and 90 — far enough apart that
     /// git emits two hunks rather than merging them.
@@ -6543,9 +6516,7 @@ mod m02a_verification {
     fn seed_repo() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.email", "t@t.test"]);
-        git(&root, &["config", "user.name", "t"]);
+        GitFixture::init(&root);
         let base: String = (1..=120).map(|n| format!("line {n}\n")).collect();
         std::fs::write(root.join(FILE), base).unwrap();
         git(&root, &["add", "-A"]);
@@ -6632,7 +6603,7 @@ mod m02a_verification {
     }
 
     fn head_patch(root: &Path) -> String {
-        let out = tugcore::git_command()
+        let out = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(root)
             .args(["show", "--no-color", "HEAD"])
@@ -6716,7 +6687,7 @@ mod m02a_verification {
             !shown.contains("line 90 CHANGED"),
             "the unelected hunk did NOT land: {shown}"
         );
-        let status = tugcore::git_command()
+        let status = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(&root)
             .args(["status", "--porcelain"])
@@ -6739,7 +6710,7 @@ mod m02a_verification {
             head_patch(&root).contains("line 90 CHANGED"),
             "the remainder landed whole"
         );
-        let status = tugcore::git_command()
+        let status = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(&root)
             .args(["status", "--porcelain"])
@@ -6798,7 +6769,7 @@ mod m02a_verification {
             "the refusal reads as drift: {err}"
         );
 
-        let staged = tugcore::git_command()
+        let staged = tugcore::test_fixtures::git::command()
             .arg("-C")
             .arg(&root)
             .args(["diff", "--cached", "--name-only"])

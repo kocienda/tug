@@ -795,27 +795,13 @@ mod tests {
         }
     }
 
-    fn git(dir: &Path, args: &[&str]) {
-        let out = tugcore::git_command()
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .expect("git runs");
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
+    use tugcore::test_fixtures::git::{GitFixture, git};
 
     /// A repo with one committed file and one tracked modification.
     fn init_repo() -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        git(&root, &["init", "-q", "-b", "main"]);
-        git(&root, &["config", "user.email", "t@t"]);
-        git(&root, &["config", "user.name", "t"]);
+        GitFixture::init(&root);
         std::fs::write(root.join("a.txt"), "base\n").unwrap();
         git(&root, &["add", "."]);
         git(&root, &["commit", "-q", "-m", "base"]);

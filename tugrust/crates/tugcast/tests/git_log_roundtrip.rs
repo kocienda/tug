@@ -12,8 +12,6 @@
 //!
 //! Run: `cargo nextest run -p tugcast --test git_log_roundtrip`
 
-use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use tempfile::{NamedTempFile, TempDir};
@@ -23,27 +21,14 @@ use common::{TestTugcast, TestWs};
 
 const WIRE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Run a git subcommand in `repo`, asserting success.
-fn git(repo: &Path, args: &[&str]) {
-    let mut full = vec!["-C", repo.to_str().unwrap()];
-    full.extend_from_slice(args);
-    let out = Command::new("git").args(&full).output().expect("run git");
-    assert!(
-        out.status.success(),
-        "git {:?} failed: {}",
-        args,
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
+use tugcore::test_fixtures::git::{GitFixture, git};
 
 /// Create a committed repo on `main` with three commits whose subjects are,
 /// oldest to newest, `first`/`second`/`third`.
 fn make_log_repo() -> TempDir {
     let temp = TempDir::new().expect("repo tempdir");
     let repo = temp.path();
-    git(repo, &["init", "-b", "main"]);
-    git(repo, &["config", "user.name", "test"]);
-    git(repo, &["config", "user.email", "test@test.com"]);
+    GitFixture::init(repo);
     for subject in ["first", "second", "third"] {
         std::fs::write(repo.join(format!("{subject}.txt")), "x\n").unwrap();
         git(repo, &["add", "-A"]);
@@ -125,9 +110,7 @@ async fn git_log_query_reads_explicit_root_not_bootstrap() {
     let repo_a = make_log_repo();
     let temp_b = TempDir::new().expect("repo b tempdir");
     let repo_b = temp_b.path();
-    git(repo_b, &["init", "-b", "main"]);
-    git(repo_b, &["config", "user.name", "test"]);
-    git(repo_b, &["config", "user.email", "test@test.com"]);
+    GitFixture::init(repo_b);
     std::fs::write(repo_b.join("only-in-b.txt"), "b\n").unwrap();
     git(repo_b, &["add", "-A"]);
     git(repo_b, &["commit", "-m", "b-only-commit"]);

@@ -71,17 +71,17 @@ pub use ops::{
     ArcDetail, ArcDetailFile, ArcDocuments, ArcDraftKey, ArcListItem, ArcStatus, BaseDirtPath,
     CommitOutcome, CreateOutcome, DeleteDocumentsOutcome, DiscardOutcome, DocumentArgument,
     JoinBlocker, JoinOptions, JoinOutcome, JoinStrategy, MarkOutcome, OpenOutcome, RoundItem,
-    ShowOutcome, StepOutcome, arc_detail_entries_in, arc_draft_key, brief_file, commit, create,
-    delete_documents, delete_documents_in, derive_stage, discard, discard_in, document_arcs,
-    documents_dir, ensure_tug_excluded, join, join_in, join_in_flight, join_in_with_progress,
-    join_preflight_in, ledger_file, list, mark, open_arc, plan_file, show, status, status_in,
-    step_done, step_start, tasks_file, worktree_path,
+    ShowOutcome, StepOutcome, arc_detail_entries_in, arc_draft_key, brief_file, commit_in,
+    create_in, delete_documents_in, derive_stage, discard_in, document_arcs, documents_dir,
+    ensure_tug_excluded, join_in, join_in_flight, join_in_with_progress, join_preflight_in,
+    ledger_file, list_in, mark_in, open_arc, plan_file, show_in, status_in, step_done_in,
+    step_start_in, tasks_file, worktree_path,
 };
-pub use replay::{ReplayOutcome, ReplayedRounds, replay, replay_onto};
+pub use replay::{ReplayOutcome, ReplayedRounds, replay_onto};
 pub use resolve::{
     FileMergeRequest, FileMerger, FileResolution, JoinShape, RESOLVE_LEASE, RESOLVE_SUBJECT_PREFIX,
     ResolveLease, ResolveOutcome, ResolvedBy, mark_resolve_begun, mark_resolve_ended,
-    resolve_conflicts, resolve_conflicts_cwd, resolve_intent, resolve_lease, resolver_program,
+    resolve_conflicts, resolve_intent, resolve_lease, resolver_program,
 };
 pub use verify::clear_verification;
 pub use workshop::{Workshop, workshop_branch, workshop_path};
