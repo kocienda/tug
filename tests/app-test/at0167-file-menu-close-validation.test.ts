@@ -21,6 +21,7 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuBarBuilder.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/action-dispatch.ts
  */

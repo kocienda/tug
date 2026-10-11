@@ -51,6 +51,7 @@
  * @foreground
  *
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuBarBuilder.swift
  * @covers tugdeck/src/components/tugways/responder-chain.ts
  * @covers tugdeck/src/components/tugways/text-editing-menu.ts
  * @covers tugdeck/src/lib/host-menu-state.ts

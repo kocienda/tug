@@ -34,6 +34,7 @@
  * refinanced (at0506's precedent, the same one at0580 takes).
  *
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  */
 

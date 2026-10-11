@@ -45,6 +45,9 @@
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/lib/app-modal-store.ts
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/BridgeHandler.swift
+ * @covers tugapp/Sources/MenuBarBuilder.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/components/tugways/command-registry.ts
  * @covers tugdeck/src/components/tugways/update-tug.tsx
  * @covers tugdeck/src/components/tugways/configure-tug.tsx

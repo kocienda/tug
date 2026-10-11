@@ -50,6 +50,7 @@
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/components/tugways/cards/use-menu-state-publication.ts
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  */
 
 import { describe, expect, test } from "bun:test";

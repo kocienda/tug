@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		AA0000010000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000001 /* AppDelegate.swift */; };
+		AA000001000000000000004F /* BridgeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000049 /* BridgeHandler.swift */; };
+		AA0000010000000000000050 /* MenuBarBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004A /* MenuBarBuilder.swift */; };
+		AA0000010000000000000053 /* MenuStateSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004C /* MenuStateSync.swift */; };
+		AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004A /* MenuBarBuilder.swift */; };
+		AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004B /* MenuBarBuilderTests.swift */; };
 		AA0000010000000000000002 /* MainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000002 /* MainWindow.swift */; };
 		AA0000010000000000000003 /* ProcessManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000003 /* ProcessManager.swift */; };
 		AA0000010000000000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000004 /* Assets.xcassets */; };
@@ -58,6 +63,10 @@
 
 /* Begin PBXFileReference section */
 		AA0000020000000000000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		AA0000020000000000000049 /* BridgeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeHandler.swift; sourceTree = "<group>"; };
+		AA000002000000000000004A /* MenuBarBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarBuilder.swift; sourceTree = "<group>"; };
+		AA000002000000000000004C /* MenuStateSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuStateSync.swift; sourceTree = "<group>"; };
+		AA000002000000000000004B /* MenuBarBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarBuilderTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000002 /* MainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindow.swift; sourceTree = "<group>"; };
 		AA0000020000000000000003 /* ProcessManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessManager.swift; sourceTree = "<group>"; };
 		AA0000020000000000000004 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -139,6 +148,9 @@
 			children = (
 				AA0000020000000000000007 /* main.swift */,
 				AA0000020000000000000001 /* AppDelegate.swift */,
+				AA0000020000000000000049 /* BridgeHandler.swift */,
+				AA000002000000000000004A /* MenuBarBuilder.swift */,
+				AA000002000000000000004C /* MenuStateSync.swift */,
 				AA0000020000000000000047 /* MenuState.swift */,
 				AA0000020000000000000002 /* MainWindow.swift */,
 				AA0000020000000000000003 /* ProcessManager.swift */,
@@ -189,6 +201,7 @@
 				AA0000020000000000000043 /* BridgePathGuardTests.swift */,
 				AA0000020000000000000044 /* DictationStateTests.swift */,
 				AA0000020000000000000048 /* MenuStateTests.swift */,
+				AA000002000000000000004B /* MenuBarBuilderTests.swift */,
 				AA0000020000000000000045 /* ShellPathResolverTests.swift */,
 				AA0000020000000000000046 /* UpdateStateTests.swift */,
 			);
@@ -296,6 +309,9 @@
 			files = (
 				AA0000010000000000000005 /* main.swift in Sources */,
 				AA0000010000000000000001 /* AppDelegate.swift in Sources */,
+				AA000001000000000000004F /* BridgeHandler.swift in Sources */,
+				AA0000010000000000000050 /* MenuBarBuilder.swift in Sources */,
+				AA0000010000000000000053 /* MenuStateSync.swift in Sources */,
 				AA000001000000000000004C /* MenuState.swift in Sources */,
 				AA0000010000000000000002 /* MainWindow.swift in Sources */,
 				AA0000010000000000000003 /* ProcessManager.swift in Sources */,
@@ -338,12 +354,14 @@
 				AA0000010000000000000048 /* BridgePathGuardTests.swift in Sources */,
 				AA0000010000000000000049 /* DictationStateTests.swift in Sources */,
 				AA000001000000000000004E /* MenuStateTests.swift in Sources */,
+				AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */,
 				AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */,
 				AA000001000000000000004B /* UpdateStateTests.swift in Sources */,
 				AA0000010000000000000042 /* BranchSlug.swift in Sources */,
 				AA0000010000000000000043 /* BridgePathGuard.swift in Sources */,
 				AA0000010000000000000044 /* DictationState.swift in Sources */,
 				AA000001000000000000004D /* MenuState.swift in Sources */,
+				AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000045 /* ShellPathResolver.swift in Sources */,
 				AA0000010000000000000046 /* UpdateState.swift in Sources */,
 			);

@@ -30,6 +30,7 @@
  * @covers tugdeck/src/contexts/theme-provider.tsx
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  */
 
 import { describe, expect, test } from "bun:test";

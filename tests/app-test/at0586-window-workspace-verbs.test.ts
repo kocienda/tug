@@ -38,6 +38,8 @@
  * to a dimmed item.
  *
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuBarBuilder.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
  */

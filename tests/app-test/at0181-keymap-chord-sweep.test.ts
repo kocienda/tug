@@ -39,6 +39,8 @@
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuBarBuilder.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/components/tugways/keymap-registry.ts
  * @covers tugdeck/src/components/tugways/chord-format.ts
  * @covers tugdeck/src/lib/host-menu-state.ts

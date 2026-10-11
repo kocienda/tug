@@ -35,6 +35,7 @@
  *      chord could not produce at all.
  *
  * @covers tugapp/Sources/AppDelegate.swift
+ * @covers tugapp/Sources/MenuStateSync.swift
  * @covers tugdeck/src/lib/host-menu-state.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
  * @covers tugdeck/src/sidebar-toggle.ts
