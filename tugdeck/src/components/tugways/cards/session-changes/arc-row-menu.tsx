@@ -49,6 +49,11 @@ import {
   type TugEditorContextMenuEntry,
 } from "@/components/tugways/tug-editor-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
+import { replayDisabledReason } from "@/lib/arc-verbs";
+
+// `replayDisabledReason` lives in `lib/arc-verbs.ts`, which composes every
+// arc verb's refusal; re-exported for the row menus that read it here.
+export { replayDisabledReason };
 
 /**
  * One verb the menu offers.
@@ -106,38 +111,6 @@ export interface ArcRowMenuResult {
 /** The item's label, carrying its own refusal when it has one. */
 export function arcRowMenuLabel(verb: string, disabledReason: string | null): string {
   return disabledReason === null ? verb : `${verb} — ${disabledReason}`;
-}
-
-/**
- * Why Replay is unavailable for this arc, or null when it is available.
- *
- * Available whenever the arc is **diverged** — the base has moved past it, or
- * a previous replay stopped conflicted. Two no-ops the row's own facts prove
- * are disabled with their reason rather than hidden ([L31]): an arc already
- * current with its base has nothing to replay, and an arc with a dirty worktree
- * would have its replay declined server-side, since the move is a
- * `git reset --keep` that refuses over uncommitted work.
- *
- * **Boundness is not consulted.** `decide_for_arc` in the base-motion engine
- * gates the automatic replay on the autoreplay flags, an in-flight replay, the
- * join journal, and worktree dirt — never on whether a session holds the arc.
- * So "unbound" never meant "untended", and a bound diverged arc whose
- * repository has autoreplay off is precisely the population with no other
- * recourse. Neither autoreplay flag is on the wire and neither is put there:
- * a client predicting whether the engine is about to act would be
- * re-implementing that gate behind glass.
- */
-export function replayDisabledReason(entry: {
-  base: string;
-  base_ahead?: number;
-  worktree_dirty: boolean;
-  replay_conflict_paths?: string[];
-}): string | null {
-  const diverged =
-    (entry.base_ahead ?? 0) > 0 || (entry.replay_conflict_paths ?? []).length > 0;
-  if (!diverged) return `already current with ${entry.base}`;
-  if (entry.worktree_dirty) return "its worktree has uncommitted changes";
-  return null;
 }
 
 export function useArcRowMenu({

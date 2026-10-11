@@ -33,7 +33,7 @@ import { bullseyePaneIdOf, isSidebarStanding, slotStackOf } from "../deck-store-
 import { paneTitleBarTextFor } from "./pane-title";
 import { cardTitleStore } from "./card-title-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
-import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { visibleCardCount } from "./card-ring";

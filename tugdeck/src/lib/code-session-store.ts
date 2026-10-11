@@ -40,7 +40,7 @@ import {
 import { FeedStore } from "@/lib/feed-store";
 import { RunProgressStore } from "@/lib/run-progress-store";
 import type { AtomSegment } from "./tug-atom-img";
-import { TUG_ATOM_CHAR } from "./tug-atom-img";
+import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import { hasLeadingCommandAtom } from "./command-atom";
 import type { PendingContextStore } from "./pending-context-store";
 import {

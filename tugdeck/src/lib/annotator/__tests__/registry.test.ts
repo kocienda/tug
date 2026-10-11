@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { sessionTagStore } from "@/lib/session-tag-store";
 import { annotationEntryFor, buildEntityMenu } from "../registry";
 import type { AnnotationKind } from "../types";

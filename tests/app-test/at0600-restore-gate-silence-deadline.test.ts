@@ -31,7 +31,7 @@
  * @covers tugdeck/src/lib/code-session-store/reducer.ts
  * @covers tugdeck/src/lib/restore-gate-store.ts
  * @covers tugdeck/src/components/tugways/tug-restore-gate.tsx
- * @covers tugdeck/src/components/tugways/cards/session-card-restore-gate.ts
+ * @covers tugdeck/src/lib/session-card-restore-gate.ts
  */
 
 import { describe, expect, test } from "bun:test";

@@ -179,7 +179,7 @@ import {
   type TugSessionRowProps,
 } from "@/components/tugways/tug-session-row";
 import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
-import { truncateForDisplay } from "@/components/tugways/cards/session-picker-format";
+import { truncateForDisplay } from "@/lib/session-picker-format";
 import {
   COMPACTING_BEAT_TEXT,
   useIsCompactingCard,

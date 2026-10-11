@@ -55,7 +55,7 @@ import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { FeedId } from "@/protocol";
 import { replaySilenceEffect } from "@/lib/code-session-store/reducer";
 import type { Effect } from "@/lib/code-session-store/effects";
-import { deriveColdRestoreActive } from "@/components/tugways/cards/session-card-restore-gate";
+import { deriveColdRestoreActive } from "@/lib/session-card-restore-gate";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 const IPC_VERSION = 2;

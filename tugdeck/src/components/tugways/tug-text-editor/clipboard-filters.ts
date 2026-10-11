@@ -59,15 +59,26 @@ import {
   readClipboardViaNative,
   writeClipboardViaNative,
 } from "@/lib/tug-native-clipboard";
-import { clipboardOriginFor } from "@/lib/clipboard-origin";
+import {
+  clipboardOriginFor,
+  parseOrigins,
+  withClipboardOrigins,
+} from "@/lib/clipboard-origin";
 import { atomPlainText } from "@/lib/atom-plain-text";
+import { TUG_ATOMS_MIME } from "@/lib/tug-atoms-mime";
+
+// `withClipboardOrigins` and `parseOrigins` live in `lib/clipboard-origin.ts`
+// so lib copy paths can attach provenance without importing this editor
+// module. Re-exported for every caller that reaches them through here.
+export { parseOrigins, withClipboardOrigins };
+
+// The sidecar's MIME type lives in `lib/tug-atoms-mime.ts`, so the lib copy
+// path can write it without importing this module. Re-exported here.
+export { TUG_ATOMS_MIME };
 
 // ---------------------------------------------------------------------------
 // Wire format
 // ---------------------------------------------------------------------------
-
-/** Custom MIME type carrying the atom-sidecar JSON inside a tug clipboard. */
-export const TUG_ATOMS_MIME = "application/x-tug-atoms";
 
 /**
  * Schema for the sidecar payload. `version` allows future evolution;
@@ -346,53 +357,6 @@ export function parseClipboardSidecar(
   } catch {
     return null;
   }
-}
-
-/**
- * Attach `origins` to a sidecar, minting one when the copy had no other reason
- * to carry a sidecar at all. Returns `null` only when there is nothing to say:
- * no atoms, no assets, no provenance.
- *
- * Every copy path that knows its project calls this on the way to the write,
- * which is what keeps "prose carries its root" from being a rule each surface
- * re-implements slightly differently.
- */
-export function withClipboardOrigins(
-  sidecar: TugAtomsClipboardPayload | null,
-  text: string,
-  origins: readonly string[] | string | null | undefined,
-): TugAtomsClipboardPayload | null {
-  const list = parseOrigins(
-    typeof origins === "string" ? [origins] : (origins ?? null),
-  );
-  if (list === null) return sidecar;
-  const base: TugAtomsClipboardPayload = sidecar ?? {
-    version: 1,
-    text,
-    atoms: [],
-  };
-  return { ...base, origins: list };
-}
-
-/**
- * Validate the payload's optional `origins` list: absolute paths only, deduped,
- * order preserved. Returns `null` when nothing usable survives, so a malformed
- * field degrades to "this copy carried no provenance" rather than to a root
- * that resolves paths against the wrong repository.
- *
- * Absolute is not a formality. A relative root would have to be resolved
- * against something, and the only candidate is the destination's own project —
- * which is exactly the assumption this field exists to stop making.
- */
-export function parseOrigins(raw: unknown): string[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out: string[] = [];
-  for (const item of raw as unknown[]) {
-    if (typeof item !== "string") continue;
-    if (!item.startsWith("/")) continue;
-    if (!out.includes(item)) out.push(item);
-  }
-  return out.length > 0 ? out : null;
 }
 
 /**

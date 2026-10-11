@@ -27,7 +27,7 @@ import {
   hasNativeClipboardBridge,
   writeClipboardViaNative,
 } from "./tug-native-clipboard";
-import { withClipboardOrigins } from "@/components/tugways/tug-text-editor/clipboard-filters";
+import { withClipboardOrigins } from "@/lib/clipboard-origin";
 
 /**
  * Copy `text` to the clipboard, stamped with the project root in scope at

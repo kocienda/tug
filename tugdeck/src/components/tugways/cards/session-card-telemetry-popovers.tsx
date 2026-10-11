@@ -141,8 +141,8 @@ import {
   formatTimeAlwaysHours,
   formatTokenCap,
   formatTokensCaps,
-  useLiveTick,
-} from "./session-card-telemetry-renderers";
+} from "@/lib/session-telemetry-format";
+import { useLiveTick } from "@/lib/live-tick";
 import { turnHasTiming } from "@/lib/code-session-store/telemetry";
 import { Square, X } from "lucide-react";
 import { TugPushButton } from "@/components/tugways/tug-push-button";

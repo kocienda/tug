@@ -15,12 +15,16 @@ import { createContext, useContext } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
+import {
+  SHOWN_PANE_FRAMES,
+  SPACE_LAYER_CLASS,
+  SPACE_SHOWN_ATTRIBUTE,
+} from "@/lib/pane-frame-selectors";
 
-/** The class every workspace wrapper carries. */
-export const SPACE_LAYER_CLASS = "tug-space-layer";
-
-/** Present on exactly one wrapper: the workspace being rendered. */
-export const SPACE_SHOWN_ATTRIBUTE = "data-space-shown";
+// The wrapper class, the shown attribute, and the on-screen pane-frame
+// selector live in `lib/pane-frame-selectors.ts`, so lib sweeps can read them
+// without importing this module. Re-exported as part of this vocabulary.
+export { SHOWN_PANE_FRAMES, SPACE_LAYER_CLASS, SPACE_SHOWN_ATTRIBUTE };
 
 /**
  * The workspace a wrapper holds. Written on every layer, shown or not.
@@ -81,32 +85,6 @@ export const SPACE_LAYER_ATTRIBUTE = "data-space-layer";
  * is nothing to re-assert it, and the epoch would end before it began.
  */
 export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
-
-/**
- * Every pane frame ON SCREEN — the shown workspace's, never a mounted-but-
- * hidden one's.
- *
- * The `:not(...)` clause is an ancestor test and so is scope-independent: it
- * gives the same answer whether the sweep runs from the document, the deck
- * root, or an element inside the shown layer, which is what lets one constant
- * replace the bare `.tug-pane[data-pane-id]` everywhere. A hidden layer's
- * subtree keeps its boxes ([B02]) — every hidden pane has the REAL rect it
- * would have on screen — so a sweep that caught one would find a place a card
- * could snap to, occlude, or settle against, on a workspace nobody is looking
- * at. Under the old `display: none` the same mistake read as a stack of zero
- * rects at the origin; now it reads as plausible geometry, which is worse,
- * and is why this clause is load-bearing rather than defensive.
- *
- * A PARKED rail member (`data-rail-parked`) keeps its box for the same reason
- * and is left out for the same reason: its rail was hidden whole, and it
- * stands nowhere a reader can see.
- *
- * A DEPARTING frame (`data-departing`) is left out too. It is a closed pane
- * kept mounted, inert, for the one settle that carries it out, and it stands
- * in no place a card could snap to, occlude, or settle against.
- */
-export const SHOWN_PANE_FRAMES =
-  `.tug-pane[data-pane-id]:not([data-rail-parked]):not([data-departing]):not(.${SPACE_LAYER_CLASS}:not([${SPACE_SHOWN_ATTRIBUTE}]) *)`;
 
 /**
  * Whether the workspace a card is mounted in is the one on screen.

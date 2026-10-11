@@ -15,7 +15,7 @@ import { describe, it, expect } from "bun:test";
 import {
   classifyApiRetry,
   type ApiRetryCategory,
-} from "@/components/tugways/cards/api-retry";
+} from "@/lib/api-retry";
 
 describe("classifyApiRetry — category taxonomy", () => {
   it("maps transient categories to caution-grade severity", () => {

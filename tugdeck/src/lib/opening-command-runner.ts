@@ -33,7 +33,8 @@ import type { CodeSessionStore } from "./code-session-store";
 import type { SessionMetadataStore } from "./session-metadata-store";
 import { atomizeCommandArgs } from "./command-atom";
 import { resolveRemoteCommand } from "./slash-supported";
-import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
+import type { AtomSegment } from "./tug-atom-img";
+import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 
 /** How long the runner waits for the command catalog before sending anyway. */

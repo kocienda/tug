@@ -38,7 +38,7 @@
  * @covers tugdeck/src/components/jots/jot-row-menu.tsx
  * @covers tugdeck/src/components/jots/jots-card.tsx
  * @covers tugdeck/src/components/jots/jots-card.css
- * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/lib/action-vocabulary.ts
  */
 
 import { describe, expect, test } from "bun:test";

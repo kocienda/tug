@@ -21,7 +21,7 @@ import {
   hasSessionMetadataChanged,
   narrowSessionMetadata,
 } from "./session-init-banner";
-import { KIND_RENDERERS } from "../cards/session-assistant-renderer-dispatch";
+import { KIND_RENDERERS } from "../cards/session-assistant-kind-dispatch";
 
 // ---------------------------------------------------------------------------
 // narrowSessionMetadata

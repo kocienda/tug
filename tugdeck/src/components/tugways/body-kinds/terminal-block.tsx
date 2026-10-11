@@ -102,6 +102,7 @@ import { useResponderChain } from "@/components/tugways/responder-chain-provider
 import { type TugAction } from "@/components/tugways/action-vocabulary";
 import type { ActionHandler } from "@/components/tugways/responder-chain";
 import { ansiToHtml } from "@/lib/ansi/ansi-to-html";
+import { RETAINED_LINE_CAP } from "@/lib/terminal-line-cap";
 import {
   BlockActionsCluster,
   BlockCopyButton,
@@ -278,12 +279,9 @@ export interface TerminalBlockProps {
  */
 export const DEFAULT_COLLAPSE_THRESHOLD = 25;
 
-/**
- * Maximum retained-line count before the earliest lines are dropped
- * and replaced with a "… N earlier lines truncated" indicator
- * ([Q04]).
- */
-export const RETAINED_LINE_CAP = 10_000;
+// The retained-line cap lives in `lib/terminal-line-cap.ts`, so the transcript
+// search index can share it without importing this block. Re-exported here.
+export { RETAINED_LINE_CAP };
 
 const DEFAULT_STREAMING_PATH = "terminal";
 

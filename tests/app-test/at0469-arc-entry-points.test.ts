@@ -47,7 +47,7 @@
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-notice.tsx
  * @covers tugdeck/src/lib/arc-replay-outcome-store.ts
  * @covers tugdeck/src/lib/changeset-verb-store.ts
- * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/lib/action-vocabulary.ts
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/changeset.rs
  */
 

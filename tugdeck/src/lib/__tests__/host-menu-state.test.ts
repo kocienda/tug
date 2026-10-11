@@ -13,7 +13,7 @@ import {
   type MenuStateFileBlock,
   type MenuStatePayload,
 } from "../host-menu-state";
-import { TUG_ACTIONS } from "../../components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { cardTitleStore } from "../card-title-store";
 import { registerCard } from "../../card-registry";
 import { registerDeckStore } from "../deck-store-registry";

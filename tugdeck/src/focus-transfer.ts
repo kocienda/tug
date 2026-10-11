@@ -124,7 +124,7 @@
 import { flushSync } from "@/lib/gesture-scope";
 
 
-import { getResponderChainManager } from "./action-dispatch";
+import { getResponderChainManager } from "./action-registry";
 import { isEngineManagedCard } from "./card-registry";
 import { getFocusManager } from "./components/tugways/focus-manager";
 import { selectionGuard } from "./components/tugways/selection-guard";

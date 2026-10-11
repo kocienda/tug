@@ -30,7 +30,7 @@
  *
  * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
- * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/lib/action-vocabulary.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/deck-manager.ts

@@ -38,7 +38,8 @@ import {
   type SessionIdentity,
 } from "@/lib/session-identity";
 import { writeClipboardViaNative } from "@/lib/tug-native-clipboard";
-import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
+import type { AtomSegment } from "@/lib/tug-atom-img";
+import { TUG_ATOM_CHAR } from "@/lib/tug-atom-char";
 import { SESSION_ATOM_TYPE } from "@/lib/session-atom-shape";
 
 export {

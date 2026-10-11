@@ -25,7 +25,7 @@
  * @module lib/code-session-store/lifecycle-state
  */
 
-import { classifyApiRetry } from "@/components/tugways/cards/api-retry";
+import { classifyApiRetry } from "@/lib/api-retry";
 
 import type { ApiRetryState, CodeSessionPhase, TransportState } from "./types";
 

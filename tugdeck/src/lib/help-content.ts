@@ -21,7 +21,7 @@
  * @module lib/help-content
  */
 
-import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { commandShortcuts } from "../components/tugways/keymap-registry";
 import { LOCAL_SLASH_COMMANDS } from "./slash-commands";
 import { isHiddenSlashCommand } from "./slash-supported";

@@ -21,7 +21,7 @@
  */
 
 import type { TurnEntry } from "@/lib/code-session-store/types";
-import { turnEntryToMarkdown } from "@/components/tugways/cards/turn-entry-markdown";
+import { turnEntryToMarkdown } from "@/lib/turn-entry-markdown";
 import { resolveSessionIdentity } from "@/lib/session-identity";
 
 /** The export formats `/export` offers. */

@@ -88,7 +88,8 @@
 
 import type { ContentBlock } from "@/protocol";
 import type { AtomBytesEntry, AtomBytesStore } from "./atom-bytes-store";
-import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
+import type { AtomSegment } from "./tug-atom-img";
+import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import { bakeThumbnail } from "./image-downsample";
 import { parseAtomMentionSegments } from "./atom-mention-marker";
 import { COMMIT_ATOM_TYPE, detectCommandEcho } from "./command-atom";

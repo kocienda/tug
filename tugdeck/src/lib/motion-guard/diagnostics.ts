@@ -67,7 +67,7 @@ import {
 import { motionBreaker } from "./breaker";
 import { adoptRecordFlagAtLoad, recordSwitch, type RecordReading } from "./record-switch";
 import { settleVerdictOfDrive, type SettleEngineRows, type SettleVerdict } from "./settle-bar";
-import { SHOWN_PANE_FRAMES } from "@/components/chrome/space-layer";
+import { SHOWN_PANE_FRAMES } from "@/lib/pane-frame-selectors";
 import {
   burst,
   renderCostProbe,

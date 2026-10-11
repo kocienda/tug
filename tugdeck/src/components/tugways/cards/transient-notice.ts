@@ -18,7 +18,7 @@
  */
 
 import type { CodeSessionSnapshot } from "@/lib/code-session-store";
-import { classifyApiRetry } from "./api-retry";
+import { classifyApiRetry } from "@/lib/api-retry";
 
 /** Maps to a pane bulletin tone helper (`neutral` = the base call). */
 export type NoticeTone = "neutral" | "caution" | "danger" | "success";

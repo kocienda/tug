@@ -14,7 +14,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { SessionErrorBlock, COPIED_FLASH_MS } from "./session-error-block";
-import { KIND_RENDERERS } from "../cards/session-assistant-renderer-dispatch";
+import { KIND_RENDERERS } from "../cards/session-assistant-kind-dispatch";
 
 describe("error dispatch wiring", () => {
   test("KIND_RENDERERS.error is SessionErrorBlock", () => {

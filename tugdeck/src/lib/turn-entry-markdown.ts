@@ -38,7 +38,7 @@
  * filtering by Message kind, instead of reaching for the paired
  * `turn.toolCalls` / `turn.assistant` fields that retired.
  *
- * @module components/tugways/cards/turn-entry-markdown
+ * @module lib/turn-entry-markdown
  */
 
 import type { Message, ToolUseMessage, TurnEntry } from "@/lib/code-session-store/types";

@@ -40,7 +40,7 @@ import { dispatchCommand } from "../../command-dispatch";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { selectionGuard } from "./selection-guard";
 import { installModifierLatch } from "./modifier-latch";
-import { registerResponderChainManager } from "../../action-dispatch";
+import { registerResponderChainManager } from "../../action-registry";
 import { getCardLifecycle } from "../../lib/card-lifecycle";
 import { getAppLifecycle } from "../../lib/app-lifecycle";
 import { getDeckStore } from "../../lib/deck-store-registry";

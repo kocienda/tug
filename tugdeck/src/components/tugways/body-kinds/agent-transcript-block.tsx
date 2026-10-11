@@ -82,7 +82,7 @@ import {
 } from "@/components/tugways/blocks/collapse-context";
 import { collapseDefaultForMessage } from "@/components/tugways/cards/blocks/tool-collapse-defaults";
 import type { ChildToolCallsMap } from "@/components/tugways/blocks/types";
-import { toolCallToMarkdown } from "@/components/tugways/cards/turn-entry-markdown";
+import { toolCallToMarkdown } from "@/lib/turn-entry-markdown";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import type { ToolUseMessage } from "@/lib/code-session-store";
 import {

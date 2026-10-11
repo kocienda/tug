@@ -73,8 +73,8 @@ import { mathStrippedText } from "@/lib/markdown/block-transformers/inline-math-
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import type { RowSegment } from "@/lib/transcript-search";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
-import { RETAINED_LINE_CAP } from "@/components/tugways/body-kinds/terminal-block";
-import { parseGitCommit } from "@/components/tugways/body-kinds/commit-block";
+import { RETAINED_LINE_CAP } from "@/lib/terminal-line-cap";
+import { parseGitCommit } from "@/lib/git-commit-parse";
 import { refsFindablePaths } from "@/components/tugways/cards/refs-result-view";
 import {
   extractTextOutput,

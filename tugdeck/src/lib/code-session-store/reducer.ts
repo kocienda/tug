@@ -167,7 +167,7 @@ import {
   settleGoalOnCycleCommit,
   type GoalState,
 } from "./select-goal";
-import { TUG_ATOM_CHAR } from "../tug-atom-img";
+import { TUG_ATOM_CHAR } from "../tug-atom-char";
 import { mintLeadingCommandAtom } from "../command-atom";
 import { writtenPaths } from "../annotator/written-paths";
 import { decodePermissionDenials, mergeDenials } from "./denials";

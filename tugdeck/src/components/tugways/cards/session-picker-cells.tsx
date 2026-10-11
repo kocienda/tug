@@ -76,7 +76,7 @@ import type {
   SessionsRow,
   SessionsDataSource,
 } from "@/lib/session-picker-data-source";
-import { formatFailedRowSubtitle } from "./session-picker-format";
+import { formatFailedRowSubtitle } from "@/lib/session-picker-format";
 import {
   sessionIdentityContextFrom,
   useSessionIdentity,

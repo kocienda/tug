@@ -30,7 +30,7 @@ import {
 import {
   getRegistryHandler,
   getResponderChainManager,
-} from "./action-dispatch";
+} from "./action-registry";
 
 /** Notified after every dispatch, handled or not. */
 export type CommandObserver = (id: string, handled: boolean) => void;

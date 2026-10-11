@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "plugins": ["typescript", "unicorn", "oxc", "react", "import"],
   "categories": {
     "correctness": "error"
   },
@@ -9,6 +9,10 @@
     "no-unreachable": "error",
     "react/rules-of-hooks": "error",
     "react/exhaustive-deps": "error",
+    // A runtime import cycle means some module reads another's bindings
+    // before that module has finished evaluating. Type-only edges are erased
+    // by tsc and cost nothing at runtime, so they are not counted.
+    "import/no-cycle": ["error", { "ignoreTypes": true }],
     // The react plugin's correctness category also carries the React
     // Compiler's purity rules. The deck does not use the compiler, and its laws
     // read and write refs during render and mutate the DOM directly on purpose
@@ -31,5 +35,79 @@
     // in hot paths (markdown parse, incremental render, transcript search,
     // deck trace), where `Array.from({ length })` walks the iterator protocol.
     "unicorn/no-new-array": "off"
-  }
+  },
+  "overrides": [
+    {
+      // `lib` is the layer below the components: stores, parsers, and the
+      // vocabulary both layers share. An import from `components` into `lib`
+      // is how the next import cycle starts, so it is refused here; a type
+      // import is erased by tsc and is allowed.
+      "files": ["src/lib/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                // `@/components/…` and any `../…/components/…`. A regex
+                // rather than a gitignore `group`, which does not match the
+                // `@/` alias.
+                "regex": "^(@/|(\\.\\./)+)components/",
+                "allowTypeImports": true,
+                "message": "lib must not import from components; move the shared piece into lib and re-export it from the component."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // Tests in `lib` drive the component layer on purpose and are not part
+      // of the runtime graph the gate guards.
+      "files": ["src/lib/**/__tests__/**", "src/lib/**/*.test.ts", "src/lib/**/*.test.tsx"],
+      "rules": { "no-restricted-imports": "off" }
+    },
+    {
+      // The residue: lib files whose component import is a genuine dependency
+      // on the component layer, not a constant or pure function that could
+      // move. This list only shrinks; adding a file is a review question.
+      "files": [
+        // Derives its arc track model with TugArcTrack's own model builder.
+        "src/lib/arc-session-index.ts",
+        // Holds a PropertyStore, the component layer's reactive property bag.
+        "src/lib/code-session-store.ts",
+        // Builds a document arc's track with TugArcTrack's model builder.
+        "src/lib/document-arc-entry.ts",
+        // Finds a pane's canvas through the space layer's DOM lookup.
+        "src/lib/flash-pane-border.ts",
+        // Reads the motion preference from the scale-timing module.
+        "src/lib/folded-body.ts",
+        // Reads the motion preference from the scale-timing module.
+        "src/lib/gesture-scope.ts",
+        // Renders shortcuts from the live keymap registry.
+        "src/lib/help-content.ts",
+        // Mirrors the command registry, keymap, and card selection into the host menus.
+        "src/lib/host-menu-state.ts",
+        // Runs the components' SpringSolver for imposer motion.
+        "src/lib/imposer-motion.ts",
+        // Reads the Cards card's selection store.
+        "src/lib/layout-selection.ts",
+        // Matches Cancel's rebindable chords through the keymap registry singleton.
+        "src/lib/markdown/enhance-img.ts",
+        // Reaches the editor's dictation span to insert at its target.
+        "src/lib/prompt-insert-target.ts",
+        // Shapes its series with TugSparkline's curve geometry.
+        "src/lib/session-activity-store.ts",
+        // Parses arc and join receipts with the receipt blocks' own parsers.
+        "src/lib/session-transcript-data-source.ts",
+        // Renders a shortcut from the live keymap registry.
+        "src/lib/shell-interactive-staging.ts",
+        // Indexes what the block renderers show, through their search-part functions.
+        "src/lib/transcript-search-index.ts",
+        // Presents an alert sheet, a component-layer surface.
+        "src/lib/use-unavailable-model-bulletin.ts"
+      ],
+      "rules": { "no-restricted-imports": "off" }
+    }
+  ]
 }

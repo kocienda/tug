@@ -127,10 +127,8 @@ import { TugAttachmentPreview } from "@/components/tugways/cards/tug-attachment-
 import type { AtomSegment } from "@/lib/tug-atom-img";
 import { formatModelLabel } from "@/lib/model-label";
 import { SessionZ1C } from "@/components/tugways/cards/session-card-z1c";
-import {
-  dispatch as dispatchRenderInput,
-  dispatchToolCallState,
-} from "@/components/tugways/cards/session-assistant-renderer-dispatch";
+import { dispatchToolCallState } from "@/components/tugways/cards/session-assistant-renderer-dispatch";
+import { dispatch as dispatchRenderInput } from "@/components/tugways/cards/session-assistant-kind-dispatch";
 // Side-effect import: runs the tool-block registration loop so every
 // bespoke wrapper is in the registry before the first resolveToolBlock.
 import "@/components/tugways/cards/session-assistant-renderer-registrations";
@@ -175,7 +173,7 @@ import {
 import {
   toolCallToMarkdown,
   turnEntryToMarkdown,
-} from "@/components/tugways/cards/turn-entry-markdown";
+} from "@/lib/turn-entry-markdown";
 import { selectionToTranscriptSubstrate } from "@/lib/markdown/serialize-selection";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { AnnotationScope } from "@/components/tugways/annotation-scope";
@@ -190,7 +188,7 @@ import {
 import {
   COLD_REVEAL_SETTLE_BOUND_MS,
   deriveColdRestoreActive,
-} from "@/components/tugways/cards/session-card-restore-gate";
+} from "@/lib/session-card-restore-gate";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { useAnnotationPortals } from "@/components/tugways/annotation-portals";
 import { TugQuietLine } from "@/components/tugways/tug-quiet-line";

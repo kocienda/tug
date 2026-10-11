@@ -58,10 +58,8 @@ import { cn } from "@/lib/utils";
 import { SessionCautionBadge } from "@/components/tugways/chrome/session-caution-badge";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
-import {
-  useLiveTick,
-  formatTimeMinutesSeconds,
-} from "@/components/tugways/cards/session-card-telemetry-renderers";
+import { useLiveTick } from "@/lib/live-tick";
+import { formatTimeMinutesSeconds } from "@/lib/session-telemetry-format";
 import { useToolCallMeta, type ToolCallMeta } from "./collapse-context";
 import { useRunProgress } from "./run-progress-context";
 import { engineLiveness, liveElapsedMs } from "@/lib/run-progress-store";

@@ -31,7 +31,7 @@
  * @module lib/session-activity-line
  */
 
-import { formatByteSize } from "@/components/tugways/cards/session-picker-format";
+import { formatByteSize } from "@/lib/session-picker-format";
 
 /**
  * The turn-end beat, verbatim as the digester emits it

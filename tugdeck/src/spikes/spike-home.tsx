@@ -5,8 +5,10 @@
  * question that spike explores. Activating a row mounts that spike as a tab in
  * the same pane.
  *
- * The card holds no state of its own. `SPIKES` is a module constant, row
- * selection belongs to `TugListView`, and the mutation belongs to the pane:
+ * The card holds no state of its own. `SPIKES` is a module constant the
+ * registry hands in as a prop — passed rather than imported, because the
+ * registry imports this card to register it — row selection belongs to
+ * `TugListView`, and the mutation belongs to the pane:
  * a row emits the `add-tab` action and `TugPane`'s responder answers it with
  * `store.addCardToPane` ([L11]). That is why this card never needs to know its
  * own paneId.
@@ -46,7 +48,16 @@ import {
   type TugListViewDelegate,
 } from "@/components/tugways/tug-list-view";
 
-import { SPIKES, spikeComponentId, type SpikeDef } from "./spike-registry";
+import type { SpikeDef } from "./spike-registry";
+
+/**
+ * The componentId a spike's `name` resolves to. Defined here rather than in
+ * the registry so this card can name a row's spike without importing the
+ * registry that imports it; the registry re-exports it.
+ */
+export function spikeComponentId(name: string): string {
+  return `spike-${name}`;
+}
 
 /** The index's rows: the `SPIKES` array, in declaration order. */
 class SpikeRowsDataSource implements TugListViewDataSource {
@@ -92,14 +103,19 @@ const SPIKE_CELL_RENDERERS = { spike: SpikeCell };
  * The Spikes index. Registered as `spike-home` — a singleton, since a second
  * index is never useful.
  */
-export function SpikeHome(): React.ReactElement {
+export function SpikeHome({
+  spikes,
+}: {
+  /** The registry's `SPIKES`, in declaration order. */
+  spikes: readonly SpikeDef[];
+}): React.ReactElement {
   const { dispatch } = useControlDispatch();
-  const dataSource = useMemo(() => new SpikeRowsDataSource(SPIKES), []);
+  const dataSource = useMemo(() => new SpikeRowsDataSource(spikes), [spikes]);
 
   const delegate = useMemo<TugListViewDelegate>(
     () => ({
       onSelect: (index: number) => {
-        const def = SPIKES[index];
+        const def = spikes[index];
         if (def === undefined) return;
         dispatch({
           action: TUG_ACTIONS.ADD_TAB,
@@ -108,10 +124,10 @@ export function SpikeHome(): React.ReactElement {
         });
       },
     }),
-    [dispatch],
+    [dispatch, spikes],
   );
 
-  if (SPIKES.length === 0) {
+  if (spikes.length === 0) {
     return (
       <div className="spike-home" data-slot="spike-home">
         <p className="spike-home-empty">

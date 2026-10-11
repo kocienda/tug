@@ -22,7 +22,6 @@
 
 import type { TugConnection } from "./connection";
 import type { DeckManager } from "./deck-manager";
-import type { ResponderChainManager } from "./components/tugways/responder-chain";
 import { FeedId } from "./protocol";
 import { BASE_THEME_NAME } from "./theme-constants";
 import { raiseCard } from "./focus-transfer";
@@ -33,11 +32,19 @@ import {
 } from "./sidebar-toggle";
 import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { COMMANDS_BY_ID, isCommandId } from "@/components/tugways/command-registry";
+import { isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
 import { dispatchCommand } from "./command-dispatch";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { openCommitInCard } from "@/lib/open-commit-in-card";
+import {
+  _resetActionRegistryForTest,
+  getRegistryHandler,
+  getResponderChainManager,
+  registerAction,
+  registerResponderChainManager,
+  type ActionHandler,
+} from "./action-registry";
 import { isFocusDirection } from "@/lib/directional-focus";
 import {
   flashCardPane,
@@ -145,6 +152,17 @@ import {
   publishListSessionStateChangesErr,
 } from "./lib/session-ledger-events";
 
+// The handler map and the chain-manager slot live in `action-registry.ts`, so
+// the command funnel, focus transfer, and the responder-chain provider can
+// read them without importing this module. Re-exported for every caller.
+export {
+  getRegistryHandler,
+  getResponderChainManager,
+  registerAction,
+  registerResponderChainManager,
+  type ActionHandler,
+};
+
 /**
  * Ordered list of all shipped themes.
  * Must stay in sync with tugdeck/styles/themes/*.css plus the base theme.
@@ -165,12 +183,6 @@ export const SHIPPED_THEME_NAMES: readonly string[] = [
   "pinnace", // light
 ];
 
-/** Handler function for an action */
-export type ActionHandler = (payload: Record<string, unknown>) => void;
-
-/** Map of action names to handler functions */
-const handlers = new Map<string, ActionHandler>();
-
 /** Module-level flag to prevent duplicate reload calls */
 let reloadPending = false;
 
@@ -186,19 +198,6 @@ let themeSetterRef: ((theme: string) => void) | null = null;
 
 /** Module-level reference to the theme getter, populated by TugThemeProvider on mount. */
 let themeGetterRef: (() => string) | null = null;
-
-/**
- * Module-level reference to the ResponderChainManager, populated by
- * ResponderChainProvider on mount via `registerResponderChainManager`.
- *
- * Used by the `add-card-to-active-pane` and `show-component-gallery` Control-frame actions
- * to dispatch through the responder chain, which routes them to DeckCanvas's
- * registered handlers.
- *
- * [D06] Add-tab action uses DeckManager + responder chain
- * [D09] Add-tab routed as DeckCanvas responder action
- */
-let responderChainManagerRef: ResponderChainManager | null = null;
 
 /**
  * Register the theme setter function from TugThemeProvider.
@@ -234,32 +233,6 @@ export function getThemeGetter(): (() => string) | null {
   return themeGetterRef;
 }
 
-/**
- * Register the ResponderChainManager from ResponderChainProvider.
- * Called by ResponderChainProvider on mount so the `add-tab` and
- * `show-component-gallery` action handlers can dispatch through the chain.
- *
- * Last-registration-wins: calling again replaces the previous manager.
- *
- * [D06] Add-tab action uses DeckManager + responder chain
- */
-export function registerResponderChainManager(manager: ResponderChainManager): void {
-  responderChainManagerRef = manager;
-}
-
-/**
- * Get the registered ResponderChainManager, or `null` if
- * `ResponderChainProvider` has not mounted (standalone gallery use,
- * unit tests, the brief pre-mount window).
- *
- * Lets non-React modules — e.g. the CM6 caret layer's dev-only
- * focus/first-responder invariant probe — read first-responder state
- * without threading the manager through React context.
- */
-export function getResponderChainManager(): ResponderChainManager | null {
-  return responderChainManagerRef;
-}
-
 /** TextDecoder for UTF-8 payload decoding */
 const textDecoder = new TextDecoder();
 
@@ -271,45 +244,15 @@ function originOf(payload: Record<string, unknown>): string | null {
 }
 
 /**
- * Register an action handler.
- *
- * A handler whose name is a *chain-routed* registry command would be
- * unreachable from the wire — the fork in {@link dispatchAction} reroutes
- * such frames through `dispatchCommand`, which dispatches into the chain
- * and never consults this map. Registration is runtime, so no static lint
- * can see the collision; this warning is where it surfaces.
- */
-export function registerAction(action: string, handler: ActionHandler): void {
-  const routing = COMMANDS_BY_ID.get(action)?.routing;
-  if (routing !== undefined && routing !== "registry") {
-    console.warn(
-      `registerAction: "${action}" is a ${routing}-routed command; control frames named this will never reach this handler`,
-    );
-  }
-  handlers.set(action, handler);
-}
-
-/**
- * The handler registered for an action, or `undefined`.
- *
- * This is the `registry` routing target: `dispatchCommand` reaches a
- * command whose body lives here without importing `initActionDispatch`.
- */
-export function getRegistryHandler(action: string): ActionHandler | undefined {
-  return handlers.get(action);
-}
-
-/**
  * Reset handler registry and module state for test isolation.
  * Internal/test-only -- must never be called from production code.
  */
 export function _resetForTest(): void {
-  handlers.clear();
+  _resetActionRegistryForTest();
   reloadPending = false;
   voiceOverDroveAccessibility = false;
   themeSetterRef = null;
   themeGetterRef = null;
-  responderChainManagerRef = null;
 }
 
 /**
@@ -348,7 +291,7 @@ export function dispatchAction(payload: Record<string, unknown>): void {
     return;
   }
 
-  const handler = handlers.get(action);
+  const handler = getRegistryHandler(action);
   if (handler) {
     handler(payload);
   } else {
@@ -1314,8 +1257,9 @@ export function initActionDispatch(
     }
     // An unknown name still reaches the card, whose surface-map lookup is
     // defensive — a no-op rather than a dead menu item.
-    if (responderChainManagerRef) {
-      responderChainManagerRef.sendToKeyCard({
+    const chain = getResponderChainManager();
+    if (chain) {
+      chain.sendToKeyCard({
         action: TUG_ACTIONS.RUN_SLASH_COMMAND,
         value: { name, args },
         phase: "discrete",

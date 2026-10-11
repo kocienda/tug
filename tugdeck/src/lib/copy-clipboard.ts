@@ -12,11 +12,9 @@
  * @module lib/copy-clipboard
  */
 
-import {
-  withClipboardOrigins,
-  TUG_ATOMS_MIME,
-  type TugAtomsClipboardPayload,
-} from "@/components/tugways/tug-text-editor/clipboard-filters";
+import type { TugAtomsClipboardPayload } from "@/components/tugways/tug-text-editor/clipboard-filters";
+import { TUG_ATOMS_MIME } from "./tug-atoms-mime";
+import { withClipboardOrigins } from "./clipboard-origin";
 import {
   hasNativeClipboardBridge,
   writeClipboardViaNative,

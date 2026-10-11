@@ -46,7 +46,7 @@
  *
  * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/tugways/command-registry.ts
- * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/lib/action-vocabulary.ts
  * @covers tugdeck/src/action-dispatch.ts
  * @covers tugdeck/src/components/tugways/cards/use-menu-state-publication.ts
  * @covers tugapp/Sources/AppDelegate.swift

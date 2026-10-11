@@ -29,7 +29,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugdeck/src/components/tugways/cards/api-retry.ts
+ * @covers tugdeck/src/lib/api-retry.ts
  * @covers tugdeck/src/components/tugways/cards/transient-notice.ts
  * @covers tugdeck/src/components/tugways/tug-pane-bulletin.tsx
  * @covers tugdeck/src/lib/banner-lifecycle.ts

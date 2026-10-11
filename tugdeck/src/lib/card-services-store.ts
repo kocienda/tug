@@ -53,9 +53,6 @@ import { getConnection } from "./connection-singleton";
 import { encodeTrashProjectDirSessions } from "../protocol";
 import { DEFAULT_REPLAY_WINDOW_TURNS } from "../protocol";
 import { resolveRestoreWindow } from "./session-restore-window";
-// Cycle note: `session-restore` imports this module's singleton. These
-// three are called only from methods below, never during module
-// initialization, so the cycle resolves cleanly in both orders.
 import {
   cancelRestoreRetry,
   clearOpeningCommand,
@@ -63,7 +60,7 @@ import {
   drainOpeningCommand,
   drainQueuedSends,
   stashQueuedSends,
-} from "./session-restore";
+} from "./session-restore-holds";
 import { getConnectionLifecycle } from "./connection-lifecycle";
 import { getTugbankClient } from "./tugbank-singleton";
 import {

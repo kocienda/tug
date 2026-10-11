@@ -17,7 +17,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { ResponderChainManager } from "../../components/tugways/responder-chain";
-import { TUG_ACTIONS } from "../../components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import type {
   CommandEntry,
   CommandMenuFacts,

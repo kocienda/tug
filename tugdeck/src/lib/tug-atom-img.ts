@@ -39,7 +39,7 @@ import {
   chipMark,
 } from "./command-atom";
 import type { ChipVariant } from "./command-atom";
-import { progressRoleFillToken } from "@/components/tugways/tug-progress-indicator";
+import { progressRoleFillToken } from "@/lib/progress-role-token";
 import { sessionSessionPhaseVisual } from "@/lib/code-session-store/session-phase-visual";
 import { sessionPhaseNow } from "@/lib/code-session-store/use-session-phase";
 import {
@@ -61,9 +61,14 @@ import { arcForSessionNow } from "@/lib/arc-session-index";
 import { withArcSigil } from "@/lib/arc-sigil-text";
 import {
   atomBaselineOffsetPx,
-  atomEditorLineBoxFloorPx,
   atomRegisterMetrics,
 } from "@/lib/atom-register";
+import { atomMeasureFamily } from "@/lib/atom-font";
+
+// The atom font family and the editor line-height live in `atom-font.ts` so
+// the editor settings store can write and read them without importing this
+// bake. Re-exported for every caller that reaches them through here.
+export { editorLineHeightFor, setAtomFont } from "@/lib/atom-font";
 
 /**
  * Recess-edge geometry shared by both renderers so the inline-`<svg>` chip
@@ -191,58 +196,7 @@ const ATOM_ICON_PATHS: Record<string, string> = {
 
 // ---- Layout constants ----
 
-/** Font family stack for Canvas measurement AND Canvas label painting —
- *  the same string drives both, so measured bounds always fit the
- *  painted glyphs. Custom faces resolve from the parent document's
- *  own @font-face rules (the Canvas shares the document's font set). */
-let _measureFamily = "system-ui, sans-serif";
-/**
- * The editor's line-height, as a multiple of its own font size.
- *
- * Derived rather than pinned, and that is the point: an editor line has to be
- * able to seat an atom, and an atom's height is its register's rather than a
- * function of the type the line happens to be set in. So the leading is
- * whatever seats a `prose` atom over the editor's current font size, floored at
- * the leading a line of code wants when no atom is on it. Before this the
- * editor pinned 1.5 and the bake sized its chips to fit *that*, which is how
- * one atom came to be 18px in the composer and 20px in the transcript it was
- * sent to.
- *
- * Lives here rather than in `editor-settings-store` (which imports
- * {@link setAtomFont} from this module) so the bake and the store cannot
- * disagree about it; the store publishes it as `--tug-line-height-editor`.
- */
-export function editorLineHeightFor(fontSizePx: number): number {
-  const seated = atomEditorLineBoxFloorPx() / Math.max(1, fontSizePx);
-  return Math.max(EDITOR_MIN_LINE_HEIGHT, Math.ceil(seated * 100) / 100);
-}
-
-/** The leading a line of editor text wants with no atom on it. */
-const EDITOR_MIN_LINE_HEIGHT = 1.5;
-
 function iconSizeFor(size: number): number { return size; }
-
-/**
- * Set the font FAMILY used for the editor's atom-chip rendering AND
- * measurement. `family` is the full CSS font-family stack
- * (e.g. `"IBM Plex Mono", monospace`). The editor settings store calls this
- * when the user's font preference changes (and at cold-boot
- * construction time).
- *
- * The family only. An atom's type size is its register's, not its host's:
- * chips that grew and shrank with the editor's font size surprised users, and
- * the same coupling is what made an atom change size the moment it was sent.
- *
- * This drives the *editor*'s data-URI chip path only. React-side
- * surfaces (`TugAtomChip`) intentionally do NOT track this — they
- * use the surrounding transcript font instead, so chips read as
- * part of the prose rather than as borrowed editor-surface text.
- * The editor still calls `regenerateAtoms()` separately to bust
- * CM6's widget cache.
- */
-export function setAtomFont(family: string): void {
-  _measureFamily = family;
-}
 
 // ---- Text measurement ----
 
@@ -263,7 +217,7 @@ function atomFontFor(family: string, size: number): string {
 }
 /** Current atom font as a CSS font shorthand, at the default register. */
 function atomFont(): string {
-  return atomFontFor(_measureFamily, atomRegisterMetrics().fontSize);
+  return atomFontFor(atomMeasureFamily(), atomRegisterMetrics().fontSize);
 }
 
 /** Truncate text to fit within maxWidth, appending "…" if needed. */
@@ -340,7 +294,7 @@ export interface AtomChipGeometry {
 
 /**
  * Compute the geometry for an atom chip. Pure on the inputs, the register
- * table, and the module-state `_measureFamily` default. Two calls in the same
+ * table, and the module-state family `atomMeasureFamily()` reads. Two calls in the same
  * font frame return value-equal geometry.
  *
  * The vertical — type size and box height — comes from the register and from
@@ -355,7 +309,7 @@ export function computeAtomChipGeometry(
     fontFamily?: string;
   },
 ): AtomChipGeometry {
-  const family = options?.fontFamily ?? _measureFamily;
+  const family = options?.fontFamily ?? atomMeasureFamily();
   const metrics = atomRegisterMetrics();
   const size = metrics.fontSize;
   const font = atomFontFor(family, size);
@@ -806,7 +760,7 @@ export function bakeAtomChipDataUri(
      * Override the font family used for label painting AND label
      * measurement (the two must match or the chip's bounds won't fit
      * the rendered text). When omitted, the chip uses the
-     * module-state `_measureFamily` last set via {@link setAtomFont}
+     * module-state family last set via {@link setAtomFont}
      * — which the editor settings store calls when the user's font
      * preference changes.
      */

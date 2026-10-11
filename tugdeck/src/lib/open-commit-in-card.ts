@@ -31,7 +31,7 @@
 import { mayDeferCommit, transferFocusForActivation } from "@/focus-transfer";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { dispatchCommand } from "@/command-dispatch";
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import {
   findCommitCardByTarget,
   type CommitCardTarget,

@@ -30,7 +30,7 @@
 import type React from "react";
 
 import { registerCard, type CardSizePolicy } from "@/card-registry";
-import { SpikeHome } from "./spike-home";
+import { SpikeHome, spikeComponentId } from "./spike-home";
 import { spike as slotLayoutSpike } from "./spike-slot-layout";
 import { spike as configureTugSpike } from "./spike-configure-tug";
 import { spike as sessionIdentitySpike } from "./spike-session-identity";
@@ -92,10 +92,9 @@ export const SPIKE_HOME_ID = "spike-home";
 /** The card family every spike registers under. */
 export const SPIKE_FAMILY = "spike";
 
-/** The componentId a spike's `name` resolves to. */
-export function spikeComponentId(name: string): string {
-  return `spike-${name}`;
-}
+// The componentId a spike's `name` resolves to. Lives in `spike-home.tsx`,
+// which needs it and which this module imports; re-exported for callers.
+export { spikeComponentId };
 
 /**
  * Every spike on the deck, in the order the index card lists them.
@@ -138,7 +137,7 @@ export const SPIKES: readonly SpikeDef[] = [
 export function registerSpikeCards(): void {
   registerCard({
     componentId: SPIKE_HOME_ID,
-    contentFactory: () => <SpikeHome />,
+    contentFactory: () => <SpikeHome spikes={SPIKES} />,
     defaultMeta: { title: "Spikes", icon: "FlaskConical", closable: true },
     family: SPIKE_FAMILY,
     acceptsFamilies: [SPIKE_FAMILY],

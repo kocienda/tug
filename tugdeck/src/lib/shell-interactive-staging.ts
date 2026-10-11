@@ -20,7 +20,7 @@
  * @module lib/shell-interactive-staging
  */
 
-import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { commandShortcut } from "../components/tugways/keymap-registry";
 
 /** Git subcommands whose `-p` form prompts hunk by hunk. */

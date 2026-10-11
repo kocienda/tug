@@ -41,6 +41,7 @@ import {
   ALLOW_ONCE_OPTION_LABEL,
   ALLOW_ONCE_OPTION_VALUE,
   PERMISSION_DIALOG_PRESERVATION_KEY_PREFIX,
+  PermissionDialog,
   buildPermissionOptions,
   composePermissionLineRange,
   composePermissionSuggestionLabel,
@@ -53,12 +54,14 @@ import {
   type PermissionDialogPreservedState,
   type PermissionSuggestionAction,
 } from "./session-permission-dialog";
+import type {
+  DispatchContext,
+  RenderInput,
+} from "@/components/tugways/cards/session-assistant-renderer-dispatch";
 import {
   KIND_RENDERERS,
   dispatch,
-  type DispatchContext,
-  type RenderInput,
-} from "@/components/tugways/cards/session-assistant-renderer-dispatch";
+} from "@/components/tugways/cards/session-assistant-kind-dispatch";
 import { hasBespokeWrapper } from "@/components/tugways/cards/session-assistant-renderer-registrations";
 
 // ---------------------------------------------------------------------------
@@ -502,13 +505,10 @@ describe("dispatch — permission routing", () => {
       },
     };
     const result = dispatch(input, {} as DispatchContext);
-    // The stable contract is "routes via `KIND_RENDERERS.permission`."
-    // The slot now holds a lazy indirection (per
-    // [#step-24-3-7]'s module-cycle fix) — asserting `=== PermissionDialog`
-    // directly would falsely fail; the indirection still renders the
-    // real dialog when invoked. Asserting against the slot is the
-    // right level of coupling: the dispatch promises the slot, not
-    // the slot's internal shape.
+    // The slot holds the real component: the kind table lives in its own
+    // module, so the dialog's preview import closes no cycle and needs no
+    // lazy indirection.
+    expect(KIND_RENDERERS.permission).toBe(PermissionDialog);
     expect(result.Component).toBe(KIND_RENDERERS.permission);
     expect(result.caution).toBeUndefined();
     // The dispatch threads the input + context through as the prop bag.

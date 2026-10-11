@@ -54,7 +54,7 @@
  *
  * Pure module — no DOM, no React, no time source.
  *
- * @module components/tugways/cards/session-card-restore-gate
+ * @module lib/session-card-restore-gate
  */
 
 import type { CodeSessionSnapshot } from "@/lib/code-session-store";

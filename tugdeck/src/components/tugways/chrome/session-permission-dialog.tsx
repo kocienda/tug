@@ -127,9 +127,10 @@ import type {
 /**
  * The `permission` `RenderInput` shape, restated locally. The dispatch
  * owns the `RenderInput` union; restating the one variant this
- * component consumes keeps the import graph one-directional (the
- * dispatch imports this component for `KIND_RENDERERS.permission`, so
- * this component must not import the dispatch).
+ * component consumes keeps the import graph one-directional
+ * (`session-assistant-kind-dispatch` imports this component for
+ * `KIND_RENDERERS.permission`, so this component must not import that
+ * module; the tool-call half it previews through holds no reference back).
  */
 export interface PermissionRenderInput {
   kind: "permission";

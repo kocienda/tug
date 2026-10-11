@@ -22,7 +22,7 @@
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardFoldedOf } from "@/deck-store-selectors";
 import { getDeckStore } from "@/lib/deck-store-registry";

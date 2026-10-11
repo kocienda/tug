@@ -94,7 +94,7 @@ import {
 import { SessionActivityCard } from "@/components/tugways/cards/session-activity-card";
 import { useCopyableButton } from "@/components/tugways/use-copyable-text";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances";
-import { formatByteSize } from "@/components/tugways/cards/session-picker-format";
+import { formatByteSize } from "@/lib/session-picker-format";
 import { BeatText } from "@/components/tugways/beat-text";
 import {
   annotationClaimsClick,

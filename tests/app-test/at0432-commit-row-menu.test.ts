@@ -36,7 +36,7 @@
  * @covers tugdeck/src/components/tugways/tug-history-list.css
  * @covers tugdeck/src/components/tugways/commit-sha-text.tsx
  * @covers tugdeck/src/components/tugways/commit-presentation.tsx
- * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/lib/action-vocabulary.ts
  * @covers tugdeck/src/components/tugways/tug-editor-context-menu.tsx
  */
 

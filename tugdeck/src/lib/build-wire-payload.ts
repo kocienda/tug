@@ -114,7 +114,8 @@
  */
 
 import type { ContentBlock } from "@/protocol";
-import { TUG_ATOM_CHAR, type AtomSegment } from "./tug-atom-img";
+import type { AtomSegment } from "./tug-atom-img";
+import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import type { AtomBytesStore } from "./atom-bytes-store";
 import { wrapAtomMention, wrapSessionMention } from "./atom-mention-marker";
 import { commandWireText } from "./command-atom";

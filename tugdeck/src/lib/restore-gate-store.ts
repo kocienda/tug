@@ -24,7 +24,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { cardServicesStore } from "./card-services-store";
 import type { CodeSessionStore } from "./code-session-store";
-import { deriveRestoreGateHold } from "@/components/tugways/cards/session-card-restore-gate";
+import { deriveRestoreGateHold } from "@/lib/session-card-restore-gate";
 
 /** What the gate knows, and what its surface renders. */
 export interface RestoreGateSnapshot {

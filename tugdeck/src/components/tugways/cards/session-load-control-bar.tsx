@@ -50,7 +50,7 @@ import {
   type CodeSessionSnapshot,
 } from "@/lib/code-session-store";
 import type { ShellSessionStore } from "@/lib/shell-session-store";
-import { deriveColdRestoreActive } from "./session-card-restore-gate";
+import { deriveColdRestoreActive } from "@/lib/session-card-restore-gate";
 import {
   countClaudeTurns,
   deriveControlBarState,

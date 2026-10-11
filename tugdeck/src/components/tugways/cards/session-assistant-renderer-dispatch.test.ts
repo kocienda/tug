@@ -24,7 +24,6 @@ import { describe, it, expect, beforeEach, spyOn } from "bun:test";
 import React from "react";
 
 import {
-  KIND_RENDERERS,
   NullToolBlock,
   VALIDATED_CC_VERSION,
   _resetDriftLogForTests,
@@ -32,7 +31,6 @@ import {
   checkStructuredShape,
   detectToolCallDrift,
   detectVersionDrift,
-  dispatch,
   dispatchToolCallState,
   extractMetadataVersion,
   logDriftEvent,
@@ -45,6 +43,7 @@ import {
   type DispatchContext,
   type RenderInput,
 } from "./session-assistant-renderer-dispatch";
+import { KIND_RENDERERS, dispatch } from "./session-assistant-kind-dispatch";
 import { DefaultToolBlock } from "./blocks/default-tool-block";
 import { TaskInlineToolBlock } from "./blocks/task-inline-tool-block";
 import { defaultIntentToolNames } from "./session-tool-visibility-policy";

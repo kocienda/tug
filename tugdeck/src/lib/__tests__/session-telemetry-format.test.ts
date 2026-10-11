@@ -1,6 +1,6 @@
 /**
- * Pure-logic tests for the telemetry-renderer formatters. The
- * renderer components themselves render React nodes and are
+ * Pure-logic tests for the session telemetry formatters. The
+ * renderer components that display them render React nodes and are
  * exercised through the real-app harness; here we pin the
  * deterministic value-formatting helpers so future tuning can
  * change them deliberately.
@@ -14,7 +14,7 @@ import {
   formatTokenCap,
   formatTokens,
   formatUsd,
-} from "@/components/tugways/cards/session-card-telemetry-renderers";
+} from "@/lib/session-telemetry-format";
 
 describe("formatTokens", () => {
   it("returns an integer string under 1k", () => {

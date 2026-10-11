@@ -32,7 +32,7 @@
  * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx
  * @covers tugdeck/src/components/tugways/commit-identity-menu.tsx
  * @covers tugdeck/src/action-dispatch.ts
- * @covers tugdeck/src/components/tugways/action-vocabulary.ts
+ * @covers tugdeck/src/lib/action-vocabulary.ts
  */
 
 import { describe, expect, test } from "bun:test";

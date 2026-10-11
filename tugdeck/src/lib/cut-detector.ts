@@ -21,7 +21,7 @@
  */
 
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
-import { SHOWN_PANE_FRAMES } from "@/components/chrome/space-layer";
+import { SHOWN_PANE_FRAMES } from "@/lib/pane-frame-selectors";
 
 /**
  * How far a frame may move between two samples before it counts as a jump.

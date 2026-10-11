@@ -31,6 +31,8 @@
  * @module lib/clipboard-origin
  */
 
+import type { TugAtomsClipboardPayload } from "@/components/tugways/tug-text-editor/clipboard-filters";
+
 /**
  * The attribute a surface stamps with the absolute project root its text is
  * written against. Empty or relative values are ignored by the reader, so a
@@ -107,4 +109,51 @@ export function clipboardOriginProps(
   return root !== null && root !== undefined && root.startsWith("/")
     ? { [CLIPBOARD_ORIGIN_ATTRIBUTE]: root }
     : {};
+}
+
+/**
+ * Attach `origins` to a sidecar, minting one when the copy had no other reason
+ * to carry a sidecar at all. Returns `null` only when there is nothing to say:
+ * no atoms, no assets, no provenance.
+ *
+ * Every copy path that knows its project calls this on the way to the write,
+ * which is what keeps "prose carries its root" from being a rule each surface
+ * re-implements slightly differently.
+ */
+export function withClipboardOrigins(
+  sidecar: TugAtomsClipboardPayload | null,
+  text: string,
+  origins: readonly string[] | string | null | undefined,
+): TugAtomsClipboardPayload | null {
+  const list = parseOrigins(
+    typeof origins === "string" ? [origins] : (origins ?? null),
+  );
+  if (list === null) return sidecar;
+  const base: TugAtomsClipboardPayload = sidecar ?? {
+    version: 1,
+    text,
+    atoms: [],
+  };
+  return { ...base, origins: list };
+}
+
+/**
+ * Validate the payload's optional `origins` list: absolute paths only, deduped,
+ * order preserved. Returns `null` when nothing usable survives, so a malformed
+ * field degrades to "this copy carried no provenance" rather than to a root
+ * that resolves paths against the wrong repository.
+ *
+ * Absolute is not a formality. A relative root would have to be resolved
+ * against something, and the only candidate is the destination's own project —
+ * which is exactly the assumption this field exists to stop making.
+ */
+export function parseOrigins(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: string[] = [];
+  for (const item of raw as unknown[]) {
+    if (typeof item !== "string") continue;
+    if (!item.startsWith("/")) continue;
+    if (!out.includes(item)) out.push(item);
+  }
+  return out.length > 0 ? out : null;
 }

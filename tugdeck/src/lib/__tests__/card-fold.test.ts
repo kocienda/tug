@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { _resetForTest, registerAction } from "@/action-dispatch";
 import type { DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";

@@ -27,14 +27,13 @@
  * @module lib/atom-text
  */
 
-import {
-  withClipboardOrigins,
-  type TugAtomsClipboardEntry,
-  type TugAtomsClipboardPayload,
+import type {
+  TugAtomsClipboardEntry,
+  TugAtomsClipboardPayload,
 } from "@/components/tugways/tug-text-editor/clipboard-filters";
 
 import type { AtomBytesEntry } from "./atom-bytes-store";
-import { clipboardOriginFor } from "./clipboard-origin";
+import { clipboardOriginFor, withClipboardOrigins } from "./clipboard-origin";
 import { atomPlainText } from "./atom-plain-text";
 import {
   hasNativeClipboardBridge,

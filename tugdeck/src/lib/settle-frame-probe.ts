@@ -47,7 +47,7 @@
  * @module lib/settle-frame-probe
  */
 
-import { SHOWN_PANE_FRAMES } from "@/components/chrome/space-layer";
+import { SHOWN_PANE_FRAMES } from "@/lib/pane-frame-selectors";
 import { landRecorder } from "@/lib/land-frame-record";
 
 /**

@@ -17,7 +17,7 @@ import {
   deriveColdRevealPending,
   deriveRestoreGateHold,
   type ColdRevealSignals,
-} from "@/components/tugways/cards/session-card-restore-gate";
+} from "@/lib/session-card-restore-gate";
 
 /** Signals for a healthy idle card that has not restored; override per case. */
 function signals(

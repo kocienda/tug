@@ -30,8 +30,8 @@
  * @module lib/annotator/registry
  */
 
-import type { TugAction } from "@/components/tugways/action-vocabulary";
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
+import type { TugAction } from "@/lib/action-vocabulary";
+import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { openUrlInOS, revealDirectoryInFinder } from "@/lib/os-open";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";

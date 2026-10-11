@@ -51,7 +51,7 @@ import { BlockChrome } from "@/components/tugways/blocks/block-chrome";
 import { ToolBlockHistoryCollapse } from "@/components/tugways/blocks/collapse-context";
 import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
 import { arcTrackModel } from "@/components/tugways/tug-arc-track";
-import { formatDurationMs } from "@/components/tugways/cards/session-card-telemetry-renderers";
+import { formatDurationMs } from "@/lib/session-telemetry-format";
 import { TugInlineDialog } from "@/components/tugways/tug-inline-dialog";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";

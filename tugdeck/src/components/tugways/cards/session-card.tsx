@@ -199,7 +199,7 @@ import { ArcBindErrorNoticeController } from "./arc-bind-error-notice-controller
 import { ArcReplayNoticeController } from "./arc-replay-notice-controller";
 import { ArcPressNoticeController } from "./arc-press-notice-controller";
 import { ShadeRaiseOnShadeRefusalController } from "./shade-raise-on-shade-refusal-controller";
-import { deriveColdRestoreActive } from "./session-card-restore-gate";
+import { deriveColdRestoreActive } from "@/lib/session-card-restore-gate";
 import { REPLAY_SOFT_BUDGET_MS } from "@/lib/code-session-store";
 import { PromptHistoryStore } from "@/lib/prompt-history-store";
 import type { EditorSettingsStore } from "@/lib/editor-settings-store";
@@ -297,7 +297,7 @@ import {
   useTugPaneBulletin,
   type TugPaneBulletinApi,
 } from "../tug-pane-bulletin";
-import { lastAssistantCopyText } from "./turn-entry-markdown";
+import { lastAssistantCopyText } from "@/lib/turn-entry-markdown";
 import { compactionProgressStore } from "@/lib/compaction-progress-store";
 import { useCompactionRun } from "./session-compaction-run";
 import { MODAL_REST_LINE } from "./modal-rest-line";
