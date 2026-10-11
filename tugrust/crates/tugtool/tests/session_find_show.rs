@@ -10,7 +10,6 @@
 mod common;
 
 use common::tugtool;
-use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -36,27 +35,22 @@ fn encode(project_dir: &str) -> String {
         .collect()
 }
 
-/// A temp dir holding a `sessions.db` with one live session on a named
-/// line, an empty projects root, and room for an index the tests seed
-/// through the hidden `index-put`.
+/// A temp dir holding the ledger fixture's `sessions.db` with one live
+/// session on a named line, an empty projects root, and room for an index
+/// the tests seed through the hidden `index-put`.
 fn fixture() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE sessions (
-             session_id TEXT PRIMARY KEY, line_id TEXT, project_dir TEXT,
-             state TEXT, created_at INTEGER, forked_from_session_id TEXT);
-         CREATE TABLE lines (line_id TEXT PRIMARY KEY, tag TEXT, name TEXT);",
-    )
-    .unwrap();
+    let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+    ledgers.add_line("l1", "curly-apple");
+    ledgers.add_session(HERE_UUID, "l1");
+    let conn = ledgers.sessions();
     conn.execute(
-        "INSERT INTO lines (line_id, tag, name) VALUES ('l1', 'curly-apple', 'The parser work')",
+        "UPDATE lines SET name = 'The parser work' WHERE line_id = 'l1'",
         [],
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO sessions (session_id, line_id, project_dir, state, created_at)
-         VALUES (?1, 'l1', '/u/src/tug', 'live', 1)",
+        "UPDATE sessions SET project_dir = '/u/src/tug', created_at = 1 WHERE session_id = ?1",
         rusqlite::params![HERE_UUID],
     )
     .unwrap();

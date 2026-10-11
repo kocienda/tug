@@ -426,24 +426,11 @@ pub(crate) fn isolate_changes_db(temp: &TempDir) {
 }
 
 /// Seed a draft row directly into the isolated ledger, bootstrapping the
-/// table the way every writer does. `project` is taken verbatim, which is
-/// what lets a test reproduce a pre-fix worktree-keyed row.
+/// schema through the one bootstrap every writer runs. `project` is taken
+/// verbatim, which is what lets a test reproduce a pre-fix worktree-keyed row.
 pub(crate) fn seed_draft_row(db: &Path, owner_id: &str, project: &Path, message: &str) {
-    let conn = rusqlite::Connection::open(db).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS changeset_drafts (
-            owner_kind   TEXT NOT NULL,
-            owner_id     TEXT NOT NULL,
-            project_dir  TEXT NOT NULL,
-            fingerprint  TEXT NOT NULL,
-            message      TEXT NOT NULL,
-            updated_at   INTEGER NOT NULL,
-            edited       INTEGER NOT NULL DEFAULT 0,
-            selection    TEXT,
-            PRIMARY KEY (owner_kind, owner_id, project_dir)
-        );",
-    )
-    .unwrap();
+    let conn = tugcore::changes_schema::open(db).unwrap();
+    tugcore::changes_schema::bootstrap(&conn).unwrap();
     conn.execute(
         "INSERT OR REPLACE INTO changeset_drafts \
          (owner_kind, owner_id, project_dir, fingerprint, message, updated_at, edited) \

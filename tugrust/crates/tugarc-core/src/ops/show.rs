@@ -2138,24 +2138,7 @@ mod tests {
         init_git_repo(repo);
         redirect_state_dir(&home);
 
-        let changes_db = temp.path().join("changes.db");
-        {
-            let conn = rusqlite::Connection::open(&changes_db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE changeset_drafts (
-                    owner_kind   TEXT NOT NULL,
-                    owner_id     TEXT NOT NULL,
-                    project_dir  TEXT NOT NULL,
-                    fingerprint  TEXT NOT NULL,
-                    message      TEXT NOT NULL,
-                    updated_at   INTEGER NOT NULL,
-                    edited       INTEGER NOT NULL DEFAULT 0,
-                    selection    TEXT,
-                    PRIMARY KEY (owner_kind, owner_id, project_dir)
-                );",
-            )
-            .unwrap();
-        }
+        let changes_db = tugcore::test_fixtures::ledgers(temp.path()).changes_db();
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
             std::env::set_var("TUG_CHANGES_DB", &changes_db);
@@ -2252,19 +2235,8 @@ mod tests {
         init_git_repo(repo);
         redirect_state_dir(&temp.path().join("state"));
 
-        let sessions_db = temp.path().join("sessions.db");
-        {
-            let conn = rusqlite::Connection::open(&sessions_db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE sessions (
-                    session_id   TEXT PRIMARY KEY,
-                    state        TEXT NOT NULL,
-                    last_used_at INTEGER NOT NULL,
-                    arc_id      TEXT
-                );",
-            )
-            .unwrap();
-        }
+        let ledgers = tugcore::test_fixtures::ledgers(temp.path());
+        let sessions_db = ledgers.sessions_db();
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
             std::env::set_var("TUG_SESSIONS_DB", &sessions_db);
@@ -2275,10 +2247,13 @@ mod tests {
             .id
             .unwrap();
         {
-            let conn = rusqlite::Connection::open(&sessions_db).unwrap();
+            ledgers.add_session("sess-live", "line-live");
+            ledgers.add_session("sess-closed", "line-closed");
+            let conn = ledgers.sessions();
             conn.execute(
-                "INSERT INTO sessions (session_id, state, last_used_at, arc_id)
-                 VALUES ('sess-live', 'live', 2, ?1), ('sess-closed', 'closed', 1, ?1)",
+                "UPDATE sessions SET arc_id = ?1,
+                     state = CASE session_id WHEN 'sess-live' THEN 'live' ELSE 'closed' END,
+                     last_used_at = CASE session_id WHEN 'sess-live' THEN 2 ELSE 1 END",
                 rusqlite::params![owner_key],
             )
             .unwrap();

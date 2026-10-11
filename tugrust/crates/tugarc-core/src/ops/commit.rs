@@ -680,26 +680,10 @@ mod tests {
         // The commit is made from the stage.
         let line_id = "7f3d2c18-4b5a-4c6d-8e9f-0a1b2c3d4e5f";
         let stage = "aa11bb22-cc33-4d44-8e55-ff6677889900";
-        let sessions_db = temp.path().join("sessions.db");
+        let ledgers = tugcore::test_fixtures::ledgers(temp.path());
+        let sessions_db = ledgers.sessions_db();
         {
-            let conn = rusqlite::Connection::open(&sessions_db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE lines (
-                    line_id       TEXT PRIMARY KEY,
-                    tag           TEXT NOT NULL UNIQUE,
-                    name          TEXT,
-                    name_user_set INTEGER NOT NULL DEFAULT 0,
-                    card_id       TEXT,
-                    project_dir   TEXT NOT NULL,
-                    created_at    INTEGER NOT NULL,
-                    last_used_at  INTEGER NOT NULL
-                 );
-                 CREATE TABLE sessions (
-                    session_id   TEXT PRIMARY KEY,
-                    line_id      TEXT NOT NULL
-                 );",
-            )
-            .unwrap();
+            let conn = ledgers.sessions();
             conn.execute(
                 "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
                                     project_dir, created_at, last_used_at)
@@ -708,11 +692,7 @@ mod tests {
             )
             .unwrap();
             for segment in ["5b4b5867-1111-4222-8333-444455556666", stage] {
-                conn.execute(
-                    "INSERT INTO sessions (session_id, line_id) VALUES (?1, ?2)",
-                    rusqlite::params![segment, line_id],
-                )
-                .unwrap();
+                ledgers.add_session(segment, line_id);
             }
         }
         // SAFETY: serial test; see redirect_state_dir.

@@ -432,31 +432,30 @@ fn draft_row_from_api(row: &serde_json::Value) -> Result<DraftRow, AppError> {
     })
 }
 
-/// Open the machine-global changes ledger as a WAL co-writer, creating the
-/// `changeset_drafts` table when this CLI is the first writer. Reached only
-/// under `TUG_CHANGES_DB` isolation (see [`isolated_changes_db`]).
+/// Open the machine-global changes ledger as a WAL co-writer, bootstrapping
+/// its schema through the one owner tugcast also uses — so a CLI that is the
+/// first writer creates the versioned shape, and one that meets a newer
+/// schema writes nothing. Reached only under `TUG_CHANGES_DB` isolation (see
+/// [`isolated_changes_db`]).
 fn open_changes_db() -> Result<Connection, AppError> {
     let path = tugcore::instance::changes_db_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let conn = tugcore::ledger_db::open(&path)
+    let conn = tugcore::changes_schema::open(&path)
         .map_err(|e| AppError::Exit1("failed", format!("cannot open changes ledger: {e}")))?;
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS changeset_drafts (
-            owner_kind   TEXT NOT NULL,
-            owner_id     TEXT NOT NULL,
-            project_dir  TEXT NOT NULL,
-            fingerprint  TEXT NOT NULL,
-            message      TEXT NOT NULL,
-            updated_at   INTEGER NOT NULL,
-            edited       INTEGER NOT NULL DEFAULT 0,
-            selection    TEXT,
-            PRIMARY KEY (owner_kind, owner_id, project_dir)
-        );",
-    )
-    .map_err(|e| AppError::Exit1("failed", format!("cannot bootstrap changes ledger: {e}")))?;
-    Ok(conn)
+    match tugcore::changes_schema::bootstrap(&conn)
+        .map_err(|e| AppError::Exit1("failed", format!("cannot bootstrap changes ledger: {e}")))?
+    {
+        tugcore::ledger_db::Migrated::Current => Ok(conn),
+        tugcore::ledger_db::Migrated::TooNew { on_disk } => Err(AppError::Exit1(
+            "failed",
+            format!(
+                "changes ledger schema is v{on_disk}, newer than this build's v{}; upgrade tugtool",
+                tugcore::changes_schema::CHANGES_SCHEMA_VERSION
+            ),
+        )),
+    }
 }
 
 /// Read one draft row across both migration axes, first hit wins: the owner

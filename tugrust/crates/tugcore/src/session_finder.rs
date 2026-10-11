@@ -593,19 +593,17 @@ mod tests {
     }
 
     impl Fixture {
-        /// A temp dir holding a hand-built `sessions.db` with just the
-        /// columns the arms read, an index db, and a fake projects root.
+        /// A temp dir holding the ledger fixture's `sessions.db`, an index
+        /// db, and a fake projects root.
         fn new() -> Self {
             let dir = tempfile::tempdir().unwrap();
-            let sessions = dir.path().join("sessions.db");
-            let conn = crate::ledger_db::open(&sessions).unwrap();
+            let ledgers = crate::test_fixtures::ledgers(dir.path());
+            let sessions = ledgers.sessions_db();
+            // `external_scan_cache` is tugcast's own table, outside the
+            // fixture's cross-crate set, so its columns are named here.
+            let conn = ledgers.sessions();
             conn.execute_batch(
-                "CREATE TABLE sessions (
-                     session_id TEXT PRIMARY KEY, line_id TEXT, project_dir TEXT,
-                     state TEXT, created_at INTEGER, forked_from_session_id TEXT);
-                 CREATE TABLE lines (line_id TEXT PRIMARY KEY, tag TEXT, name TEXT);
-                 CREATE TABLE minted_tags (tag TEXT PRIMARY KEY, line_id TEXT);
-                 CREATE TABLE external_scan_cache (
+                "CREATE TABLE external_scan_cache (
                      session_id TEXT PRIMARY KEY, project_dir TEXT, line_id TEXT,
                      excluded INTEGER NOT NULL DEFAULT 0);",
             )
@@ -629,7 +627,8 @@ mod tests {
         fn line(&self, line_id: &str, tag: &str, name: Option<&str>) {
             self.ledger()
                 .execute(
-                    "INSERT INTO lines (line_id, tag, name) VALUES (?1, ?2, ?3)",
+                    "INSERT INTO lines (line_id, tag, name, project_dir, created_at, last_used_at)
+                     VALUES (?1, ?2, ?3, '/p', 0, 0)",
                     params![line_id, tag, name],
                 )
                 .unwrap();
@@ -651,8 +650,9 @@ mod tests {
             self.ledger()
                 .execute(
                     "INSERT INTO sessions
-                        (session_id, line_id, project_dir, state, created_at, forked_from_session_id)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        (session_id, line_id, project_dir, state, created_at, forked_from_session_id,
+                         workspace_key, last_used_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?3, ?5)",
                     params![uuid, line_id, project_dir, state, created_at, forked_from],
                 )
                 .unwrap();
@@ -813,7 +813,8 @@ mod tests {
         fx.session(UUID_A, "line-1", "/u/src/tug", "live");
         fx.ledger()
             .execute(
-                "INSERT INTO minted_tags (tag, line_id) VALUES ('spent-name', 'line-1')",
+                "INSERT INTO minted_tags (tag, line_id, session_id, minted_at)
+                 VALUES ('spent-name', 'line-1', 'minting-segment', 0)",
                 [],
             )
             .unwrap();

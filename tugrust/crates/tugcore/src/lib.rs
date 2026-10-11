@@ -8,6 +8,7 @@
 //!
 //! Nothing in this crate may depend on any other Tug crate.
 
+pub mod changes_schema;
 pub mod claude_home;
 #[cfg(test)]
 mod cli_test_env_scan;
@@ -29,6 +30,7 @@ pub mod session_finder;
 #[cfg(test)]
 mod session_identity_scan;
 pub mod session_index;
+pub mod session_schema;
 pub mod session_transcript;
 #[cfg(test)]
 mod source_scan;

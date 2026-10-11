@@ -7,7 +7,9 @@
 //! configurations sharing one WAL database is the failure neighborhood of
 //! the 2026-07-27 corruption incident; this module makes "one true way to
 //! open a ledger" a compile-time property, enforced by the
-//! `no_ad_hoc_ledger_opens` source scan below.
+//! `no_ad_hoc_ledger_opens` source scan below. Every versioned ledger
+//! brings its schema up to date through [`migrate`], the one migration
+//! loop, and `no_ad_hoc_user_version_writes` keeps it the only one.
 //!
 //! Pragmas applied (connection-wide unless noted):
 //! - `journal_mode = WAL` — multi-process-safe journaling.
@@ -72,6 +74,95 @@ pub fn attach_read_only(conn: &Connection, schema: &str, path: &Path) -> rusqlit
         rusqlite::params![uri],
     )?;
     Ok(())
+}
+
+/// One ledger's versioned schema, as [`migrate`] brings it up to date.
+pub struct LedgerSchema<'a> {
+    /// Which database on the connection the schema lives in: `Main`, or an
+    /// attach such as `Attached("changes")`.
+    pub db: rusqlite::DatabaseName<'a>,
+    /// The version this build writes, stamped into `PRAGMA user_version`.
+    pub version: i64,
+    /// Registered migrations, each keyed by the on-disk version it upgrades
+    /// *from*. Every migration whose `from` is at or above the version found
+    /// on disk is applied in order.
+    pub migrations: &'a [(i64, &'a str)],
+    /// The errors a re-run migration may raise that mean it already ran — a
+    /// crash between a migration and the stamp re-runs it, and an `ALTER
+    /// TABLE … ADD COLUMN` is not idempotent the way `CREATE TABLE IF NOT
+    /// EXISTS` is. [`no_migration_error_absorbed`] for a ledger that has none.
+    pub already_applied: fn(&rusqlite::Error) -> bool,
+}
+
+/// The [`LedgerSchema::already_applied`] of a ledger whose every migration
+/// is idempotent: no error is absorbed.
+pub fn no_migration_error_absorbed(_: &rusqlite::Error) -> bool {
+    false
+}
+
+/// What [`migrate`] found on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Migrated {
+    /// The schema is now at the build's version.
+    Current,
+    /// The on-disk version is newer than this build's: a newer build owns
+    /// the shape, and nothing was touched. Each ledger decides what that
+    /// costs it — an open refused, or the shared tables written by nobody.
+    TooNew { on_disk: i64 },
+}
+
+/// Bring a ledger's schema to `schema.version` — the one migration loop
+/// every versioned ledger runs, and the only place a `user_version` is
+/// written.
+///
+/// Reads the on-disk version and refuses one newer than this build's. A
+/// database already stamped below it takes each registered migration above
+/// its version, in order; a fresh one (version 0) takes none, because
+/// `create` makes the current shape outright. Then `create` runs — the
+/// idempotent `CREATE … IF NOT EXISTS` of the current shape, plus whatever
+/// conditional repair a ledger's pre-versioning databases need — and the
+/// version is stamped. Everything after the version check runs inside one
+/// savepoint, so a failure leaves the database at the version it was found
+/// at rather than half-migrated; a savepoint rather than a transaction,
+/// because it nests inside one a caller may hold.
+pub fn migrate<E: From<rusqlite::Error>>(
+    conn: &Connection,
+    schema: &LedgerSchema<'_>,
+    create: impl FnOnce(&Connection) -> Result<(), E>,
+) -> Result<Migrated, E> {
+    let on_disk: i64 = conn.pragma_query_value(Some(schema.db), "user_version", |r| r.get(0))?;
+    if on_disk > schema.version {
+        return Ok(Migrated::TooNew { on_disk });
+    }
+    conn.execute_batch("SAVEPOINT ledger_migrate")?;
+    let applied = (|| {
+        if on_disk > 0 && on_disk < schema.version {
+            for (from, sql) in schema.migrations {
+                if *from >= on_disk
+                    && let Err(err) = conn.execute_batch(sql)
+                    && !(schema.already_applied)(&err)
+                {
+                    return Err(E::from(err));
+                }
+            }
+        }
+        create(conn)?;
+        conn.pragma_update(Some(schema.db), "user_version", schema.version)?;
+        Ok(())
+    })();
+    match applied {
+        Ok(()) => {
+            conn.execute_batch("RELEASE ledger_migrate")?;
+            Ok(Migrated::Current)
+        }
+        Err(err) => {
+            // Best effort: an error SQLite answered by rolling the whole
+            // transaction back has already undone the work, and the
+            // savepoint with it.
+            let _ = conn.execute_batch("ROLLBACK TO ledger_migrate; RELEASE ledger_migrate");
+            Err(err)
+        }
+    }
 }
 
 /// Percent-encode a filesystem path for a SQLite `file:` URI, leaving the
@@ -361,5 +452,146 @@ mod tests {
             offenders.is_empty(),
             "ad-hoc `Connection::open(` outside tugcore::ledger_db — route these through the chokepoint: {offenders:#?}"
         );
+    }
+
+    /// The sibling of `no_ad_hoc_ledger_opens` for the migration loop: no
+    /// production source may write a `user_version` except [`migrate`]. A
+    /// hand-rolled stamp is how a ledger grows its own loop again, with its
+    /// own idea of what a newer version means. rusqlite writes a pragma by
+    /// its bare name (`pragma_update(…, "user_version", …)`) and SQL by
+    /// assignment (`user_version = …`); reads are spelled `PRAGMA
+    /// user_version` and pass. `#[cfg(test)]` code is exempt, because a test
+    /// stamping a version is how a test sets up a database a newer build
+    /// left behind.
+    #[test]
+    fn no_ad_hoc_user_version_writes() {
+        let crates_root = crate::source_scan::crates_root();
+        let mut offenders = Vec::new();
+        for (path, production) in crate::source_scan::production_sources() {
+            if path == crates_root.join("tugcore/src/ledger_db.rs") {
+                continue;
+            }
+            let assigns = production
+                .match_indices("user_version")
+                .any(|(idx, m)| production[idx + m.len()..].trim_start().starts_with('='));
+            if production.contains("\"user_version\"") || assigns {
+                offenders.push(path.display().to_string());
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "`user_version` written outside tugcore::ledger_db::migrate — bring the schema up through it: {offenders:#?}"
+        );
+    }
+
+    const SCHEMA_V3: &str = "CREATE TABLE IF NOT EXISTS t (a TEXT, b TEXT, c TEXT);";
+
+    fn schema_v3() -> LedgerSchema<'static> {
+        LedgerSchema {
+            db: rusqlite::DatabaseName::Main,
+            version: 3,
+            migrations: &[
+                (1, "ALTER TABLE t ADD COLUMN b TEXT;"),
+                (2, "ALTER TABLE t ADD COLUMN c TEXT;"),
+            ],
+            already_applied: |err| err.to_string().contains("duplicate column name"),
+        }
+    }
+
+    fn version(conn: &Connection, db: &str) -> i64 {
+        conn.query_row(&format!("PRAGMA {db}.user_version"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn columns(conn: &Connection) -> Vec<String> {
+        let mut stmt = conn.prepare("PRAGMA table_info(t)").unwrap();
+        stmt.query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    fn create_v3(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(SCHEMA_V3)
+    }
+
+    #[test]
+    fn migrate_creates_and_stamps_a_fresh_database() {
+        let conn = Connection::open_in_memory().unwrap();
+        assert_eq!(migrate(&conn, &schema_v3(), create_v3).unwrap(), Migrated::Current);
+        assert_eq!(version(&conn, "main"), 3);
+        assert_eq!(columns(&conn), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn migrate_applies_only_the_migrations_above_the_version_on_disk() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (a TEXT, b TEXT); PRAGMA user_version = 2;")
+            .unwrap();
+        assert_eq!(migrate(&conn, &schema_v3(), create_v3).unwrap(), Migrated::Current);
+        assert_eq!(version(&conn, "main"), 3);
+        assert_eq!(columns(&conn), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn migrate_absorbs_a_migration_that_already_ran() {
+        // The crash-between-DDL-and-stamp shape: the column is there, the
+        // stamp is not.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (a TEXT, b TEXT, c TEXT); PRAGMA user_version = 2;")
+            .unwrap();
+        assert_eq!(migrate(&conn, &schema_v3(), create_v3).unwrap(), Migrated::Current);
+        assert_eq!(version(&conn, "main"), 3);
+    }
+
+    #[test]
+    fn migrate_refuses_a_newer_version_and_touches_nothing() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA user_version = 9;").unwrap();
+        let mut created = false;
+        let outcome = migrate(&conn, &schema_v3(), |_| {
+            created = true;
+            Ok::<_, rusqlite::Error>(())
+        })
+        .unwrap();
+        assert_eq!(outcome, Migrated::TooNew { on_disk: 9 });
+        assert!(!created, "a newer schema must not be created over");
+        assert_eq!(version(&conn, "main"), 9);
+    }
+
+    #[test]
+    fn migrate_rolls_back_to_the_version_it_found_on_failure() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE t (a TEXT); PRAGMA user_version = 1;")
+            .unwrap();
+        let err = migrate(&conn, &schema_v3(), |conn| {
+            conn.execute_batch("CREATE TABLE half (x TEXT); NOT SQL;")
+        });
+        assert!(err.is_err());
+        assert_eq!(version(&conn, "main"), 1);
+        assert_eq!(columns(&conn), ["a"], "the applied migration rolls back with the failure");
+        let half: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = 'half'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(half, 0);
+    }
+
+    #[test]
+    fn migrate_stamps_the_attached_database_it_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path().join("main.db")).unwrap();
+        attach(&conn, "side", &dir.path().join("side.db")).unwrap();
+        let schema = LedgerSchema {
+            db: rusqlite::DatabaseName::Attached("side"),
+            version: 2,
+            migrations: &[],
+            already_applied: no_migration_error_absorbed,
+        };
+        migrate(&conn, &schema, |conn| {
+            conn.execute_batch("CREATE TABLE IF NOT EXISTS side.t (a TEXT);")
+        })
+        .unwrap();
+        assert_eq!(version(&conn, "side"), 2);
+        assert_eq!(version(&conn, "main"), 0);
     }
 }

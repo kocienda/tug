@@ -145,6 +145,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tugcast_core::{OverviewAuthor, OverviewPost};
+use tugcore::changes_schema::CHANGES_SCHEMA_VERSION;
 use tugcore::claude_home::{ClaudeHome, encode_project_dir};
 
 use crate::background_session::is_background_card_id;
@@ -235,72 +236,6 @@ pub const DEV_TRASH_SWEEP_AGE_DAYS: i64 = 7;
 /// Maximum number of characters of the most-recent user prompt the ledger
 /// stores. The picker truncates further at display time.
 pub const USER_PROMPT_MAX_CHARS: usize = 256;
-
-/// Version stamp of the **shared** `changes.db` schema (`PRAGMA
-/// changes.user_version`). Bumping this constant REQUIRES a registered
-/// entry in [`CHANGES_MIGRATIONS`] and human review of the migration SQL —
-/// an individual instance must never reshape the machine-global schema on
-/// its own ([D112]). Builds seeing a *newer* on-disk version refuse to
-/// write the shared tables entirely.
-pub const CHANGES_SCHEMA_VERSION: i64 = 4;
-
-/// Registered, human-approved migrations for the shared changes schema:
-/// `(from_version, sql)` applied in order to reach `from_version + 1`.
-/// Version 1 was the first stamped shape; version 2 adds the additive
-/// `file_event_spans` child table ([P10]) and touches nothing existing;
-/// version 3 adds the nullable `file_events.line_id` column ([P01]) —
-/// stamped at write time, so a row stays attributed to its line of work
-/// even after the `sessions` row it would have joined through is evicted
-/// or lives in another instance's ledger ([Q01]).
-/// Version 4 rewrites `changeset_drafts` owner spellings from the retired
-/// owner kind and `tugdash/` to `arc` / `tugarc/` ([P03]) — the branch prefix moved
-/// in the same arc, so a row keyed on the old one names a branch that no
-/// longer exists.
-const CHANGES_MIGRATIONS: &[(i64, &str)] = &[
-    (1, CREATE_FILE_EVENT_SPANS_SQL),
-    (2, ADD_FILE_EVENTS_LINE_ID_SQL),
-    (3, RENAME_ARC_OWNERS_SQL),
-];
-
-/// The v3→v4 owner rewrite, in one place with the idempotent bootstrap arm
-/// that covers a pre-versioning database whose table is already on disk.
-///
-/// Both statements are safe to re-run: the second pass matches no rows, so a
-/// crash between the DDL and the version stamp costs nothing. The prefix
-/// rewrite is injective — `tugdash/` and `tugarc/` are the same length and
-/// differ byte for byte after the prefix — so no primary-key collision is
-/// possible however many rows either spelling holds.
-const RENAME_ARC_OWNERS_SQL: &str = "
-    UPDATE changes.changeset_drafts SET owner_kind = 'arc' WHERE owner_kind = 'dash';
-    UPDATE changes.changeset_drafts SET owner_id = 'tugarc/' || substr(owner_id, 9)
-        WHERE owner_id LIKE 'tugdash/%';
-";
-
-/// The v2→v3 column add, in one place with the conditional bootstrap arm
-/// that covers pre-versioning databases.
-const ADD_FILE_EVENTS_LINE_ID_SQL: &str =
-    "ALTER TABLE changes.file_events ADD COLUMN line_id TEXT;";
-
-/// The `file_event_spans` DDL, in one place: the v1→v2 migration and the
-/// idempotent bootstrap block both run it, so a migrated database and a
-/// fresh one cannot end up with different shapes.
-const CREATE_FILE_EVENT_SPANS_SQL: &str = "
-    -- Sub-file evidence for a `file_events` row (Spec S04): what the tool
-    -- call wrote *inside* the file, so two sessions editing disjoint
-    -- regions of one path read as disjoint rather than contested. Rows are
-    -- children of `file_events` — same first three key columns plus a
-    -- per-row ordinal — and every applier that moves or removes the parent
-    -- carries them along. `anchor` is content, never a line number ([P11]).
-    CREATE TABLE IF NOT EXISTS changes.file_event_spans (
-        tug_session_id TEXT NOT NULL,
-        tool_use_id    TEXT NOT NULL,
-        file_path      TEXT NOT NULL,
-        seq            INTEGER NOT NULL,
-        kind           TEXT NOT NULL,
-        anchor         TEXT NOT NULL,
-        PRIMARY KEY (tug_session_id, tool_use_id, file_path, seq)
-    );
-";
 
 /// `<changes-db>.schema-version` — a plain-text sidecar stamped by every
 /// owner that bootstraps or migrates the shared schema. It exists because
@@ -1904,137 +1839,14 @@ impl SessionLedger {
         // columns and the batch only declares them on a table it creates.
         Self::migrate_minted_tags_add_line_id(conn)?;
         Self::migrate_scan_cache_add_line_id(conn)?;
+        // The tables other crates read are created from the strings
+        // `tugcore::session_schema` owns, first, in the order they reference
+        // one another; the rest of the ledger is tugcast's own.
+        conn.execute_batch(tugcore::session_schema::CREATE_LINES_SQL)?;
+        conn.execute_batch(tugcore::session_schema::CREATE_SESSIONS_SQL)?;
+        conn.execute_batch(tugcore::session_schema::CREATE_MINTED_TAGS_SQL)?;
         conn.execute_batch(
             "
-            -- A **line of work** and its identity ([P01]). The callsign and
-            -- the user's name live here, once, for however many session ids
-            -- the line lives through — so an id change has nothing to copy.
-            CREATE TABLE IF NOT EXISTS lines (
-                line_id       TEXT PRIMARY KEY,
-                tag           TEXT NOT NULL UNIQUE,
-                name          TEXT,
-                name_user_set INTEGER NOT NULL DEFAULT 0,
-                -- The card the line is seated on. NULL for a line the
-                -- external scan discovered and nothing has resumed ([P07]).
-                card_id       TEXT,
-                project_dir   TEXT NOT NULL,
-                created_at    INTEGER NOT NULL,
-                last_used_at  INTEGER NOT NULL
-            );
-
-            -- A user-set name is unique across lines, enforced at the write
-            -- ([P11]): a rename onto a taken name TAKES it, clearing the
-            -- previous holder's name in the same transaction, so the newest
-            -- gesture wins and the index still holds. Auto titles are exempt —
-            -- two lines may perfectly well be auto-titled the same thing.
-            CREATE UNIQUE INDEX IF NOT EXISTS lines_user_name
-                ON lines(name) WHERE name_user_set = 1;
-
-            CREATE INDEX IF NOT EXISTS lines_card ON lines(card_id);
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id        TEXT PRIMARY KEY,
-                workspace_key     TEXT NOT NULL,
-                project_dir       TEXT NOT NULL,
-                created_at        INTEGER NOT NULL,
-                last_used_at      INTEGER NOT NULL,
-                turn_count        INTEGER NOT NULL DEFAULT 0,
-                last_user_prompt  TEXT,
-                state             TEXT NOT NULL,
-                card_id           TEXT,
-                -- The line this row is a segment of ([P01]). Identity is the
-                -- line's; nothing here holds a callsign or a name.
-                line_id           TEXT NOT NULL REFERENCES lines(line_id),
-                -- Fork provenance ([P11]): which session this one was
-                -- rewind-forked from, and the prompt uuid of the rewind
-                -- point. Both NULL for a root session. Provenance lives in
-                -- these columns, never in the callsign's spelling — the
-                -- callsign is the line's and does not move.
-                forked_from_session_id TEXT,
-                fork_point        TEXT,
-                -- Stage provenance ([P10]): what a rotation seated this
-                -- session as. Both NULL on a session no rotation seated. They
-                -- live here rather than being reconstructed from an arc's run
-                -- record, because a rotation need not have an arc behind it —
-                -- and its transcript is an invariant either way.
-                stage_label       TEXT,
-                stage_model       TEXT,
-                -- The rolling generated description ([P07]). NULL until the
-                -- Summarize lane writes one; frozen (never written) once the
-                -- user has renamed the session.
-                synopsis          TEXT,
-                -- The Overview privacy flag. `1` means this session is out of
-                -- the fact base and out of the channel: no facts recorded, no
-                -- Observer post, and every Operator verb that reads sessions
-                -- skips it. From-now-on semantics — marking a session private
-                -- hides it going forward and scrubs nothing already written.
-                private           INTEGER NOT NULL DEFAULT 0,
-                -- The arc this session is working on ([P01]/[P08]):
-                -- `arc_id` is the owner key and the authority, `arc_name`
-                -- is denormalized for display. NULL when unbound, and
-                -- cleared when the session closes — bound-ness is defined
-                -- over live sessions ([L27]).
-                arc_id           TEXT,
-                arc_name         TEXT,
-                -- Which kind of `closed` this row is. `1` marks the startup
-                -- demote — the *process* under the session ended, not the
-                -- session — and is the one state `revive_on_activity` may
-                -- correct on live-borne evidence. A deliberate close
-                -- (`mark_closed`) and a spawn both clear it: closed-by-hand
-                -- stays closed, and a spawned row is live on its own terms.
-                demoted           INTEGER NOT NULL DEFAULT 0,
-                -- The card owes a hand-back: a rotation the user did not ask
-                -- for put it on a named model, and nothing but the restore
-                -- will take it off. `1` while owed, cleared when the restore
-                -- goes out.
-                --
-                -- On disk rather than in the wheel's memory alone, because
-                -- the debt outlives the process that took it on: a tugcast
-                -- restart between the rotation and the next turn's end used
-                -- to drop the arming, and tugcode reuses its manager's
-                -- selector for every later spawn — so the card stayed pinned
-                -- on a stage model through the user's own `/new`, forever.
-                hand_back_owed    INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE INDEX IF NOT EXISTS sessions_workspace_recent
-                ON sessions(workspace_key, last_used_at DESC);
-
-            -- The fork edge, read child-ward: given a session id, which
-            -- session (if any) was forked from it. `lineage_chain` walks it
-            -- once per hop to replay a card's transcript parent-ward.
-            CREATE INDEX IF NOT EXISTS sessions_forked_from
-                ON sessions(forked_from_session_id);
-
-            -- The all-time tag arbiter (Spec S08). `sessions` rows are hard
-            -- DELETEd — trash, the cascade paths, the age sweep — so the
-            -- `sessions_tag` index above can enforce uniqueness among live
-            -- sessions but not permanence. Commit trailers cite tags, and a
-            -- recycled tag makes an old commit's citation resolve to a
-            -- different session, so permanence rests here instead.
-            --
-            -- ROWS ARE NEVER DELETED FROM THIS TABLE. Not on trash, not on
-            -- cascade delete, not on eviction. A tag outlives its session by
-            -- design; deleting rows here silently restores recycling.
-            --
-            -- The guarantee is per-ledger: `sessions.db` is per-instance, so
-            -- it holds against every tag *this* ledger minted. A trailer read
-            -- against another machine's ledger simply misses (the citation
-            -- renders unresolvable), which is safe; a wiped ledger re-opens
-            -- recycling on that machine.
-            CREATE TABLE IF NOT EXISTS minted_tags (
-                tag        TEXT PRIMARY KEY,
-                -- The line that owns this spelling — the whole of what a
-                -- retired spelling resolves to ([P08]). NULL only transiently,
-                -- inside `migrate_sessions_to_lines`, which asserts otherwise
-                -- before it commits.
-                line_id    TEXT,
-                -- The segment that spent the spelling. Kept as history: which
-                -- id was live at the moment the line took this name.
-                session_id TEXT NOT NULL,
-                minted_at  INTEGER NOT NULL
-            );
-
             CREATE TABLE IF NOT EXISTS turns (
                 journal_id        TEXT PRIMARY KEY,
                 session_id        TEXT NOT NULL,
@@ -2562,7 +2374,8 @@ impl SessionLedger {
     /// The shared database's schema is versioned; an instance may only:
     /// - create the current schema on a fresh (version 0) database,
     /// - stamp a pre-versioning database that predates the gate, or
-    /// - apply a *registered* migration ([`CHANGES_MIGRATIONS`]).
+    /// - apply a *registered* migration
+    ///   ([`tugcore::changes_schema::CHANGES_MIGRATIONS`]).
     ///
     /// An on-disk version **newer** than this build means another, newer
     /// instance owns the schema: this build must not touch it and gets no
@@ -2589,136 +2402,29 @@ impl SessionLedger {
                 return Ok(false);
             }
         };
-        if on_disk > CHANGES_SCHEMA_VERSION {
+        let refuse_newer = |on_disk: i64| {
             tracing::error!(
                 on_disk,
                 supported = CHANGES_SCHEMA_VERSION,
                 "shared changes.db schema is newer than this build — refusing schema \
                  and row writes to the shared tables; upgrade this instance"
             );
-            return Ok(false);
+            false
+        };
+        if on_disk > CHANGES_SCHEMA_VERSION {
+            return Ok(refuse_newer(on_disk));
         }
         if !may_write_changes {
             // A forwarding instance only verifies it can live with the
             // shape on disk; creating and stamping it is the owner's job.
             return Ok(true);
         }
-        if on_disk > 0 && on_disk < CHANGES_SCHEMA_VERSION {
-            for (from, sql) in CHANGES_MIGRATIONS {
-                if *from >= on_disk {
-                    // A crash between a migration's DDL and the version
-                    // stamp re-runs the migration on the next open; an
-                    // `ALTER TABLE … ADD COLUMN` is not idempotent the way
-                    // `CREATE TABLE IF NOT EXISTS` is, so the one error
-                    // that means "already applied" is absorbed.
-                    //
-                    // A migration that touches a table the bootstrap below
-                    // has not created yet is absorbed on the same footing: it
-                    // ran against a database that has no such rows to move,
-                    // and the idempotent arm after the DDL is what covers a
-                    // database that does.
-                    if let Err(err) = conn.execute_batch(sql) {
-                        let message = err.to_string();
-                        let already_applied = message.contains("duplicate column name")
-                            || message.contains("no such table");
-                        if !already_applied {
-                            return Err(err.into());
-                        }
-                    }
-                }
-            }
+        match tugcore::changes_schema::bootstrap(conn)? {
+            tugcore::ledger_db::Migrated::Current => Ok(true),
+            // Another instance stamped a newer schema between the read
+            // above and the migration's own.
+            tugcore::ledger_db::Migrated::TooNew { on_disk } => Ok(refuse_newer(on_disk)),
         }
-        // Fresh (0) or current: idempotent creation of the current shape.
-        // A pre-versioning database with a *drifted* shape is left intact —
-        // never dropped — and its insert failures surface through the
-        // corruption/write guards for a human-reviewed migration.
-        conn.execute_batch(
-            "
-            -- Authoritative per-session file attribution — one row per
-            -- (tug_session_id, tool_use_id, file_path). Written from the
-            -- agent-bridge relay loop at the moment a tool call that
-            -- changed a file lands: exact for Write/Edit/MultiEdit/
-            -- NotebookEdit (straight from the tool input), bracketed for
-            -- Bash (working-tree fingerprint delta). This concentrates a
-            -- session's file knowledge down to the point of change rather
-            -- than reconstructing the session file list from conversation
-            -- context (which is blind to Bash-mediated edits like sed,
-            -- perl, or git mv).
-            --
-            -- Keyed by the tug session id — the card-bound identity that
-            -- survives resumes (claude ids rotate underneath it), so
-            -- attribution gets resume-lineage for free. The PK is the
-            -- idempotency contract: resume replays the full history and
-            -- subagent-tail re-streams background-agent children from
-            -- offset 0, so a frame may be seen twice; `record_file_event`
-            -- upserts with ON CONFLICT DO NOTHING, making the repeat a
-            -- no-op. Cascade-on-DELETE mirrors the `turns` journal so
-            -- evicting a `sessions` row takes its attribution with it.
-            CREATE TABLE IF NOT EXISTS changes.file_events (
-                tug_session_id      TEXT NOT NULL,
-                tool_use_id         TEXT NOT NULL,
-                file_path           TEXT NOT NULL,
-                tool_name           TEXT NOT NULL,
-                op                  TEXT NOT NULL,
-                origin              TEXT NOT NULL,
-                ambiguous           INTEGER NOT NULL DEFAULT 0,
-                parent_tool_use_id  TEXT,
-                project_dir         TEXT NOT NULL,
-                at                  INTEGER NOT NULL,
-                -- The line of work the writing session belonged to ([P01]),
-                -- stamped at write time from the writer's `sessions` row.
-                -- First-choice owner key at read time; the sessions join is
-                -- the fallback for rows written before v3 (or by a session
-                -- the writer's ledger had never seen, where it is NULL).
-                line_id             TEXT,
-                PRIMARY KEY (tug_session_id, tool_use_id, file_path)
-            );
-
-            CREATE INDEX IF NOT EXISTS changes.file_events_project
-                ON file_events(project_dir, at);
-
-            -- Maintained changeset drafts — machine-global like file_events
-            -- ([D112]): the working tree is machine-global, so the truth
-            -- about its proposed landing must be too. Two app instances on
-            -- one checkout see one draft.
-            CREATE TABLE IF NOT EXISTS changes.changeset_drafts (
-                owner_kind   TEXT NOT NULL,
-                owner_id     TEXT NOT NULL,
-                project_dir  TEXT NOT NULL,
-                fingerprint  TEXT NOT NULL,
-                message      TEXT NOT NULL,
-                updated_at   INTEGER NOT NULL,
-                edited       INTEGER NOT NULL DEFAULT 0,
-                selection    TEXT,
-                PRIMARY KEY (owner_kind, owner_id, project_dir)
-            );
-            ",
-        )?;
-        conn.execute_batch(CREATE_FILE_EVENT_SPANS_SQL)?;
-        // A pre-versioning database (version 0 with the table already on
-        // disk) takes no registered migration above, and `CREATE TABLE IF
-        // NOT EXISTS` leaves its shape alone — so the v3 column add runs
-        // conditionally here, the one shape it could still be missing.
-        let has_line_id = {
-            let mut stmt = conn.prepare("PRAGMA changes.table_info(file_events)")?;
-            let cols = stmt
-                .query_map([], |row| row.get::<_, String>(1))?
-                .collect::<Result<Vec<_>, _>>()?;
-            cols.iter().any(|name| name == "line_id")
-        };
-        if !has_line_id {
-            conn.execute_batch(ADD_FILE_EVENTS_LINE_ID_SQL)?;
-        }
-        // Same reasoning as the column add above, and the same shape: a
-        // pre-versioning database takes no registered migration, and these
-        // two UPDATEs match nothing on a database that has already had them.
-        conn.execute_batch(RENAME_ARC_OWNERS_SQL)?;
-        conn.pragma_update(
-            Some(rusqlite::DatabaseName::Attached("changes")),
-            "user_version",
-            CHANGES_SCHEMA_VERSION,
-        )?;
-        Ok(true)
     }
 
     /// One-shot migration to the shared changes ledger ([D112]): copy any

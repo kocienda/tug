@@ -689,24 +689,13 @@ mod tests {
         dir
     }
 
-    /// A sessions.db seeded with one session row plus events
+    /// The ledger fixture, seeded with one session row plus events
     /// `(file_path, op, origin, ambiguous, at)`.
     fn seed_db(session: &str, events: &[(String, &str, &str, bool, i64)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY);
-             CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);
-             CREATE TABLE file_event_spans (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                seq INTEGER, kind TEXT, anchor TEXT);",
-        )
-        .unwrap();
-        conn.execute("INSERT INTO sessions (session_id) VALUES (?1)", [session])
-            .unwrap();
+        let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+        let conn = ledgers.changes();
+        ledgers.add_session(session, session);
         for (i, (path, op, origin, amb, at)) in events.iter().enumerate() {
             conn.execute(
                 "INSERT INTO file_events
@@ -740,7 +729,7 @@ mod tests {
             ),
         ];
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
 
         let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
         let files = buckets.attributed;
@@ -770,7 +759,7 @@ mod tests {
             1,
         )];
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
         let files = compute_changes(&conn, None, root, &["s1".to_owned()], false)
             .unwrap()
             .attributed;
@@ -810,7 +799,7 @@ mod tests {
             now_ms() + 2_000,
         )];
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
         let files = compute_changes(&conn, None, root, &["s1".to_owned()], false)
             .unwrap()
             .attributed;
@@ -839,7 +828,7 @@ mod tests {
             1,
         )];
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
         let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
         assert!(
             buckets.attributed.is_empty(),
@@ -857,23 +846,23 @@ mod tests {
         // (any instance, via the shared changes ledger) makes a session known.
         let repo = init_repo(&[]);
         let db = seed_db("s1", &[("x.rs".to_owned(), "write", "exact", false, 1)]);
-        let db_path = db.path().join("sessions.db");
-        let conn = ledger::open_readonly(&db_path).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
+        let sessions = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
 
-        assert!(!ledger::session_exists(&conn, "ghost").unwrap());
+        assert!(!ledger::session_exists(&sessions, "ghost").unwrap());
         assert!(!ledger::session_has_events(&conn, &["ghost".to_owned()]).unwrap());
         let ghost =
             compute_changes(&conn, None, repo.path(), &["ghost".to_owned()], false).unwrap();
         assert!(ghost.attributed.is_empty());
 
         // Valid session: known via its `sessions` row AND via its rows.
-        assert!(ledger::session_exists(&conn, "s1").unwrap());
+        assert!(ledger::session_exists(&sessions, "s1").unwrap());
         assert!(ledger::session_has_events(&conn, &["s1".to_owned()]).unwrap());
     }
 
-    /// Contract test (R04): a hand-built `sessions.db` with today's schema
-    /// yields the expected changed files — guards the raw-SQL coupling. The
-    /// legacy `ambiguous` column (poisoned to 1 on one row) is ignored
+    /// Contract test (R04): the ledgers built with today's schema yield the
+    /// expected changed files — guards the raw-SQL coupling. The legacy
+    /// `ambiguous` column (poisoned to 1 on one row) is ignored
     /// outright: it never surfaces, never excludes, never marks anything.
     #[test]
     fn schema_coupling_contract_ignores_legacy_ambiguous_column() {
@@ -896,7 +885,7 @@ mod tests {
             ),
         ];
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
         let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
         assert_eq!(buckets.attributed.len(), 1);
         assert_eq!(buckets.attributed[0].path, "a.rs");
@@ -925,7 +914,7 @@ mod tests {
             (p.clone(), "modified", "bash", true, 2),
         ];
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
         let files = compute_changes(&conn, None, root, &["s1".to_owned()], false)
             .unwrap()
             .attributed;
@@ -941,23 +930,12 @@ mod tests {
     /// off-repo `project_dir`, so it can't stand in for a foreign claimant).
     fn seed_sessions(rows: &[(&str, &str, &str)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY);
-             CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);
-             CREATE TABLE file_event_spans (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                seq INTEGER, kind TEXT, anchor TEXT);",
-        )
-        .unwrap();
+        let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+        let conn = ledgers.changes();
         let mut seen: Vec<String> = Vec::new();
         for (i, (session, file_path, project_dir)) in rows.iter().enumerate() {
             if !seen.iter().any(|s| s == session) {
-                conn.execute("INSERT INTO sessions (session_id) VALUES (?1)", [session])
-                    .unwrap();
+                ledgers.add_session(session, session);
                 seen.push(session.to_string());
             }
             conn.execute(
@@ -978,23 +956,12 @@ mod tests {
     /// commit's wall-clock second rather than at zero.
     fn seed_sessions_origin_at(rows: &[(&str, &str, &str, &str, i64)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY);
-             CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);
-             CREATE TABLE file_event_spans (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                seq INTEGER, kind TEXT, anchor TEXT);",
-        )
-        .unwrap();
+        let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+        let conn = ledgers.changes();
         let mut seen: Vec<String> = Vec::new();
         for (i, (session, file_path, origin, project_dir, at)) in rows.iter().enumerate() {
             if !seen.iter().any(|s| s == session) {
-                conn.execute("INSERT INTO sessions (session_id) VALUES (?1)", [session])
-                    .unwrap();
+                ledgers.add_session(session, session);
                 seen.push(session.to_string());
             }
             conn.execute(
@@ -1087,23 +1054,12 @@ mod tests {
 
     fn seed_sessions_origin(rows: &[(&str, &str, &str, &str)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY);
-             CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);
-             CREATE TABLE file_event_spans (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                seq INTEGER, kind TEXT, anchor TEXT);",
-        )
-        .unwrap();
+        let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+        let conn = ledgers.changes();
         let mut seen: Vec<String> = Vec::new();
         for (i, (session, file_path, origin, project_dir)) in rows.iter().enumerate() {
             if !seen.iter().any(|s| s == session) {
-                conn.execute("INSERT INTO sessions (session_id) VALUES (?1)", [session])
-                    .unwrap();
+                ledgers.add_session(session, session);
                 seen.push(session.to_string());
             }
             conn.execute(
@@ -1118,6 +1074,10 @@ mod tests {
     }
 
     fn open(db: &tempfile::TempDir) -> Connection {
+        ledger::open_readonly(&db.path().join("changes.db")).unwrap()
+    }
+
+    fn open_sessions(db: &tempfile::TempDir) -> Connection {
         ledger::open_readonly(&db.path().join("sessions.db")).unwrap()
     }
 
@@ -1264,21 +1224,10 @@ mod tests {
         owners: &[(&str, &str)],
     ) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE sessions (session_id TEXT PRIMARY KEY);
-             CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);
-             CREATE TABLE file_event_spans (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                seq INTEGER, kind TEXT, anchor TEXT);",
-        )
-        .unwrap();
+        let ledgers = tugcore::test_fixtures::ledgers(dir.path());
+        let conn = ledgers.changes();
         for (i, (session, written)) in owners.iter().enumerate() {
-            conn.execute("INSERT INTO sessions (session_id) VALUES (?1)", [session])
-                .unwrap();
+            ledgers.add_session(session, session);
             let tool_use_id = format!("tu-{i}");
             conn.execute(
                 "INSERT INTO file_events
@@ -1351,7 +1300,7 @@ mod tests {
             // wrote here. Unfiltered, that anchor would land `theirs` in
             // `mine`'s hunk and turn disjoint work SHARED.
             let elsewhere = tempfile::tempdir().expect("tempdir");
-            let conn = Connection::open(db.path().join("sessions.db")).unwrap();
+            let conn = tugcore::test_fixtures::Ledgers::at(db.path()).changes();
             let anchor = serde_json::json!({
                 "new_hash": crate::hunks::content_hash("TOP-EDIT"),
                 "new_head": "TOP-EDIT",
@@ -1408,9 +1357,7 @@ mod tests {
             "both.rs",
             &[("mine", "TOP-EDIT"), ("theirs", "SINCE-OVERWRITTEN")],
         );
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch("ALTER TABLE sessions ADD COLUMN state TEXT")
-            .unwrap();
+        let conn = tugcore::test_fixtures::Ledgers::at(dir.path()).sessions();
         conn.execute(
             "UPDATE sessions SET state = 'live' WHERE session_id = 'mine'",
             [],
@@ -1432,7 +1379,7 @@ mod tests {
         let db = seed_ghost_co_owner(&rootstr, "closed");
         let mine = compute_changes(
             &open(&db),
-            Some(&open(&db)),
+            Some(&open_sessions(&db)),
             repo.path(),
             &["mine".to_owned()],
             false,
@@ -1450,7 +1397,7 @@ mod tests {
         let db = seed_ghost_co_owner(&rootstr, "live");
         let mine = compute_changes(
             &open(&db),
-            Some(&open(&db)),
+            Some(&open_sessions(&db)),
             repo.path(),
             &["mine".to_owned()],
             false,
@@ -1481,9 +1428,9 @@ mod tests {
         let db = seed_two_owners_with_anchors(&rootstr, "both.rs", &[("mine", "TOP-EDIT")]);
         {
             // `legacy` holds a proof row with no spans at all.
-            let conn = Connection::open(db.path().join("sessions.db")).unwrap();
-            conn.execute("INSERT INTO sessions (session_id) VALUES ('legacy')", [])
-                .unwrap();
+            let ledgers = tugcore::test_fixtures::Ledgers::at(db.path());
+            ledgers.add_session("legacy", "legacy");
+            let conn = ledgers.changes();
             conn.execute(
                 "INSERT INTO file_events
                     (tug_session_id, tool_use_id, file_path, tool_name, op, origin, ambiguous, project_dir, at)
@@ -1753,7 +1700,7 @@ mod tests {
             })
             .collect();
         let db = seed_db("s1", &events);
-        let conn = ledger::open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = ledger::open_readonly(&db.path().join("changes.db")).unwrap();
 
         let buckets = compute_changes(&conn, None, root, &["s1".to_owned()], false).unwrap();
 

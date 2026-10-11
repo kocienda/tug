@@ -253,25 +253,14 @@ pub fn run_restore_names(db: Option<PathBuf>, dry_run: bool) -> Result<i32, Stri
 mod tests {
     use super::*;
 
-    /// A ledger with the three tables this verb reads, shaped as the real one
-    /// shapes them.
+    /// A ledger with the three tables this verb reads, built by the ledger
+    /// fixture from the strings tugcast creates them from. `facts` is
+    /// tugcast's own table, outside the fixture's cross-crate set, so its
+    /// columns are named here.
     fn fixture(dir: &Path) -> Connection {
-        let conn = tugcore::ledger_db::open(dir.join("sessions.db")).expect("open");
+        let conn = tugcore::test_fixtures::ledgers(dir).sessions();
         conn.execute_batch(
-            "CREATE TABLE lines (
-                 line_id TEXT PRIMARY KEY, tag TEXT NOT NULL UNIQUE, name TEXT,
-                 name_user_set INTEGER NOT NULL DEFAULT 0, card_id TEXT,
-                 project_dir TEXT NOT NULL, created_at INTEGER NOT NULL,
-                 last_used_at INTEGER NOT NULL);
-             CREATE TABLE sessions (
-                 session_id TEXT PRIMARY KEY, workspace_key TEXT NOT NULL,
-                 project_dir TEXT NOT NULL, created_at INTEGER NOT NULL,
-                 last_used_at INTEGER NOT NULL, turn_count INTEGER NOT NULL DEFAULT 0,
-                 state TEXT NOT NULL, card_id TEXT, line_id TEXT NOT NULL);
-             CREATE TABLE minted_tags (
-                 tag TEXT PRIMARY KEY, session_id TEXT NOT NULL,
-                 minted_at INTEGER NOT NULL, line_id TEXT);
-             CREATE TABLE facts (
+            "CREATE TABLE facts (
                  id INTEGER PRIMARY KEY AUTOINCREMENT, at_ms INTEGER NOT NULL,
                  kind TEXT NOT NULL, session_id TEXT, subject TEXT,
                  text TEXT NOT NULL, payload TEXT NOT NULL);",

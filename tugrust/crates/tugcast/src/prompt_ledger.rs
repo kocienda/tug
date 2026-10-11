@@ -182,23 +182,22 @@ impl PromptLedger {
         // unknown schema. The caller treats an unopenable ledger as absent,
         // and an absent ledger is loud on both sides — the routes unregister
         // and the composer says so.
-        let on_disk: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if on_disk > PROMPT_HISTORY_SCHEMA_VERSION {
+        let schema = tugcore::ledger_db::LedgerSchema {
+            db: rusqlite::DatabaseName::Main,
+            version: PROMPT_HISTORY_SCHEMA_VERSION,
+            migrations: PROMPT_HISTORY_MIGRATIONS,
+            already_applied: tugcore::ledger_db::no_migration_error_absorbed,
+        };
+        let migrated = tugcore::ledger_db::migrate(&conn, &schema, |conn| {
+            conn.execute_batch(CREATE_PROMPT_HISTORY_SQL)?;
+            conn.execute_batch(CREATE_SESSION_LINEAGE_SQL)
+        })?;
+        if let tugcore::ledger_db::Migrated::TooNew { on_disk } = migrated {
             return Err(PromptLedgerError::SchemaTooNew {
                 on_disk,
                 supported: PROMPT_HISTORY_SCHEMA_VERSION,
             });
         }
-        if on_disk > 0 && on_disk < PROMPT_HISTORY_SCHEMA_VERSION {
-            for (from, sql) in PROMPT_HISTORY_MIGRATIONS {
-                if *from >= on_disk {
-                    conn.execute_batch(sql)?;
-                }
-            }
-        }
-        conn.execute_batch(CREATE_PROMPT_HISTORY_SQL)?;
-        conn.execute_batch(CREATE_SESSION_LINEAGE_SQL)?;
-        conn.pragma_update(None, "user_version", PROMPT_HISTORY_SCHEMA_VERSION)?;
         Ok(Self {
             db: Mutex::new(conn),
         })

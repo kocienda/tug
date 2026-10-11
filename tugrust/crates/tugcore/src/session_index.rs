@@ -152,22 +152,21 @@ impl SessionIndex {
         // this build cannot describe. Callers treat an unopenable index as
         // absent, which costs a verdict its `elsewhere` arm and nothing
         // more.
-        let on_disk: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if on_disk > SESSION_INDEX_SCHEMA_VERSION {
+        let schema = crate::ledger_db::LedgerSchema {
+            db: rusqlite::DatabaseName::Main,
+            version: SESSION_INDEX_SCHEMA_VERSION,
+            migrations: SESSION_INDEX_MIGRATIONS,
+            already_applied: crate::ledger_db::no_migration_error_absorbed,
+        };
+        let migrated = crate::ledger_db::migrate(&conn, &schema, |conn| {
+            conn.execute_batch(CREATE_SESSION_INDEX_SQL)
+        })?;
+        if let crate::ledger_db::Migrated::TooNew { on_disk } = migrated {
             return Err(SessionIndexError::SchemaTooNew {
                 on_disk,
                 supported: SESSION_INDEX_SCHEMA_VERSION,
             });
         }
-        if on_disk > 0 && on_disk < SESSION_INDEX_SCHEMA_VERSION {
-            for (from, sql) in SESSION_INDEX_MIGRATIONS {
-                if *from >= on_disk {
-                    conn.execute_batch(sql)?;
-                }
-            }
-        }
-        conn.execute_batch(CREATE_SESSION_INDEX_SQL)?;
-        conn.pragma_update(None, "user_version", SESSION_INDEX_SCHEMA_VERSION)?;
         Ok(Self {
             db: Mutex::new(conn),
         })

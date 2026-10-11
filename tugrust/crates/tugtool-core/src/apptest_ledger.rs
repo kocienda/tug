@@ -252,23 +252,22 @@ fn prepare(conn: &Connection) -> Result<(), ApptestLedgerError> {
     // A version newer than this build means a newer tugtool owns the shape:
     // refuse the open rather than writing rows against an unknown schema. The
     // recipe treats an unopenable ledger as absent, and absence is loud.
-    let on_disk: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if on_disk > APPTEST_RESULTS_SCHEMA_VERSION {
+    let schema = tugcore::ledger_db::LedgerSchema {
+        db: rusqlite::DatabaseName::Main,
+        version: APPTEST_RESULTS_SCHEMA_VERSION,
+        migrations: APPTEST_RESULTS_MIGRATIONS,
+        already_applied: tugcore::ledger_db::no_migration_error_absorbed,
+    };
+    let migrated = tugcore::ledger_db::migrate(conn, &schema, |conn| {
+        conn.execute_batch(CREATE_APPTEST_RESULTS_SQL)?;
+        conn.execute_batch(CREATE_REACH_SQL)
+    })?;
+    if let tugcore::ledger_db::Migrated::TooNew { on_disk } = migrated {
         return Err(ApptestLedgerError::SchemaTooNew {
             on_disk,
             supported: APPTEST_RESULTS_SCHEMA_VERSION,
         });
     }
-    if on_disk > 0 && on_disk < APPTEST_RESULTS_SCHEMA_VERSION {
-        for (from, sql) in APPTEST_RESULTS_MIGRATIONS {
-            if *from >= on_disk {
-                conn.execute_batch(sql)?;
-            }
-        }
-    }
-    conn.execute_batch(CREATE_APPTEST_RESULTS_SQL)?;
-    conn.execute_batch(CREATE_REACH_SQL)?;
-    conn.pragma_update(None, "user_version", APPTEST_RESULTS_SCHEMA_VERSION)?;
     Ok(())
 }
 

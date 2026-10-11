@@ -4,3 +4,6 @@
 //! only, the same footing as [`crate::hostile_repo`], which composes with them.
 
 pub mod git;
+pub mod ledgers;
+
+pub use ledgers::{Ledgers, ledgers};

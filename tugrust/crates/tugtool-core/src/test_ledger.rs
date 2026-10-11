@@ -283,22 +283,21 @@ fn prepare(conn: &Connection) -> Result<(), TestLedgerError> {
     // `files` and `failures` cascade from `runs`; SQLite leaves foreign keys
     // off per connection unless asked.
     conn.pragma_update(None, "foreign_keys", true)?;
-    let on_disk: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    if on_disk > TEST_RESULTS_SCHEMA_VERSION {
+    let schema = tugcore::ledger_db::LedgerSchema {
+        db: rusqlite::DatabaseName::Main,
+        version: TEST_RESULTS_SCHEMA_VERSION,
+        migrations: TEST_RESULTS_MIGRATIONS,
+        already_applied: tugcore::ledger_db::no_migration_error_absorbed,
+    };
+    let migrated = tugcore::ledger_db::migrate(conn, &schema, |conn| {
+        conn.execute_batch(CREATE_TEST_RESULTS_SQL)
+    })?;
+    if let tugcore::ledger_db::Migrated::TooNew { on_disk } = migrated {
         return Err(TestLedgerError::SchemaTooNew {
             on_disk,
             supported: TEST_RESULTS_SCHEMA_VERSION,
         });
     }
-    if on_disk > 0 && on_disk < TEST_RESULTS_SCHEMA_VERSION {
-        for (from, sql) in TEST_RESULTS_MIGRATIONS {
-            if *from >= on_disk {
-                conn.execute_batch(sql)?;
-            }
-        }
-    }
-    conn.execute_batch(CREATE_TEST_RESULTS_SQL)?;
-    conn.pragma_update(None, "user_version", TEST_RESULTS_SCHEMA_VERSION)?;
     Ok(())
 }
 

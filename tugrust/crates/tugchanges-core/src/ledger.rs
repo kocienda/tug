@@ -375,21 +375,12 @@ pub(crate) fn session_has_events(conn: &Connection, selves: &[String]) -> Result
 mod tests {
     use super::*;
 
-    /// Seed a `sessions.db` with `(tug_session_id, file_path, origin, project_dir, at)`
-    /// rows — origin explicit so the exact-vs-bracket authorship split is testable.
+    /// Seed the ledger fixture's `changes.db` with `(tug_session_id, file_path,
+    /// origin, project_dir, at)` rows — origin explicit so the exact-vs-bracket
+    /// authorship split is testable.
     fn seed(rows: &[(&str, &str, &str, &str, i64)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
-        let conn = Connection::open(dir.path().join("sessions.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);
-             CREATE TABLE file_event_spans (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                seq INTEGER, kind TEXT, anchor TEXT);",
-        )
-        .unwrap();
+        let conn = tugcore::test_fixtures::ledgers(dir.path()).changes();
         for (i, (session, file_path, origin, project_dir, at)) in rows.iter().enumerate() {
             conn.execute(
                 "INSERT INTO file_events
@@ -411,6 +402,9 @@ mod tests {
         // `$TUG_SESSION_ID` is frozen at spawn, so after an id rotation it
         // names an older segment — the expansion is what keeps `tugtool
         // changes` answering for the whole conversation ([P01]).
+        //
+        // Built by hand rather than by the ledger fixture: the `lineless`
+        // row's NULL `line_id` is a shape today's `sessions` forbids.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sessions.db");
         {
@@ -441,7 +435,7 @@ mod tests {
             ("seg-new", "later.rs", "exact", &repo_dir, 2),
             ("stranger", "other.rs", "exact", &repo_dir, 3),
         ]);
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
         let events = query_events(&conn, &["seg-new".to_owned(), "seg-old".to_owned()]).unwrap();
         let paths: Vec<&str> = events.iter().map(|e| e.file_path.as_str()).collect();
         assert_eq!(paths, ["early.rs", "later.rs"], "both segments, at-ordered");
@@ -475,7 +469,7 @@ mod tests {
             ("bracketer", "foo.rs", "bash", &repo_dir, 6),
         ]);
         {
-            let conn = Connection::open(db.path().join("sessions.db")).unwrap();
+            let conn = tugcore::test_fixtures::Ledgers::at(db.path()).changes();
             // `tu-0` is `mine`'s proof row; `tu-1` is the bracket row, whose
             // spans must not be readable as evidence.
             conn.execute(
@@ -495,7 +489,7 @@ mod tests {
             )
             .unwrap();
         }
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
         let spans = spans_for_path(&conn, "foo.rs").unwrap();
         assert_eq!(spans.len(), 1, "only the proof row's span speaks");
         assert_eq!(spans[0].session, "mine");
@@ -515,7 +509,7 @@ mod tests {
             ("theirs", "foo.rs", "exact", &repo_dir, 5),
             ("elsewhere", "foo.rs", "exact", &other_dir, 5),
         ]);
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
 
         // Raw claims: everyone but `mine`.
         let claims = sessions_for_path(&conn, "foo.rs", &["mine".to_owned()]).unwrap();
@@ -542,7 +536,7 @@ mod tests {
             ("bracketer", "foo.rs", "bash", &repo_dir, 5),
             ("bracketer", "foo.rs", "turn", &repo_dir, 6),
         ]);
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
 
         assert!(
             foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)
@@ -559,7 +553,7 @@ mod tests {
         let repo = tempfile::tempdir().unwrap();
         let repo_dir = repo.path().to_string_lossy().into_owned();
         let db = seed(&[("resumed", "foo.rs", "replay", &repo_dir, 5)]);
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
 
         assert_eq!(
             foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)
@@ -573,7 +567,7 @@ mod tests {
         let repo = tempfile::tempdir().unwrap();
         let repo_dir = repo.path().to_string_lossy().into_owned();
         let db = seed(&[("theirs", "foo.rs", "exact", &repo_dir, 1)]);
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
 
         // Below the cut → live claimant; above → spent, no claim.
         assert_eq!(
@@ -611,7 +605,7 @@ mod tests {
         let repo = tempfile::tempdir().unwrap();
         let repo_dir = repo.path().to_string_lossy().into_owned();
         let db = seed(&[("shell", "foo.rs", "cmd", &repo_dir, 5)]);
-        let conn = open_readonly(&db.path().join("sessions.db")).unwrap();
+        let conn = open_readonly(&db.path().join("changes.db")).unwrap();
 
         assert_eq!(
             foreign_proof_sessions_for_path(&conn, "foo.rs", &["mine".to_owned()], repo.path(), 0)

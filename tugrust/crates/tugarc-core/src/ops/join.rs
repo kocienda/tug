@@ -2998,23 +2998,10 @@ mod tests {
 
         // Seed the machine-global draft row under the canonical repo
         // spelling (Spec S05 write contract).
-        let changes_db = temp.path().join("changes.db");
+        let ledgers = tugcore::test_fixtures::ledgers(temp.path());
+        let changes_db = ledgers.changes_db();
         {
-            let conn = rusqlite::Connection::open(&changes_db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE changeset_drafts (
-                    owner_kind   TEXT NOT NULL,
-                    owner_id     TEXT NOT NULL,
-                    project_dir  TEXT NOT NULL,
-                    fingerprint  TEXT NOT NULL,
-                    message      TEXT NOT NULL,
-                    updated_at   INTEGER NOT NULL,
-                    edited       INTEGER NOT NULL DEFAULT 0,
-                    selection    TEXT,
-                    PRIMARY KEY (owner_kind, owner_id, project_dir)
-                );",
-            )
-            .unwrap();
+            let conn = ledgers.changes();
             let project = fs::canonicalize(repo)
                 .unwrap()
                 .to_string_lossy()
@@ -3095,24 +3082,7 @@ mod tests {
         init_git_repo(repo);
         redirect_state_dir(&home);
 
-        let changes_db = temp.path().join("changes.db");
-        {
-            let conn = rusqlite::Connection::open(&changes_db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE changeset_drafts (
-                    owner_kind   TEXT NOT NULL,
-                    owner_id     TEXT NOT NULL,
-                    project_dir  TEXT NOT NULL,
-                    fingerprint  TEXT NOT NULL,
-                    message      TEXT NOT NULL,
-                    updated_at   INTEGER NOT NULL,
-                    edited       INTEGER NOT NULL DEFAULT 0,
-                    selection    TEXT,
-                    PRIMARY KEY (owner_kind, owner_id, project_dir)
-                );",
-            )
-            .unwrap();
-        }
+        let changes_db = tugcore::test_fixtures::ledgers(temp.path()).changes_db();
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {
             std::env::set_var("TUG_CHANGES_DB", &changes_db);
@@ -3183,26 +3153,10 @@ mod tests {
 
         let line_id = "3c2b1a09-8877-4665-9443-221100ffeedd";
         let session = "9f8e7d6c-5b4a-4392-8281-706f5e4d3c2b";
-        let sessions_db = temp.path().join("sessions.db");
+        let ledgers = tugcore::test_fixtures::ledgers(temp.path());
+        let sessions_db = ledgers.sessions_db();
         {
-            let conn = rusqlite::Connection::open(&sessions_db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE lines (
-                    line_id       TEXT PRIMARY KEY,
-                    tag           TEXT NOT NULL UNIQUE,
-                    name          TEXT,
-                    name_user_set INTEGER NOT NULL DEFAULT 0,
-                    card_id       TEXT,
-                    project_dir   TEXT NOT NULL,
-                    created_at    INTEGER NOT NULL,
-                    last_used_at  INTEGER NOT NULL
-                 );
-                 CREATE TABLE sessions (
-                    session_id   TEXT PRIMARY KEY,
-                    line_id      TEXT NOT NULL
-                 );",
-            )
-            .unwrap();
+            let conn = ledgers.sessions();
             conn.execute(
                 "INSERT INTO lines (line_id, tag, name, name_user_set, card_id,
                                     project_dir, created_at, last_used_at)
@@ -3210,11 +3164,7 @@ mod tests {
                 rusqlite::params![line_id],
             )
             .unwrap();
-            conn.execute(
-                "INSERT INTO sessions (session_id, line_id) VALUES (?1, ?2)",
-                rusqlite::params![session, line_id],
-            )
-            .unwrap();
+            ledgers.add_session(session, line_id);
         }
         // SAFETY: serial test; see redirect_state_dir.
         unsafe {

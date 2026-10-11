@@ -42,25 +42,10 @@ fn init_repo() -> (tempfile::TempDir, PathBuf) {
 /// `TUG_CHANGES_DB` at the two files.
 fn seed_ledger(repo_root: &Path) -> tempfile::TempDir {
     let db_dir = tempfile::tempdir().unwrap();
-    let sessions = Connection::open(db_dir.path().join("sessions.db")).unwrap();
-    sessions
-        .execute_batch("CREATE TABLE sessions (session_id TEXT PRIMARY KEY);")
-        .unwrap();
-    sessions
-        .execute(
-            "INSERT INTO sessions (session_id) VALUES ('work'), ('empty')",
-            [],
-        )
-        .unwrap();
-    let changes = Connection::open(db_dir.path().join("changes.db")).unwrap();
-    changes
-        .execute_batch(
-            "CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);",
-        )
-        .unwrap();
+    let ledgers = tugcore::test_fixtures::ledgers(db_dir.path());
+    ledgers.add_session("work", "work");
+    ledgers.add_session("empty", "empty");
+    let changes = ledgers.changes();
     changes
         .execute(
             "INSERT INTO file_events
@@ -363,29 +348,11 @@ fn no_session_id_exits_two() {
 /// contention query joins on.
 fn seed_ledger_events(repo_root: &Path, events: &[(&str, &str)]) -> tempfile::TempDir {
     let db_dir = tempfile::tempdir().unwrap();
-    let sessions = Connection::open(db_dir.path().join("sessions.db")).unwrap();
-    sessions
-        .execute_batch("CREATE TABLE sessions (session_id TEXT PRIMARY KEY);")
-        .unwrap();
-    sessions
-        .execute("INSERT INTO sessions (session_id) VALUES ('empty')", [])
-        .unwrap();
-    let changes = Connection::open(db_dir.path().join("changes.db")).unwrap();
-    changes
-        .execute_batch(
-            "CREATE TABLE file_events (
-                tug_session_id TEXT, tool_use_id TEXT, file_path TEXT,
-                tool_name TEXT, op TEXT, origin TEXT, ambiguous INTEGER,
-                parent_tool_use_id TEXT, project_dir TEXT, at INTEGER);",
-        )
-        .unwrap();
+    let ledgers = tugcore::test_fixtures::ledgers(db_dir.path());
+    ledgers.add_session("empty", "empty");
+    let changes = ledgers.changes();
     for (i, (session, path)) in events.iter().enumerate() {
-        sessions
-            .execute(
-                "INSERT OR IGNORE INTO sessions (session_id) VALUES (?1)",
-                [session],
-            )
-            .unwrap();
+        ledgers.add_session(session, session);
         changes
             .execute(
                 "INSERT INTO file_events
@@ -755,6 +722,63 @@ fn draft_set_preserves_the_users_project_spelling() {
     assert!(stdout.contains("Join the widgets work"), "{stdout}");
 }
 
+/// The isolated `draft` path is the one CLI writer of `changes.db`, and it
+/// creates the schema through the same versioned bootstrap tugcast runs: the
+/// file it leaves behind is stamped, and carries every shared table rather
+/// than only the one `draft` writes.
+#[test]
+fn draft_set_on_an_isolated_ledger_stamps_the_schema_version() {
+    let (_repo, root) = init_repo();
+    let ledger = tempfile::tempdir().unwrap();
+
+    let mut set = tug(ledger.path());
+    set.args(["draft", "set", "--owner", "session:work", "--message", "Land it"]);
+    set.args(project_arg(&root));
+    let (code, _, err) = run(set);
+    assert_eq!(code, 0, "stderr: {err}");
+
+    let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
+    let version: i64 = changes
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 4);
+    let tables: i64 = changes
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'
+             AND name IN ('file_events', 'file_event_spans', 'changeset_drafts')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 3);
+    assert_eq!(draft_column(ledger.path(), "message"), "Land it");
+}
+
+/// A `changes.db` a newer build stamped is not this build's to shape: the
+/// isolated `draft` path refuses the write and leaves the file as it found it.
+#[test]
+fn draft_set_refuses_a_newer_changes_schema() {
+    let (_repo, root) = init_repo();
+    let ledger = tempfile::tempdir().unwrap();
+    Connection::open(ledger.path().join("changes.db"))
+        .unwrap()
+        .execute_batch("PRAGMA user_version = 99;")
+        .unwrap();
+
+    let mut set = tug(ledger.path());
+    set.args(["draft", "set", "--owner", "session:work", "--message", "Land it"]);
+    set.args(project_arg(&root));
+    let (code, _, err) = run(set);
+    assert_eq!(code, 1, "stderr: {err}");
+    assert!(err.contains("newer than this build"), "{err}");
+
+    let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
+    let tables: i64 = changes
+        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(tables, 0);
+}
+
 /// Read one column off the single draft row on file.
 fn draft_column(ledger: &Path, column: &str) -> String {
     Connection::open(ledger.join("changes.db"))
@@ -819,22 +843,7 @@ fn draft_rows_key_by_the_arc_owner_key_and_supersede_the_legacy_row() {
     let owner_key = "tugarc/widgets#1723500000000-a1b2c3";
 
     // A row an older build wrote, under the bare branch ref.
-    let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
-    changes
-        .execute_batch(
-            "CREATE TABLE IF NOT EXISTS changeset_drafts (
-                owner_kind   TEXT NOT NULL,
-                owner_id     TEXT NOT NULL,
-                project_dir  TEXT NOT NULL,
-                fingerprint  TEXT NOT NULL,
-                message      TEXT NOT NULL,
-                updated_at   INTEGER NOT NULL,
-                edited       INTEGER NOT NULL DEFAULT 0,
-                selection    TEXT,
-                PRIMARY KEY (owner_kind, owner_id, project_dir)
-            );",
-        )
-        .unwrap();
+    let changes = tugcore::test_fixtures::Ledgers::at(ledger.path()).changes();
     changes
         .execute(
             "INSERT INTO changeset_drafts
@@ -982,22 +991,7 @@ fn a_arc_set_supersedes_the_worktree_keyed_row() {
     let worktree = add_arc_worktree(&root, "widgets");
     let owner_key = "tugarc/widgets#1723500000000-a1b2c3";
 
-    let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
-    changes
-        .execute_batch(
-            "CREATE TABLE IF NOT EXISTS changeset_drafts (
-                owner_kind   TEXT NOT NULL,
-                owner_id     TEXT NOT NULL,
-                project_dir  TEXT NOT NULL,
-                fingerprint  TEXT NOT NULL,
-                message      TEXT NOT NULL,
-                updated_at   INTEGER NOT NULL,
-                edited       INTEGER NOT NULL DEFAULT 0,
-                selection    TEXT,
-                PRIMARY KEY (owner_kind, owner_id, project_dir)
-            );",
-        )
-        .unwrap();
+    let changes = tugcore::test_fixtures::Ledgers::at(ledger.path()).changes();
     changes
         .execute(
             "INSERT INTO changeset_drafts
