@@ -19,7 +19,7 @@
 
 import type React from "react";
 
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import type { CodeSessionStore, ToolUseMessage } from "@/lib/code-session-store";
 import type { ToolCallPhase } from "@/lib/code-session-store/tool-call-phase-visual";
 

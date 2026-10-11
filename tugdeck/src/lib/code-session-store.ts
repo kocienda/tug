@@ -36,7 +36,7 @@ import type { TugConnection } from "@/connection";
 import type { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import {
   PropertyStore,
-} from "@/components/tugways/property-store";
+} from "@/lib/property-store";
 import { FeedStore } from "@/lib/feed-store";
 import { Subscribable } from "@/lib/subscribable";
 import { RunProgressStore } from "@/lib/run-progress-store";

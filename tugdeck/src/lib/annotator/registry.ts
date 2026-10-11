@@ -37,7 +37,7 @@ import { openUrlInOS, revealDirectoryInFinder } from "@/lib/os-open";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";
 import { atomSegmentFor } from "./atom-segment";
 
-import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
+import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
 import type { AnnotationPayload } from "./payloads";
 import type { AnnotationKind } from "./types";
 

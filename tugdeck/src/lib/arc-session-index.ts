@@ -49,7 +49,7 @@ import { sessionLineStore } from "./session-line-store";
 import {
   type ArcTrackModel,
   arcTrackModelFromEntry,
-} from "@/components/tugways/tug-arc-track";
+} from "./arc-track-model";
 
 /** What one session's arc binding looks like to an identity surface. */
 export interface ArcSessionFact {

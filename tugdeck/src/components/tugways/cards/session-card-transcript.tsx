@@ -153,7 +153,7 @@ import {
 import type { FindSession } from "@/lib/find-session";
 import { TranscriptFindEngine } from "@/lib/transcript-find-engine";
 import type { SegmentedFindMatch } from "@/lib/transcript-search";
-import { buildTranscriptSearchSegments } from "@/lib/transcript-search-index";
+import { buildTranscriptSearchSegments } from "./transcript-search-index";
 import { TranscriptFindHighlighter } from "@/components/tugways/transcript-find-highlighter";
 import {
   findTrace,
@@ -244,7 +244,7 @@ import {
   type SessionTranscriptCellKind,
 } from "@/lib/session-transcript-data-source";
 import { STILL_ANCHOR_ATTR } from "@/lib/fold-crossing";
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

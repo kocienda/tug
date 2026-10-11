@@ -83,7 +83,7 @@
 
 import React from "react";
 
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import type {
   CodeSessionStore,
   ControlRequestForward,

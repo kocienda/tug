@@ -58,7 +58,7 @@
 import { useSyncExternalStore as reactUseSyncExternalStore } from "react";
 import { flushSync as reactFlushSync } from "react-dom";
 
-import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 
 import {
   AFTER_PAINT_DEADLINE_MS,

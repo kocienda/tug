@@ -13,7 +13,7 @@
 
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { buildTranscriptSearchSegments } from "@/lib/transcript-search-index";
+import { buildTranscriptSearchSegments } from "../transcript-search-index";
 import { searchSegments, type RowSegment } from "@/lib/transcript-search";
 import { stripAnsi } from "@/lib/ansi/strip-ansi";
 import {
@@ -24,7 +24,7 @@ import { BashToolBlock } from "@/components/tugways/cards/blocks/bash-tool-block
 import { ReadToolBlock } from "@/components/tugways/cards/blocks/read-tool-block";
 import { ToolBlockExpansionState } from "@/components/tugways/blocks/expansion-state";
 import type { SessionTranscriptDataSource, SessionRowDescriptor } from "@/lib/session-transcript-data-source";
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 
 // The tool-block registry is populated by an app-boot side-effect module the
 // test process never imports; the index resolves wrappers through it, so seed

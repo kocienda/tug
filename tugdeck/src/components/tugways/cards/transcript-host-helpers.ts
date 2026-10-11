@@ -42,7 +42,7 @@ import {
 import { atomTextClipboardPayload, formatAtomTextForCopy } from "@/lib/atom-text";
 import type { SelectionSubstrate } from "@/lib/markdown/serialize-selection";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
-import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
+import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { useAnnotationContextFor } from "@/components/tugways/use-annotation-context";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";

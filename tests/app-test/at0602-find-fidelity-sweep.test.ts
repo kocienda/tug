@@ -58,7 +58,7 @@
  * change should actually run, and a sweep that fires on every list-view
  * edit is a sweep nobody reads.
  *
- * @covers tugdeck/src/lib/transcript-search-index.ts
+ * @covers tugdeck/src/components/tugways/cards/transcript-search-index.ts
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/lib/find-trace.ts
  * @covers tugdeck/src/lib/transcript-find-engine.ts

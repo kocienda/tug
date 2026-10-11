@@ -41,7 +41,7 @@ import {
 import {
   sparklineCurves,
   type SparklineCurve,
-} from "@/components/tugways/tug-sparkline";
+} from "./sparkline-instrument";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 /** The per-session activity channels (Spec S01). Rate channels are

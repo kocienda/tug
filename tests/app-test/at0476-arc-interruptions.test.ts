@@ -42,6 +42,7 @@
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/control/arc.rs
  * @covers tugrust/crates/tugtool/src/arc.rs
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
+ * @covers tugdeck/src/lib/arc-receipt.ts
  * @covers tugdeck/src/components/tugways/tug-inline-dialog.tsx
  * @covers tugdeck/src/lib/arc-press-store.ts
  * @covers tugcode/src/session.ts

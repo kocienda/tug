@@ -32,7 +32,7 @@ import "./gallery-session-thinking.css";
 import React from "react";
 
 import { SessionThinkingBlock } from "@/components/tugways/chrome/session-thinking-block";
-import { PropertyStore } from "@/components/tugways/property-store";
+import { PropertyStore } from "@/lib/property-store";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";
 

@@ -5,7 +5,7 @@
  * ## Why this exists
  *
  * The transcript's match COUNT comes from a projected text index
- * (`tugdeck/src/lib/transcript-search-index.ts`) and the HIGHLIGHT comes
+ * (`tugdeck/src/components/tugways/cards/transcript-search-index.ts`) and the HIGHLIGHT comes
  * from a walk over the live DOM (`transcript-find-highlighter.ts`). The two
  * are joined only by ordinal — "the k-th DOM hit in a row is the k-th index
  * hit" — and nothing checks that at runtime. When a row kind projects text

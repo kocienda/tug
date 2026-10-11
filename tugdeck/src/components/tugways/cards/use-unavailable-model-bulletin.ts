@@ -32,7 +32,7 @@
  * Laws: [L07] the mount effect reads current state straight from the tugbank
  * cache, not a render closure; the alert rides the card's sheet host ([D15]).
  *
- * @module lib/use-unavailable-model-bulletin
+ * @module components/tugways/cards/use-unavailable-model-bulletin
  */
 
 import { useEffect, useRef } from "react";

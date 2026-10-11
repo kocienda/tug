@@ -12,7 +12,7 @@ import type { IDeckManagerStore } from "@/deck-manager-store";
 import {
   attachLayoutSelectionToDeck,
   CardsSelectionStore,
-} from "../cards-selection-store";
+} from "@/lib/cards-selection-store";
 
 const ORDER = ["a", "b", "c", "d", "e"];
 

@@ -37,7 +37,7 @@
  * @covers tugdeck/src/lib/default-model-store.ts
  * @covers tugdeck/src/lib/default-effort-store.ts
  * @covers tugdeck/src/lib/model-catalog.ts
- * @covers tugdeck/src/lib/use-unavailable-model-bulletin.ts
+ * @covers tugdeck/src/components/tugways/cards/use-unavailable-model-bulletin.ts
  * @covers tugdeck/src/lib/model.ts
  * @covers tugdeck/src/lib/model-domains.ts
  * @covers tugdeck/src/lib/model-selector.ts

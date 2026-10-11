@@ -34,7 +34,7 @@ import { arrowDirection, type SpatialDirection } from "./spatial-order";
 import { keyboardAccessStore } from "../../keyboard-access-store";
 import { focusRingModalityStore } from "../../focus-ring-modality-store";
 import { keymapRegistry, type ScopedBinding } from "./keymap-registry";
-import { chordCaptureState } from "./chord-capture-state";
+import { chordCaptureState } from "@/lib/chord-capture-state";
 import { COMMANDS_BY_ID } from "./command-registry";
 import { dispatchCommand } from "../../command-dispatch";
 import { TUG_ACTIONS } from "./action-vocabulary";

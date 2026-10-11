@@ -45,7 +45,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
- * @covers tugdeck/src/lib/prompt-insert-target.ts
+ * @covers tugdeck/src/components/tugways/prompt-insert-target.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.tsx
  * @covers tugdeck/src/components/tugways/cards/use-session-card-drop.ts
  * @covers tugdeck/src/components/tugways/use-composer-drop.ts

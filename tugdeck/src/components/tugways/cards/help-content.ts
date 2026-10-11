@@ -18,14 +18,14 @@
  *
  * Pure data + a pure projection — no React, no DOM, no store dependency.
  *
- * @module lib/help-content
+ * @module components/tugways/cards/help-content
  */
 
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
-import { commandShortcuts } from "../components/tugways/keymap-registry";
-import { LOCAL_SLASH_COMMANDS } from "./slash-commands";
-import { isHiddenSlashCommand } from "./slash-supported";
-import type { SlashCommandInfo } from "./session-metadata-store";
+import { commandShortcuts } from "@/components/tugways/keymap-registry";
+import { LOCAL_SLASH_COMMANDS } from "@/lib/slash-commands";
+import { isHiddenSlashCommand } from "@/lib/slash-supported";
+import type { SlashCommandInfo } from "@/lib/session-metadata-store";
 
 // ---------------------------------------------------------------------------
 // General-tab copy — what the Session card is, and the useful shortcuts

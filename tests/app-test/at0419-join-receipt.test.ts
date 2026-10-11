@@ -62,8 +62,10 @@
  * writer, the same hook, and the same block module.
  *
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
+ * @covers tugdeck/src/lib/join-receipt.ts
  * @covers tugdeck/src/components/tugways/cards/session-boundary.tsx
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
+ * @covers tugdeck/src/lib/commit-receipt.ts
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
  */

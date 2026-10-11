@@ -16,7 +16,7 @@
  * mount. The flag is a count anyway, so an overlap is merely harmless
  * rather than corrupting.
  *
- * @module components/tugways/chord-capture-state
+ * @module lib/chord-capture-state
  */
 
 import { createSubscribable } from "@/lib/subscribable";

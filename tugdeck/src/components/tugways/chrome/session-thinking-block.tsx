@@ -69,7 +69,7 @@ import React from "react";
 import { BlockCopyButton } from "@/components/tugways/body-kinds/affordances/block-copy-button";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import { TugMarkdownBlock } from "@/components/tugways/tug-markdown-block";
 import { ToolBlockExpansionContext } from "@/components/tugways/blocks/collapse-context";
 

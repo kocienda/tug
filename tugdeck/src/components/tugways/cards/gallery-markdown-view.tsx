@@ -25,7 +25,7 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { PropertyStore } from "@/components/tugways/property-store";
+import { PropertyStore } from "@/lib/property-store";
 import { TugMarkdownView } from "@/components/tugways/tug-markdown-view";
 import type { TugMarkdownViewHandle, TugMarkdownTimingMetrics } from "@/components/tugways/tug-markdown-view";
 import { TugPushButton } from "@/components/tugways/tug-push-button";

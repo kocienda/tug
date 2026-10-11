@@ -19,8 +19,8 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { PropertyStore } from "@/components/tugways/property-store";
-import type { PropertyDescriptor, PropertyChange } from "@/components/tugways/property-store";
+import { PropertyStore } from "@/lib/property-store";
+import type { PropertyDescriptor, PropertyChange } from "@/lib/property-store";
 
 // ---------------------------------------------------------------------------
 // Test schema fixtures

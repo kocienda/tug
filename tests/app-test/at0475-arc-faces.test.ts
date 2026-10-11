@@ -43,6 +43,7 @@
  * @covers tugdeck/src/lib/arc-session-index.ts
  * @covers tugdeck/src/components/tugways/arc-lifecycle-line.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/lib/arc-track-model.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  */
 

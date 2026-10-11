@@ -26,7 +26,7 @@ import {
 } from "@/lib/fold-crossing";
 import {
   getTugTiming,
-} from "@/components/tugways/scale-timing";
+} from "@/lib/scale-timing";
 import { pageZoomFactor, pageZoomStore } from "@/lib/page-zoom-store";
 import { ZoomReadout } from "./zoom-readout";
 import { useResponder } from "@/components/tugways/use-responder";
@@ -43,7 +43,7 @@ import {
   toggleSidebarCard,
   toggleSidebarRail,
 } from "@/sidebar-toggle";
-import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
+import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/lib/pane-frame-selectors";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 import {
   TugPane,
@@ -142,7 +142,7 @@ import { dispatchCommand } from "@/command-dispatch";
 import {
   attachLayoutSelectionToDeck,
   cardsSelectionStore,
-} from "@/components/cards/cards-selection-store";
+} from "@/lib/cards-selection-store";
 import { shrinkCardsState } from "@/components/cards/cards-escape";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
 import {

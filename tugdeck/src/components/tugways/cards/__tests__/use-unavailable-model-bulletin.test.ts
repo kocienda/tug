@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { CapabilityModel } from "@/lib/session-metadata-store";
-import { resolveSeedSelector } from "@/lib/use-unavailable-model-bulletin";
+import { resolveSeedSelector } from "../use-unavailable-model-bulletin";
 
 const CATALOG: CapabilityModel[] = [
   { value: "default", displayName: "Default (recommended)" },

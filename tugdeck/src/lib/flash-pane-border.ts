@@ -49,7 +49,7 @@
  * @module lib/flash-pane-border
  */
 
-import { paneCanvasOf } from "@/components/chrome/space-layer";
+import { paneCanvasOf } from "@/lib/pane-frame-selectors";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { afterGesture } from "@/lib/gesture-scope";
 import { scheduleAfterPaint } from "@/lib/after-paint";

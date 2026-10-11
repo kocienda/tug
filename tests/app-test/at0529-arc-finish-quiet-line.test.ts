@@ -31,6 +31,7 @@
  * reading is pinned in `session-arc-receipt-block.test.ts`.
  *
  * @covers tugdeck/src/components/tugways/cards/session-arc-receipt-block.tsx
+ * @covers tugdeck/src/lib/arc-receipt.ts
  * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
  * @covers tugdeck/src/lib/arc-note-command.ts
  */

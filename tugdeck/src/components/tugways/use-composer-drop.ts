@@ -39,7 +39,7 @@ import {
   paintDropCaret,
 } from "./tug-text-editor/drop-extension";
 import { hasJotDrag, readJotDrag } from "@/lib/jot-drag";
-import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
+import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
 
 export interface ComposerDropOptions {
   /** The composer's live `EditorView`, read at event time ([L07]). */

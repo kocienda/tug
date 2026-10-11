@@ -17,7 +17,7 @@
 import React, { useState, useEffect, useCallback, useId } from "react";
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
-import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { Star } from "lucide-react";
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugSeparator } from "@/components/tugways/tug-separator";

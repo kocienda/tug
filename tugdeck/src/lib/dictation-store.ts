@@ -48,7 +48,7 @@ import {
 } from "@/lib/dictation-bridge";
 import { getAppLifecycle } from "@/lib/app-lifecycle";
 import { cardModalHoldStore, isCardHeld } from "@/lib/card-modal-hold-store";
-import type { DictationHandle } from "@/lib/prompt-insert-target";
+import type { DictationHandle } from "@/components/tugways/prompt-insert-target";
 
 /**
  * What a refusal reads as, in the wording the button speaks (Table T01).

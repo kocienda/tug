@@ -97,7 +97,7 @@ import {
   resolvePlanReviewTarget,
   writeLastReviewedPlan,
 } from "@/lib/arc-review-target";
-import { useUnavailableModelBulletin } from "@/lib/use-unavailable-model-bulletin";
+import { useUnavailableModelBulletin } from "./use-unavailable-model-bulletin";
 import { persistModelCatalog } from "@/lib/model-catalog";
 import { useRewindSheet } from "./rewind-sheet";
 import { useSkillsSheet } from "./skills-sheet";
@@ -113,7 +113,7 @@ import { SessionFoldControl } from "./session-fold-control";
 import { useSessionCardDrop } from "./use-session-card-drop";
 import { sessionPickerPanel } from "./session-picker-panel";
 import { noticeContent } from "./session-picker-notice-content";
-import { isTugMotionEnabled } from "../scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 import { EditorView } from "@codemirror/view";
 import { useSessionPromptInsertTarget } from "@/components/tugways/use-prompt-insert-target";
 import {

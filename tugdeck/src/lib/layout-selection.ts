@@ -38,7 +38,7 @@ import {
   getLayoutCursorCard,
   cardsSelectionStore,
   type CardsSelectionStore,
-} from "@/components/cards/cards-selection-store";
+} from "@/lib/cards-selection-store";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 

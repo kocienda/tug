@@ -61,7 +61,7 @@
  * both assert is the same one: each press shrinks exactly one rung, and the
  * rung above it is untouched.
  *
- * @covers tugdeck/src/components/cards/cards-selection-store.ts
+ * @covers tugdeck/src/lib/cards-selection-store.ts
  * @covers tugdeck/src/lib/layout-selection.ts
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/tugways/list-multi-select.ts

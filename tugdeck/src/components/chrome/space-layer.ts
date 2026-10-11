@@ -14,17 +14,19 @@
 import { createContext, useContext } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/gesture-interpreter";
 import {
+  CANVAS_BACKGROUND_ATTRIBUTE,
+  paneCanvasOf,
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
   SPACE_SHOWN_ATTRIBUTE,
 } from "@/lib/pane-frame-selectors";
 
-// The wrapper class, the shown attribute, and the on-screen pane-frame
-// selector live in `lib/pane-frame-selectors.ts`, so lib sweeps can read them
-// without importing this module. Re-exported as part of this vocabulary.
-export { SHOWN_PANE_FRAMES, SPACE_LAYER_CLASS, SPACE_SHOWN_ATTRIBUTE };
+// The wrapper class, the shown attribute, the on-screen pane-frame selector,
+// and the canvas lookup live in `lib/pane-frame-selectors.ts`, so lib sweeps
+// can read them without importing this module. Re-exported as part of this
+// vocabulary.
+export { paneCanvasOf, SHOWN_PANE_FRAMES, SPACE_LAYER_CLASS, SPACE_SHOWN_ATTRIBUTE };
 
 /**
  * The workspace a wrapper holds. Written on every layer, shown or not.
@@ -174,25 +176,6 @@ export function useSpaceLayerShown(): boolean {
  */
 export function useSpaceLayerShownSource(): SpaceLayerShownSource {
   return useContext(SpaceLayerShownContext);
-}
-
-/**
- * The canvas container a pane frame stands in.
- *
- * A pane's `parentElement` used to BE the canvas container, and five call
- * sites read the containing block's box that way — the drag clamp, the resize
- * clamp, both snap-guide hosts, and `DeckManager`'s canvas-relative pane rect.
- * A workspace wrapper now stands between them ([B06]), and a shown wrapper is
- * `display: contents`, which means it has no box at all: `parentElement`
- * still answers, and it answers with a rect of zeros. Every one of those
- * readings would have gone quietly wrong rather than loudly.
- *
- * So the containing block is resolved by what it IS rather than by where it
- * happens to sit. The wrapper generates no box, so this element is still the
- * one every pane's absolute position resolves against.
- */
-export function paneCanvasOf(el: Element): HTMLElement | null {
-  return el.closest<HTMLElement>(`[${CANVAS_BACKGROUND_ATTRIBUTE}]`);
 }
 
 /**

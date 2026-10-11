@@ -39,6 +39,7 @@
  * @covers tugrust/crates/tugcore/src/git_cmd.rs
  * @covers tugrust/crates/tugcore/src/hostile_repo.rs
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
+ * @covers tugdeck/src/lib/commit-receipt.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

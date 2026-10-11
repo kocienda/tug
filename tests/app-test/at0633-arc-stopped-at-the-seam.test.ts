@@ -41,6 +41,7 @@
  * @covers tugdeck/src/lib/join-mode-controller.ts
  * @covers tugdeck/src/components/tugways/cards/session-changes/session-changes-arc-lane.tsx
  * @covers tugdeck/src/components/tugways/tug-arc-track.tsx
+ * @covers tugdeck/src/lib/arc-track-model.ts
  * @covers tugrust/crates/tugarc-core/src/log.rs
  * @covers tugrust/crates/tugcast-core/src/types.rs
  * @covers tugrust/crates/tugcast/src/feeds/changeset.rs

@@ -43,13 +43,7 @@ import { getFocusManager } from "@/components/tugways/focus-manager";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 
-/**
- * Target-identity marker for the deck canvas's background surface. A
- * pointerdown whose target *is* a marked element is a deliberate deselect; a
- * pointerdown that merely misses every pane (a portal gap, an overlay seam,
- * below-the-fold geometry) is not.
- */
-export const CANVAS_BACKGROUND_ATTRIBUTE = "data-deck-canvas-background";
+import { CANVAS_BACKGROUND_ATTRIBUTE } from "@/lib/pane-frame-selectors";
 
 /**
  * Declarative placement policy. The nearest ancestor carrying this attribute

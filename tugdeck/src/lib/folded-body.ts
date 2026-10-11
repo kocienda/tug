@@ -32,7 +32,7 @@
  * @module lib/folded-body
  */
 
-import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 import { FOLD_CROSSING_ATTR, FOLD_CROSSING_END } from "@/lib/fold-crossing";
 
 /** Written on a folded card's host once its fold has landed. Observable to tests; not React state ([L06]). */

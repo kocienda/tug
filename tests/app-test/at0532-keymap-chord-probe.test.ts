@@ -32,7 +32,7 @@
  * @covers tugdeck/src/components/tugways/use-chord-capture.ts
  * @covers tugdeck/src/components/tugways/cards/settings-keymap-body.tsx
  * @covers tugdeck/src/components/tugways/cards/settings-keymap-rows.ts
- * @covers tugdeck/src/components/tugways/chord-capture-state.ts
+ * @covers tugdeck/src/lib/chord-capture-state.ts
  */
 
 import { describe, expect, test } from "bun:test";

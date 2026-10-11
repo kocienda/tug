@@ -77,7 +77,7 @@ interface FlowStepTween {
   startedAt: number;
 }
 import { flashCardPane } from "@/lib/flash-pane-border";
-import { getTugTiming } from "@/components/tugways/scale-timing";
+import { getTugTiming } from "@/lib/scale-timing";
 import { layoutPxOf, pageZoomFactor } from "@/lib/page-zoom-store";
 import { animate } from "@/components/tugways/tug-animator";
 import { useResponder } from "@/components/tugways/use-responder";

@@ -51,7 +51,7 @@
  *
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/lib/transcript-find-engine.ts
- * @covers tugdeck/src/lib/transcript-search-index.ts
+ * @covers tugdeck/src/components/tugways/cards/transcript-search-index.ts
  * @covers tugdeck/src/lib/find-session.ts
  * @covers tugdeck/src/lib/find-trace.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx

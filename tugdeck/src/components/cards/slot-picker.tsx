@@ -70,7 +70,7 @@ import { getDeckStore } from "@/lib/deck-store-registry";
 import { slotCount } from "@/lib/layout-imposer";
 import { findSidebarPanes } from "@/deck-store-selectors";
 import { contentCardsInLayoutSelection } from "@/lib/layout-selection";
-import { cardsSelectionStore } from "./cards-selection-store";
+import { cardsSelectionStore } from "@/lib/cards-selection-store";
 import { useSlotWindow } from "@/lib/slot-window-pref";
 import { TugSlotLayout } from "@/components/tugways/tug-slot-layout";
 import type { TugSlotLayoutHandle } from "@/components/tugways/tug-slot-layout";

@@ -40,7 +40,7 @@
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/lib/transcript-find-engine.ts
  * @covers tugdeck/src/lib/find-session.ts
- * @covers tugdeck/src/lib/transcript-search-index.ts
+ * @covers tugdeck/src/components/tugways/cards/transcript-search-index.ts
  * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx

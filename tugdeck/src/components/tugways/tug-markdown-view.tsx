@@ -70,7 +70,7 @@ import { BlockHeightIndex } from "@/lib/block-height-index";
 import { RenderedBlockWindow } from "@/lib/rendered-block-window";
 import { RegionMap } from "@/lib/region-map";
 import { SmartScroll } from "@/lib/smart-scroll";
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import { useTextSurfaceContextMenu } from "@/components/tugways/use-text-surface-context-menu";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import type { ActionHandlerResult } from "@/components/tugways/responder-chain";

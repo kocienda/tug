@@ -57,7 +57,7 @@ import {
 } from "@/lib/compaction-progress-store";
 import { unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { afterFoldCrossing } from "@/lib/fold-crossing";
-import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 import { COMPACTION_REFUSAL_TEXT } from "@/components/tugways/cards/compaction-progress-sheet";
 import { cardFoldedOf } from "@/deck-store-selectors";
 import {

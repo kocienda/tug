@@ -84,7 +84,7 @@ import { RAIL_LIST_PRESENTATION } from "@/components/tugways/rail-list-presentat
 import {
   cardsSelectionStore,
   setLayoutCursorCard,
-} from "./cards-selection-store";
+} from "@/lib/cards-selection-store";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { SlotPicker } from "./slot-picker";
 import { CardsColumnBadge } from "./cards-column-badge";

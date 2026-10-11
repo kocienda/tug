@@ -89,7 +89,7 @@ import React from "react";
 import { flushSync } from "@/lib/gesture-scope";
 
 
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import { ensureParsed } from "@/lib/markdown/parse-cache";
 import { recordRowParse } from "@/lib/markdown/parse-counters";
 import {

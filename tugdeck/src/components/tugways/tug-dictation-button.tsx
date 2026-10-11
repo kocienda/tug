@@ -37,7 +37,7 @@ import { Mic } from "lucide-react";
 
 import { isDictationAvailable } from "@/lib/dictation-bridge";
 import { dictationStore, useDictationFace } from "@/lib/dictation-store";
-import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
+import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
 
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { commandShortcut } from "./keymap-registry";

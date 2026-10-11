@@ -38,6 +38,7 @@
  */
 
 import { Subscribable } from "@/lib/subscribable";
+import { setKeymapSource } from "@/lib/keymap-source";
 import type { Chord, CommandBinding, CommandEntry, BindingScope } from "./command-registry";
 import { COMMANDS } from "./command-registry";
 import { TUG_ACTIONS } from "./action-vocabulary";
@@ -596,4 +597,12 @@ export function commandShortcuts(
   if (bindings.length === 0) return undefined;
   return bindings.map((b) => formatChord(b.chord)).join(" / ");
 }
+
+// `lib` reads the chord text and the Cancel predicate through
+// `lib/keymap-source.ts`, which cannot import this module; install them as
+// the registry loads.
+setKeymapSource({
+  commandShortcut: (commandId) => commandShortcut(commandId),
+  isCancelChordEvent: (event) => isCancelChordEvent(event),
+});
 

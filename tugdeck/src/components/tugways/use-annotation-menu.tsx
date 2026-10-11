@@ -74,7 +74,7 @@ import { dispatchCommand } from "@/command-dispatch";
 import { getRegistryHandler } from "@/action-dispatch";
 import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
-import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
+import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
 
 // ---------------------------------------------------------------------------
 // Public types

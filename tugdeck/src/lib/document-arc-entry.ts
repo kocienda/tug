@@ -32,7 +32,7 @@ import type { DocumentArcEntry } from "@/lib/changeset-types";
 import {
   type ArcTrackModel,
   arcTrackModel,
-} from "@/components/tugways/tug-arc-track";
+} from "@/lib/arc-track-model";
 
 /**
  * The track model for a documents-only arc — what every surface passes to the

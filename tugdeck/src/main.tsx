@@ -100,7 +100,7 @@ import {
   startWakerCensus,
   stopWakerCensus,
 } from "./lib/perf-monitor";
-import { initMotionObserver } from "./components/tugways/scale-timing";
+import { initMotionObserver } from "./lib/scale-timing";
 import { installMotionGuard } from "./lib/motion-guard";
 import { setGestureOriginSource } from "./lib/motion-guard/gesture-frame-probe";
 import { initThemeTokens } from "./theme-tokens";

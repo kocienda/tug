@@ -33,8 +33,8 @@
  */
 
 import { createContext, useContext, useLayoutEffect, useRef } from "react";
-import { PropertyStore } from "../property-store";
-import type { PropertyDescriptor } from "../property-store";
+import { PropertyStore } from "@/lib/property-store";
+import type { PropertyDescriptor } from "@/lib/property-store";
 
 // ---------------------------------------------------------------------------
 // CardPropertyContext ()
@@ -147,7 +147,7 @@ export function usePropertyStore(options: UsePropertyStoreOptions): PropertyStor
 }
 
 // Re-export PropertyStore and related types for convenience
-export type { PropertyDescriptor } from "../property-store";
-export { PropertyStore } from "../property-store";
-export type { PropertySchema, PropertyChange, PropertyChangeListener } from "../property-store";
+export type { PropertyDescriptor } from "@/lib/property-store";
+export { PropertyStore } from "@/lib/property-store";
+export type { PropertySchema, PropertyChange, PropertyChangeListener } from "@/lib/property-store";
 

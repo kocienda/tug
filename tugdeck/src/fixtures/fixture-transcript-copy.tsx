@@ -34,7 +34,7 @@ import React from "react";
 import "@/components/tugways/tug-transcript-entry.css";
 import "./fixture.css";
 
-import { PropertyStore } from "@/components/tugways/property-store";
+import { PropertyStore } from "@/lib/property-store";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { pathResolutionStore } from "@/lib/annotator/path-resolution";
 import { makeReferenceResolver } from "@/lib/annotator/resolve-reference";

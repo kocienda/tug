@@ -94,7 +94,7 @@ import {
 
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { computeResizeSnap } from "@/snap";
-import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
 import {
   IMPOSITION_GAP_PX,

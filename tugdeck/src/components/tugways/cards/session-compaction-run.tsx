@@ -50,7 +50,7 @@ import {
 } from "@/lib/compaction-progress-store";
 import { useIsCardFolded } from "@/lib/card-fold";
 import { afterFoldCrossing } from "@/lib/fold-crossing";
-import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 import type { ShowSheetOptions } from "@/components/tugways/tug-sheet";
 
 import type { TugPaneBulletinApi } from "../tug-pane-bulletin";

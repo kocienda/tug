@@ -46,7 +46,7 @@ import type {
   DictationHandle,
   PromptInsertPoint,
   PromptInsertTarget,
-} from "@/lib/prompt-insert-target";
+} from "@/components/tugways/prompt-insert-target";
 
 /**
  * The composer's stop in the focus engine, as the engine addresses one:

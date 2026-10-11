@@ -34,7 +34,7 @@
  * @covers tugdeck/src/lib/command-atom.ts
  * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx
  * @covers tugdeck/src/components/tugways/cards/transcript-host-helpers.ts
- * @covers tugdeck/src/lib/prompt-insert-target.ts
+ * @covers tugdeck/src/components/tugways/prompt-insert-target.ts
  * @covers tugdeck/src/lib/session-restore.ts
  * @covers tugdeck/src/lib/card-services-store.ts
  * @covers tugdeck/src/action-dispatch.ts

@@ -95,7 +95,7 @@ import "./terminal-block.css";
 import React from "react";
 import { createPortal } from "react-dom";
 
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome";
 import { useOptionalResponder } from "@/components/tugways/use-responder";
 import { useResponderChain } from "@/components/tugways/responder-chain-provider";

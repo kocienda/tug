@@ -66,7 +66,7 @@ import "./gallery.css";
 import React from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
-import { PropertyStore } from "@/components/tugways/property-store";
+import { PropertyStore } from "@/lib/property-store";
 import {
   TugListView,
   type TugListViewCellProps,

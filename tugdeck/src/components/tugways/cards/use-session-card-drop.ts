@@ -51,7 +51,7 @@ import {
   markEditorDropActive,
   paintDropCaretAt,
 } from "@/components/tugways/tug-text-editor/drop-extension";
-import type { PromptInsertTarget } from "@/lib/prompt-insert-target";
+import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
 
 export interface SessionCardDropOptions {
   /** The card's composer — where the dropped files land. */

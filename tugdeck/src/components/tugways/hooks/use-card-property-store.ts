@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useRef } from "react";
-import type { PropertyStore } from "../property-store";
+import type { PropertyStore } from "@/lib/property-store";
 
 export interface UseCardPropertyStoreResult {
   /** Stable registrar to pass to `CardPropertyContext`. */

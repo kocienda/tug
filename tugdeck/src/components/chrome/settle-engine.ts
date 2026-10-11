@@ -61,7 +61,7 @@ import {
 import {
   getTugTiming,
   isTugMotionEnabled,
-} from "@/components/tugways/scale-timing";
+} from "@/lib/scale-timing";
 import {
   deckTrace,
   type CommitLanding,

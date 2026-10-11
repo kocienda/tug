@@ -46,7 +46,7 @@
  * @covers tugdeck/src/components/tugways/tug-prompt-entry.tsx
  * @covers tugdeck/src/lib/dictation-store.ts
  * @covers tugdeck/src/lib/dictation-bridge.ts
- * @covers tugdeck/src/lib/prompt-insert-target.ts
+ * @covers tugdeck/src/components/tugways/prompt-insert-target.ts
  * @covers tugapp/Sources/DictationEngine.swift
  * @covers tugapp/Sources/MainWindow.swift
  */

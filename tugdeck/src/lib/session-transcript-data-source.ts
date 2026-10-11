@@ -105,11 +105,8 @@ import { isInkOrigin } from "@/lib/code-session-store/types";
 import { deriveContextWindows } from "@/lib/code-session-store/end-state";
 import type { ContextWindowStep } from "@/lib/code-session-store/end-state";
 import { agentTokensForTurn } from "@/lib/code-session-store/select-jobs";
-import {
-  matchesArcReceipt,
-  parseArcReceipt,
-} from "@/components/tugways/cards/session-arc-receipt-block";
-import { parseJoinReceipt } from "@/components/tugways/cards/session-join-receipt-block";
+import { matchesArcReceipt, parseArcReceipt } from "@/lib/arc-receipt";
+import { parseJoinReceipt } from "@/lib/join-receipt";
 import { matchesJoinReceipt } from "@/lib/landing-mode";
 import type { TugListViewDataSource } from "@/components/tugways/tug-list-view";
 

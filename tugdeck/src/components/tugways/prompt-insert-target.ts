@@ -29,7 +29,7 @@
  * attachment pipeline, which not every composer has. Every other operation
  * is required, because every composer can do them.
  *
- * @module lib/prompt-insert-target
+ * @module components/tugways/prompt-insert-target
  */
 
 import type { AtomSegment } from "@/lib/tug-text-types";

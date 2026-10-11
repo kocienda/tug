@@ -25,7 +25,7 @@ import type { CodeSessionStore } from "@/lib/code-session-store";
 import {
   sessionPromptInsertTarget,
   type PromptInsertTarget,
-} from "@/lib/prompt-insert-target";
+} from "@/components/tugways/prompt-insert-target";
 
 export function useSessionPromptInsertTarget(
   codeSessionStore: CodeSessionStore,

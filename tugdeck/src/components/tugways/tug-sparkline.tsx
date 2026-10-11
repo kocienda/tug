@@ -77,7 +77,7 @@ import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
 import type { SparklineWorkerResponse } from "@/lib/workers/sparkline-render-worker";
 import { subscribeThemeChange } from "@/theme-tokens";
 import { usePageZoom } from "@/lib/page-zoom-store";
-import { isTugMotionEnabled } from "./scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 
 /**
  * Response curve: maps the rate as a fraction of full scale (`x = rate /

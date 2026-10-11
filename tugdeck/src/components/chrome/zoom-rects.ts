@@ -78,7 +78,7 @@ import { afterGesture } from "@/lib/gesture-scope";
 import { layoutPxOf } from "@/lib/page-zoom-store";
 
 import { animate } from "../tugways/tug-animator";
-import { getTugTiming, isTugMotionEnabled } from "../tugways/scale-timing";
+import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 
 // ---------------------------------------------------------------------------
 // The run's constants

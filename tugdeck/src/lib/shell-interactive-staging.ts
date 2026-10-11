@@ -21,7 +21,7 @@
  */
 
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
-import { commandShortcut } from "../components/tugways/keymap-registry";
+import { commandShortcut } from "@/lib/keymap-source";
 
 /** Git subcommands whose `-p` form prompts hunk by hunk. */
 const PATCH_SUBCOMMANDS = new Set([

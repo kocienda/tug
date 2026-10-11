@@ -65,7 +65,7 @@
  * @module lib/imposer-motion
  */
 
-import { SpringSolver } from "@/components/tugways/physics";
+import { SpringSolver } from "@/lib/physics";
 
 /** The named operation classes. */
 export type MotionRecipe =

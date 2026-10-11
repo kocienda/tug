@@ -70,7 +70,7 @@ import type { KeyBinding } from "./keybinding-map";
 import { chordMatchesEvent } from "./chord-format";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
-import { isTugMotionEnabled } from "./scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 
 export type { TugAction, GalleryAction } from "./action-vocabulary";
 

@@ -102,7 +102,7 @@ import {
   settleFrameProbe,
   type SettleFrameReading,
 } from "./lib/settle-frame-probe";
-import { cardsSelectionStore } from "./components/cards/cards-selection-store";
+import { cardsSelectionStore } from "./lib/cards-selection-store";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
   LiveTurnPerf,

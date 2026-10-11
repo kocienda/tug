@@ -55,7 +55,7 @@ import {
 import type { SidebarMenuFact } from "../components/tugways/command-registry";
 import { keymapRegistry } from "../components/tugways/keymap-registry";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
-import { chordCaptureState } from "../components/tugways/chord-capture-state";
+import { chordCaptureState } from "./chord-capture-state";
 import { appModalStore } from "./app-modal-store";
 import { dictationStore } from "./dictation-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
@@ -64,7 +64,7 @@ import { focusTravelDirections } from "./directional-focus";
 import {
   cardsSelectionStore,
   subscribeLayoutCursorCard,
-} from "../components/cards/cards-selection-store";
+} from "./cards-selection-store";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type {
   CommandEntry,

@@ -71,7 +71,7 @@
  * `data-tugx-find-hidden` so the painter skips it. Find never reports a
  * match the reader cannot see.
  *
- * @module lib/transcript-search-index
+ * @module components/tugways/cards/transcript-search-index
  */
 
 import { ensureParsed } from "@/lib/markdown/parse-cache";
@@ -112,7 +112,7 @@ import {
 } from "@/lib/code-session-store/stages";
 import type { ToolBlockExpansionState } from "@/components/tugways/blocks/expansion-state";
 import type { ToolUseMessage } from "@/lib/code-session-store/types";
-import type { PropertyStore } from "@/components/tugways/property-store";
+import type { PropertyStore } from "@/lib/property-store";
 import type {
   SessionRowDescriptor,
   SessionTranscriptDataSource,

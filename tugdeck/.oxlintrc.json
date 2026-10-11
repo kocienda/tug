@@ -72,40 +72,9 @@
       // on the component layer, not a constant or pure function that could
       // move. This list only shrinks; adding a file is a review question.
       "files": [
-        // Derives its arc track model with TugArcTrack's own model builder.
-        "src/lib/arc-session-index.ts",
-        // Holds a PropertyStore, the component layer's reactive property bag.
-        "src/lib/code-session-store.ts",
-        // Builds a document arc's track with TugArcTrack's model builder.
-        "src/lib/document-arc-entry.ts",
-        // Finds a pane's canvas through the space layer's DOM lookup.
-        "src/lib/flash-pane-border.ts",
-        // Reads the motion preference from the scale-timing module.
-        "src/lib/folded-body.ts",
-        // Reads the motion preference from the scale-timing module.
-        "src/lib/gesture-scope.ts",
-        // Renders shortcuts from the live keymap registry.
-        "src/lib/help-content.ts",
-        // Mirrors the command registry, keymap, and card selection into the host menus.
-        "src/lib/host-menu-state.ts",
-        // Runs the components' SpringSolver for imposer motion.
-        "src/lib/imposer-motion.ts",
-        // Reads the Cards card's selection store.
-        "src/lib/layout-selection.ts",
-        // Matches Cancel's rebindable chords through the keymap registry singleton.
-        "src/lib/markdown/enhance-img.ts",
-        // Reaches the editor's dictation span to insert at its target.
-        "src/lib/prompt-insert-target.ts",
-        // Shapes its series with TugSparkline's curve geometry.
-        "src/lib/session-activity-store.ts",
-        // Parses arc and join receipts with the receipt blocks' own parsers.
-        "src/lib/session-transcript-data-source.ts",
-        // Renders a shortcut from the live keymap registry.
-        "src/lib/shell-interactive-staging.ts",
-        // Indexes what the block renderers show, through their search-part functions.
-        "src/lib/transcript-search-index.ts",
-        // Presents an alert sheet, a component-layer surface.
-        "src/lib/use-unavailable-model-bulletin.ts"
+        // Mirrors the command registry and keymap into the host menus. Its
+        // own move up is a separate arc; this entry goes with it.
+        "src/lib/host-menu-state.ts"
       ],
       "rules": { "no-restricted-imports": "off" }
     }

@@ -29,7 +29,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 
-import { chordCaptureState } from "./chord-capture-state";
+import { chordCaptureState } from "@/lib/chord-capture-state";
 import { chordFromEvent } from "./chord-format";
 import type { Chord } from "./command-registry";
 import { useFocusTrap } from "./use-focus-trap";

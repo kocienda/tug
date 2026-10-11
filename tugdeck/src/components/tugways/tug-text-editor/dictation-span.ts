@@ -45,7 +45,7 @@ import type { EditorState, Extension, TransactionSpec } from "@codemirror/state"
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
-import type { DictationHandle } from "@/lib/prompt-insert-target";
+import type { DictationHandle } from "@/components/tugways/prompt-insert-target";
 
 import { suppressCompletionDetection } from "./completion-extension";
 

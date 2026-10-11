@@ -217,7 +217,7 @@ import {
 import {
   getTugTiming,
   isTugMotionEnabled,
-} from "./components/tugways/scale-timing";
+} from "./lib/scale-timing";
 import { DeckManagerContext } from "./deck-manager-context";
 import { BASE_THEME_NAME } from "./theme-constants";
 import {

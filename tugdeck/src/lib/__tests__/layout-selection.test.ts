@@ -19,7 +19,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   cardsSelectionStore,
   setLayoutCursorCard,
-} from "../../components/cards/cards-selection-store";
+} from "@/lib/cards-selection-store";
 import { CARDS_CARD_ID } from "../cards-card-id";
 import { resolveColumnMenuFact } from "../layout-selection";
 import type { IDeckManagerStore } from "../../deck-manager-store";

@@ -34,7 +34,7 @@ import {
   type DictationTransport,
 } from "../dictation-store";
 import type { DictationEvent } from "../dictation-bridge";
-import type { DictationHandle } from "../prompt-insert-target";
+import type { DictationHandle } from "@/components/tugways/prompt-insert-target";
 import { registerAppLifecycle, AppLifecycle } from "../app-lifecycle";
 import { cardModalHoldStore } from "../card-modal-hold-store";
 

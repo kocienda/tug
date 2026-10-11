@@ -22,8 +22,8 @@
  * Re-exports physics solvers for convenience.
  */
 
-import { getTugTiming, isTugMotionEnabled } from "./scale-timing";
-export { SpringSolver, GravitySolver, FrictionSolver } from "./physics";
+import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
+export { SpringSolver, GravitySolver, FrictionSolver } from "@/lib/physics";
 
 // ---------------------------------------------------------------------------
 // Duration token lookup map

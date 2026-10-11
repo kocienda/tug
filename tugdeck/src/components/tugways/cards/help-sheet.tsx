@@ -54,7 +54,7 @@ import {
   UNSUPPORTED_COMMANDS_DOC_PATH,
   type HelpCommandEntry,
   projectHelpCommands,
-} from "@/lib/help-content";
+} from "./help-content";
 import { openPathInOS } from "@/lib/os-open";
 import type {
   SessionMetadataSnapshot,

@@ -39,7 +39,7 @@ import React, { useId, useLayoutEffect, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useRequiredResponderChain } from "@/components/tugways/responder-chain-provider";
 import { usePropertyStore } from "@/components/tugways/hooks/use-property-store";
-import type { PropertyChange, PropertyDescriptor } from "@/components/tugways/property-store";
+import type { PropertyChange, PropertyDescriptor } from "@/lib/property-store";
 import { TugPopupButton } from "@/components/tugways/tug-popup-button";
 import { useResponderForm } from "@/components/tugways/use-responder-form";
 import { TUG_ACTIONS } from "../action-vocabulary";

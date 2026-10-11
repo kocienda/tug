@@ -109,7 +109,7 @@ import { raisePaneAbovePeers } from "@/components/tugways/pane-raise";
 import { isCardFolded, unfoldCardForBiddenSurface } from "@/lib/card-fold";
 import { CardIdContext } from "@/lib/card-id-context";
 import { readSettleMs } from "@/lib/layout-imposer";
-import { getTugTiming, isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { getTugTiming, isTugMotionEnabled } from "@/lib/scale-timing";
 import { IMPOSER_SETTLE_END } from "@/lib/settle-notice";
 import { STILL_CROSSING_ATTR } from "@/lib/fold-crossing";
 import { refuseCardModalHold } from "@/lib/card-modal-hold-store";

@@ -22,14 +22,14 @@
  *   is not selected means the user has moved on; the set becomes that card.
  *   Building a multi-selection never fronts anything, so it never trips this.
  *
- * @module components/cards/cards-selection-store
+ * @module lib/cards-selection-store
  */
 
 import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { isSidebarCard } from "@/card-registry";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
-import { isTugMotionEnabled } from "@/components/tugways/scale-timing";
+import { isTugMotionEnabled } from "@/lib/scale-timing";
 
 /** The selected card ids in pick order, plus the anchor ⇧-extension ranges from. */
 export interface LensSelectionSnapshot {

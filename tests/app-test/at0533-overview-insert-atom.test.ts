@@ -41,7 +41,7 @@
  * @covers tugdeck/src/components/overview/overview-insert-target.ts
  * @covers tugdeck/src/components/tugways/use-composer-drop.ts
  * @covers tugdeck/src/lib/jot-drag.ts
- * @covers tugdeck/src/lib/prompt-insert-target.ts
+ * @covers tugdeck/src/components/tugways/prompt-insert-target.ts
  * @covers tugdeck/src/components/tugways/use-prompt-insert-target.ts
  * @covers tugdeck/src/components/tugways/use-annotation-menu.tsx
  * @covers tugdeck/src/components/tugways/use-annotation-clicks.ts

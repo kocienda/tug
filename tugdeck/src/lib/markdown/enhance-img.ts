@@ -36,7 +36,7 @@
  * @module lib/markdown/enhance-img
  */
 
-import { isCancelChordEvent } from "@/components/tugways/keymap-registry";
+import { isCancelChordEvent } from "@/lib/keymap-source";
 import { deckRootElement } from "@/lib/page-zoom-store";
 
 const ENHANCED_ATTR = "data-tugx-img-enhanced";

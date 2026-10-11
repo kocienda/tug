@@ -25,7 +25,7 @@
  */
 
 import type { AttachedFilterBinding } from "@/components/tugways/attached-filter";
-import { cardsSelectionStore } from "./cards-selection-store";
+import { cardsSelectionStore } from "@/lib/cards-selection-store";
 
 let binding: AttachedFilterBinding | null = null;
 
