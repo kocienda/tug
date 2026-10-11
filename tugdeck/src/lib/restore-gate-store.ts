@@ -21,6 +21,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { createSubscribable } from "@/lib/subscribable";
 
 import { cardServicesStore } from "./card-services-store";
 import type { CodeSessionStore } from "./code-session-store";
@@ -48,7 +49,7 @@ const CLOSED: RestoreGateSnapshot = {
 type Listener = () => void;
 
 class RestoreGateStore {
-  private _listeners = new Set<Listener>();
+  private readonly _listeners = createSubscribable();
   private _snapshot: RestoreGateSnapshot = CLOSED;
   private _initialized = false;
   /** Per-store unsubscribes for the session stores observed right now. */
@@ -56,10 +57,7 @@ class RestoreGateStore {
 
   subscribe = (listener: Listener): (() => void) => {
     this._ensureInitialized();
-    this._listeners.add(listener);
-    return () => {
-      this._listeners.delete(listener);
-    };
+    return this._listeners.subscribe(listener);
   };
 
   getSnapshot = (): RestoreGateSnapshot => {
@@ -140,7 +138,7 @@ class RestoreGateStore {
       return;
     }
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this._listeners.notify();
   }
 }
 

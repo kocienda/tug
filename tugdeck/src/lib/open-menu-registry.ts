@@ -35,16 +35,16 @@
  * @module lib/open-menu-registry
  */
 
+import { createSubscribable } from "./subscribable";
+
 type Listener = () => void;
 
-const listeners = new Set<Listener>();
+const listeners = createSubscribable();
 
 let openCount = 0;
 
 function notify(): void {
-  // Copy before iterating: a listener closing its own surface can unmount a
-  // component whose cleanup unsubscribes, mutating the set mid-loop.
-  for (const cb of [...listeners]) cb();
+  listeners.notify();
 }
 
 /**
@@ -74,8 +74,5 @@ export function anyMenuOpen(): boolean {
  * synchronously; read {@link anyMenuOpen} for the current answer.
  */
 export function observeOpenMenus(cb: Listener): () => void {
-  listeners.add(cb);
-  return () => {
-    listeners.delete(cb);
-  };
+  return listeners.subscribe(cb);
 }

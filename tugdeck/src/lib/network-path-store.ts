@@ -51,6 +51,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 
 /**
@@ -99,17 +100,8 @@ function snapshotsEqual(
   );
 }
 
-class NetworkPathStore {
+class NetworkPathStore extends Subscribable {
   private _snapshot: NetworkPathSnapshot = INITIAL;
-  private _listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): NetworkPathSnapshot => this._snapshot;
 
@@ -122,7 +114,7 @@ class NetworkPathStore {
   apply(next: NetworkPathSnapshot): void {
     if (snapshotsEqual(this._snapshot, next)) return;
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
 }
 

@@ -38,6 +38,7 @@ import {
   PropertyStore,
 } from "@/components/tugways/property-store";
 import { FeedStore } from "@/lib/feed-store";
+import { Subscribable } from "@/lib/subscribable";
 import { RunProgressStore } from "@/lib/run-progress-store";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-char";
@@ -215,7 +216,7 @@ export const REPLAY_FOLD_FLUSH_THRESHOLD = 250;
  * accumulated per dispatched event / listener notification, and
  * closed + emitted on `replay_complete`.
  *
- * `commits` is the store's own `notifyListeners` count inside the
+ * `commits` is the store's own `notify` count inside the
  * window — the "≤ N commits per replay" assertion surface. `folds`
  * counts buffered-fold flushes; zero until the replay fold lands and
  * kept in the shape from day one so consumers never see a field
@@ -430,7 +431,7 @@ export interface CodeSessionStoreOptions {
  * L02 external store for a single Claude Code session's turn state.
  * See module JSDoc for scope and phasing.
  */
-export class CodeSessionStore {
+export class CodeSessionStore extends Subscribable {
   readonly streamingDocument: PropertyStore;
   /**
    * Live progress for running tool calls — the engine's `tool_progress`
@@ -494,7 +495,6 @@ export class CodeSessionStore {
   // a transport close). The cap holds off meanwhile, so the anchor the ack
   // truncates at cannot be evicted out from under it.
   private _conversationRewindInFlight = false;
-  private _listeners: Array<() => void> = [];
   private _cachedSnapshot: CodeSessionSnapshot | null = null;
 
   /**
@@ -570,6 +570,7 @@ export class CodeSessionStore {
   private _trailingNotify: unknown | null = null;
 
   constructor(options: CodeSessionStoreOptions) {
+    super();
     this.conn = options.conn;
     this.lifecycle = options.lifecycle;
     this.tugSessionId = options.tugSessionId;
@@ -683,15 +684,6 @@ export class CodeSessionStore {
       }
     });
   }
-
-  /** L02 subscribe contract. Returns an unsubscribe function. */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   /**
    * Fine-grained [L02] pair for the live intra-turn usage telemetry —
@@ -1982,7 +1974,7 @@ export class CodeSessionStore {
       this.timerSource.clearTimeout(handle);
     }
     this._replayTimers.clear();
-    this._listeners = [];
+    this.clearListeners();
     this.state.queuedSends = [];
     // Release any retained attachment bytes; the bytes-store is per-
     // card and has no consumers past dispose.
@@ -2617,7 +2609,7 @@ export class CodeSessionStore {
     const hadFold = this._foldPending > 0;
     this._foldPending = 0;
     this._cachedSnapshot = null;
-    this.notifyListeners();
+    this.notify();
     this._perfOnCommit();
     if (hadFold && this._perfReplay !== null) {
       this._perfReplay.folds += 1;
@@ -3115,12 +3107,6 @@ export class CodeSessionStore {
     if (this._pendingAsk === ask) return;
     this._pendingAsk = ask;
     this._cachedSnapshot = null;
-    this.notifyListeners();
-  }
-
-  private notifyListeners(): void {
-    for (const listener of this._listeners.slice()) {
-      listener();
-    }
+    this.notify();
   }
 }

@@ -15,6 +15,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 
 export interface AuthAccount {
@@ -168,18 +169,9 @@ function toRenderSnapshot(snapshot: AuthSnapshot): AuthRenderSnapshot {
   return rest;
 }
 
-class AuthStore {
+class AuthStore extends Subscribable {
   private _snapshot: AuthSnapshot = INITIAL;
   private _renderSnapshot: AuthRenderSnapshot = toRenderSnapshot(INITIAL);
-  private _listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   /** The whole truth, read imperatively by whoever paints the bar. */
   getSnapshot = (): AuthSnapshot => this._snapshot;
@@ -459,14 +451,14 @@ class AuthStore {
     this.notify();
   }
 
-  private notify(): void {
+  override notify(): void {
     // Recompute the render surface here rather than in every mutator, so a
     // field added later cannot forget to. A bytes-only change leaves the
     // reference exactly as it was, which is the whole point.
     if (!rendersMatch(this._renderSnapshot, this._snapshot)) {
       this._renderSnapshot = toRenderSnapshot(this._snapshot);
     }
-    for (const listener of this._listeners) listener();
+    super.notify();
   }
 }
 

@@ -59,6 +59,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 
 /**
@@ -254,18 +255,9 @@ function toRenderSnapshot(snapshot: UpdateSnapshot): UpdateRenderSnapshot {
   return rest;
 }
 
-class UpdateStore {
+class UpdateStore extends Subscribable {
   private _snapshot: UpdateSnapshot = IDLE_UPDATE;
   private _renderSnapshot: UpdateRenderSnapshot = toRenderSnapshot(IDLE_UPDATE);
-  private _listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): UpdateSnapshot => this._snapshot;
 
@@ -291,7 +283,7 @@ class UpdateStore {
     const rendersDiffer = !renderFieldsEqual(this._snapshot, next);
     this._snapshot = next;
     if (rendersDiffer) this._renderSnapshot = toRenderSnapshot(next);
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
 }
 

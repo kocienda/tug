@@ -18,6 +18,8 @@
  * @module lib/arc-bind-error-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /** A refused binding: the reason the server gave, and when it was refused. */
 export interface ArcBindError {
   readonly reason: string;
@@ -25,18 +27,9 @@ export interface ArcBindError {
   readonly seq: number;
 }
 
-class ArcBindErrorStore {
+class ArcBindErrorStore extends Subscribable {
   private _errors = new Map<string, ArcBindError>();
-  private _listeners: Array<() => void> = [];
   private _seq = 0;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const i = this._listeners.indexOf(listener);
-      if (i >= 0) this._listeners.splice(i, 1);
-    };
-  };
 
   /** The last refusal for `sessionId`, or null. */
   errorFor = (sessionId: string): ArcBindError | null =>
@@ -46,17 +39,13 @@ class ArcBindErrorStore {
   fail = (sessionId: string, reason: string): void => {
     this._seq += 1;
     this._errors.set(sessionId, { reason, seq: this._seq });
-    this._notify();
+    this.notify();
   };
 
   /** Forget a session's refusal — a later success is not still a failure. */
   clear = (sessionId: string): void => {
-    if (this._errors.delete(sessionId)) this._notify();
+    if (this._errors.delete(sessionId)) this.notify();
   };
-
-  private _notify(): void {
-    for (const listener of [...this._listeners]) listener();
-  }
 }
 
 export const arcBindErrorStore = new ArcBindErrorStore();

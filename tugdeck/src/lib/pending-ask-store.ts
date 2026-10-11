@@ -38,6 +38,7 @@
  */
 
 import type { ControlAction } from "@tugproto/control";
+import { Subscribable } from "./subscribable";
 import type { PendingAsk, PendingAskOption } from "./code-session-store/types";
 
 /**
@@ -116,7 +117,7 @@ interface LiveAsk {
   fallback: string;
 }
 
-class PendingAskStore {
+class PendingAskStore extends Subscribable {
   /**
    * Sessions currently holding a question, so teardown can answer for them.
    *
@@ -126,8 +127,6 @@ class PendingAskStore {
    * and every subscriber would sit through the change without re-rendering.
    */
   private _live: ReadonlyMap<string, LiveAsk> = new Map();
-
-  private _listeners: Array<() => void> = [];
 
   private _context: PendingAskContext | null = null;
 
@@ -156,14 +155,6 @@ class PendingAskStore {
   private respondOnWire(requestId: string, choice: string): void {
     this._context?.sendControlFrame("ask-response", { requestId, choice });
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   /**
    * The request ids currently awaiting an answer. The dialog reads its content
@@ -255,7 +246,7 @@ class PendingAskStore {
       }),
     );
     session.setPendingAsk(ask);
-    this._notify();
+    this.notify();
   };
 
   /**
@@ -275,7 +266,7 @@ class PendingAskStore {
     this._commit((next) => next.delete(requestId));
     this._context?.sessionFor(live.tugSessionId)?.setPendingAsk(null);
     this.respondOnWire(requestId, choice);
-    this._notify();
+    this.notify();
     return true;
   };
 
@@ -291,7 +282,7 @@ class PendingAskStore {
     if (live === undefined) return;
     this._commit((next) => next.delete(requestId));
     this._context?.sessionFor(live.tugSessionId)?.setPendingAsk(null);
-    this._notify();
+    this.notify();
   };
 
   /**
@@ -315,7 +306,7 @@ class PendingAskStore {
     // question down with the answer. On the reap path the lookup misses by
     // definition — there, the card's own respond fallback is the backstop.
     this._context?.sessionFor(tugSessionId)?.setPendingAsk(null);
-    this._notify();
+    this.notify();
   };
 
   /**
@@ -331,10 +322,6 @@ class PendingAskStore {
       }
     }
     for (const tugSessionId of gone) this.sessionClosed(tugSessionId);
-  }
-
-  private _notify(): void {
-    for (const listener of this._listeners.slice()) listener();
   }
 }
 

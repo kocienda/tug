@@ -41,13 +41,15 @@
  * @module lib/canvas-overlay-registry
  */
 
+import { createSubscribable } from "./subscribable";
+
 type Listener = () => void;
 
 let currentRoot: HTMLElement | null = null;
-const listeners = new Set<Listener>();
+const listeners = createSubscribable();
 
 function notify(): void {
-  for (const cb of listeners) cb();
+  listeners.notify();
 }
 
 /**
@@ -96,10 +98,7 @@ export function getRoot(): HTMLElement | null {
  * subscription.
  */
 export function subscribe(callback: Listener): () => void {
-  listeners.add(callback);
-  return () => {
-    listeners.delete(callback);
-  };
+  return listeners.subscribe(callback);
 }
 
 /**
@@ -109,5 +108,5 @@ export function subscribe(callback: Listener): () => void {
  */
 export function _resetForTests(): void {
   currentRoot = null;
-  listeners.clear();
+  listeners.clearListeners();
 }

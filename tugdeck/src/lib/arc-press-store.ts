@@ -42,6 +42,8 @@
  * @module lib/arc-press-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /**
  * The three transport verbs, which are the three acts a press can be.
  *
@@ -92,22 +94,13 @@ const DEFAULT_TIMERS: PressTimerSource = {
     globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
-class ArcPressStore {
+class ArcPressStore extends Subscribable {
   private _pending = new Set<string>();
   private _refusals = new Map<string, ArcPressRefusal>();
-  private _listeners: Array<() => void> = [];
   private _seq = 0;
   private _timers = new Map<string, unknown>();
   private _voices = new Map<string, string>();
   private _clock: PressTimerSource = DEFAULT_TIMERS;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const i = this._listeners.indexOf(listener);
-      if (i >= 0) this._listeners.splice(i, 1);
-    };
-  };
 
   /** Whether a `verb` press on `arc` is still waiting for its answer. */
   isPending = (arc: string, verb: ArcTransportVerb): boolean =>
@@ -139,7 +132,7 @@ class ArcPressStore {
         this.refuse(null, arc, verb, "no answer");
       }, PRESS_HORIZON_MS),
     );
-    this._notify();
+    this.notify();
   };
 
   /**
@@ -151,7 +144,7 @@ class ArcPressStore {
   settle = (arc: string, verb: ArcTransportVerb): void => {
     const key = pressKey(arc, verb);
     this._forget(key);
-    if (this._pending.delete(key)) this._notify();
+    if (this._pending.delete(key)) this.notify();
   };
 
   /** The last refusal for `sessionId`, or null. */
@@ -179,17 +172,17 @@ class ArcPressStore {
     this._forget(key);
     this._pending.delete(key);
     if (voice === null) {
-      this._notify();
+      this.notify();
       return;
     }
     this._seq += 1;
     this._refusals.set(voice, { arc, verb, reason, seq: this._seq });
-    this._notify();
+    this.notify();
   };
 
   /** Forget a session's refusal — a later success is not still a failure. */
   clearRefusal = (sessionId: string): void => {
-    if (this._refusals.delete(sessionId)) this._notify();
+    if (this._refusals.delete(sessionId)) this.notify();
   };
 
   /** @internal The horizon's clock, replaced by the store's own tests. */
@@ -209,10 +202,6 @@ class ArcPressStore {
       this._timers.delete(key);
     }
     this._voices.delete(key);
-  }
-
-  private _notify(): void {
-    for (const listener of [...this._listeners]) listener();
   }
 }
 

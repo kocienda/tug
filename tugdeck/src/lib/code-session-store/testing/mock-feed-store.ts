@@ -34,6 +34,7 @@ import {
   type FeedIdValue,
 } from "@/protocol";
 import type { FeedStoreFilter } from "@/lib/feed-store";
+import { Subscribable } from "@/lib/subscribable";
 
 function isStateChangeFrame(frame: {
   feedId: number;
@@ -140,9 +141,8 @@ export class TestFrameChannel {
  * wiring. `replay` / `replayRange` feed pre-decoded frames through the
  * filter and notify subscribers — they are the only way state changes.
  */
-export class MockFeedStore {
+export class MockFeedStore extends Subscribable {
   private _data: Map<number, unknown> = new Map();
-  private _listeners: Array<() => void> = [];
   private _disposed = false;
   private readonly _feedIds: ReadonlyArray<FeedIdValue>;
   private readonly _filter?: FeedStoreFilter;
@@ -153,17 +153,10 @@ export class MockFeedStore {
     _decode?: (payload: Uint8Array) => unknown,
     filter?: FeedStoreFilter,
   ) {
+    super();
     this._feedIds = feedIds;
     this._filter = filter;
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): Map<number, unknown> => {
     return this._data;
@@ -192,14 +185,12 @@ export class MockFeedStore {
       const next = new Map(this._data);
       next.set(frame.feedId, frame.decoded);
       this._data = next;
-      for (const listener of this._listeners.slice()) {
-        listener();
-      }
+      this.notify();
     }
   }
 
   dispose(): void {
     this._disposed = true;
-    this._listeners = [];
+    this.clearListeners();
   }
 }

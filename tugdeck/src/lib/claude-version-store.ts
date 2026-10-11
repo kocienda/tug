@@ -21,6 +21,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 
 export interface ClaudeVersionSnapshot {
@@ -44,17 +45,8 @@ const INITIAL: ClaudeVersionSnapshot = {
   updateError: null,
 };
 
-class ClaudeVersionStore {
+class ClaudeVersionStore extends Subscribable {
   private _snapshot: ClaudeVersionSnapshot = INITIAL;
-  private _listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): ClaudeVersionSnapshot => this._snapshot;
 
@@ -94,10 +86,6 @@ class ClaudeVersionStore {
       updateError: error ?? "update failed",
     };
     this.notify();
-  }
-
-  private notify(): void {
-    for (const listener of this._listeners) listener();
   }
 }
 

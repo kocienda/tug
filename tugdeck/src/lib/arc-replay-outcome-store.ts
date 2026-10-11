@@ -22,6 +22,8 @@
  * @module lib/arc-replay-outcome-store
  */
 
+import { Subscribable } from "./subscribable";
+
 /** The outcome words the server's `changeset_replay_ok` can carry, plus the refusal. */
 export type ArcReplayOutcomeWord =
   | "current"
@@ -73,18 +75,9 @@ export function conflictDescription(outcome: ArcReplayOutcome): string {
   return `${round}: ${paths}. Nothing was touched.`;
 }
 
-class ArcReplayOutcomeStore {
+class ArcReplayOutcomeStore extends Subscribable {
   private _outcomes = new Map<string, ArcReplayOutcome>();
-  private _listeners: Array<() => void> = [];
   private _seq = 0;
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const i = this._listeners.indexOf(listener);
-      if (i >= 0) this._listeners.splice(i, 1);
-    };
-  };
 
   /** The last outcome for `sessionId`, or null. */
   outcomeFor = (sessionId: string): ArcReplayOutcome | null =>
@@ -97,17 +90,13 @@ class ArcReplayOutcomeStore {
   ): void => {
     this._seq += 1;
     this._outcomes.set(sessionId, { ...outcome, seq: this._seq });
-    this._notify();
+    this.notify();
   };
 
   /** Forget a session's outcome. */
   clear = (sessionId: string): void => {
-    if (this._outcomes.delete(sessionId)) this._notify();
+    if (this._outcomes.delete(sessionId)) this.notify();
   };
-
-  private _notify(): void {
-    for (const listener of [...this._listeners]) listener();
-  }
 }
 
 export const arcReplayOutcomeStore = new ArcReplayOutcomeStore();

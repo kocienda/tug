@@ -46,14 +46,18 @@ export class Subscribable {
   /**
    * {@link notify}, with each listener's throw handed to `onError` rather
    * than stopping the rest — for a store whose listeners must all hear a
-   * change even when one of them fails.
+   * change even when one of them fails. `onError` also gets the listener that
+   * threw and its position in this notify, so a store can say which one.
    */
-  notifyCatching(onError: (error: unknown) => void): void {
-    for (const listener of [...this.listeners]) {
+  notifyCatching(
+    onError: (error: unknown, listener: () => void, index: number) => void,
+  ): void {
+    const listeners = [...this.listeners];
+    for (let i = 0; i < listeners.length; i++) {
       try {
-        listener();
+        listeners[i]();
       } catch (error) {
-        onError(error);
+        onError(error, listeners[i], i);
       }
     }
   }

@@ -35,17 +35,10 @@ import { ConnectionLifecycle } from "../connection-lifecycle";
 import { TestFrameChannel } from "../code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "../code-session-store/testing/golden-catalog";
 import type { ShellExchangeMessage } from "../code-session-store/types";
+import { Subscribable } from "../subscribable";
 
-class MockFeedStore {
+class MockFeedStore extends Subscribable {
   private _data = new Map<number, unknown>();
-  private _listeners: Array<() => void> = [];
-  subscribe(listener: () => void): () => void {
-    this._listeners.push(listener);
-    return () => {
-      const i = this._listeners.indexOf(listener);
-      if (i >= 0) this._listeners.splice(i, 1);
-    };
-  }
   getSnapshot(): Map<number, unknown> {
     return this._data;
   }
@@ -53,7 +46,7 @@ class MockFeedStore {
     const next = new Map(this._data);
     next.set(feedId, payload);
     this._data = next;
-    for (const l of this._listeners) l();
+    this.notify();
   }
 }
 

@@ -234,3 +234,21 @@ describe("auth-store: the Claude Code download", () => {
     expect(snap.verifyingInstall).toBe(true);
   });
 });
+
+describe("auth-store: a listener that unsubscribes during a notify", () => {
+  it("does not make the listener after it miss the change", () => {
+    // The shape a React subtree takes when it unmounts in response to the
+    // change it is being told about: its listener goes away mid-notify. The
+    // listener subscribed after it must still hear this notification.
+    authStore.setSigningIn(false);
+    const calls: string[] = [];
+    const offA = authStore.subscribe(() => {
+      calls.push("a");
+      offA();
+    });
+    const offB = authStore.subscribe(() => calls.push("b"));
+    authStore.setSigningIn(true);
+    offB();
+    expect(calls).toEqual(["a", "b"]);
+  });
+});

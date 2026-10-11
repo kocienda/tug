@@ -12,6 +12,7 @@
 import { describe, test, expect } from "bun:test";
 import { SessionMetadataStore } from "../lib/session-metadata-store";
 import type { SessionMetadataSnapshot } from "../lib/session-metadata-store";
+import { Subscribable } from "../lib/subscribable";
 
 // ---------------------------------------------------------------------------
 // Mock FeedStore
@@ -21,17 +22,8 @@ import type { SessionMetadataSnapshot } from "../lib/session-metadata-store";
  * A minimal FeedStore-compatible mock.
  * Holds a Map<number, unknown> and notifies listeners on emit().
  */
-class MockFeedStore {
+class MockFeedStore extends Subscribable {
   private _data: Map<number, unknown> = new Map();
-  private _listeners: Array<() => void> = [];
-
-  subscribe(listener: () => void): () => void {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  }
 
   getSnapshot(): Map<number, unknown> {
     return this._data;
@@ -42,9 +34,7 @@ class MockFeedStore {
     const next = new Map(this._data);
     next.set(feedId, payload);
     this._data = next;
-    for (const listener of this._listeners) {
-      listener();
-    }
+    this.notify();
   }
 }
 

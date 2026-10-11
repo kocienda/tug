@@ -32,6 +32,7 @@ import { QuestionDialog } from "@/components/tugways/chrome/session-question-dia
 import { TugLabel } from "@/components/tugways/tug-label";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { TugSeparator } from "@/components/tugways/tug-separator";
+import { Subscribable } from "@/lib/subscribable";
 import type {
   CodeSessionStore,
   ControlRequestForward,
@@ -57,25 +58,17 @@ interface PermissionSnapshot {
   pendingApproval: ControlRequestForward | null;
 }
 
-class MockPermissionStore {
+class MockPermissionStore extends Subscribable {
   private _pending: ControlRequestForward | null;
-  private _listeners: Array<() => void> = [];
   // Cache the snapshot object so a useSyncExternalStore selector
   // doesn't see a fresh reference on every call (would loop).
   private _snapshot: PermissionSnapshot;
 
   constructor(initial: ControlRequestForward) {
+    super();
     this._pending = initial;
     this._snapshot = { pendingApproval: initial };
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): PermissionSnapshot => this._snapshot;
 
@@ -86,18 +79,14 @@ class MockPermissionStore {
     if (this._pending?.request_id === requestId) {
       this._pending = null;
       this._snapshot = { pendingApproval: null };
-      this._notify();
+      this.notify();
     }
   };
 
   arm(request: ControlRequestForward): void {
     this._pending = request;
     this._snapshot = { pendingApproval: request };
-    this._notify();
-  }
-
-  private _notify(): void {
-    for (const listener of this._listeners.slice()) listener();
+    this.notify();
   }
 }
 
@@ -206,23 +195,15 @@ interface QuestionSnapshot {
   pendingQuestion: ControlRequestForward | null;
 }
 
-class MockQuestionStore {
+class MockQuestionStore extends Subscribable {
   private _pending: ControlRequestForward | null;
-  private _listeners: Array<() => void> = [];
   private _snapshot: QuestionSnapshot;
 
   constructor(initial: ControlRequestForward) {
+    super();
     this._pending = initial;
     this._snapshot = { pendingQuestion: initial };
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): QuestionSnapshot => this._snapshot;
 
@@ -242,17 +223,13 @@ class MockQuestionStore {
   arm(request: ControlRequestForward): void {
     this._pending = request;
     this._snapshot = { pendingQuestion: request };
-    this._notify();
+    this.notify();
   }
 
   private _clear(): void {
     this._pending = null;
     this._snapshot = { pendingQuestion: null };
-    this._notify();
-  }
-
-  private _notify(): void {
-    for (const listener of this._listeners.slice()) listener();
+    this.notify();
   }
 }
 

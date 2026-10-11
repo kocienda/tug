@@ -44,6 +44,7 @@ import {
 import { bytesUrl, classifyFileKind } from "./file-kinds";
 import { createAtomBytesStore, type AtomBytesStore } from "./atom-bytes-store";
 import type { AtomSegment } from "./tug-atom-img";
+import { Subscribable } from "./subscribable";
 
 /** What the strip knows about one attached file. */
 export interface AssetTile {
@@ -111,7 +112,7 @@ function nameOf(path: string): string {
  * One instance per card. The card feeds it the asset base and the buffer text;
  * it publishes tiles and owns the `AtomBytesStore` the preview component reads.
  */
-export class AssetProjection {
+export class AssetProjection extends Subscribable {
   private base: string | null = null;
   private readText: () => string = () => "";
   private tiles: readonly AssetTile[] = [];
@@ -120,7 +121,6 @@ export class AssetProjection {
     string,
     { message: string; retry?: () => void }
   >();
-  private listeners: Array<() => void> = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   /** Paths a `stat` has confirmed absent, so a missing tile stays missing. */
@@ -129,14 +129,6 @@ export class AssetProjection {
   private checking = new Set<string>();
 
   readonly bytesStore: AtomBytesStore = createAtomBytesStore();
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.push(listener);
-    return () => {
-      const i = this.listeners.indexOf(listener);
-      if (i >= 0) this.listeners.splice(i, 1);
-    };
-  };
 
   /** The current tile set. Reference-stable while the link set is unchanged. */
   getSnapshot = (): readonly AssetTile[] => this.tiles;
@@ -219,7 +211,7 @@ export class AssetProjection {
     this.disposed = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
-    this.listeners = [];
+    this.clearListeners();
     this.bytesStore.clear();
   }
 
@@ -344,14 +336,10 @@ export class AssetProjection {
     })();
   }
 
-  private notify(): void {
-    for (const listener of this.listeners) {
-      try {
-        listener();
-      } catch (err) {
-        console.error("[asset-projection] subscriber threw:", err);
-      }
-    }
+  override notify(): void {
+    this.notifyCatching((err) => {
+      console.error("[asset-projection] subscriber threw:", err);
+    });
   }
 }
 

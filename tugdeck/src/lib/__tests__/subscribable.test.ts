@@ -113,6 +113,20 @@ describe("Subscribable", () => {
     expect((errors[0] as Error).message).toBe("boom");
   });
 
+  test("notifyCatching names the listener that threw and its position", () => {
+    const s = createSubscribable();
+    const seen: Array<[unknown, () => void, number]> = [];
+    s.subscribe(() => {});
+    function broken(): void {
+      throw new Error("boom");
+    }
+    s.subscribe(broken);
+    s.notifyCatching((error, listener, index) => seen.push([error, listener, index]));
+    expect(seen.length).toBe(1);
+    expect(seen[0][1]).toBe(broken);
+    expect(seen[0][2]).toBe(1);
+  });
+
   test("clearListeners drops every listener", () => {
     const s = createSubscribable();
     let n = 0;

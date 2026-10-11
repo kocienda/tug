@@ -119,6 +119,7 @@ import {
   sendSpawnSession,
 } from "./session-lifecycle";
 import { logSessionLifecycle } from "./session-lifecycle-log";
+import { Subscribable } from "./subscribable";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
@@ -216,18 +217,9 @@ export interface RestoreExpectation {
  * `useSyncExternalStore` so `SessionCardContent` can render
  * `SessionRestoring` reactively.
  */
-class SessionRestoreRegistry {
+class SessionRestoreRegistry extends Subscribable {
   private entries: Map<string, RestoreExpectation> = new Map();
   private timeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.push(listener);
-    return () => {
-      const idx = this.listeners.indexOf(listener);
-      if (idx >= 0) this.listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): Map<string, RestoreExpectation> => this.entries;
 
@@ -252,7 +244,7 @@ class SessionRestoreRegistry {
     this.entries = next;
     const handle = setTimeout(onTimeout, RESTORE_TIMEOUT_MS);
     this.timeouts.set(cardId, handle);
-    this._emit();
+    this.notify();
   }
 
   _clear(cardId: string): void {
@@ -265,11 +257,7 @@ class SessionRestoreRegistry {
       clearTimeout(handle);
       this.timeouts.delete(cardId);
     }
-    this._emit();
-  }
-
-  private _emit(): void {
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 
@@ -376,17 +364,8 @@ export function getResumeDisplayMetadata(
  * the response must not re-notify — is unit-testable on a fresh
  * instance.
  */
-export class RestorePassGate {
+export class RestorePassGate extends Subscribable {
   private settled = false;
-  private listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.push(listener);
-    return () => {
-      const idx = this.listeners.indexOf(listener);
-      if (idx >= 0) this.listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): boolean => this.settled;
 
@@ -398,7 +377,7 @@ export class RestorePassGate {
   _settle(): void {
     if (this.settled) return;
     this.settled = true;
-    for (const listener of this.listeners) listener();
+    this.notify();
   }
 }
 

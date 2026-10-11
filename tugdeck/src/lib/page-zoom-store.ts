@@ -56,6 +56,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 export interface PageZoomSnapshot {
   /** The factor the deck is at, or is going to while `zooming`. */
@@ -113,9 +114,8 @@ export function writeDeckScale(factor: number): void {
   if (deck !== null) deck.style.transform = `scale(${factor})`;
 }
 
-export class PageZoomStore {
+export class PageZoomStore extends Subscribable {
   private _snapshot: PageZoomSnapshot = INITIAL;
-  private _listeners: Array<() => void> = [];
   private _generation = 0;
   private _holds = 0;
   private _waiters: Array<() => void> = [];
@@ -123,15 +123,9 @@ export class PageZoomStore {
   constructor(
     private readonly nextFrame: FrameScheduler,
     private readonly writeScale: DeckScaleWriter,
-  ) {}
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
+  ) {
+    super();
+  }
 
   getSnapshot = (): PageZoomSnapshot => this._snapshot;
 
@@ -246,7 +240,7 @@ export class PageZoomStore {
       return;
     }
     this._snapshot = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   }
 }
 

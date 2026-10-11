@@ -32,6 +32,7 @@
  */
 
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 
 export interface HostToolsSnapshot {
@@ -68,17 +69,8 @@ const INITIAL: HostToolsSnapshot = {
   offerError: null,
 };
 
-class HostToolsStore {
+class HostToolsStore extends Subscribable {
   private _snapshot: HostToolsSnapshot = INITIAL;
-  private _listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): HostToolsSnapshot => this._snapshot;
 
@@ -120,10 +112,6 @@ class HostToolsStore {
       offerError: error ?? "install failed",
     };
     this.notify();
-  }
-
-  private notify(): void {
-    for (const listener of this._listeners) listener();
   }
 }
 

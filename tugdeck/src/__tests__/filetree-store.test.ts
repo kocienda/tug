@@ -40,22 +40,14 @@ mock.module("../lib/connection-singleton", () => ({
 }));
 
 import { FileTreeStore } from "../lib/filetree-store";
+import { Subscribable } from "../lib/subscribable";
 
 // ---------------------------------------------------------------------------
 // Mock FeedStore
 // ---------------------------------------------------------------------------
 
-class MockFeedStore {
+class MockFeedStore extends Subscribable {
   private _data: Map<number, unknown> = new Map();
-  private _listeners: Array<() => void> = [];
-
-  subscribe(listener: () => void): () => void {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  }
 
   getSnapshot(): Map<number, unknown> {
     return this._data;
@@ -65,9 +57,7 @@ class MockFeedStore {
     const next = new Map(this._data);
     next.set(feedId, payload);
     this._data = next;
-    for (const listener of this._listeners) {
-      listener();
-    }
+    this.notify();
   }
 }
 

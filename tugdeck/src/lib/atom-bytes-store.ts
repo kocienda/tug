@@ -70,6 +70,8 @@
  *  - [Table T02] persistence tiers — `arc/dev-atoms.md#t02-persistence-tiers`
  */
 
+import { createSubscribable } from "./subscribable";
+
 // ---------------------------------------------------------------------------
 // Public types — mirror [Spec S02] verbatim.
 // ---------------------------------------------------------------------------
@@ -266,10 +268,7 @@ export interface AtomBytesStore {
  */
 export function createAtomBytesStore(): AtomBytesStore {
   const map = new Map<string, AtomBytesEntry>();
-  // Listener set — array rather than Set for cheap iteration and
-  // because listener identities don't need to be unique (a consumer
-  // re-subscribing returns a fresh unsubscribe).
-  const listeners: Array<() => void> = [];
+  const listeners = createSubscribable();
 
   /**
    * Fire every registered listener. Errors in one listener don't
@@ -280,13 +279,9 @@ export function createAtomBytesStore(): AtomBytesStore {
    * succeed; subscriber bugs surface in the dev console.
    */
   function notify(): void {
-    for (const listener of listeners) {
-      try {
-        listener();
-      } catch (err) {
-        console.error("[atom-bytes-store] subscriber threw:", err);
-      }
-    }
+    listeners.notifyCatching((err) => {
+      console.error("[atom-bytes-store] subscriber threw:", err);
+    });
   }
 
   return {
@@ -368,14 +363,7 @@ export function createAtomBytesStore(): AtomBytesStore {
       if (!wasEmpty) notify();
     },
     subscribe(listener) {
-      listeners.push(listener);
-      let unsubscribed = false;
-      return () => {
-        if (unsubscribed) return;
-        unsubscribed = true;
-        const idx = listeners.indexOf(listener);
-        if (idx >= 0) listeners.splice(idx, 1);
-      };
+      return listeners.subscribe(listener);
     },
   };
 }

@@ -22,6 +22,7 @@
 
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { Subscribable } from "@/lib/subscribable";
 
 import { sessionLineStore } from "./session-line-store";
 
@@ -83,17 +84,8 @@ export interface CardSessionBinding {
   readonly arc?: CardArcBinding;
 }
 
-export class CardSessionBindingStore {
+export class CardSessionBindingStore extends Subscribable {
   private _bindings: Map<string, CardSessionBinding> = new Map();
-  private _listeners: Array<() => void> = [];
-
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   getSnapshot = (): Map<string, CardSessionBinding> => this._bindings;
 
@@ -104,7 +96,7 @@ export class CardSessionBindingStore {
     const next = new Map(this._bindings);
     next.set(cardId, binding);
     this._bindings = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 
   /**
@@ -128,7 +120,7 @@ export class CardSessionBindingStore {
     const next = new Map(this._bindings);
     next.set(cardId, { ...existing, arc: arc ?? undefined });
     this._bindings = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 
   /**
@@ -148,7 +140,7 @@ export class CardSessionBindingStore {
     const next = new Map(this._bindings);
     next.set(cardId, { ...existing, tugSessionId, lineId });
     this._bindings = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 
   /**
@@ -173,7 +165,7 @@ export class CardSessionBindingStore {
     const next = new Map(this._bindings);
     next.set(cardId, { ...existing, seatedSessionId: tugSessionId, lineId });
     this._bindings = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 
   clearBinding = (cardId: string): void => {
@@ -181,7 +173,7 @@ export class CardSessionBindingStore {
     const next = new Map(this._bindings);
     next.delete(cardId);
     this._bindings = next;
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 
   /**
@@ -197,7 +189,7 @@ export class CardSessionBindingStore {
   clearAll = (): void => {
     if (this._bindings.size === 0) return;
     this._bindings = new Map();
-    for (const listener of this._listeners) listener();
+    this.notify();
   };
 }
 

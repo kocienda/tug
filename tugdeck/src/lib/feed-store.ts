@@ -35,6 +35,7 @@
  */
 
 import type { TugConnection } from "../connection";
+import { Subscribable } from "./subscribable";
 import type { FeedIdValue } from "../protocol";
 
 /**
@@ -106,9 +107,8 @@ export type FeedStoreFilter = (feedId: FeedIdValue, decoded: unknown) => boolean
  *   nothing behind. The connection outlives the store; without the
  *   unregister the callback closure would pin this store forever.
  */
-export class FeedStore {
+export class FeedStore extends Subscribable {
   private _data: Map<number, unknown> = new Map();
-  private _listeners: Array<() => void> = [];
   private _disposed = false;
   private _filter?: FeedStoreFilter;
   /** Unregisters the feed callbacks; called by `dispose()`. */
@@ -120,6 +120,7 @@ export class FeedStore {
     decode: (payload: Uint8Array) => unknown = defaultDecode,
     filter?: FeedStoreFilter,
   ) {
+    super();
     this._filter = filter;
     for (const feedId of feedIds) {
       const unsub = connection.onFrame(feedId, (payload: Uint8Array) => {
@@ -149,31 +150,14 @@ export class FeedStore {
         this._data = next;
         // Each listener is isolated: one that throws is reported as its
         // own exception, never as a decode failure, and the rest still run.
-        // Iterate a copy so a listener that unsubscribes mid-notify does
-        // not shift the ones after it.
-        const listeners = this._listeners.slice();
-        for (let i = 0; i < listeners.length; i++) {
-          const listener = listeners[i];
-          try {
-            listener();
-          } catch (err) {
-            const name = listener.name || `#${i}`;
-            console.error(`[FeedStore] listener ${name} threw for feed ${feedHex}:`, err);
-          }
-        }
+        this.notifyCatching((err, listener, i) => {
+          const name = listener.name || `#${i}`;
+          console.error(`[FeedStore] listener ${name} threw for feed ${feedHex}:`, err);
+        });
       });
       this._frameUnsubs.push(unsub);
     }
   }
-
-  /** Subscribe to store updates. Returns an unsubscribe function. */
-  subscribe = (listener: () => void): (() => void) => {
-    this._listeners.push(listener);
-    return () => {
-      const idx = this._listeners.indexOf(listener);
-      if (idx >= 0) this._listeners.splice(idx, 1);
-    };
-  };
 
   /** Return the current feed data snapshot. */
   getSnapshot = (): Map<number, unknown> => {
@@ -195,6 +179,6 @@ export class FeedStore {
     this._disposed = true;
     for (const unsub of this._frameUnsubs) unsub();
     this._frameUnsubs = [];
-    this._listeners = [];
+    this.clearListeners();
   }
 }
