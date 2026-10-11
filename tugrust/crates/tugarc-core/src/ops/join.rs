@@ -2068,7 +2068,8 @@ pub fn join_in_with_progress(
         if failure.left_dropped.is_empty() {
             crate::oplog::abandon(paths, &repo_root, op_seq);
         } else {
-            let _ = crate::oplog::record_stranded(paths, 
+            let _ = crate::oplog::record_stranded(
+                paths,
                 &repo_root,
                 op_seq,
                 crate::oplog::StrandedBase {

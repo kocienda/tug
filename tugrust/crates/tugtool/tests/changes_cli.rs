@@ -732,7 +732,14 @@ fn draft_set_on_an_isolated_ledger_stamps_the_schema_version() {
     let ledger = tempfile::tempdir().unwrap();
 
     let mut set = tug(ledger.path());
-    set.args(["draft", "set", "--owner", "session:work", "--message", "Land it"]);
+    set.args([
+        "draft",
+        "set",
+        "--owner",
+        "session:work",
+        "--message",
+        "Land it",
+    ]);
     set.args(project_arg(&root));
     let (code, _, err) = run(set);
     assert_eq!(code, 0, "stderr: {err}");
@@ -766,7 +773,14 @@ fn draft_set_refuses_a_newer_changes_schema() {
         .unwrap();
 
     let mut set = tug(ledger.path());
-    set.args(["draft", "set", "--owner", "session:work", "--message", "Land it"]);
+    set.args([
+        "draft",
+        "set",
+        "--owner",
+        "session:work",
+        "--message",
+        "Land it",
+    ]);
     set.args(project_arg(&root));
     let (code, _, err) = run(set);
     assert_eq!(code, 1, "stderr: {err}");
@@ -774,7 +788,11 @@ fn draft_set_refuses_a_newer_changes_schema() {
 
     let changes = Connection::open(ledger.path().join("changes.db")).unwrap();
     let tables: i64 = changes
-        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(tables, 0);
 }

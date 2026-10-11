@@ -282,7 +282,10 @@ mod tests {
         let path = dir.path().join("changes.db");
         ledger_db::open(&path)
             .unwrap()
-            .execute_batch(&format!("PRAGMA user_version = {};", CHANGES_SCHEMA_VERSION + 1))
+            .execute_batch(&format!(
+                "PRAGMA user_version = {};",
+                CHANGES_SCHEMA_VERSION + 1
+            ))
             .unwrap();
         let conn = open(&path).unwrap();
         assert_eq!(
@@ -321,9 +324,11 @@ mod tests {
         assert_eq!(version(&conn), CHANGES_SCHEMA_VERSION);
         assert_eq!(table_count(&conn), 3);
         let (kind, id): (String, String) = conn
-            .query_row("SELECT owner_kind, owner_id FROM changeset_drafts", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
+            .query_row(
+                "SELECT owner_kind, owner_id FROM changeset_drafts",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .unwrap();
         assert_eq!((kind.as_str(), id.as_str()), ("arc", "tugarc/x"));
         let line_id: i64 = conn

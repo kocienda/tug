@@ -517,7 +517,8 @@ pub fn verify_in(
                 // verified at <head>" would leave a durable fact about a state
                 // the next fix erases; the absence of a line is the honest
                 // record of not-verified.
-                crate::log::append_arc_log(paths, 
+                crate::log::append_arc_log(
+                    paths,
                     &repo,
                     name,
                     "verified",

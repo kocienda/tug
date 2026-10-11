@@ -40,7 +40,9 @@ pub fn ledgers(dir: &Path) -> Ledgers {
         session_schema::CREATE_SESSIONS_SQL,
         session_schema::CREATE_MINTED_TAGS_SQL,
     ] {
-        sessions.execute_batch(sql).expect("create sessions.db tables");
+        sessions
+            .execute_batch(sql)
+            .expect("create sessions.db tables");
     }
     ledgers
 }

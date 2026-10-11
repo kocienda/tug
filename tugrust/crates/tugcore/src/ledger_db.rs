@@ -518,7 +518,10 @@ mod tests {
     #[test]
     fn migrate_creates_and_stamps_a_fresh_database() {
         let conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&conn, &schema_v3(), create_v3).unwrap(), Migrated::Current);
+        assert_eq!(
+            migrate(&conn, &schema_v3(), create_v3).unwrap(),
+            Migrated::Current
+        );
         assert_eq!(version(&conn, "main"), 3);
         assert_eq!(columns(&conn), ["a", "b", "c"]);
     }
@@ -528,7 +531,10 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE t (a TEXT, b TEXT); PRAGMA user_version = 2;")
             .unwrap();
-        assert_eq!(migrate(&conn, &schema_v3(), create_v3).unwrap(), Migrated::Current);
+        assert_eq!(
+            migrate(&conn, &schema_v3(), create_v3).unwrap(),
+            Migrated::Current
+        );
         assert_eq!(version(&conn, "main"), 3);
         assert_eq!(columns(&conn), ["a", "b", "c"]);
     }
@@ -540,7 +546,10 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch("CREATE TABLE t (a TEXT, b TEXT, c TEXT); PRAGMA user_version = 2;")
             .unwrap();
-        assert_eq!(migrate(&conn, &schema_v3(), create_v3).unwrap(), Migrated::Current);
+        assert_eq!(
+            migrate(&conn, &schema_v3(), create_v3).unwrap(),
+            Migrated::Current
+        );
         assert_eq!(version(&conn, "main"), 3);
     }
 
@@ -569,9 +578,17 @@ mod tests {
         });
         assert!(err.is_err());
         assert_eq!(version(&conn, "main"), 1);
-        assert_eq!(columns(&conn), ["a"], "the applied migration rolls back with the failure");
+        assert_eq!(
+            columns(&conn),
+            ["a"],
+            "the applied migration rolls back with the failure"
+        );
         let half: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = 'half'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'half'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(half, 0);
     }
