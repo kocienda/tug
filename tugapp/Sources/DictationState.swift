@@ -12,10 +12,9 @@ import Foundation
 /// glue that owns the `AVAudioEngine` and the recogniser adapters, and it
 /// holds no transcript state of its own.
 ///
-/// Foundation-only is load-bearing rather than tidy: `tests/dictation/` runs
-/// this exact source through `swift -` concatenated with its driver, the same
-/// idiom `UpdateState`, `BranchSlug` and `ShellPathResolver` use. An
-/// AVFoundation or Speech import here would end that.
+/// Foundation-only is load-bearing rather than tidy: the host-less TugTests
+/// bundle compiles this exact source (`tugapp/TugTests/DictationStateTests.swift`),
+/// and an AVFoundation or Speech import here would end that.
 ///
 /// References: the dictation brief, [P02] one protocol, Spec S02, Spec S03,
 /// Spec S04, Risk R01.

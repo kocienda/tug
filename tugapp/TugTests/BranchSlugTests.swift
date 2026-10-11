@@ -1,9 +1,12 @@
-// Test driver for BranchSlug. Run via tests/build-info/test-branch-slug.sh,
-// which concatenates this file with tugapp/Sources/BranchSlug.swift and
-// pipes the pair to `swift -`. The test driver runs against the same
-// source the app builds against — no duplicated algorithm.
+import XCTest
 
-let cases: [(input: String, expected: String)] = [
+// The case table is also the input list for
+// `tests/build-info/test-slug-parity.sh`, which checks that the bash
+// slugifier agrees with this one on every row. Its extractor reads the
+// first quoted string of each row between `let branchSlugCases:` and the
+// closing `]` at column zero, so keep one case per line and no escaped
+// quotes inside an input.
+let branchSlugCases: [(input: String, expected: String)] = [
     // The three examples called out in the plan task list.
     ("feat/foo",      "feat-foo"),
     ("Dev-1",        "dev-1"),
@@ -57,18 +60,10 @@ let cases: [(input: String, expected: String)] = [
     ("",              ""),
 ]
 
-var failures: [String] = []
-for c in cases {
-    let actual = BranchSlug.compute(c.input)
-    if actual != c.expected {
-        failures.append("BranchSlug.compute(\"\(c.input)\") → \"\(actual)\"  (expected \"\(c.expected)\")")
+final class BranchSlugTests: XCTestCase {
+    func testEveryCaseSlugsAsExpected() {
+        for c in branchSlugCases {
+            XCTAssertEqual(BranchSlug.compute(c.input), c.expected, "BranchSlug.compute(\"\(c.input)\")")
+        }
     }
-}
-
-if failures.isEmpty {
-    print("ok: \(cases.count) branch-slug cases pass")
-} else {
-    print("FAIL: \(failures.count) of \(cases.count) cases failed:")
-    for f in failures { print("  - \(f)") }
-    exit(1)
 }

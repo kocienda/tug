@@ -28,11 +28,9 @@ import Foundation
 /// directory server would otherwise spend the shell's budget as well as its
 /// own, and the shell is the one whose answer is actually wanted.
 ///
-/// Foundation-only and free of every other app type, so
-/// `tests/shell-path/test-shell-path-timeout.sh` can concatenate this file
-/// with its driver and run the pair through `swift -` — the same idiom
-/// `BranchSlug` uses, testing the source the app builds against rather than
-/// a copy of the algorithm.
+/// Foundation-only and free of every other app type, so the host-less
+/// TugTests bundle compiles this same source and points it at fake shells
+/// (`tugapp/TugTests/ShellPathResolverTests.swift`).
 enum ShellPathResolver {
     /// How long each subprocess gets. Two seconds is several times the
     /// ~250 ms a real login-interactive `zsh` takes to source a full

@@ -13,12 +13,12 @@ set -euo pipefail
 # Inputs:
 #   tugrust/scripts/branch-slug.sh      — canonical bash slugifier
 #   tugapp/Sources/BranchSlug.swift     — canonical Swift slugifier
-#   tests/build-info/test-driver.swift  — shared case table (24 cases)
+#   tugapp/TugTests/BranchSlugTests.swift — shared case table (24 cases)
 #
 # Strategy:
-#   1. Parse the inputs out of the Swift driver's case table via awk,
-#      so adding a case to test-driver.swift extends both the unit
-#      test (test-branch-slug.sh) and this parity test automatically.
+#   1. Parse the inputs out of the XCTest case table via awk, so adding
+#      a case to BranchSlugTests.swift extends both the unit test
+#      (`just test-swift`) and this parity test automatically.
 #   2. Compile a one-shot Swift binary that reads inputs on stdin and
 #      prints slugs (vs. spawning `swift` per case, which is ~1s/case).
 #   3. Run the same inputs through `bash branch-slug.sh` line by line.
@@ -29,7 +29,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 BASH_SLUG="$REPO_ROOT/tugrust/scripts/branch-slug.sh"
 SWIFT_SLUG="$REPO_ROOT/tugapp/Sources/BranchSlug.swift"
-DRIVER="$SCRIPT_DIR/test-driver.swift"
+DRIVER="$REPO_ROOT/tugapp/TugTests/BranchSlugTests.swift"
 
 for f in "$BASH_SLUG" "$SWIFT_SLUG" "$DRIVER"; do
     if [ ! -f "$f" ]; then
@@ -45,12 +45,12 @@ INPUTS="$WORKDIR/inputs.txt"
 SWIFT_SRC="$WORKDIR/parity.swift"
 SWIFT_BIN="$WORKDIR/parity"
 
-# Parse inputs out of test-driver.swift's case table. The driver's
-# table uses literal Swift syntax with no escaped quotes inside the
-# input strings, so a simple "first quoted segment per case line"
-# extractor is sufficient.
+# Parse inputs out of BranchSlugTests.swift's case table. The table
+# uses literal Swift syntax with no escaped quotes inside the input
+# strings, so a simple "first quoted segment per case line" extractor
+# is sufficient.
 awk '
-    /^let cases:/      { in_cases = 1; next }
+    /^let branchSlugCases:/ { in_cases = 1; next }
     in_cases && /^\]/  { in_cases = 0; next }
     in_cases && /^[[:space:]]*\("/ {
         s = $0

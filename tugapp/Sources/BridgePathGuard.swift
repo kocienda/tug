@@ -20,8 +20,8 @@ import Foundation
 /// projects live in the second, and an attachment in one must still trash
 /// and restore; neither root reaches a file another user or the system owns.
 ///
-/// Pure Foundation, so `tests/bridge-path-guard/` runs it under `swift -`
-/// against the same source the app builds.
+/// Pure Foundation, so the host-less TugTests bundle compiles this same
+/// source and tests it (`tugapp/TugTests/BridgePathGuardTests.swift`).
 struct BridgePathGuard {
     /// Why a path was refused, in words the deck can show.
     struct Refusal: Error, Equatable {

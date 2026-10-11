@@ -86,7 +86,7 @@ checked_by = ["deck", "code"]
 [[tugtool.arc.surface]]
 name  = "app"
 paths = ["tugapp/"]
-check = ["just build-app", "just app-test-changed {paths}"]
+check = ["just test-swift", "just build-app", "just app-test-changed {paths}"]
 
 [[tugtool.arc.surface]]
 name  = "app-tests"
@@ -111,5 +111,9 @@ check = []
 name  = "project"
 # `.claude/` is this project's own skills — `/spike-card` — which are Tug's
 # alone and never plugin material. Nothing builds them.
-paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".shellcheckrc", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/build-info/", "tests/bridge-path-guard/", "tests/dictation/", "tests/model-eval/"]
+# `tests/` is every scratch test directory beside the app-tests — shell
+# scripts and rehearsal tools nothing builds. The longer `tests/app-test/`
+# above still claims its own, so a directory that comes or goes here never
+# leaves a path unclaimed.
+paths = ["Justfile", "scripts/", ".github/", ".gitattributes", ".gitignore", ".shellcheckrc", ".tugtool/", ".claude/", "capabilities/", "diag/", "products/", "resources/", "tests/"]
 check = []

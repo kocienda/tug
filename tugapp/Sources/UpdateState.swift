@@ -10,10 +10,9 @@ import Foundation
 /// `SPUUserDriver` callbacks into events and hands the snapshots on; it holds
 /// the reply closures and no state of its own.
 ///
-/// Foundation-only is load-bearing rather than tidy: `tests/update/` runs
-/// this exact source through `swift -` concatenated with its driver, the same
-/// idiom `BranchSlug` and `ShellPathResolver` use. An AppKit or Sparkle import
-/// here would end that.
+/// Foundation-only is load-bearing rather than tidy: the host-less TugTests
+/// bundle compiles this exact source (`tugapp/TugTests/UpdateStateTests.swift`),
+/// and an AppKit or Sparkle import here would end that.
 ///
 /// References: the non-modal update brief, [B02], [B03], [B05], [B07].
 

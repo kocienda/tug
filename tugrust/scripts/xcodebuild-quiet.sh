@@ -60,11 +60,15 @@ ELAPSED=$((SECONDS - START))
 DIAGS="$(grep -E 'warning:|error:|^ld: |^clang: |^Undefined' "$LOG" \
     | grep -v 'appintentsmetadataprocessor.*No AppIntents.framework dependency found' \
     || true)"
+# A `test` action ends its log with XCTest's own tally; carry the last one
+# (the all-tests suite) into the summary so a green run still says how much ran.
+TESTS="$(grep -E '^[[:space:]]*Executed [0-9]+ tests?, with' "$LOG" | tail -n 1 | sed -E 's/^[[:space:]]+//' || true)"
+[ -n "$TESTS" ] && TESTS=" — ${TESTS}"
 if [ -n "$DIAGS" ]; then
     printf '%s\n' "$DIAGS"
     COUNT="$(printf '%s\n' "$DIAGS" | grep -c 'warning:' || true)"
     [ "$COUNT" = 1 ] && NOUN=warning || NOUN=warnings
-    echo "    ${LABEL}: built in ${ELAPSED}s (${COUNT} ${NOUN})"
+    echo "    ${LABEL}: built in ${ELAPSED}s (${COUNT} ${NOUN})${TESTS}"
 else
-    echo "    ${LABEL}: built in ${ELAPSED}s"
+    echo "    ${LABEL}: built in ${ELAPSED}s${TESTS}"
 fi

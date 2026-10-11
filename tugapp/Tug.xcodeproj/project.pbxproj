@@ -40,6 +40,20 @@
 		AA0000010000000000000022 /* UpdateState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001F /* UpdateState.swift */; };
 		AA0000010000000000000023 /* TugUpdateDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000020 /* TugUpdateDriver.swift */; };
 		AA0000010000000000000019 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000140000000000000001 /* Sparkle */; };
+		AA0000010000000000000041 /* TugTestsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000041 /* TugTestsSupport.swift */; };
+		AA0000010000000000000042 /* BranchSlug.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000015 /* BranchSlug.swift */; };
+		AA0000010000000000000043 /* BridgePathGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000040 /* BridgePathGuard.swift */; };
+		AA0000010000000000000044 /* DictationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000021 /* DictationState.swift */; };
+		AA0000010000000000000045 /* ShellPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001D /* ShellPathResolver.swift */; };
+		AA0000010000000000000046 /* UpdateState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000001F /* UpdateState.swift */; };
+		AA0000010000000000000047 /* BranchSlugTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000042 /* BranchSlugTests.swift */; };
+		AA0000010000000000000048 /* BridgePathGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000043 /* BridgePathGuardTests.swift */; };
+		AA0000010000000000000049 /* DictationStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000044 /* DictationStateTests.swift */; };
+		AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000045 /* ShellPathResolverTests.swift */; };
+		AA000001000000000000004B /* UpdateStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000046 /* UpdateStateTests.swift */; };
+		AA000001000000000000004C /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
+		AA000001000000000000004D /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
+		AA000001000000000000004E /* MenuStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000048 /* MenuStateTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,7 +91,16 @@
 		AA0000020000000000000018 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateController.swift; sourceTree = "<group>"; };
 		AA000002000000000000001F /* UpdateState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateState.swift; sourceTree = "<group>"; };
 		AA0000020000000000000020 /* TugUpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugUpdateDriver.swift; sourceTree = "<group>"; };
+		AA0000020000000000000041 /* TugTestsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TugTestsSupport.swift; sourceTree = "<group>"; };
+		AA0000020000000000000042 /* BranchSlugTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchSlugTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000043 /* BridgePathGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgePathGuardTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000044 /* DictationStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictationStateTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000045 /* ShellPathResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellPathResolverTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000046 /* UpdateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateStateTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000047 /* MenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuState.swift; sourceTree = "<group>"; };
+		AA0000020000000000000048 /* MenuStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuStateTests.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* Tug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tug.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000030000000000000002 /* TugTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TugTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -86,6 +109,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000010000000000000019 /* Sparkle in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000040000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +128,7 @@
 				AA0000020000000000000005 /* Info.plist */,
 				AA0000020000000000000006 /* Tug.entitlements */,
 				AA0000060000000000000001 /* Sources */,
+				AA0000060000000000000003 /* TugTests */,
 				AA0000020000000000000004 /* Assets.xcassets */,
 				AA0000070000000000000001 /* Products */,
 			);
@@ -108,6 +139,7 @@
 			children = (
 				AA0000020000000000000007 /* main.swift */,
 				AA0000020000000000000001 /* AppDelegate.swift */,
+				AA0000020000000000000047 /* MenuState.swift */,
 				AA0000020000000000000002 /* MainWindow.swift */,
 				AA0000020000000000000003 /* ProcessManager.swift */,
 				AA000002000000000000000A /* TugbankClient.swift */,
@@ -149,10 +181,25 @@
 			path = TestHarness;
 			sourceTree = "<group>";
 		};
+		AA0000060000000000000003 /* TugTests */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000020000000000000041 /* TugTestsSupport.swift */,
+				AA0000020000000000000042 /* BranchSlugTests.swift */,
+				AA0000020000000000000043 /* BridgePathGuardTests.swift */,
+				AA0000020000000000000044 /* DictationStateTests.swift */,
+				AA0000020000000000000048 /* MenuStateTests.swift */,
+				AA0000020000000000000045 /* ShellPathResolverTests.swift */,
+				AA0000020000000000000046 /* UpdateStateTests.swift */,
+			);
+			path = TugTests;
+			sourceTree = "<group>";
+		};
 		AA0000070000000000000001 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				AA0000030000000000000001 /* Tug.app */,
+				AA0000030000000000000002 /* TugTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -183,6 +230,22 @@
 			productReference = AA0000030000000000000001 /* Tug.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AA0000080000000000000002 /* TugTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA0000090000000000000002 /* Build configuration list for PBXNativeTarget "TugTests" */;
+			buildPhases = (
+				AA00000A0000000000000002 /* Sources */,
+				AA0000040000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TugTests;
+			productName = TugTests;
+			productReference = AA0000030000000000000002 /* TugTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -210,6 +273,7 @@
 			projectRoot = "";
 			targets = (
 				AA0000080000000000000001 /* Tug */,
+				AA0000080000000000000002 /* TugTests */,
 			);
 		};
 /* End PBXProject section */
@@ -232,6 +296,7 @@
 			files = (
 				AA0000010000000000000005 /* main.swift in Sources */,
 				AA0000010000000000000001 /* AppDelegate.swift in Sources */,
+				AA000001000000000000004C /* MenuState.swift in Sources */,
 				AA0000010000000000000002 /* MainWindow.swift in Sources */,
 				AA0000010000000000000003 /* ProcessManager.swift in Sources */,
 				AA000001000000000000000A /* TugbankClient.swift in Sources */,
@@ -261,6 +326,26 @@
 				AA0000010000000000000025 /* DictationEngine.swift in Sources */,
 				AA0000010000000000000026 /* SpeechAnalyzerRecognizer.swift in Sources */,
 				AA0000010000000000000027 /* LegacySpeechRecognizer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA00000A0000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000010000000000000041 /* TugTestsSupport.swift in Sources */,
+				AA0000010000000000000047 /* BranchSlugTests.swift in Sources */,
+				AA0000010000000000000048 /* BridgePathGuardTests.swift in Sources */,
+				AA0000010000000000000049 /* DictationStateTests.swift in Sources */,
+				AA000001000000000000004E /* MenuStateTests.swift in Sources */,
+				AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */,
+				AA000001000000000000004B /* UpdateStateTests.swift in Sources */,
+				AA0000010000000000000042 /* BranchSlug.swift in Sources */,
+				AA0000010000000000000043 /* BridgePathGuard.swift in Sources */,
+				AA0000010000000000000044 /* DictationState.swift in Sources */,
+				AA000001000000000000004D /* MenuState.swift in Sources */,
+				AA0000010000000000000045 /* ShellPathResolver.swift in Sources */,
+				AA0000010000000000000046 /* UpdateState.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -493,6 +578,30 @@
 			};
 			name = Release;
 		};
+		AA00000F0000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.tugapp.TugTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA00000F0000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.tugapp.TugTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -501,6 +610,15 @@
 			buildConfigurations = (
 				AA00000F0000000000000001 /* Debug */,
 				AA00000F0000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA0000090000000000000002 /* Build configuration list for PBXNativeTarget "TugTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA00000F0000000000000003 /* Debug */,
+				AA00000F0000000000000004 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

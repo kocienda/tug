@@ -130,18 +130,20 @@ test-ts:
 
 # Run the Swift unit tests.
 #
-# None of them needs an XCTest bundle in the Xcode project: each script
-# concatenates the canonical source with its driver and runs the pair
-# through `swift -`, so the test exercises the file the app builds against
-# rather than a copy of its logic. That idiom only works for a source with
-# no app-type dependencies, which is why every one of them is Foundation-only.
+# `TugTests` is a host-less XCTest bundle: it compiles the app's
+# Foundation-only sources into itself, so it never launches Tug.app and a
+# run takes seconds. Its own derived-data directory keeps it from contending
+# with an app build in the same worktree.
+# A source joins the bundle when it gets a test, and only a source that
+# imports nothing past Foundation can: a test that needs AppKit, a window or
+# a menu is an app-test and lives in tests/app-test/.
 test-swift:
     @"{{justfile_directory()}}/tugrust/target/debug/tugtool" progress --label swift --needle "just test" -- running >/dev/null 2>&1 || true
-    bash tests/build-info/test-branch-slug.sh
-    bash tests/shell-path/test-shell-path-timeout.sh
-    bash tests/update/test-update-state.sh
-    bash tests/dictation/test-dictation-state.sh
-    bash tests/bridge-path-guard/test-bridge-path-guard.sh
+    bash tugrust/scripts/xcodebuild-quiet.sh "TugTests" \
+        -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
+        -destination 'platform=macOS,arch=arm64' \
+        -derivedDataPath "$(bash tugrust/scripts/derived-data-path.sh debug)-tests" \
+        test -only-testing:TugTests
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #

@@ -17,10 +17,8 @@ import Foundation
 /// expanded behavior above.
 ///
 /// Extracted as a top-level enum (rather than a method of BuildInfo)
-/// so the pure logic can be unit-tested without an XCTest bundle, via:
-///   tests/build-info/test-branch-slug.sh
-/// which concatenates this file with the test driver and runs the pair
-/// through `swift -`.
+/// so the pure logic compiles into the host-less TugTests bundle on its
+/// own (`tugapp/TugTests/BranchSlugTests.swift`).
 enum BranchSlug {
     static func compute(_ branch: String) -> String {
         var dashed = String.UnicodeScalarView()
