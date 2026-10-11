@@ -30,6 +30,7 @@ use tugcast_core::protocol::{FeedId, Frame, TugSessionId};
 
 use super::agent_supervisor::{
     LedgerEntry, SessionRecord, SessionsRecorder, SpawnState, build_session_state_frame,
+    offload_recorder,
 };
 use super::attribution::{
     CMD_ORIGIN, CommandClaims, DeclaredPromotions, InspectedReplayBatch, InspectedToolResult,
@@ -626,7 +627,7 @@ pub async fn run_session_bridge(
     // wire a ledger), replayed `turn_complete` frames pass through
     // unchanged and the client reducer's merge falls back to its
     // zero-telemetry derived block — correct behavior, no crash.
-    session_ledger: Option<Arc<crate::session_ledger::SessionLedger>>,
+    session_ledger: Option<crate::ledger_handle::LedgerHandle>,
     // The durable ink ledgers, so a rewind-fork can carry its line of work's
     // receipts and search history across with its callsign.
     // Recompute signal for the workspace's ChangesetFeed, fired after
@@ -735,7 +736,7 @@ pub async fn run_session_bridge(
                 // the picker can show what happened. Sessions that never
                 // reached `session_init` have no row yet — nothing to mark.
                 if let Some(id) = claude_id {
-                    sessions_recorder.mark_failed(&id);
+                    offload_recorder(&sessions_recorder, move |r| r.mark_failed(&id)).await;
                 }
                 if !already_closed {
                     error!(session = %tug_session_id, "crash budget exhausted");
@@ -856,8 +857,8 @@ pub async fn run_session_bridge(
             child.stdin,
             lines,
             &canonical_project_dir_str,
-            sessions_recorder.as_ref(),
-            session_ledger.as_deref(),
+            &sessions_recorder,
+            session_ledger.as_ref(),
             &changeset_bumper,
             &cancel,
         )
@@ -1049,8 +1050,8 @@ async fn run_relay_contained(
     stdin: Box<dyn AsyncWrite + Send + Unpin>,
     lines: Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>,
     project_dir: &str,
-    sessions_recorder: &dyn SessionsRecorder,
-    session_ledger: Option<&crate::session_ledger::SessionLedger>,
+    sessions_recorder: &Arc<dyn SessionsRecorder>,
+    session_ledger: Option<&crate::ledger_handle::LedgerHandle>,
     changeset_bumper: &crate::feeds::changeset::ChangesetBumper,
     cancel: &CancellationToken,
 ) -> (RelayOutcome, Option<String>) {
@@ -1332,7 +1333,7 @@ async fn record_exact_pending(
     canonical_project_dir: &CanonicalPath,
     repo_root_cache: &mut Option<CanonicalPath>,
     project_dir: &str,
-    ledger: &crate::session_ledger::SessionLedger,
+    ledger: &crate::ledger_handle::LedgerHandle,
 ) -> Option<String> {
     let at = if replayed {
         pending
@@ -1371,8 +1372,12 @@ async fn record_exact_pending(
         );
         return None;
     };
-    match ledger.record_file_event_with_spans(&row, &spans) {
-        Ok(()) => Some(row.file_path),
+    let file_path = row.file_path.clone();
+    match ledger
+        .run(move |l| l.record_file_event_with_spans(&row, &spans))
+        .await
+    {
+        Ok(()) => Some(file_path),
         Err(err) => {
             crate::ledger_integrity::health::note_error("changes", &err);
             warn!(
@@ -1403,7 +1408,7 @@ async fn record_cmd_event(
     canonical_project_dir: &CanonicalPath,
     repo_root_cache: &mut Option<CanonicalPath>,
     project_dir: &str,
-    ledger: &crate::session_ledger::SessionLedger,
+    ledger: &crate::ledger_handle::LedgerHandle,
 ) -> Option<String> {
     let absolute = file_path.to_string_lossy().into_owned();
     let file_root = file_repo_root(&absolute).await;
@@ -1441,8 +1446,13 @@ async fn record_cmd_event(
         project_dir: row_project_dir.as_str().to_owned(),
         at,
     };
-    match ledger.record_file_event_with_spans(&row, spans) {
-        Ok(()) => Some(row.file_path),
+    let file_path = row.file_path.clone();
+    let spans = spans.to_vec();
+    match ledger
+        .run(move |l| l.record_file_event_with_spans(&row, &spans))
+        .await
+    {
+        Ok(()) => Some(file_path),
         Err(err) => {
             crate::ledger_integrity::health::note_error("changes", &err);
             warn!(
@@ -1501,7 +1511,7 @@ async fn mint_replayed_cmd_rows(
     canonical_project_dir: &CanonicalPath,
     repo_root_cache: &mut Option<CanonicalPath>,
     project_dir: &str,
-    ledger: &crate::session_ledger::SessionLedger,
+    ledger: &crate::ledger_handle::LedgerHandle,
 ) -> bool {
     let at = cmd
         .timestamp
@@ -1560,7 +1570,7 @@ async fn mint_receipt_rows(
     canonical_project_dir: &CanonicalPath,
     repo_root_cache: &mut Option<CanonicalPath>,
     project_dir: &str,
-    ledger: &crate::session_ledger::SessionLedger,
+    ledger: &crate::ledger_handle::LedgerHandle,
 ) -> Vec<String> {
     let scan = parse_receipt_line(output);
     if scan.malformed {
@@ -1639,8 +1649,8 @@ pub async fn relay_session_io(
     stdin: Box<dyn AsyncWrite + Send + Unpin>,
     lines: Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>,
     project_dir: &str,
-    sessions_recorder: &dyn SessionsRecorder,
-    session_ledger: Option<&crate::session_ledger::SessionLedger>,
+    sessions_recorder: &Arc<dyn SessionsRecorder>,
+    session_ledger: Option<&crate::ledger_handle::LedgerHandle>,
     changeset_bumper: &crate::feeds::changeset::ChangesetBumper,
     cancel: &CancellationToken,
 ) -> RelayOutcome {
@@ -1685,11 +1695,11 @@ async fn relay_session_io_tracked(
     mut stdin: Box<dyn AsyncWrite + Send + Unpin>,
     mut lines: Lines<BufReader<Box<dyn AsyncRead + Send + Unpin>>>,
     project_dir: &str,
-    sessions_recorder: &dyn SessionsRecorder,
+    sessions_recorder: &Arc<dyn SessionsRecorder>,
     // Optional `SessionLedger` handle for per-turn telemetry reads
     // during the replay window. `None` in tests that don't wire a
     // ledger — replayed `turn_complete` frames pass through unchanged.
-    session_ledger: Option<&crate::session_ledger::SessionLedger>,
+    session_ledger: Option<&crate::ledger_handle::LedgerHandle>,
     // Fired after each file-event write so the workspace's ChangesetFeed
     // recomputes immediately. Disconnected in harnesses without a
     // workspace registry.
@@ -2087,15 +2097,23 @@ async fn relay_session_io_tracked(
                                     if let Some(ledger) = session_ledger {
                                         let owner = claude_id
                                             .as_deref()
-                                            .unwrap_or_else(|| tug_session_id.as_str());
-                                        match ledger.birth_line(
-                                            None,
-                                            owner,
-                                            entry.card_id.as_deref(),
-                                            project_dir,
-                                            None,
-                                            crate::session_ledger::now_millis(),
-                                        ) {
+                                            .unwrap_or_else(|| tug_session_id.as_str())
+                                            .to_string();
+                                        let card = entry.card_id.clone();
+                                        let dir = project_dir.to_string();
+                                        match ledger
+                                            .run(move |l| {
+                                                l.birth_line(
+                                                    None,
+                                                    &owner,
+                                                    card.as_deref(),
+                                                    &dir,
+                                                    None,
+                                                    crate::session_ledger::now_millis(),
+                                                )
+                                            })
+                                            .await
+                                        {
                                             Ok(line) => {
                                                 entry.line_id = Some(line.line_id.clone());
                                                 rebound = Some(line);
@@ -2113,16 +2131,26 @@ async fn relay_session_io_tracked(
                                     // carried one. Read it off the parent the
                                     // announcement named, else off whatever row
                                     // this id already has.
-                                    entry.line_id = session_ledger.and_then(|ledger| {
-                                        segment
-                                            .as_ref()
-                                            .and_then(|s| ledger.line_of(&s.parent_session_id))
-                                            .or_else(|| {
-                                                claude_id
-                                                    .as_deref()
-                                                    .and_then(|id| ledger.line_of(id))
-                                            })
-                                    });
+                                    entry.line_id = match session_ledger {
+                                        Some(ledger) => {
+                                            let parent = segment
+                                                .as_ref()
+                                                .map(|s| s.parent_session_id.clone());
+                                            let own = claude_id.clone();
+                                            ledger
+                                                .run(move |l| {
+                                                    parent
+                                                        .as_deref()
+                                                        .and_then(|p| l.line_of(p))
+                                                        .or_else(|| {
+                                                            own.as_deref()
+                                                                .and_then(|id| l.line_of(id))
+                                                        })
+                                                })
+                                                .await
+                                        }
+                                        None => None,
+                                    };
                                 }
                                 // An id that changed with nothing announcing it
                                 // is the case that used to strand a segment from
@@ -2201,14 +2229,25 @@ async fn relay_session_io_tracked(
                             // "live, no current card" and a later real bind
                             // overwrites it.
                             let card_id_for_ledger = card_id.as_deref().unwrap_or("");
-                            sessions_recorder.record(SessionRecord {
-                                session_id: record_id,
-                                workspace_key: &workspace_key,
-                                project_dir,
-                                card_id: card_id_for_ledger,
-                                tag: tag.as_deref(),
-                                line_id: entry_line_id.as_deref(),
-                            });
+                            {
+                                let record_id = record_id.to_owned();
+                                let workspace_key = workspace_key.clone();
+                                let project_dir = project_dir.to_owned();
+                                let card_id = card_id_for_ledger.to_owned();
+                                let tag = tag.clone();
+                                let line_id = entry_line_id.clone();
+                                offload_recorder(sessions_recorder, move |r| {
+                                    r.record(SessionRecord {
+                                        session_id: &record_id,
+                                        workspace_key: &workspace_key,
+                                        project_dir: &project_dir,
+                                        card_id: &card_id,
+                                        tag: tag.as_deref(),
+                                        line_id: line_id.as_deref(),
+                                    })
+                                })
+                                .await;
+                            }
                             // **The card's seat moved.** The row push above
                             // told the deck the segment exists and which line
                             // it is on; it did not say the card is now sitting
@@ -2246,34 +2285,41 @@ async fn relay_session_io_tracked(
                             // The segment now exists on its line; write its
                             // provenance beside it.
                             if let (Some(ledger), Some(fork)) = (session_ledger, &segment) {
-                                if let Err(err) = ledger.set_fork_provenance(
-                                    record_id,
-                                    &fork.parent_session_id,
-                                    fork.fork_point.as_deref(),
-                                ) {
-                                    warn!(
-                                        session = %tug_session_id,
-                                        error = %err,
-                                        "set_fork_provenance failed; the fork keeps its callsign but loses its parentage record"
-                                    );
-                                }
-                                // What the rotation seated it as, beside where
-                                // it came from: the fork edge and these two
-                                // columns are the whole of what a restore needs
-                                // to redraw the transcript's divider ([P10]).
-                                if let Some(label) = fork.stage_label.as_deref() {
-                                    if let Err(err) = ledger.set_stage_provenance(
-                                        record_id,
-                                        label,
-                                        fork.stage_model.as_deref(),
-                                    ) {
-                                        warn!(
-                                            session = %tug_session_id,
-                                            error = %err,
-                                            "set_stage_provenance failed; the rotation lands but its divider will not survive a relaunch"
-                                        );
-                                    }
-                                }
+                                let record_id = record_id.to_string();
+                                let fork = fork.clone();
+                                let sid = tug_session_id.clone();
+                                ledger
+                                    .run(move |ledger| {
+                                        if let Err(err) = ledger.set_fork_provenance(
+                                            &record_id,
+                                            &fork.parent_session_id,
+                                            fork.fork_point.as_deref(),
+                                        ) {
+                                            warn!(
+                                                session = %sid,
+                                                error = %err,
+                                                "set_fork_provenance failed; the fork keeps its callsign but loses its parentage record"
+                                            );
+                                        }
+                                        // What the rotation seated it as, beside where
+                                        // it came from: the fork edge and these two
+                                        // columns are the whole of what a restore needs
+                                        // to redraw the transcript's divider ([P10]).
+                                        if let Some(label) = fork.stage_label.as_deref() {
+                                            if let Err(err) = ledger.set_stage_provenance(
+                                                &record_id,
+                                                label,
+                                                fork.stage_model.as_deref(),
+                                            ) {
+                                                warn!(
+                                                    session = %sid,
+                                                    error = %err,
+                                                    "set_stage_provenance failed; the rotation lands but its divider will not survive a relaunch"
+                                                );
+                                            }
+                                        }
+                                    })
+                                    .await;
                             }
                         }
 
@@ -2306,7 +2352,15 @@ async fn relay_session_io_tracked(
                                     entry.claude_session_id.clone()
                                 };
                                 if let Some(id) = claude_id {
-                                    match ledger.list_turn_telemetry(&id) {
+                                    let (telemetry, breakdown) = ledger
+                                        .run(move |l| {
+                                            (
+                                                l.list_turn_telemetry(&id),
+                                                l.get_context_breakdown(&id),
+                                            )
+                                        })
+                                        .await;
+                                    match telemetry {
                                         Ok(rows) => {
                                             let map = rows
                                                 .into_iter()
@@ -2345,7 +2399,7 @@ async fn relay_session_io_tracked(
                                     // robust to any whitespace / key-order
                                     // shifts in how the payload was
                                     // originally serialized.
-                                    match ledger.get_context_breakdown(&id) {
+                                    match breakdown {
                                         Ok(Some(row)) => {
                                             match serde_json::from_slice::<serde_json::Value>(
                                                 &row.payload,
@@ -2471,9 +2525,15 @@ async fn relay_session_io_tracked(
                                 )
                             };
                             if let Some(id) = claude_id {
-                                if let Some(engine_total) =
-                                    sessions_recorder.engine_turn_count(&id, project_dir)
-                                {
+                                // The tip's count and the lineage sum, read
+                                // in one trip off the worker.
+                                let counts = {
+                                    let id = id.clone();
+                                    let lineage = lineage.clone();
+                                    let project_dir = project_dir.to_owned();
+                                    offload_recorder(sessions_recorder, move |r| {
+                                        let engine_total =
+                                            r.engine_turn_count(&id, &project_dir)?;
                                     // The denominator counts the segments this
                                     // replay actually walked ([B01]). *X* is
                                     // every turn the transcript holds and a
@@ -2492,14 +2552,18 @@ async fn relay_session_io_tracked(
                                                 if segment == &id {
                                                     engine_total
                                                 } else {
-                                                    sessions_recorder
-                                                        .engine_turn_count(segment, project_dir)
+                                                    r.engine_turn_count(segment, &project_dir)
                                                         .unwrap_or(0)
                                                 }
                                             })
                                             .sum(),
                                         None => engine_total,
                                     };
+                                        Some((engine_total, stamped_total))
+                                    })
+                                    .await
+                                };
+                                if let Some((engine_total, stamped_total)) = counts {
                                     if let Some(wire_total) =
                                         parse_replay_complete_total_turns(&line)
                                     {
@@ -2528,7 +2592,10 @@ async fn relay_session_io_tracked(
                                     // rows, so writing the lineage sum here
                                     // would double-count the line and set the
                                     // masthead climbing on every restore.
-                                    sessions_recorder.set_turn_count(&id, engine_total);
+                                    offload_recorder(sessions_recorder, move |r| {
+                                        r.set_turn_count(&id, engine_total)
+                                    })
+                                    .await;
                                 }
                             }
                         }
@@ -2587,7 +2654,10 @@ async fn relay_session_io_tracked(
                                     entry.claude_session_id.clone()
                                 };
                                 if let Some(id) = claude_id {
-                                    sessions_recorder.record_turn(&id);
+                                    offload_recorder(sessions_recorder, move |r| {
+                                        r.record_turn(&id)
+                                    })
+                                    .await;
                                 }
                                 // Close the turn-scoped fallback bracket ([P05]):
                                 // attribute any working-tree delta this live turn
@@ -2600,8 +2670,7 @@ async fn relay_session_io_tracked(
                                 {
                                     let post = snapshot_worktree(&bracket.repo_root).await;
                                     let at = crate::session_ledger::now_millis();
-                                    let mut recorded = false;
-                                    for row in bracket.into_delta_rows(
+                                    let rows: Vec<_> = bracket.into_delta_rows(
                                         &post,
                                         &canonical_project_dir,
                                         "Turn",
@@ -2622,23 +2691,31 @@ async fn relay_session_io_tracked(
                                         // one line below regardless.
                                         &CommandClaims::restoring(&turn_restored_paths),
                                         at,
-                                    ) {
-                                        if turn_recorded_paths.contains(&row.file_path) {
-                                            continue;
-                                        }
-                                        if let Err(err) = ledger.record_file_event(&row) {
-                                            crate::ledger_integrity::health::note_error(
-                                                "changes", &err,
-                                            );
-                                            warn!(
-                                                session = %tug_session_id,
-                                                error = %err,
-                                                "record_file_event (turn) failed; frame forwarded unchanged"
-                                            );
-                                        } else {
-                                            recorded = true;
-                                        }
-                                    }
+                                    )
+                                    .into_iter()
+                                    .filter(|row| !turn_recorded_paths.contains(&row.file_path))
+                                    .collect();
+                                    let sid = tug_session_id.clone();
+                                    let recorded = ledger
+                                        .run(move |ledger| {
+                                            let mut recorded = false;
+                                            for row in rows {
+                                                if let Err(err) = ledger.record_file_event(&row) {
+                                                    crate::ledger_integrity::health::note_error(
+                                                        "changes", &err,
+                                                    );
+                                                    warn!(
+                                                        session = %sid,
+                                                        error = %err,
+                                                        "record_file_event (turn) failed; frame forwarded unchanged"
+                                                    );
+                                                } else {
+                                                    recorded = true;
+                                                }
+                                            }
+                                            recorded
+                                        })
+                                        .await;
                                     if recorded {
                                         changeset_bumper.bump(Path::new(project_dir));
                                     }
@@ -2677,12 +2754,15 @@ async fn relay_session_io_tracked(
                                 entry.claude_session_id.clone()
                             };
                             match (session_ledger, claude_id) {
-                                (Some(ledger), Some(id)) => merge_and_persist_system_metadata(
-                                    line.as_bytes(),
-                                    ledger,
-                                    &id,
-                                    tug_session_id,
-                                ),
+                                (Some(ledger), Some(id)) => {
+                                    let bytes = line.as_bytes().to_vec();
+                                    let sid = tug_session_id.clone();
+                                    ledger
+                                        .run(move |l| {
+                                            merge_and_persist_system_metadata(&bytes, l, &id, &sid)
+                                        })
+                                        .await
+                                }
                                 _ => line.as_bytes().to_vec(),
                             }
                         } else {
@@ -2716,7 +2796,11 @@ async fn relay_session_io_tracked(
                                     entry.claude_session_id.clone()
                                 }
                                 .unwrap_or_else(|| tug_session_id.as_str().to_owned());
-                                match ledger.record_auto_title(&row_id, &title) {
+                                let title_row = row_id.clone();
+                                match ledger
+                                    .run(move |l| l.record_auto_title(&title_row, &title))
+                                    .await
+                                {
                                     Ok(true) => info!(
                                         session = %tug_session_id,
                                         row = %row_id,
@@ -2750,7 +2834,13 @@ async fn relay_session_io_tracked(
                                     stale_session_id = stale.as_str(),
                                     reason = reason.as_str(),
                                 );
-                                sessions_recorder.mark_failed(&stale);
+                                {
+                                    let stale = stale.clone();
+                                    offload_recorder(sessions_recorder, move |r| {
+                                        r.mark_failed(&stale)
+                                    })
+                                    .await;
+                                }
                                 resume_failed = Some((stale, reason));
                             }
                         }
@@ -2789,29 +2879,32 @@ async fn relay_session_io_tracked(
                             };
                             match value.get("frames").and_then(|f| f.as_array()) {
                                 Some(frames) => {
-                                    for frame in frames {
-                                        if frame.get("type").and_then(|t| t.as_str())
-                                            == Some("compact_boundary")
-                                        {
-                                            record_compact_fact(
-                                                ledger,
-                                                tug_session_id,
-                                                frame,
-                                                frame_at(frame),
-                                            );
-                                        }
-                                    }
+                                    let boundaries: Vec<(serde_json::Value, i64)> = frames
+                                        .iter()
+                                        .filter(|frame| {
+                                            frame.get("type").and_then(|t| t.as_str())
+                                                == Some("compact_boundary")
+                                        })
+                                        .map(|frame| (frame.clone(), frame_at(frame)))
+                                        .collect();
+                                    let sid = tug_session_id.clone();
+                                    ledger
+                                        .run(move |l| {
+                                            for (frame, at) in &boundaries {
+                                                record_compact_fact(l, &sid, frame, *at);
+                                            }
+                                        })
+                                        .await;
                                 }
                                 None => {
                                     if value.get("type").and_then(|t| t.as_str())
                                         == Some("compact_boundary")
                                     {
-                                        record_compact_fact(
-                                            ledger,
-                                            tug_session_id,
-                                            &value,
-                                            frame_at(&value),
-                                        );
+                                        let at = frame_at(&value);
+                                        let sid = tug_session_id.clone();
+                                        ledger
+                                            .run(move |l| record_compact_fact(l, &sid, &value, at))
+                                            .await;
                                     }
                                 }
                             }
@@ -2909,14 +3002,24 @@ async fn relay_session_io_tracked(
                                                 if let Some(pending) =
                                                     pending_shell_facts.take(&tr.tool_use_id)
                                                 {
-                                                    record_shell_facts(
-                                                        ledger,
-                                                        tug_session_id,
-                                                        pending,
-                                                        &tr.tool_use_id,
-                                                        &tr.output,
+                                                    let (sid, tool_use_id, output, is_error) = (
+                                                        tug_session_id.clone(),
+                                                        tr.tool_use_id.to_string(),
+                                                        tr.output.to_string(),
                                                         tr.is_error,
                                                     );
+                                                    ledger
+                                                        .run(move |l| {
+                                                            record_shell_facts(
+                                                                l,
+                                                                &sid,
+                                                                pending,
+                                                                &tool_use_id,
+                                                                &output,
+                                                                is_error,
+                                                            )
+                                                        })
+                                                        .await;
                                                 }
                                                 if let Some(cmd) =
                                                     pending_cmds.take(&tr.tool_use_id)
@@ -3103,14 +3206,24 @@ async fn relay_session_io_tracked(
                                     if let Some(pending) =
                                         pending_shell_facts.take(&tr.tool_use_id)
                                     {
-                                        record_shell_facts(
-                                            ledger,
-                                            tug_session_id,
-                                            pending,
-                                            &tr.tool_use_id,
-                                            &tr.output,
+                                        let (sid, tool_use_id, output, is_error) = (
+                                            tug_session_id.clone(),
+                                            tr.tool_use_id.to_string(),
+                                            tr.output.to_string(),
                                             tr.is_error,
                                         );
+                                        ledger
+                                            .run(move |l| {
+                                                record_shell_facts(
+                                                    l,
+                                                    &sid,
+                                                    pending,
+                                                    &tool_use_id,
+                                                    &output,
+                                                    is_error,
+                                                )
+                                            })
+                                            .await;
                                     }
                                     if let Some(pending) = pending_calls.take(&tr.tool_use_id) {
                                         // Exact call. is_error → dropped
@@ -3261,11 +3374,16 @@ async fn relay_session_io_tracked(
                                             } else {
                                                 Vec::new()
                                             };
-                                            let recording = if spans.is_empty() {
-                                                ledger.record_file_event(&row)
-                                            } else {
-                                                ledger.record_file_event_with_spans(&row, &spans)
-                                            };
+                                            let file_path = row.file_path.clone();
+                                            let recording = ledger
+                                                .run(move |l| {
+                                                    if spans.is_empty() {
+                                                        l.record_file_event(&row)
+                                                    } else {
+                                                        l.record_file_event_with_spans(&row, &spans)
+                                                    }
+                                                })
+                                                .await;
                                             if let Err(err) = recording {
                                                 crate::ledger_integrity::health::note_error(
                                                     "changes", &err,
@@ -3277,7 +3395,7 @@ async fn relay_session_io_tracked(
                                                 );
                                             } else {
                                                 if open_turn.is_some() {
-                                                    turn_recorded_paths.insert(row.file_path.clone());
+                                                    turn_recorded_paths.insert(file_path);
                                                 }
                                                 recorded = true;
                                             }
@@ -3437,7 +3555,11 @@ async fn relay_session_io_tracked(
                         };
                         if let Some(id) = claude_id {
                             let truncated = crate::session_ledger::truncate_user_prompt(text);
-                            sessions_recorder.record_user_prompt(&id, &truncated);
+                            let truncated = truncated.to_owned();
+                            offload_recorder(sessions_recorder, move |r| {
+                                r.record_user_prompt(&id, &truncated)
+                            })
+                            .await;
                         }
                         // The same prompt, kept whole and kept forever. The
                         // snippet above is one overwritten 256-char field the
@@ -3448,15 +3570,20 @@ async fn relay_session_io_tracked(
                         if let Some(ledger) = session_ledger
                             && !crate::feeds::facts_library::is_local_command_bookkeeping(text)
                         {
-                            record_fact_best_effort(
-                                ledger,
-                                tug_session_id,
-                                &crate::feeds::facts_library::prompt_fact(
-                                    crate::session_ledger::now_millis(),
-                                    tug_session_id.as_str(),
-                                    text,
-                                ),
-                            );
+                            let (sid, text) = (tug_session_id.clone(), text.to_string());
+                            ledger
+                                .run(move |l| {
+                                    record_fact_best_effort(
+                                        l,
+                                        &sid,
+                                        &crate::feeds::facts_library::prompt_fact(
+                                            crate::session_ledger::now_millis(),
+                                            sid.as_str(),
+                                            &text,
+                                        ),
+                                    )
+                                })
+                                .await;
                         }
                     }
 
@@ -3888,7 +4015,9 @@ mod tests {
             .join("note.md");
         std::fs::write(&away_file, "x").expect("write");
 
-        let ledger = crate::session_ledger::SessionLedger::open_in_memory().expect("ledger");
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        let handle = crate::ledger_handle::LedgerHandle::new(Arc::clone(&ledger));
         let session = TugSessionId::new("sess");
         let canonical_project_dir = CanonicalPath::from_raw(&root);
         let project_dir = root.to_string_lossy().into_owned();
@@ -3905,7 +4034,7 @@ mod tests {
             &canonical_project_dir,
             &mut cache,
             &project_dir,
-            &ledger,
+            &handle,
         )
         .await;
         assert_eq!(inside.as_deref(), Some("a.rs"), "in-repo, repo-relative");
@@ -3921,7 +4050,7 @@ mod tests {
             &canonical_project_dir,
             &mut cache,
             &project_dir,
-            &ledger,
+            &handle,
         )
         .await;
         assert!(outside.is_none(), "outside the repo records nothing");
@@ -3948,7 +4077,9 @@ mod tests {
         std::fs::create_dir(other_root.join("src")).expect("mkdir");
         std::fs::write(other_root.join("src/b.rs"), "x").expect("write");
 
-        let ledger = crate::session_ledger::SessionLedger::open_in_memory().expect("ledger");
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        let handle = crate::ledger_handle::LedgerHandle::new(Arc::clone(&ledger));
         let session = TugSessionId::new("sess");
         let canonical_project_dir = CanonicalPath::from_raw(&session_root);
         let project_dir = session_root.to_string_lossy().into_owned();
@@ -3972,7 +4103,7 @@ mod tests {
             &canonical_project_dir,
             &mut cache,
             &project_dir,
-            &ledger,
+            &handle,
         )
         .await;
         assert_eq!(recorded.as_deref(), Some("src/b.rs"));
@@ -4004,7 +4135,9 @@ mod tests {
         tugcore::test_fixtures::git::GitFixture::init(&root);
         std::fs::write(root.join("a.rs"), "x").expect("write");
 
-        let ledger = crate::session_ledger::SessionLedger::open_in_memory().expect("ledger");
+        let ledger =
+            Arc::new(crate::session_ledger::SessionLedger::open_in_memory().expect("ledger"));
+        let handle = crate::ledger_handle::LedgerHandle::new(Arc::clone(&ledger));
         let session = TugSessionId::new("sess");
         let canonical_project_dir = CanonicalPath::from_raw(&root);
         let project_dir = root.to_string_lossy().into_owned();
@@ -4033,7 +4166,7 @@ mod tests {
             &canonical_project_dir,
             &mut cache,
             &project_dir,
-            &ledger,
+            &handle,
         )
         .await;
         assert_eq!(recorded.as_deref(), Some("a.rs"));
@@ -4126,7 +4259,7 @@ mod tests {
         let project_dir_owned = project_dir.to_string();
         let ledger_for_relay = ledger.clone();
         let relay = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_session_id,
                 &ledger_entry,
@@ -4138,7 +4271,9 @@ mod tests {
                 lines,
                 &project_dir_owned,
                 &recorder,
-                Some(ledger_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -4213,7 +4348,7 @@ mod tests {
         let reader: Box<dyn AsyncRead + Send + Unpin> = Box::new(relay_stdout_r);
         let lines = BufReader::new(reader).lines();
 
-        let recorder_for_relay = Arc::clone(&recorder);
+        let recorder_for_relay: Arc<dyn SessionsRecorder> = recorder.clone();
         let relay = tokio::spawn(async move {
             relay_session_io(
                 &tug_session_id,
@@ -4225,7 +4360,7 @@ mod tests {
                 Box::new(relay_stdin_w),
                 lines,
                 "/proj",
-                recorder_for_relay.as_ref(),
+                &recorder_for_relay,
                 None,
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
@@ -4376,7 +4511,8 @@ mod tests {
         let entry_for_relay = ledger_entry.clone();
         let control_for_relay = control_tx.clone();
         let relay = tokio::spawn(async move {
-            let recorder = LedgerSessionsRecorder::new(Arc::clone(&ledger_for_relay));
+            let recorder: Arc<dyn SessionsRecorder> =
+                Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger_for_relay)));
             relay_session_io(
                 &tug_session_id,
                 &entry_for_relay,
@@ -4388,7 +4524,9 @@ mod tests {
                 lines,
                 "/proj",
                 &recorder,
-                Some(ledger_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -4867,6 +5005,43 @@ mod tests {
         assert_eq!(facts[0].2, "context compacted (auto): from 140000 tokens");
     }
 
+    /// The relay's ledger writes — a shell fact, an exact file event, a
+    /// compaction fact — driven on real workers under the strict gauge: a
+    /// `SessionLedger` lock taken on a worker outside the facade panics the
+    /// relay task, so the rows landing is the proof they ran off the worker.
+    #[test]
+    fn bridge_ledger_paths_never_lock_on_a_worker() {
+        use crate::worker_gauge::{strict_test_runtime, violations};
+
+        let rt = strict_test_runtime(2);
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        let bash_use = r#"{"type":"tool_use","tool_name":"Bash","tool_use_id":"tu-bash","input":{"command":"cargo build"},"timestamp":1700000000000}"#;
+        let bash_result = r#"{"type":"tool_result","tool_use_id":"tu-bash","output":"    Finished in 3s","is_error":false}"#;
+        let write_use = r#"{"type":"tool_use","tool_name":"Write","tool_use_id":"tu-write","input":{"file_path":"/proj/a.rs","content":"x"}}"#;
+        let write_result =
+            r#"{"type":"tool_result","tool_use_id":"tu-write","output":"ok","is_error":false}"#;
+        let compact = r#"{"type":"compact_boundary","trigger":"auto","pre_tokens":140000,"timestamp":1753460000000}"#;
+
+        let relay_ledger = Arc::clone(&ledger);
+        rt.block_on(rt.spawn(async move {
+            drive_relay(
+                relay_ledger,
+                "tug-1",
+                "/proj",
+                &[bash_use, bash_result, write_use, write_result, compact],
+            )
+            .await;
+        }))
+        .expect("the relay never locked the ledger on a worker");
+
+        let kinds: Vec<String> = relay_facts(&ledger).into_iter().map(|f| f.0).collect();
+        assert_eq!(kinds, ["shell", "session.compacted"]);
+        let rows = ledger.file_events_for_session("tug-1").unwrap();
+        assert_eq!(rows.len(), 1, "the Write landed as one exact event");
+        assert_eq!(rows[0].file_path, "/proj/a.rs");
+        assert_eq!(violations(), 0);
+    }
+
     #[tokio::test]
     async fn attribution_records_one_row_for_write_and_forwards_frames_unchanged() {
         let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
@@ -5337,7 +5512,7 @@ mod tests {
 
         let ledger_for_relay = ledger.clone();
         let relay = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_session_id,
                 &ledger_entry,
@@ -5349,7 +5524,9 @@ mod tests {
                 lines,
                 &project_dir,
                 &recorder,
-                Some(ledger_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5737,7 +5914,7 @@ mod tests {
 
         let ledger_for_relay = ledger.clone();
         let relay = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_session_id,
                 &ledger_entry,
@@ -5749,7 +5926,9 @@ mod tests {
                 lines,
                 &project_dir,
                 &recorder,
-                Some(ledger_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5861,7 +6040,7 @@ mod tests {
 
         let ledger_for_relay = ledger.clone();
         let relay = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_session_id,
                 &ledger_entry,
@@ -5873,7 +6052,9 @@ mod tests {
                 lines,
                 &project_dir,
                 &recorder,
-                Some(ledger_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -5959,7 +6140,7 @@ mod tests {
 
         let ledger_for_relay = ledger.clone();
         let relay = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_session_id,
                 &ledger_entry,
@@ -5971,7 +6152,9 @@ mod tests {
                 lines,
                 &project_dir,
                 &recorder,
-                Some(ledger_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel,
             )
@@ -6107,7 +6290,7 @@ mod tests {
         let project_a = project_dir.clone();
         let ledger_a_for_relay = ledger_a.clone();
         let relay_a = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_a,
                 &ledger_entry_a,
@@ -6119,7 +6302,9 @@ mod tests {
                 lines_a,
                 &project_a,
                 &recorder,
-                Some(ledger_a_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_a_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel_a,
             )
@@ -6163,7 +6348,7 @@ mod tests {
         let project_b = project_dir.clone();
         let ledger_b_for_relay = ledger_b.clone();
         let relay_b = tokio::spawn(async move {
-            let recorder = NoopSessionsRecorder;
+            let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
             relay_session_io(
                 &tug_b,
                 &ledger_entry_b,
@@ -6175,7 +6360,9 @@ mod tests {
                 lines_b,
                 &project_b,
                 &recorder,
-                Some(ledger_b_for_relay.as_ref()),
+                Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                    &ledger_b_for_relay,
+                ))),
                 &crate::feeds::changeset::ChangesetBumper::disconnected(),
                 &cancel_b,
             )

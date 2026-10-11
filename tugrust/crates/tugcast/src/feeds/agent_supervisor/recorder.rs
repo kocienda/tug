@@ -38,6 +38,11 @@ pub struct SessionRecord<'a> {
 /// No method has a default impl. Adding a method to this trait must force
 /// every implementor to opt in explicitly — silently inheriting an old
 /// behavior was the regression-shape that motivated the redesign.
+///
+/// **A blocking interface.** Every method locks the ledger (and a routed
+/// write may wait on the network), so an `async fn` never calls one inline:
+/// it goes through [`offload_recorder`], which runs the call on the blocking
+/// pool. A call made inline from a worker trips the worker gauge.
 pub trait SessionsRecorder: Send + Sync {
     /// Insert a fresh row, or transition an existing row back to `live` and
     /// rebind it to `record.card_id`. Called from the bridge on
@@ -169,6 +174,18 @@ pub trait SessionsRecorder: Send + Sync {
     fn project_dir_of(&self, _session_id: &str) -> Option<String> {
         None
     }
+}
+
+/// Call the recorder on the blocking pool and await the answer — the one way
+/// an `async fn` reaches a [`SessionsRecorder`]. `f` takes owned captures; a
+/// [`SessionRecord`] borrows, so it is built inside `f`.
+pub(crate) async fn offload_recorder<R, F>(recorder: &Arc<dyn SessionsRecorder>, f: F) -> R
+where
+    R: Send + 'static,
+    F: FnOnce(&dyn SessionsRecorder) -> R + Send + 'static,
+{
+    let recorder = Arc::clone(recorder);
+    crate::ledger_handle::offload(move || f(recorder.as_ref())).await
 }
 
 /// Production implementation backed by a shared [`SessionLedger`].
@@ -1070,5 +1087,127 @@ mod tests {
         let row = ledger.get("claude-abc").unwrap().expect("row");
         assert_eq!(row.turn_count, 0);
         assert_eq!(row.state, LedgerState::Closed);
+    }
+
+    /// The bridge's recorder calls — `record` on `session_init`,
+    /// `record_user_prompt` on an inbound prompt, `record_turn` on a live
+    /// `turn_complete` — driven through the real relay on workers under the
+    /// strict gauge. A recorder call made inline on a worker panics the relay
+    /// task, so each write landing is the proof it ran off the worker.
+    #[test]
+    fn recorder_calls_never_lock_on_a_worker() {
+        use crate::feeds::agent_bridge::{CrashBudget, SessionMode, relay_session_io};
+        use crate::feeds::workspace_registry::WorkspaceKey;
+        use crate::worker_gauge::{strict_test_runtime, violations};
+        use std::time::Duration;
+        use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+
+        let rt = strict_test_runtime(2);
+        let ledger = Arc::new(SessionLedger::open_in_memory().expect("ledger open"));
+        let recorder: Arc<dyn SessionsRecorder> =
+            Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger)));
+
+        // Polled from the `block_on` thread, which is not a worker.
+        async fn until(what: &str, mut done: impl FnMut() -> bool) {
+            for _ in 0..400 {
+                if done() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            panic!("{what} never landed");
+        }
+
+        rt.block_on(async {
+            let tug_session_id = TugSessionId::new("tug-rec".to_string());
+            let entry = Arc::new(Mutex::new(LedgerEntry::new(
+                tug_session_id.clone(),
+                WorkspaceKey::from_test_str("ws-test"),
+                PathBuf::from("/proj"),
+                SessionMode::New,
+                CrashBudget::new(3, Duration::from_secs(60)),
+            )));
+            entry.lock().await.card_id = Some("card-1".to_string());
+
+            let (input_tx, mut input_rx) = mpsc::channel::<Frame>(16);
+            let (merger_tx, _merger_rx) = mpsc::channel::<Frame>(256);
+            let (state_tx, _state_rx) = broadcast::channel::<Frame>(64);
+            let (relay_stdin_w, _tugcode_stdin_r) = tokio::io::duplex(64 * 1024);
+            let (relay_stdout_r, mut feed_w) = tokio::io::duplex(256 * 1024);
+            let reader: Box<dyn AsyncRead + Send + Unpin> = Box::new(relay_stdout_r);
+            let lines = BufReader::new(reader).lines();
+
+            let relay = tokio::spawn({
+                let recorder = Arc::clone(&recorder);
+                async move {
+                    relay_session_io(
+                        &tug_session_id,
+                        &entry,
+                        &mut input_rx,
+                        &merger_tx,
+                        &state_tx,
+                        None,
+                        Box::new(relay_stdin_w),
+                        lines,
+                        "/proj",
+                        &recorder,
+                        None,
+                        &crate::feeds::changeset::ChangesetBumper::disconnected(),
+                        &CancellationToken::new(),
+                    )
+                    .await
+                }
+            });
+
+            feed_w
+                .write_all(b"{\"type\":\"protocol_ack\"}\n{\"type\":\"session_init\",\"session_id\":\"claude-rec\"}\n")
+                .await
+                .expect("write init");
+            until("the session row", || {
+                ledger.get("claude-rec").unwrap().is_some()
+            })
+            .await;
+
+            input_tx
+                .send(Frame::new(
+                    FeedId::CODE_INPUT,
+                    br#"{"type":"user_message","text":"fix the parser","attachments":[]}"#
+                        .to_vec(),
+                ))
+                .await
+                .expect("send prompt");
+            until("the prompt snippet", || {
+                ledger.get("claude-rec").unwrap().unwrap().last_user_prompt.is_some()
+            })
+            .await;
+
+            let before = ledger.get("claude-rec").unwrap().unwrap().last_used_at;
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            feed_w
+                .write_all(b"{\"type\":\"turn_complete\",\"result\":\"success\"}\n")
+                .await
+                .expect("write turn_complete");
+            until("the turn's last_used_at", || {
+                ledger.get("claude-rec").unwrap().unwrap().last_used_at > before
+            })
+            .await;
+
+            drop(feed_w);
+            drop(input_tx);
+            relay
+                .await
+                .expect("the relay never locked the ledger on a worker");
+        });
+
+        let row = ledger.get("claude-rec").unwrap().expect("row");
+        assert_eq!(row.state, LedgerState::Live);
+        assert_eq!(row.workspace_key, "ws-test");
+        assert_eq!(row.card_id.as_deref(), Some("card-1"));
+        assert_eq!(row.last_user_prompt.as_deref(), Some("fix the parser"));
+        assert_eq!(
+            row.turn_count, 0,
+            "a live turn bumps usage, never the count"
+        );
+        assert_eq!(violations(), 0);
     }
 }

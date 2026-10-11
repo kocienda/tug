@@ -29,6 +29,14 @@
 //! and nothing is left pending, and it is reported to the caller as that
 //! one gesture's failure rather than latching the process-wide degraded
 //! flag the deck renders as a damaged ledger.
+//!
+//! Lock order inside the ledger is `forward_order` → `changes_access` →
+//! `db` → `changes_journal`, and a forwarded record's network send runs
+//! under none of them: [`ChangesForwarder::ticket`] snapshots what the
+//! send needs while `changes_access` is held, the send runs on the
+//! forwarder's own runtime with the lock released, and the outcome is
+//! settled under the lock again. `forward_order` keeps forwarded records
+//! in issue order now that `changes_access` no longer does.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -72,7 +80,7 @@ impl ChangesAccess {
 }
 
 /// Why a forwarded write did not land.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ForwardError {
     /// No reachable owner: no published claim, or its process is gone.
     NoOwner,
@@ -100,70 +108,101 @@ impl std::fmt::Display for ForwardError {
 /// to the owning instance and holds what it cannot yet deliver.
 pub struct ChangesForwarder {
     changes_db: PathBuf,
-    agent: ureq::Agent,
+    /// `None` if the client failed to build; every send then reports
+    /// [`ForwardError::NoOwner`], which routes into the takeover path.
+    client: Option<reqwest::Client>,
+    /// The one runtime every send runs on, so the client's connection pool
+    /// is bound to one I/O driver and the sync write path can block on a
+    /// send from any thread. `None` if it failed to build; taken in `Drop`.
+    rt: Option<tokio::runtime::Runtime>,
     pending: VecDeque<Record>,
     /// Count of records dropped past [`PENDING_CAP`], for the log line.
     dropped: u64,
     last_attempt: Option<Instant>,
 }
 
+/// One record on its way to the owner: everything the send needs,
+/// snapshotted under `changes_access` so the send itself can run without it.
+pub(crate) struct ForwardTicket {
+    pub(crate) record: Record,
+    /// The ledger's takeover generation when the ticket was cut; settling
+    /// against a different one means a takeover landed during the send.
+    pub(crate) generation: u64,
+    dispatch: Result<Dispatch, ForwardError>,
+}
+
+struct Dispatch {
+    url: String,
+    body: Vec<u8>,
+    client: reqwest::Client,
+    rt: tokio::runtime::Handle,
+}
+
 impl ChangesForwarder {
     pub fn new(changes_db: PathBuf) -> Self {
-        // A status code is an answer, not a transport failure — read it here
-        // rather than letting the client collapse it into an error, so a
-        // refusal by a live owner can be told apart from a dead one.
-        let config = ureq::Agent::config_builder()
-            .timeout_global(Some(FORWARD_TIMEOUT))
-            .http_status_as_error(false)
-            .build();
+        // The target is always loopback: a user's HTTP_PROXY must not
+        // intercept it. The timeout covers the whole request.
+        let client = reqwest::Client::builder()
+            .timeout(FORWARD_TIMEOUT)
+            .no_proxy()
+            .build()
+            .inspect_err(|e| tracing::error!(error = %e, "cannot build the changes-forward client"))
+            .ok();
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("tugcast-forward")
+            .enable_all()
+            .build()
+            .inspect_err(
+                |e| tracing::error!(error = %e, "cannot build the changes-forward runtime"),
+            )
+            .ok();
         Self {
             changes_db,
-            agent: config.into(),
+            client,
+            rt,
             pending: VecDeque::new(),
             dropped: 0,
             last_attempt: None,
         }
     }
 
-    /// Send one record to the owner and return how many rows it touched.
-    pub fn send(&self, record: &Record) -> Result<usize, ForwardError> {
+    /// Resolve the owner now and serialise the body, so the send can run
+    /// with `changes_access` released. Blocking filesystem reads (the
+    /// claim lockfile, the instance registry); no network.
+    pub(crate) fn ticket(&self, record: Record, generation: u64) -> ForwardTicket {
+        let dispatch = self.dispatch_for(&record);
+        ForwardTicket {
+            record,
+            generation,
+            dispatch,
+        }
+    }
+
+    fn dispatch_for(&self, record: &Record) -> Result<Dispatch, ForwardError> {
+        let (Some(client), Some(rt)) = (&self.client, &self.rt) else {
+            return Err(ForwardError::NoOwner);
+        };
         let owner = resolve_owner(&self.changes_db).ok_or(ForwardError::NoOwner)?;
         if owner.port == 0 {
             return Err(ForwardError::NoOwner);
         }
-        let url = format!("http://127.0.0.1:{}/api/changes-write", owner.port);
-        let response = self
-            .agent
-            .post(&url)
-            .send_json(record)
-            .map_err(|e| ForwardError::Transport(e.to_string()))?;
-        let status = response.status().as_u16();
-        let value: serde_json::Value = response
-            .into_body()
-            .read_json()
-            .map_err(|e| ForwardError::Transport(e.to_string()))?;
-        let detail = || {
-            value
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("unknown error")
-                .to_string()
-        };
-        // 4xx: the owner understood the request and refused it. Resending an
-        // unacceptable record cannot make it acceptable.
-        if (400..500).contains(&status) {
-            return Err(ForwardError::Rejected {
-                detail: detail(),
-                permanent: true,
-            });
-        }
-        if status >= 500 || value.get("status").and_then(|s| s.as_str()) != Some("ok") {
-            return Err(ForwardError::Rejected {
-                detail: detail(),
-                permanent: false,
-            });
-        }
-        Ok(value.get("applied").and_then(|a| a.as_u64()).unwrap_or(0) as usize)
+        let body =
+            serde_json::to_vec(record).map_err(|e| ForwardError::Transport(e.to_string()))?;
+        Ok(Dispatch {
+            url: format!("http://127.0.0.1:{}/api/changes-write", owner.port),
+            body,
+            client: client.clone(),
+            rt: rt.handle().clone(),
+        })
+    }
+
+    /// Send one record to the owner and return how many rows it touched.
+    /// The ledger sends through [`ForwardTicket`]; this is the classifier's
+    /// test seam.
+    #[cfg(test)]
+    pub fn send(&self, record: &Record) -> Result<usize, ForwardError> {
+        self.dispatch_for(record)?.send_blocking()
     }
 
     /// Hold a record that could not be delivered. Past the bound the
@@ -208,6 +247,94 @@ impl ChangesForwarder {
     pub fn note_attempt(&mut self) {
         self.last_attempt = Some(Instant::now());
     }
+}
+
+impl Drop for ChangesForwarder {
+    /// A plain drop of a `Runtime` panics inside an async context, and a
+    /// takeover drops the forwarder on whatever thread settles it. Shutting
+    /// down in the background aborts any send still in flight, which its
+    /// settle reads as a transport failure.
+    fn drop(&mut self) {
+        if let Some(rt) = self.rt.take() {
+            rt.shutdown_background();
+        }
+    }
+}
+
+impl ForwardTicket {
+    /// Run the send on the forwarder's runtime and wait for it. Callable
+    /// from a tokio worker, a blocking-pool thread, or a plain thread: the
+    /// future blocked on is a `JoinHandle`, and it is `unconstrained` so a
+    /// worker's exhausted coop budget cannot make it spin.
+    pub(crate) fn send_blocking(&self) -> Result<usize, ForwardError> {
+        match &self.dispatch {
+            Ok(dispatch) => dispatch.send_blocking(),
+            Err(e) => Err(e.clone()),
+        }
+    }
+}
+
+impl Dispatch {
+    fn send_blocking(&self) -> Result<usize, ForwardError> {
+        let handle = self.rt.spawn(post(
+            self.client.clone(),
+            self.url.clone(),
+            self.body.clone(),
+        ));
+        match futures::executor::block_on(tokio::task::coop::unconstrained(handle)) {
+            Ok(outcome) => outcome,
+            Err(e) => Err(ForwardError::Transport(e.to_string())),
+        }
+    }
+}
+
+async fn post(client: reqwest::Client, url: String, body: Vec<u8>) -> Result<usize, ForwardError> {
+    let response = client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| ForwardError::Transport(e.to_string()))?;
+    // A status code is an answer, not a transport failure — `classify`
+    // reads it, so a refusal by a live owner can be told apart from a
+    // dead one.
+    let status = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| ForwardError::Transport(e.to_string()))?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| ForwardError::Transport(e.to_string()))?;
+    classify(status, value)
+}
+
+/// Read the owner's answer: a `4xx` is a permanent refusal, a `5xx` or a
+/// body that is not `status: ok` is a retryable one, anything else is the
+/// row count the owner applied.
+fn classify(status: u16, value: serde_json::Value) -> Result<usize, ForwardError> {
+    let detail = || {
+        value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error")
+            .to_string()
+    };
+    // 4xx: the owner understood the request and refused it. Resending an
+    // unacceptable record cannot make it acceptable.
+    if (400..500).contains(&status) {
+        return Err(ForwardError::Rejected {
+            detail: detail(),
+            permanent: true,
+        });
+    }
+    if status >= 500 || value.get("status").and_then(|s| s.as_str()) != Some("ok") {
+        return Err(ForwardError::Rejected {
+            detail: detail(),
+            permanent: false,
+        });
+    }
+    Ok(value.get("applied").and_then(|a| a.as_u64()).unwrap_or(0) as usize)
 }
 
 /// The identity this process publishes when it claims the writer role.

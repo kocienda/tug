@@ -2576,7 +2576,6 @@ dependencies = [
  "tuggram",
  "tuglog",
  "tugtool-core",
- "ureq",
  "uuid",
 ]
 

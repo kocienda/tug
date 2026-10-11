@@ -1922,8 +1922,19 @@ impl AgentSupervisor {
     pub async fn compose_changeset_aggregate(
         &self,
     ) -> tugcast_core::types::WorkspacesChangesetSnapshot {
+        // LEDGER-SYNC: compose_aggregate reads the ledger between its own git awaits, in a file this conversion does not reach.
         super::changeset_all::compose_aggregate(&self.registry, self.session_ledger.as_deref())
             .await
+    }
+
+    /// The session ledger behind its async facade: calls through it run on
+    /// the blocking pool, never on the worker that awaits them. Built from
+    /// `session_ledger` on each call, so the handle and the `Arc` can never
+    /// name two different ledgers.
+    pub(crate) fn ledger_handle(&self) -> Option<crate::ledger_handle::LedgerHandle> {
+        self.session_ledger
+            .clone()
+            .map(crate::ledger_handle::LedgerHandle::new)
     }
 
     pub async fn handle_control(
@@ -2233,14 +2244,18 @@ impl AgentSupervisor {
         let line = entries
             .iter()
             .find(|(id, _, _)| id == tug_session_id)
-            .and_then(|(_, _, line)| line.clone())
-            .or_else(|| {
-                self.session_ledger
-                    .as_ref()
-                    .and_then(|l| l.get(&tug_session_id.0).ok().flatten())
-                    .map(|row| row.line_id)
-            })
-            .filter(|id| !id.is_empty());
+            .and_then(|(_, _, line)| line.clone());
+        let line = match (line, self.ledger_handle()) {
+            (Some(line), _) => Some(line),
+            (None, Some(handle)) => {
+                let id = tug_session_id.0.clone();
+                handle
+                    .run(move |l| l.get(&id).ok().flatten().map(|row| row.line_id))
+                    .await
+            }
+            (None, None) => None,
+        }
+        .filter(|id| !id.is_empty());
 
         // The named id always goes, and then every entry the card holds, and
         // then every entry on the line no other card has taken over.
@@ -2284,28 +2299,32 @@ impl AgentSupervisor {
         // bridge that is already gone has nobody left to close it. Each goes
         // through the ordinary close, so each still takes the arc off its
         // card before the binding is cleared.
-        let (Some(line), Some(ledger)) = (line, self.session_ledger.as_ref()) else {
+        let (Some(line), Some(handle)) = (line, self.ledger_handle()) else {
             return;
         };
-        for segment in ledger.live_segments_of_line(&line) {
-            crate::arc_api::stop_an_on_arc_cards_arc_as_closed(ledger, &segment);
-            match ledger.mark_closed(&segment) {
-                Ok(true) => tracing::info!(
-                    target: "dev::session-lifecycle",
-                    event = "supervisor.line_segment_closed",
-                    line_id = %line,
-                    tug_session_id = %segment,
-                    "a live row the card's line left behind",
-                ),
-                Ok(false) => {}
-                Err(e) => warn!(
-                    line_id = %line,
-                    session = %segment,
-                    error = %e,
-                    "close_session: line segment close failed, continuing"
-                ),
-            }
-        }
+        handle
+            .run(move |ledger| {
+                for segment in ledger.live_segments_of_line(&line) {
+                    crate::arc_api::stop_an_on_arc_cards_arc_as_closed(ledger, &segment);
+                    match ledger.mark_closed(&segment) {
+                        Ok(true) => tracing::info!(
+                            target: "dev::session-lifecycle",
+                            event = "supervisor.line_segment_closed",
+                            line_id = %line,
+                            tug_session_id = %segment,
+                            "a live row the card's line left behind",
+                        ),
+                        Ok(false) => {}
+                        Err(e) => warn!(
+                            line_id = %line,
+                            session = %segment,
+                            error = %e,
+                            "close_session: line segment close failed, continuing"
+                        ),
+                    }
+                }
+            })
+            .await;
     }
 
     /// Resolved terminal-liveness registry root: the configured
@@ -2500,6 +2519,7 @@ impl AgentSupervisor {
     /// A no-op for every other card: the note is about an arc, and a user
     /// changing models on their own card is not one.
     pub(crate) async fn note_model_switch(&self, session: &str, selector: &str) {
+        // LEDGER-SYNC: already on the blocking pool below, mixed with arc-file I/O.
         let Some(ledger) = self.session_ledger.clone() else {
             return;
         };
@@ -2565,15 +2585,16 @@ impl AgentSupervisor {
     /// paints its live copy now rather than at the next restore. Both carry
     /// the ledger row's id, which is what keeps the live row and the replayed
     /// one one transcript turn rather than two receipts for one arc.
-    pub fn record_arc_receipt(&self, session: &str, arc: &str, project_dir: &str, summary: &str) {
-        let receipt_id = Self::record_landing_receipt(
-            self.shell_ledger.as_ref(),
-            self.session_ledger.as_ref(),
-            Some(session),
-            "/arc-run",
-            summary,
-            project_dir,
-        );
+    pub async fn record_arc_receipt(
+        &self,
+        session: &str,
+        arc: &str,
+        project_dir: &str,
+        summary: &str,
+    ) {
+        let receipt_id = self
+            .record_landing_receipt_off_worker(Some(session), "/arc-run", summary, project_dir)
+            .await;
         let body = serde_json::json!({
             "action": "arc_receipt",
             "project_dir": project_dir,
@@ -2751,14 +2772,9 @@ impl AgentSupervisor {
             Some((card, _)) => card.as_str().to_string(),
             None => segment.to_string(),
         };
-        let receipt_id = Self::record_landing_receipt(
-            self.shell_ledger.as_ref(),
-            self.session_ledger.as_ref(),
-            Some(&session),
-            command,
-            note,
-            project_dir,
-        );
+        let receipt_id = self
+            .record_landing_receipt_off_worker(Some(&session), command, note, project_dir)
+            .await;
         let body = serde_json::json!({
             "action": "arc_note",
             "project_dir": project_dir,
@@ -2771,6 +2787,37 @@ impl AgentSupervisor {
             FeedId::CONTROL,
             serde_json::to_vec(&body).expect("arc_note serializes"),
         ));
+    }
+
+    /// [`Self::record_landing_receipt`] on the blocking pool: the receipt is
+    /// a shell-ledger write keyed by the session ledger's line, and both are
+    /// synchronous.
+    async fn record_landing_receipt_off_worker(
+        &self,
+        session: Option<&str>,
+        command: &str,
+        summary: &str,
+        cwd: &str,
+    ) -> Option<i64> {
+        let shell = self.shell_ledger.clone();
+        let sessions = self.ledger_handle();
+        let (session, command, summary, cwd) = (
+            session.map(str::to_string),
+            command.to_string(),
+            summary.to_string(),
+            cwd.to_string(),
+        );
+        crate::ledger_handle::offload(move || {
+            Self::record_landing_receipt(
+                shell.as_ref(),
+                sessions.as_ref().map(|h| h.ledger()),
+                session.as_deref(),
+                &command,
+                &summary,
+                &cwd,
+            )
+        })
+        .await
     }
 
     /// Attach the shell-exchange ledger (the read side of the
@@ -2805,22 +2852,27 @@ impl AgentSupervisor {
     /// transcript. Each move records the full chain, so a second move before
     /// any turn still reaches the first move's parent. A failed write is
     /// logged and the move proceeds — recall is degraded, never the move.
-    fn record_relocated_prompt_lineage(&self, from: &TugSessionId, to: &TugSessionId) {
-        let Some(prompts) = self.prompt_ledger.as_deref() else {
+    async fn record_relocated_prompt_lineage(&self, from: &TugSessionId, to: &TugSessionId) {
+        let Some(prompts) = self.prompt_ledger.clone() else {
             return;
         };
-        let lineage = crate::prompt_lineage::LineageSource::new(self.session_ledger.clone());
-        let mut chain = crate::prompt_lineage::chain_for(&lineage, prompts, from.as_str());
-        chain.retain(|id| id != to.as_str());
-        chain.push(to.as_str().to_owned());
-        if let Err(err) = prompts.record_chain(&chain, crate::session_ledger::now_millis()) {
-            warn!(
-                relocate_from = %from,
-                tug_session_id = %to,
-                error = %err,
-                "spawn_session: cannot record the moved session's prompt lineage"
-            );
-        }
+        let sessions = self.ledger_handle().map(|h| Arc::clone(h.ledger()));
+        let (from, to) = (from.clone(), to.clone());
+        crate::ledger_handle::offload(move || {
+            let lineage = crate::prompt_lineage::LineageSource::new(sessions);
+            let mut chain = crate::prompt_lineage::chain_for(&lineage, &prompts, from.as_str());
+            chain.retain(|id| id != to.as_str());
+            chain.push(to.as_str().to_owned());
+            if let Err(err) = prompts.record_chain(&chain, crate::session_ledger::now_millis()) {
+                warn!(
+                    relocate_from = %from,
+                    tug_session_id = %to,
+                    error = %err,
+                    "spawn_session: cannot record the moved session's prompt lineage"
+                );
+            }
+        })
+        .await
     }
 
     /// Re-live any seat a demote closed while its bridge went on running.
@@ -2842,7 +2894,7 @@ impl AgentSupervisor {
     /// Returns how many seats it re-lived. Best-effort throughout: a failed
     /// revive warns, and the next tick asks again.
     pub async fn relive_demoted_seats(&self) -> usize {
-        let Some(ledger) = self.session_ledger.as_ref() else {
+        let Some(handle) = self.ledger_handle() else {
             return 0;
         };
         // Snapshot the seats before reviving any of them: the revive takes the
@@ -2864,25 +2916,29 @@ impl AgentSupervisor {
                 .collect()
         };
         let now = crate::session_ledger::now_millis();
-        let mut relived = 0usize;
-        for seat in seats {
-            match ledger.revive_on_activity(&seat, now) {
-                Ok(true) => {
-                    relived += 1;
-                    tracing::info!(
-                        target: "dev::session-lifecycle",
-                        event = "ledger.revive_on_activity",
-                        session_id = %seat,
-                        reason = "liveness-reconcile",
-                    );
+        handle
+            .run(move |ledger| {
+                let mut relived = 0usize;
+                for seat in seats {
+                    match ledger.revive_on_activity(&seat, now) {
+                        Ok(true) => {
+                            relived += 1;
+                            tracing::info!(
+                                target: "dev::session-lifecycle",
+                                event = "ledger.revive_on_activity",
+                                session_id = %seat,
+                                reason = "liveness-reconcile",
+                            );
+                        }
+                        Ok(false) => {}
+                        Err(err) => {
+                            warn!(error = %err, session_id = %seat, "liveness reconcile revive failed");
+                        }
+                    }
                 }
-                Ok(false) => {}
-                Err(err) => {
-                    warn!(error = %err, session_id = %seat, "liveness reconcile revive failed");
-                }
-            }
-        }
-        relived
+                relived
+            })
+            .await
     }
 
     /// Attach the shared digester (the read side of the `list_digest_lines`
@@ -2920,6 +2976,7 @@ impl AgentSupervisor {
     /// finds the whole conversation's rows. A session this ledger has never
     /// seen keys under its own id, which is the only key its own writer used.
     fn resolve_ink_line(&self, tug_session_id: &str) -> String {
+        // LEDGER-SYNC: the telemetry handlers call this synchronously; async callers here go through `ledger_handle`.
         match self.session_ledger.as_ref() {
             Some(sessions) => sessions
                 .line_of(tug_session_id)
@@ -3012,7 +3069,13 @@ impl AgentSupervisor {
                 && !user_text.trim_start().starts_with('/')
                 && inspected.content.is_some()
             {
-                let line = self.resolve_ink_line(tug_session_id.as_str());
+                let line = match self.ledger_handle() {
+                    Some(handle) => {
+                        let id = tug_session_id.as_str().to_string();
+                        handle.run(move |l| l.line_of(&id).unwrap_or(id)).await
+                    }
+                    None => tug_session_id.as_str().to_string(),
+                };
                 let rows = shell.untold_landings(&line).unwrap_or_else(|err| {
                     warn!(%err, line = %line, "dispatcher: could not read untold landings");
                     Vec::new()
@@ -3031,13 +3094,20 @@ impl AgentSupervisor {
             }
             let journal_id = uuid::Uuid::new_v4().to_string();
             let now = crate::session_ledger::now_millis();
-            match self.sessions_recorder.insert_pending_turn(
-                tug_session_id.as_str(),
-                &journal_id,
-                &journal_text,
-                &user_attachments,
-                now,
-            ) {
+            let inserted = {
+                let session_id = tug_session_id.as_str().to_owned();
+                offload_recorder(&self.sessions_recorder, move |r| {
+                    r.insert_pending_turn(
+                        &session_id,
+                        &journal_id,
+                        &journal_text,
+                        &user_attachments,
+                        now,
+                    )
+                })
+                .await
+            };
+            match inserted {
                 Ok(()) => {
                     // A turn is opening: from here until the merger sees the
                     // closing `turn_complete` / `turn_cancelled`, the activity
@@ -3628,7 +3698,7 @@ impl AgentSupervisor {
     /// `sessions.turn_count`) continues to fire from `agent_bridge.rs`
     /// on the same `turn_complete` event — this intercept is additive
     /// and the two writes hit different tables.
-    fn apply_outbound_turn_intercept(&self, session_id: &TugSessionId, frame: &Frame) {
+    async fn apply_outbound_turn_intercept(&self, session_id: &TugSessionId, frame: &Frame) {
         let Some(inspected) =
             super::payload_inspector::InspectedPayload::from_slice(&frame.payload)
         else {
@@ -3637,10 +3707,14 @@ impl AgentSupervisor {
         match inspected.msg_type() {
             Some("turn_complete") | Some("turn_cancelled") => {
                 let kind = inspected.msg_type().unwrap_or("");
-                match self
-                    .sessions_recorder
-                    .delete_oldest_pending_for_session(session_id.as_str())
-                {
+                let popped = {
+                    let session_id = session_id.as_str().to_owned();
+                    offload_recorder(&self.sessions_recorder, move |r| {
+                        r.delete_oldest_pending_for_session(&session_id)
+                    })
+                    .await
+                };
+                match popped {
                     Ok(Some(row)) => {
                         tracing::debug!(
                             target: "dev::ledger",
@@ -3980,16 +4054,18 @@ impl AgentSupervisor {
                         // Best-effort like `record_session_metadata`: a
                         // write failure degrades to the pre-persistence
                         // behavior, never blocks the live broadcast.
-                        if let Some(sql) = self.session_ledger.as_ref() {
+                        if let Some(handle) = self.ledger_handle() {
                             let captured_at = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .map(|d| d.as_millis() as i64)
                                 .unwrap_or(0);
-                            if let Err(e) = sql.record_session_capabilities(
-                                id.as_str(),
-                                &cap_frame.payload,
-                                captured_at,
-                            ) {
+                            let (session, payload) = (id.as_str().to_string(), cap_frame.payload.clone());
+                            if let Err(e) = handle
+                                .run(move |l| {
+                                    l.record_session_capabilities(&session, &payload, captured_at)
+                                })
+                                .await
+                            {
                                 warn!(
                                     session_id = %id,
                                     error = %e,
@@ -4145,7 +4221,7 @@ impl AgentSupervisor {
                         kind = msg_type.unwrap_or(""),
                     );
                 } else {
-                    self.apply_outbound_turn_intercept(session_id, frame);
+                    self.apply_outbound_turn_intercept(session_id, frame).await;
                     let claude_id = {
                         let entry = entry_arc.lock().await;
                         entry.claude_session_id.clone()
@@ -4188,6 +4264,7 @@ impl AgentSupervisor {
     /// Keyed by the **claude** session id, because that is what both the ledger
     /// row and the JSONL filename are keyed by.
     fn spawn_session_metrics_refresh(&self, claude_session_id: String) {
+        // LEDGER-SYNC: already on the blocking pool below, mixed with transcript file I/O.
         let Some(ledger) = self.session_ledger.clone() else {
             return;
         };
@@ -4218,6 +4295,7 @@ impl AgentSupervisor {
     /// detached re-read and push, which also takes the row's last prompt back
     /// to the last one the truncated file still holds.
     fn spawn_rewound_row_refresh(&self, claude_session_id: String) {
+        // LEDGER-SYNC: already on the blocking pool below, mixed with transcript file I/O.
         let Some(ledger) = self.session_ledger.clone() else {
             return;
         };
@@ -4382,7 +4460,7 @@ impl AgentSupervisor {
             (entry.project_dir.clone(), entry.session_mode)
         };
         let sessions_recorder = self.sessions_recorder.clone();
-        let session_ledger_for_bridge = self.session_ledger.clone();
+        let session_ledger_for_bridge = self.ledger_handle();
         let changeset_bumper_for_bridge =
             crate::feeds::changeset::ChangesetBumper::new(Arc::clone(&self.registry));
         // Kept outside the bridge future so they survive its unwind.
@@ -4421,7 +4499,7 @@ impl AgentSupervisor {
                     &panic_session_id,
                     &panic_entry,
                     &panic_state_tx,
-                    panic_recorder.as_ref(),
+                    &panic_recorder,
                     &panic,
                 )
                 .await;
@@ -4547,10 +4625,10 @@ impl AgentSupervisor {
     ///   for one of them, at which point the existing entry is reused and
     ///   the normal `pending` publish fires.
     pub async fn rebind_from_ledger(&self) -> Result<usize, crate::session_ledger::LedgerError> {
-        let Some(ledger_db) = self.session_ledger.as_ref() else {
+        let Some(handle) = self.ledger_handle() else {
             return Ok(0);
         };
-        let rows = ledger_db.list_with_card_id()?;
+        let rows = handle.run(|l| l.list_with_card_id()).await?;
         let mut inserted = 0usize;
         // We acquire workspaces via `registry.get_or_create` outside the
         // ledger mutex (it takes its own parking_lot::Mutex internally), so
@@ -4928,7 +5006,7 @@ pub(crate) async fn end_session_after_bridge_panic(
     tug_session_id: &TugSessionId,
     ledger_entry: &Arc<Mutex<LedgerEntry>>,
     state_tx: &broadcast::Sender<Frame>,
-    sessions_recorder: &dyn SessionsRecorder,
+    sessions_recorder: &Arc<dyn SessionsRecorder>,
     panic: &str,
 ) {
     let (already_closed, claude_id) = {
@@ -4949,7 +5027,7 @@ pub(crate) async fn end_session_after_bridge_panic(
     };
     error!(session = %tug_session_id, "session bridge {panic}; session ended");
     if let Some(id) = claude_id {
-        sessions_recorder.mark_failed(&id);
+        offload_recorder(sessions_recorder, move |r| r.mark_failed(&id)).await;
     }
     if !already_closed {
         let detail = format!("bridge_panicked\n{panic}");
@@ -7999,7 +8077,7 @@ mod tests {
         let stdout_box: Box<dyn tokio::io::AsyncRead + Send + Unpin> = Box::new(bridge_stdout);
         let lines = BufReader::new(stdout_box).lines();
 
-        let recorder = NoopSessionsRecorder;
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
         let outcome = relay_session_io(
             &tug_id,
             &entry_arc,
@@ -8110,7 +8188,7 @@ mod tests {
         let stdout_box: Box<dyn tokio::io::AsyncRead + Send + Unpin> = Box::new(bridge_stdout);
         let lines = BufReader::new(stdout_box).lines();
 
-        let recorder = NoopSessionsRecorder;
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
         let outcome = relay_session_io(
             &tug_id,
             &entry_arc,
@@ -8284,7 +8362,7 @@ mod tests {
         let stdout_box: Box<dyn tokio::io::AsyncRead + Send + Unpin> = Box::new(bridge_stdout);
         let lines = BufReader::new(stdout_box).lines();
 
-        let recorder = NoopSessionsRecorder;
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
         let outcome = relay_session_io(
             &tug_id,
             &entry_arc,
@@ -8296,7 +8374,9 @@ mod tests {
             lines,
             "/tmp/test-meta-e2e",
             &recorder,
-            Some(ledger.as_ref()),
+            Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                &ledger,
+            ))),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -8440,7 +8520,7 @@ mod tests {
         let stdout_box: Box<dyn tokio::io::AsyncRead + Send + Unpin> = Box::new(bridge_stdout);
         let lines = BufReader::new(stdout_box).lines();
 
-        let recorder = NoopSessionsRecorder;
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
         relay_session_io(
             &tug_id,
             &entry_arc,
@@ -8452,7 +8532,9 @@ mod tests {
             lines,
             "/tmp/test-title-fork",
             &recorder,
-            Some(ledger.as_ref()),
+            Some(&crate::ledger_handle::LedgerHandle::new(Arc::clone(
+                &ledger,
+            ))),
             &crate::feeds::changeset::ChangesetBumper::disconnected(),
             &cancel,
         )
@@ -9872,7 +9954,8 @@ mod tests {
         assert_eq!(count_pending_for_session(&ledger, session_id), 2);
 
         let frame = turn_complete_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame);
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
+            .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 1);
         let remaining = ledger.list_pending_turns_for_session(session_id).unwrap();
         assert_eq!(
@@ -9881,7 +9964,8 @@ mod tests {
         );
 
         let frame2 = turn_complete_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame2);
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame2)
+            .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
     }
 
@@ -9900,7 +9984,8 @@ mod tests {
         assert_eq!(count_pending_for_session(&ledger, session_id), 1);
 
         let frame = turn_cancelled_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame);
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
+            .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
     }
 
@@ -9931,7 +10016,8 @@ mod tests {
             FeedId::CODE_OUTPUT,
             serde_json::to_vec(&assistant_body).unwrap(),
         );
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame);
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
+            .await;
         assert_eq!(
             count_pending_for_session(&ledger, session_id),
             1,
@@ -9956,7 +10042,8 @@ mod tests {
 
         let frame = turn_complete_frame();
         // Should not panic; intercept handles None gracefully.
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame);
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
+            .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
     }
 
@@ -9973,7 +10060,8 @@ mod tests {
             .unwrap();
 
         let frame = turn_complete_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new("sess-b"), &frame);
+        sup.apply_outbound_turn_intercept(&TugSessionId::new("sess-b"), &frame)
+            .await;
 
         assert_eq!(
             count_pending_for_session(&ledger, "sess-a"),
@@ -11297,6 +11385,41 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------
+// The supervisor's ledger paths stay off the worker
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod ledger_gauge_tests {
+    use super::*;
+    use crate::worker_gauge::{strict_test_runtime, violations};
+
+    /// The supervisor's async ledger paths, driven on real workers under the
+    /// strict gauge: a `SessionLedger` lock taken on a worker outside the
+    /// facade panics the task, so a clean join is the proof.
+    #[test]
+    fn supervisor_ledger_paths_never_lock_on_a_worker() {
+        let rt = strict_test_runtime(2);
+        let (sup, ledger, _rx) = test_minimal_supervisor_reading_its_ledger();
+        // Seeded on the test thread, which is not a worker.
+        ledger
+            .record_spawn("s1", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("seed a session row");
+
+        let joined = rt.block_on(rt.spawn(async move {
+            assert_eq!(sup.rebind_from_ledger().await.expect("rebind"), 1);
+            sup.relive_demoted_seats().await;
+            sup.compose_changeset_aggregate().await;
+            sup.record_arc_note("s1", "/proj", "/arc-run", "a note")
+                .await;
+            sup.note_model_switch("s1", "opus").await;
+        }));
+
+        joined.expect("no supervisor ledger path locked the ledger on a worker");
+        assert_eq!(violations(), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // A panic in the bridge costs one session, out loud
 // ---------------------------------------------------------------------------
 
@@ -11504,7 +11627,7 @@ mod bridge_panic_tests {
             &tug_id,
             &entry,
             &state_tx,
-            &NoopSessionsRecorder,
+            &(Arc::new(NoopSessionsRecorder) as Arc<dyn SessionsRecorder>),
             "panicked at src/x.rs:1:2: boom (thread main)",
         )
         .await;
@@ -11529,8 +11652,8 @@ mod bridge_panic_tests {
         entry.lock().await.spawn_state = SpawnState::Closed;
         let (state_tx, mut state_rx) = broadcast::channel::<Frame>(4);
 
-        end_session_after_bridge_panic(&tug_id, &entry, &state_tx, &NoopSessionsRecorder, "boom")
-            .await;
+        let recorder: Arc<dyn SessionsRecorder> = Arc::new(NoopSessionsRecorder);
+        end_session_after_bridge_panic(&tug_id, &entry, &state_tx, &recorder, "boom").await;
 
         assert_eq!(entry.lock().await.spawn_state, SpawnState::Closed);
         assert!(state_rx.try_recv().is_err());
@@ -11601,7 +11724,7 @@ mod replay_bracket_close_tests {
                     Box::new(bridge_stdin),
                     BufReader::new(stdout).lines(),
                     "/tmp/test-quiet-bracket",
-                    &NoopSessionsRecorder,
+                    &(Arc::new(NoopSessionsRecorder) as Arc<dyn SessionsRecorder>),
                     None,
                     &crate::feeds::changeset::ChangesetBumper::disconnected(),
                     &cancel,

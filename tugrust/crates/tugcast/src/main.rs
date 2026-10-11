@@ -25,6 +25,7 @@ mod git_exclude;
 mod host;
 mod ink_backfill;
 mod jots;
+mod ledger_handle;
 mod ledger_integrity;
 mod panic_hook;
 /// Crate-root path utilities (firmlink/synthetic/symlink resolution). Lives
@@ -53,6 +54,7 @@ mod shell_ledger;
 mod terminal_registry;
 mod turn_engine;
 mod wheel;
+mod worker_gauge;
 mod workspace_api;
 
 #[cfg(test)]
@@ -69,14 +71,28 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use tugbank_core::TugbankClient;
 
+/// tugcast's runtime is built by hand rather than by `#[tokio::main]`, so its
+/// threads are named and — in debug builds — its workers are marked for the
+/// worker gauge, which reports a `SessionLedger` lock taken on a worker
+/// outside `LedgerHandle::run` ([`worker_gauge`]).
+fn main() {
+    let runtime = worker_gauge::runtime_builder(worker_gauge::GaugeMode::Report)
+        .build()
+        .expect("cannot build the tugcast runtime");
+    runtime.block_on(async_main())
+}
+
 /// tugcast's startup, as the sequence of its stages. Each stage takes what
 /// the ones before it produced; the order is the server's (see `boot`).
-#[tokio::main]
-async fn main() {
+async fn async_main() {
     let boot::Early {
         log_guard: _log_guard,
         cli,
     } = boot::early(tuglog::init("tugcast")).await;
+    info!(
+        workers = tokio::runtime::Handle::current().metrics().num_workers(),
+        "tugcast runtime"
+    );
     let mut bound = boot::bind(&cli).await;
     let streams = boot::streams(&cli);
     let ledgers = boot::ledgers(bound.actual_port, &bound.bank_path);

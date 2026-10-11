@@ -135,6 +135,7 @@
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1080,9 +1081,20 @@ pub struct TrashOutcome {
     pub jsonl_moved_to: Option<PathBuf>,
 }
 
+/// Where [`SessionLedger::begin_change`] sent a shared-ledger record:
+/// settled already (applied locally, or refused before routing), or
+/// waiting on a send to the owner.
+enum ChangeRoute {
+    Done(Result<usize, LedgerError>),
+    Forward(Box<crate::changes_writer::ForwardTicket>),
+}
+
 /// SQLite-backed per-session metadata store.
 pub struct SessionLedger {
-    db: Mutex<Connection>,
+    /// The connection, behind the worker gauge: in debug builds, locking it
+    /// on a tokio worker outside `LedgerHandle::run` is caught
+    /// ([`crate::worker_gauge`]).
+    db: crate::worker_gauge::GaugedMutex<Connection>,
     /// Where Claude Code keeps its per-project session JSONLs:
     /// `<projects>/<encoded-project-dir>/<sessionId>.jsonl`. Production
     /// resolves it from the environment; tests inject a tempdir so trash
@@ -1115,14 +1127,28 @@ pub struct SessionLedger {
     /// unclaimed (a private/in-memory changes database). See
     /// [`crate::changes_writer`].
     ///
-    /// LOCK ORDER: `changes_access` is acquired strictly **before** `db`,
-    /// never while `db` is held. [`write_change`] and
+    /// LOCK ORDER: `forward_order` → `changes_access` → `db` →
+    /// `changes_journal`. `changes_access` is acquired strictly **before**
+    /// `db`, never while `db` is held. [`write_change`] and
     /// [`take_over_changes_writer`] take `changes_access` → `db`; every
     /// path that already holds `db` (an eviction transaction, a
     /// checkpoint) must sample forwarding state *before* locking `db` and
     /// must release `db` before calling anything that routes through
     /// `changes_access` ([`settle_session_deletes`], [`write_change`]).
+    /// A forwarded record's network send runs under none of them.
     changes_access: Mutex<crate::changes_writer::ChangesAccess>,
+    /// Orders forwarded records now that the send runs outside
+    /// `changes_access`: [`write_change`] holds it from before the record is
+    /// routed until its outcome is settled. Held only by synchronous code —
+    /// never across an `.await` — so every holder makes progress on its own
+    /// thread, and never taken while `changes_access` or `db` is held. Not
+    /// re-entrant: nothing a settle reaches may call [`write_change`].
+    forward_order: Mutex<()>,
+    /// Bumped each time `changes_access` becomes `Owner` (a takeover), and
+    /// written only while `changes_access` is held. A forwarded record
+    /// settling against a generation other than the one it was routed
+    /// under knows a takeover landed during its send.
+    changes_generation: AtomicU64,
     /// Path of the attached changes database — `None` for in-memory.
     /// Needed to re-claim and re-attach read-write on takeover.
     changes_db_path: Option<PathBuf>,
@@ -1293,12 +1319,14 @@ impl SessionLedger {
             );
         }
         let ledger = Self {
-            db: Mutex::new(conn),
+            db: crate::worker_gauge::GaugedMutex::new(conn),
             claude_home,
             sessions_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(changes_access),
+            forward_order: Mutex::new(()),
+            changes_generation: AtomicU64::new(0),
             changes_db_path: changes_db.clone(),
             writer_identity,
             session_index: None,
@@ -1324,6 +1352,22 @@ impl SessionLedger {
         Ok(ledger)
     }
 
+    /// [`open_full`] for tests outside this module that need a real owner
+    /// and forwarder on one shared changes database.
+    #[cfg(test)]
+    pub(crate) fn open_full_for_test(
+        path: impl AsRef<Path>,
+        changes_db: Option<PathBuf>,
+        http_port: u16,
+    ) -> Result<Self, LedgerError> {
+        Self::open_full(
+            path,
+            changes_db,
+            ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
+            http_port,
+        )
+    }
+
     /// Open an in-memory ledger (with an in-memory changes attach).
     /// Test-only convenience; never used by production callers. Uses a
     /// placeholder claude root that no test should write through (tests
@@ -1334,12 +1378,14 @@ impl SessionLedger {
         Self::attach_changes(&conn, None, false)?;
         let changes_write_ok = Self::configure(&conn, true)?;
         Ok(Self {
-            db: Mutex::new(conn),
+            db: crate::worker_gauge::GaugedMutex::new(conn),
             claude_home: ClaudeHome::at("/tmp/tugcast-tests-no-trash"),
             sessions_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
+            forward_order: Mutex::new(()),
+            changes_generation: AtomicU64::new(0),
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
             session_index: None,
@@ -7148,15 +7194,72 @@ impl SessionLedger {
     /// unreachable, so this instance tries to take the claim. Whoever wins
     /// drains what the forwarder was holding and continues locally;
     /// whoever loses queues the record for the next attempt.
+    ///
+    /// The network send runs with `changes_access` released: the record is
+    /// routed under the lock ([`begin_change`]), sent without it, and its
+    /// outcome settled under it again ([`settle_forward`]). `forward_order`,
+    /// held across all three, keeps forwarded records in issue order. This
+    /// is the one forward implementation; async callers reach it through
+    /// `spawn_blocking`, so the wait never parks a tokio worker.
     fn write_change(&self, record: crate::changes_journal::Record) -> Result<usize, LedgerError> {
-        if record.shapes_rows() {
-            self.guard_changes_write()?;
+        let _order = self.forward_order.lock();
+        match self.begin_change(record) {
+            ChangeRoute::Done(result) => result,
+            ChangeRoute::Forward(ticket) => {
+                let outcome = ticket.send_blocking();
+                self.settle_forward(*ticket, outcome)
+            }
         }
+    }
+
+    /// Route one record under `changes_access`: apply it locally when this
+    /// instance owns (or does not contend for) the shared database,
+    /// otherwise cut a ticket for the send. Never sends.
+    fn begin_change(&self, record: crate::changes_journal::Record) -> ChangeRoute {
+        if record.shapes_rows() {
+            if let Err(err) = self.guard_changes_write() {
+                return ChangeRoute::Done(Err(err));
+            }
+        }
+        let access = self.changes_access.lock();
+        match &*access {
+            crate::changes_writer::ChangesAccess::Forward(forwarder) => ChangeRoute::Forward(
+                Box::new(forwarder.ticket(record, self.changes_generation.load(Ordering::Acquire))),
+            ),
+            _ => ChangeRoute::Done(self.apply_change_locally(&record)),
+        }
+    }
+
+    /// Settle a forwarded record's outcome under `changes_access`. Never
+    /// sends.
+    ///
+    /// When the generation moved, a takeover made this instance the owner
+    /// while the record was in flight: an answer from the old owner stands,
+    /// and anything else is applied here, as the owner path would. When it
+    /// did not, the outcome is handled exactly as a forward always was —
+    /// including the takeover claim, which stays under the lock so the claim
+    /// and the access change are one step.
+    fn settle_forward(
+        &self,
+        ticket: crate::changes_writer::ForwardTicket,
+        outcome: Result<usize, crate::changes_writer::ForwardError>,
+    ) -> Result<usize, LedgerError> {
+        let record = ticket.record;
         let mut access = self.changes_access.lock();
+        let moved = self.changes_generation.load(Ordering::Acquire) != ticket.generation;
         let crate::changes_writer::ChangesAccess::Forward(forwarder) = &mut *access else {
-            return self.apply_change_locally(&record);
+            debug_assert!(moved, "access left Forward without a generation bump");
+            return match outcome {
+                Ok(applied) => Ok(applied),
+                Err(crate::changes_writer::ForwardError::Rejected {
+                    detail,
+                    permanent: true,
+                }) => Err(Self::forward_refused(detail)),
+                Err(_) => self.apply_change_locally(&record),
+            };
         };
-        match forwarder.send(&record) {
+        debug_assert!(!moved, "a generation bump left access forwarding");
+        match outcome {
             Ok(applied) => Ok(applied),
             // The owner answered and refused. It is alive, so this is not a
             // failover trigger — taking its claim would be a healthy owner
@@ -7169,13 +7272,7 @@ impl SessionLedger {
             Err(crate::changes_writer::ForwardError::Rejected {
                 detail,
                 permanent: true,
-            }) => {
-                tracing::error!(
-                    detail,
-                    "the changes-ledger owner refused this write and always will"
-                );
-                Err(LedgerError::ForwardRejected(detail))
-            }
+            }) => Err(Self::forward_refused(detail)),
             // A refusal that might not repeat (the owner's own ledger erred).
             // Still an answer, so still no takeover — hold it for the next
             // attempt, which is the pending-queue path a live owner deserves.
@@ -7205,6 +7302,7 @@ impl SessionLedger {
                         );
                         let drained = forwarder.take_pending();
                         *access = crate::changes_writer::ChangesAccess::Owner(lock);
+                        self.changes_generation.fetch_add(1, Ordering::Release);
                         drop(access);
                         self.ensure_changes_journal();
                         for held in &drained {
@@ -7227,6 +7325,14 @@ impl SessionLedger {
                 }
             }
         }
+    }
+
+    fn forward_refused(detail: String) -> LedgerError {
+        tracing::error!(
+            detail,
+            "the changes-ledger owner refused this write and always will"
+        );
+        LedgerError::ForwardRejected(detail)
     }
 
     /// Apply a record to this instance's own attach and journal it.
@@ -7344,6 +7450,7 @@ impl SessionLedger {
         };
         let drained = forwarder.take_pending();
         *access = crate::changes_writer::ChangesAccess::Owner(lock);
+        self.changes_generation.fetch_add(1, Ordering::Release);
         drop(access);
         self.ensure_changes_journal();
         tracing::warn!(
@@ -15091,6 +15198,249 @@ mod tests {
         );
     }
 
+    /// A file event whose path names its tool use, for the forwarding tests.
+    fn forward_event(tool: &str) -> FileEventRow {
+        FileEventRow {
+            tug_session_id: "s1".into(),
+            tool_use_id: tool.into(),
+            file_path: format!("{tool}.rs"),
+            tool_name: "Write".into(),
+            op: "modified".into(),
+            origin: "exact".into(),
+            ambiguous: false,
+            parent_tool_use_id: None,
+            project_dir: "/proj".into(),
+            at: 1,
+        }
+    }
+
+    /// An owner publishing `port` and a follower forwarding to it, on one
+    /// shared changes database under `dir`. Nothing serves `port` unless the
+    /// test does.
+    fn owner_and_follower(dir: &Path, port: u16) -> (Arc<SessionLedger>, Arc<SessionLedger>) {
+        let changes = dir.join("changes.db");
+        let root = ClaudeHome::at("/tmp/tugcast-tests-no-trash");
+        let owner = SessionLedger::open_full(
+            dir.join("owner.db"),
+            Some(changes.clone()),
+            root.clone(),
+            port,
+        )
+        .expect("owner ledger");
+        assert!(owner.owns_changes_writer());
+        let follower = SessionLedger::open_full(dir.join("follower.db"), Some(changes), root, 0)
+            .expect("follower ledger");
+        assert!(!follower.owns_changes_writer());
+        (Arc::new(owner), Arc::new(follower))
+    }
+
+    /// One forwarded request as the owner's endpoint saw it.
+    struct Arrival {
+        tool: String,
+        arrived: std::time::Instant,
+        answered: std::time::Instant,
+    }
+
+    /// Serve `owner`'s `/api/changes-write`, announcing each request's tool
+    /// use on `arrivals` and then sleeping `stall(tool)` before applying it.
+    /// The apply runs on the blocking pool, as the real route's caller would.
+    fn serve_stalling_owner(
+        listener: tokio::net::TcpListener,
+        owner: Arc<SessionLedger>,
+        stall: fn(&str) -> std::time::Duration,
+        arrivals: tokio::sync::mpsc::UnboundedSender<String>,
+        log: Arc<Mutex<Vec<Arrival>>>,
+    ) -> tokio::task::JoinHandle<()> {
+        let app = axum::Router::new().route(
+            "/api/changes-write",
+            axum::routing::post(move |body: axum::body::Bytes| {
+                let owner = Arc::clone(&owner);
+                let arrivals = arrivals.clone();
+                let log = Arc::clone(&log);
+                async move {
+                    let arrived = std::time::Instant::now();
+                    let tool = match serde_json::from_slice(&body) {
+                        Ok(crate::changes_journal::Record::FileEvent { row, .. }) => {
+                            row.tool_use_id
+                        }
+                        _ => String::new(),
+                    };
+                    let _ = arrivals.send(tool.clone());
+                    tokio::time::sleep(stall(&tool)).await;
+                    let response = tokio::task::spawn_blocking(move || {
+                        crate::server::apply_changes_write(&owner, &body)
+                    })
+                    .await
+                    .expect("join");
+                    log.lock().push(Arrival {
+                        tool,
+                        arrived,
+                        answered: std::time::Instant::now(),
+                    });
+                    response
+                }
+            }),
+        );
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        })
+    }
+
+    /// The send leaves `changes_access` ([LR8]): while a forwarded write is
+    /// stalled at the owner, everything else that takes the access lock on
+    /// the forwarding instance still answers at once.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stalled_forward_does_not_hold_the_access_lock() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let (owner, follower) = owner_and_follower(dir.path(), port);
+        let (tx, mut arrivals) = tokio::sync::mpsc::unbounded_channel();
+        let server = serve_stalling_owner(
+            listener,
+            Arc::clone(&owner),
+            |_| std::time::Duration::from_millis(1500),
+            tx,
+            Arc::new(Mutex::new(Vec::new())),
+        );
+
+        let write = {
+            let follower = Arc::clone(&follower);
+            tokio::task::spawn_blocking(move || follower.record_file_event(&forward_event("t1")))
+        };
+        assert_eq!(arrivals.recv().await.as_deref(), Some("t1"));
+
+        let (owns, took) = {
+            let follower = Arc::clone(&follower);
+            tokio::task::spawn_blocking(move || {
+                let at = std::time::Instant::now();
+                (follower.owns_changes_writer(), at.elapsed())
+            })
+            .await
+            .expect("join")
+        };
+        assert!(
+            !write.is_finished(),
+            "the probe ran while the forward was stalled"
+        );
+        assert!(!owns, "the follower still forwards");
+        assert!(
+            took < std::time::Duration::from_millis(250),
+            "the access lock was free during the send; owns_changes_writer took {took:?}"
+        );
+
+        write
+            .await
+            .expect("join")
+            .expect("the stalled write still lands");
+        assert_eq!(
+            owner.file_events_for_session("s1").unwrap().len(),
+            1,
+            "the owner applied the forwarded row"
+        );
+        server.abort();
+    }
+
+    /// With the send outside `changes_access`, `forward_order` is what keeps
+    /// forwarded records in issue order: a second write waits for the first
+    /// to settle rather than overtaking it at the owner.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn forwarded_writes_stay_in_order_while_the_first_stalls() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let (owner, follower) = owner_and_follower(dir.path(), port);
+        let (tx, mut arrivals) = tokio::sync::mpsc::unbounded_channel();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let server = serve_stalling_owner(
+            listener,
+            Arc::clone(&owner),
+            |tool| {
+                if tool == "t1" {
+                    std::time::Duration::from_millis(500)
+                } else {
+                    std::time::Duration::ZERO
+                }
+            },
+            tx,
+            Arc::clone(&log),
+        );
+
+        let issue = |tool: &'static str| {
+            let follower = Arc::clone(&follower);
+            tokio::task::spawn_blocking(move || follower.record_file_event(&forward_event(tool)))
+        };
+        let first = issue("t1");
+        assert_eq!(arrivals.recv().await.as_deref(), Some("t1"));
+        let second = issue("t2");
+        first.await.expect("join").expect("t1 lands");
+        second.await.expect("join").expect("t2 lands");
+
+        let mut seen = std::mem::take(&mut *log.lock());
+        seen.sort_by_key(|a| a.arrived);
+        let order: Vec<&str> = seen.iter().map(|a| a.tool.as_str()).collect();
+        assert_eq!(
+            order,
+            ["t1", "t2"],
+            "the owner saw the writes in issue order"
+        );
+        assert!(
+            seen[1].arrived >= seen[0].answered,
+            "t2 was sent only after t1 settled"
+        );
+        assert_eq!(owner.file_events_for_session("s1").unwrap().len(), 2);
+        server.abort();
+    }
+
+    /// Route a record on a fresh pair, let a takeover land while it is "in
+    /// flight", then settle it with `outcome`. Returns the settle's answer and
+    /// the rows the new owner holds.
+    fn settle_after_takeover(
+        outcome: Result<usize, crate::changes_writer::ForwardError>,
+    ) -> (Result<usize, LedgerError>, usize) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (owner, follower) = owner_and_follower(dir.path(), 1);
+        let record = crate::changes_journal::Record::FileEvent {
+            row: forward_event("t1"),
+            spans: Vec::new(),
+        };
+        let ChangeRoute::Forward(ticket) = follower.begin_change(record) else {
+            panic!("a follower routes a shared write to the owner");
+        };
+        drop(owner);
+        follower.retry_changes_takeover();
+        assert!(
+            follower.owns_changes_writer(),
+            "the takeover landed while the record was in flight"
+        );
+        let settled = follower.settle_forward(*ticket, outcome);
+        let rows = follower.file_events_for_session("s1").unwrap().len();
+        (settled, rows)
+    }
+
+    /// A takeover that lands during a send is not undone by the send's
+    /// settle: a failed send is applied by the new owner, and an answer from
+    /// the old owner stands without a second apply.
+    #[test]
+    fn a_takeover_during_the_send_settles_locally() {
+        let (settled, rows) = settle_after_takeover(Err(
+            crate::changes_writer::ForwardError::Transport("stalled".into()),
+        ));
+        assert_eq!(settled.expect("applied locally"), 1);
+        assert_eq!(rows, 1, "the new owner holds the record the send lost");
+
+        let (settled, rows) = settle_after_takeover(Ok(1));
+        assert_eq!(settled.expect("the old owner's answer"), 1);
+        assert_eq!(
+            rows, 0,
+            "a record the old owner applied is not applied again"
+        );
+    }
+
     /// The downgrade guard ([D112]): an older build must never
     /// quarantine-rebuild a corrupt changes.db whose sidecar records a
     /// newer schema — that would stamp the old schema over the
@@ -15346,12 +15696,14 @@ mod tests {
         SessionLedger::attach_changes(&conn, None, false).expect("attach");
         let changes_write_ok = SessionLedger::configure(&conn, true).expect("configure");
         SessionLedger {
-            db: Mutex::new(conn),
+            db: crate::worker_gauge::GaugedMutex::new(conn),
             claude_home: ClaudeHome::at(root),
             sessions_changed: OnceLock::new(),
             changes_write_ok,
             changes_journal: Mutex::new(None),
             changes_access: Mutex::new(crate::changes_writer::ChangesAccess::Unclaimed),
+            forward_order: Mutex::new(()),
+            changes_generation: AtomicU64::new(0),
             changes_db_path: None,
             writer_identity: crate::changes_writer::local_identity(0),
             session_index: None,

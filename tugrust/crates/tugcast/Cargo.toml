@@ -50,7 +50,6 @@ dirs = { workspace = true }
 tokio-stream = { workspace = true }
 rusqlite = { workspace = true }
 reqwest = { workspace = true }
-ureq = { version = "3", features = ["json"] }
 
 [dev-dependencies]
 # `test-util` gives tests a pausable clock, so a timeout whose ceiling is

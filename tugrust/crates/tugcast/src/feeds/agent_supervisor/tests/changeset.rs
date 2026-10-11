@@ -2476,3 +2476,115 @@ async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
         "the session-less commit added no ledger row",
     );
 }
+
+/// The changeset handlers' ledger work — a draft upsert, a draft delete, and
+/// a claim's rows plus the sever of the prior owner — driven through the
+/// supervisor's CONTROL entry point on real workers under the strict gauge. A
+/// `SessionLedger` lock taken on a worker outside the facade panics the
+/// handler's task, so the rows landing is the proof they ran off the worker.
+#[test]
+fn changeset_control_never_locks_on_a_worker() {
+    use crate::worker_gauge::{strict_test_runtime, violations};
+
+    let rt = strict_test_runtime(2);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let status = tugcore::git_command()
+        .current_dir(&root)
+        .args(["init", "-b", "main"])
+        .status()
+        .unwrap();
+    assert!(status.success(), "git init failed");
+    let root_str = root.to_string_lossy().to_string();
+    let canonical = crate::path_resolver::CanonicalPath::from_raw(&root);
+
+    let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+    // A prior owner of the file the claim takes, which the sever must remove.
+    ledger
+        .record_file_event(&crate::session_ledger::FileEventRow {
+            tug_session_id: "s-prior".into(),
+            tool_use_id: "tu-prior".into(),
+            file_path: "a.rs".into(),
+            tool_name: "Write".into(),
+            op: "write".into(),
+            origin: "exact".into(),
+            ambiguous: false,
+            parent_tool_use_id: None,
+            project_dir: canonical.as_str().to_string(),
+            at: 1,
+        })
+        .unwrap();
+
+    let sup = rt.block_on(async {
+        let (mut sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.session_ledger = Some(Arc::clone(&ledger));
+        let _entry = sup
+            .registry
+            .get_or_create(&root, CancellationToken::new())
+            .unwrap();
+        Arc::new(sup)
+    });
+
+    let draft = |extra: serde_json::Value| {
+        let mut body = serde_json::json!({
+            "workspace_key": "/proj",
+            "owner_kind": "session",
+            "owner_id": "s1",
+            "message": "Hand-tuned message",
+            "edited": true,
+        });
+        body.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        serde_json::to_vec(&body).unwrap()
+    };
+    let upsert = draft(serde_json::json!({}));
+    let clear = draft(serde_json::json!({ "clear": true }));
+    let claim = serde_json::to_vec(&serde_json::json!({
+        "project_dir": root_str,
+        "session_id": "s-claimant",
+        "files": ["a.rs"],
+    }))
+    .unwrap();
+
+    let driven = Arc::clone(&sup);
+    let drafted = crate::ledger_handle::LedgerHandle::new(Arc::clone(&ledger));
+    rt.block_on(rt.spawn(async move {
+        driven
+            .handle_control("changeset_draft_set", &upsert, 1)
+            .await;
+        // Read through the facade: the test's own read is on a worker too.
+        let row = drafted
+            .run(|l| l.changeset_draft("session", "s1", "/proj"))
+            .await
+            .unwrap()
+            .expect("the upsert landed");
+        assert_eq!(row.message, "Hand-tuned message");
+        driven
+            .handle_control("changeset_draft_set", &clear, 1)
+            .await;
+        driven.handle_control("changeset_claim", &claim, 1).await;
+    }))
+    .expect("the changeset handlers never locked the ledger on a worker");
+    drop(sup);
+
+    assert!(
+        ledger
+            .changeset_draft("session", "s1", "/proj")
+            .unwrap()
+            .is_none(),
+        "the clear deleted the draft"
+    );
+    let claimed = ledger.file_events_for_session("s-claimant").unwrap();
+    assert_eq!(claimed.len(), 1, "the claim wrote one row");
+    assert_eq!(claimed[0].file_path, "a.rs");
+    assert_eq!(claimed[0].origin, "claim");
+    assert!(
+        ledger
+            .file_events_for_session("s-prior")
+            .unwrap()
+            .is_empty(),
+        "the claim severed the prior owner"
+    );
+    assert_eq!(violations(), 0);
+}

@@ -338,6 +338,7 @@ pub(in crate::feeds::agent_supervisor) fn parse_changeset_draft_cancel_payload(
 /// writes, and the post-landing `clear`. Absent fields leave the stored
 /// value untouched; `selection: null` clears the overrides; `clear: true`
 /// deletes the whole row.
+#[derive(Clone)]
 pub(in crate::feeds::agent_supervisor) struct ChangesetDraftSetPayload {
     pub(in crate::feeds::agent_supervisor) workspace_key: String,
     pub(in crate::feeds::agent_supervisor) owner_kind: String,
@@ -789,7 +790,7 @@ impl AgentSupervisor {
             }
             ControlAction::ChangesetDraftSet => match parse_changeset_draft_set_payload(payload) {
                 Ok(parsed) => {
-                    self.do_changeset_draft_set(&parsed);
+                    self.do_changeset_draft_set(&parsed).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -993,7 +994,9 @@ impl AgentSupervisor {
             );
             return;
         };
-        let Some(ledger) = self.session_ledger.clone() else {
+        // LEDGER-SYNC: the draft engine (`feeds/draft_engine.rs`) owns the
+        // `Arc` for the generation it spawns; this conversion does not reach it.
+        let Some(ledger) = self.ledger_handle().map(|h| Arc::clone(h.ledger())) else {
             warn!("changeset draft request: no session ledger");
             Self::send_changeset_draft_error(
                 &self.control_tx,
@@ -1077,51 +1080,60 @@ impl AgentSupervisor {
     /// the post-landing `clear`. The row is keyed by the request's canonical
     /// `workspace_key`, which is what every draft row is keyed by; the global
     /// aggregate bump fires so the next frame carries the change.
-    fn do_changeset_draft_set(&self, request: &ChangesetDraftSetPayload) {
-        let Some(ledger) = self.session_ledger.clone() else {
+    async fn do_changeset_draft_set(&self, request: &ChangesetDraftSetPayload) {
+        let Some(handle) = self.ledger_handle() else {
             return;
         };
-        if request.clear {
-            log_ledger_err(
-                "delete_changeset_draft",
-                &format!(
-                    "{}:{} in {}",
-                    request.owner_kind, request.owner_id, request.workspace_key
-                ),
-                ledger.delete_changeset_draft(
+        let request = request.clone();
+        let clear = request.clear;
+        let key = format!(
+            "{}:{} in {}",
+            request.owner_kind, request.owner_id, request.workspace_key
+        );
+        // The read-modify-write is one trip off the worker. It hands back the
+        // write's result, so the failure is logged here, on the request's own
+        // task, rather than on whichever pool thread ran the write.
+        let written = handle
+            .run(move |ledger| {
+                if request.clear {
+                    return ledger.delete_changeset_draft(
+                        &request.owner_kind,
+                        &request.owner_id,
+                        &request.workspace_key,
+                    );
+                }
+                let existing = crate::feeds::draft_engine::read_draft(
+                    ledger,
                     &request.owner_kind,
                     &request.owner_id,
                     &request.workspace_key,
-                ),
-            );
-            self.registry.changeset_all_bump().notify_one();
-            return;
-        }
-        let existing = crate::feeds::draft_engine::read_draft(
-            &ledger,
-            &request.owner_kind,
-            &request.owner_id,
-            &request.workspace_key,
-        );
-        let (fingerprint, prior_message, prior_edited, prior_selection) = existing
-            .map(|e| (e.fingerprint, e.message, e.edited, e.selection))
-            .unwrap_or_default();
-        let row = crate::session_ledger::ChangesetDraftRow {
-            owner_kind: request.owner_kind.clone(),
-            owner_id: request.owner_id.clone(),
-            project_dir: request.workspace_key.clone(),
-            fingerprint,
-            message: request.message.clone().unwrap_or(prior_message),
-            updated_at: crate::feeds::draft_engine::now_millis(),
-            // Monotonic through this verb: a human touch pins the draft;
-            // only a confirmed forced regenerate resets it ([P03]).
-            edited: request.edited || prior_edited,
-            selection: match &request.selection {
-                Some(replacement) => replacement.clone(),
-                None => prior_selection,
-            },
-        };
-        if let Err(err) = ledger.upsert_changeset_draft(&row) {
+                );
+                let (fingerprint, prior_message, prior_edited, prior_selection) = existing
+                    .map(|e| (e.fingerprint, e.message, e.edited, e.selection))
+                    .unwrap_or_default();
+                let row = crate::session_ledger::ChangesetDraftRow {
+                    owner_kind: request.owner_kind.clone(),
+                    owner_id: request.owner_id.clone(),
+                    project_dir: request.workspace_key.clone(),
+                    fingerprint,
+                    message: request.message.clone().unwrap_or(prior_message),
+                    updated_at: crate::feeds::draft_engine::now_millis(),
+                    // Monotonic through this verb: a human touch pins the draft;
+                    // only a confirmed forced regenerate resets it ([P03]).
+                    edited: request.edited || prior_edited,
+                    selection: match &request.selection {
+                        Some(replacement) => replacement.clone(),
+                        None => prior_selection,
+                    },
+                };
+                ledger.upsert_changeset_draft(&row)
+            })
+            .await;
+        if clear {
+            // A failed delete still bumps, so the deck re-reads rather than
+            // trusting a row the delete left behind.
+            log_ledger_err("delete_changeset_draft", &key, written);
+        } else if let Err(err) = written {
             warn!(error = %err, "changeset_draft_set: persist failed");
             return;
         }
@@ -1183,18 +1195,23 @@ impl AgentSupervisor {
         // The row's callsign and `line_id` are the line's ([P02]), so a commit
         // made inside an arc stage cites the line of work rather than the
         // segment; `Tug-Session-Id` beside it still pins the exact transcript.
-        let identity = request
-            .session_id
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .and_then(|id| self.session_ledger.as_ref().map(|l| (l, id)))
-            .and_then(|(ledger, id)| match ledger.get(id) {
-                Ok(row) => row.map(|r| (r.tag, r.line_id)),
-                Err(err) => {
-                    warn!(error = %err, session_id = id, "ledger read for commit trailer failed");
-                    None
-                }
-            });
+        let identity = match (
+            self.ledger_handle(),
+            request.session_id.clone().filter(|s| !s.is_empty()),
+        ) {
+            (Some(handle), Some(id)) => {
+                handle
+                    .run(move |ledger| match ledger.get(&id) {
+                        Ok(row) => row.map(|r| (r.tag, r.line_id)),
+                        Err(err) => {
+                            warn!(error = %err, session_id = id, "ledger read for commit trailer failed");
+                            None
+                        }
+                    })
+                    .await
+            }
+            _ => None,
+        };
         let tag = identity.as_ref().and_then(|(tag, _)| tag.as_deref());
         let line_id = identity
             .as_ref()
@@ -1223,14 +1240,14 @@ impl AgentSupervisor {
                 // fails the commit (R02). No live SHELL frame is emitted — the
                 // initiating client paints the live row from `summary` on the
                 // `_ok`; other decks converge on their next restore.
-                let receipt_id = Self::record_landing_receipt(
-                    self.shell_ledger.as_ref(),
-                    self.session_ledger.as_ref(),
-                    request.session_id.as_deref(),
-                    "/commit",
-                    &summary,
-                    project_dir,
-                );
+                let receipt_id = self
+                    .record_landing_receipt_off_worker(
+                        request.session_id.as_deref(),
+                        "/commit",
+                        &summary,
+                        project_dir,
+                    )
+                    .await;
                 // The landing's file list, projected once: the fact write and
                 // the fact send below both want it, and the receipt is
                 // thrown away after the broadcast ([P03]).
@@ -1241,7 +1258,7 @@ impl AgentSupervisor {
                 // thrown away after the broadcast. It is also the whole of
                 // what any fact reader sees: recording the fact is the
                 // whole of it, so there is no second send.
-                if let Some(sessions) = self.session_ledger.as_ref() {
+                if self.ledger_handle().is_some() {
                     let fact = crate::feeds::facts_library::commit_fact(
                         crate::session_ledger::now_millis(),
                         request.session_id.as_deref().filter(|s| !s.is_empty()),
@@ -1251,9 +1268,7 @@ impl AgentSupervisor {
                         Some(&receipt.numstat),
                         tugarc_core::ops::current_branch(dir).ok().as_deref(),
                     );
-                    if let Err(e) = sessions.record_fact(&fact) {
-                        warn!(error = %e, "commit fact write failed");
-                    }
+                    self.record_commit_fact(fact, "commit").await;
                 }
                 let body = serde_json::json!({
                     "action": "changeset_commit_ok",
@@ -1325,14 +1340,14 @@ impl AgentSupervisor {
                 // offer — should stop showing a push to make.
                 self.registry.changeset_all_bump().notify_one();
                 let summary = crate::feeds::changeset::format_push_summary(&receipt);
-                let receipt_id = Self::record_landing_receipt(
-                    self.shell_ledger.as_ref(),
-                    self.session_ledger.as_ref(),
-                    request.session_id.as_deref(),
-                    "/push",
-                    &summary,
-                    project_dir,
-                );
+                let receipt_id = self
+                    .record_landing_receipt_off_worker(
+                        request.session_id.as_deref(),
+                        "/push",
+                        &summary,
+                        project_dir,
+                    )
+                    .await;
                 let body = serde_json::json!({
                     "action": "changeset_push_ok",
                     "project_dir": project_dir,
@@ -1391,7 +1406,7 @@ impl AgentSupervisor {
                 "not an open project",
             );
         }
-        let Some(ledger) = self.session_ledger.as_ref() else {
+        let Some(handle) = self.ledger_handle() else {
             return Self::send_changeset_claim_err(&self.control_tx, project_dir, "no ledger");
         };
 
@@ -1402,98 +1417,113 @@ impl AgentSupervisor {
         // captured tool call can.
         let repo_root = crate::feeds::attribution::repo_root_for(dir).await;
         let at = crate::session_ledger::now_millis();
-        // A claim is a user gesture in this session — proof of activity.
-        // Revive a row the startup demote closed, or the fresh claim rows
-        // land under a "dead" owner and the next recompose lifts every one
-        // of them straight back into `orphaned` — the treadmill this verb
-        // exists to end.
-        if let Err(err) = ledger.revive_on_activity(&request.session_id, at) {
-            warn!(
-                error = %err,
-                session_id = %request.session_id,
-                "changeset_claim revive_on_activity failed"
-            );
-        }
-        // The claimant is a **line** of work ([P01]), not the one segment id
-        // the request arrived under: the fresh rows are written under the
-        // line's seat segment (the id everything else answers for the line
-        // with), and the sever below keeps every id the line has ever worn,
-        // so a claim never severs the claimant's own older rows. A session
-        // this ledger has never lined stays keyed by its raw id.
-        let line = ledger
-            .line_of(&request.session_id)
-            .and_then(|line_id| ledger.line_ownership(&line_id).ok().flatten());
-        let write_id = line
-            .as_ref()
-            .map(|l| l.seat_id.clone())
-            .unwrap_or_else(|| request.session_id.clone());
-        let mut keep_ids: Vec<String> = vec![write_id.clone()];
-        if let Some(l) = &line {
-            keep_ids.extend(l.segment_ids.iter().filter(|id| **id != l.seat_id).cloned());
-        }
-        if !keep_ids.contains(&request.session_id) {
-            keep_ids.push(request.session_id.clone());
-        }
-        // One synthetic tool_use_id groups the batch, mirroring how a Bash
-        // call's N rows share an id.
-        let tool_use_id = format!("claim:{at}");
-        let mut rows = Vec::with_capacity(request.files.len());
-        for path in &request.files {
-            let Some(file_path) = crate::feeds::attribution::repo_relative_key(
-                repo_root.as_deref(),
-                std::path::Path::new(path),
-            ) else {
-                warn!(
-                    project_dir,
-                    path, "changeset_claim path outside the repo; skipped"
-                );
-                continue;
-            };
-            rows.push(crate::session_ledger::FileEventRow {
-                tug_session_id: write_id.clone(),
-                tool_use_id: tool_use_id.clone(),
-                file_path,
-                tool_name: "Claim".to_string(),
-                op: "claimed".to_string(),
-                origin: "claim".to_string(),
-                ambiguous: false,
-                parent_tool_use_id: None,
-                project_dir: canonical.as_str().to_string(),
-                at,
-            });
-        }
-        // A claim is a whole-file assertion by hand — the user is saying the
-        // file is theirs, not which regions of it are — so every claimed row
-        // carries a `whole` span, which widens its owner to the whole file at
-        // read time ([P12]).
-        let spans: Vec<Vec<crate::session_ledger::FileEventSpan>> = rows
-            .iter()
-            .map(|_| vec![crate::feeds::attribution::whole_span()])
-            .collect();
-        // The whole gesture is one journaled, transactional batch: `claimed`
-        // is the mapped row count or zero, never a partial tally the deck
-        // has to interpret.
-        let claimed = match ledger.record_file_events_with_spans(&rows, &spans) {
-            Ok(()) => rows.len(),
-            Err(err) => {
-                warn!(error = %err, project_dir, "changeset_claim batch failed");
-                0
-            }
-        };
+        // Every ledger read and write of the claim, in one trip off the worker.
+        let (claimed, line, keep_ids, claimant) = {
+            let session_id = request.session_id.clone();
+            let files = request.files.clone();
+            let canonical_dir = canonical.as_str().to_string();
+            let project_dir_owned = project_dir.to_string();
+            handle
+                .run(move |ledger| {
+                    let project_dir = project_dir_owned.as_str();
+                    // A claim is a user gesture in this session — proof of activity.
+                    // Revive a row the startup demote closed, or the fresh claim rows
+                    // land under a "dead" owner and the next recompose lifts every one
+                    // of them straight back into `orphaned` — the treadmill this verb
+                    // exists to end.
+                    if let Err(err) = ledger.revive_on_activity(&session_id, at) {
+                        warn!(
+                            error = %err,
+                            session_id = %session_id,
+                            "changeset_claim revive_on_activity failed"
+                        );
+                    }
+                    // The claimant is a **line** of work ([P01]), not the one segment id
+                    // the request arrived under: the fresh rows are written under the
+                    // line's seat segment (the id everything else answers for the line
+                    // with), and the sever below keeps every id the line has ever worn,
+                    // so a claim never severs the claimant's own older rows. A session
+                    // this ledger has never lined stays keyed by its raw id.
+                    let line = ledger
+                        .line_of(&session_id)
+                        .and_then(|line_id| ledger.line_ownership(&line_id).ok().flatten());
+                    let write_id = line
+                        .as_ref()
+                        .map(|l| l.seat_id.clone())
+                        .unwrap_or_else(|| session_id.clone());
+                    let mut keep_ids: Vec<String> = vec![write_id.clone()];
+                    if let Some(l) = &line {
+                        keep_ids
+                            .extend(l.segment_ids.iter().filter(|id| **id != l.seat_id).cloned());
+                    }
+                    if !keep_ids.contains(&session_id) {
+                        keep_ids.push(session_id.clone());
+                    }
+                    // One synthetic tool_use_id groups the batch, mirroring how a Bash
+                    // call's N rows share an id.
+                    let tool_use_id = format!("claim:{at}");
+                    let mut rows = Vec::with_capacity(files.len());
+                    for path in &files {
+                        let Some(file_path) = crate::feeds::attribution::repo_relative_key(
+                            repo_root.as_deref(),
+                            std::path::Path::new(path),
+                        ) else {
+                            warn!(
+                                project_dir,
+                                path, "changeset_claim path outside the repo; skipped"
+                            );
+                            continue;
+                        };
+                        rows.push(crate::session_ledger::FileEventRow {
+                            tug_session_id: write_id.clone(),
+                            tool_use_id: tool_use_id.clone(),
+                            file_path,
+                            tool_name: "Claim".to_string(),
+                            op: "claimed".to_string(),
+                            origin: "claim".to_string(),
+                            ambiguous: false,
+                            parent_tool_use_id: None,
+                            project_dir: canonical_dir.clone(),
+                            at,
+                        });
+                    }
+                    // A claim is a whole-file assertion by hand — the user is saying the
+                    // file is theirs, not which regions of it are — so every claimed row
+                    // carries a `whole` span, which widens its owner to the whole file at
+                    // read time ([P12]).
+                    let spans: Vec<Vec<crate::session_ledger::FileEventSpan>> = rows
+                        .iter()
+                        .map(|_| vec![crate::feeds::attribution::whole_span()])
+                        .collect();
+                    // The whole gesture is one journaled, transactional batch: `claimed`
+                    // is the mapped row count or zero, never a partial tally the deck
+                    // has to interpret.
+                    let claimed = match ledger.record_file_events_with_spans(&rows, &spans) {
+                        Ok(()) => rows.len(),
+                        Err(err) => {
+                            warn!(error = %err, project_dir, "changeset_claim batch failed");
+                            0
+                        }
+                    };
 
-        // Sever any prior owner ([D120]): a claim asserts sole ownership, so
-        // remove other sessions' rows for these paths — a dead originator can't
-        // silently re-own the file on re-open, and it leaves the orphaned
-        // bucket. The kept set is the claimant's whole line — its fresh rows
-        // AND everything written under ids it has since rotated away from.
-        // A batch that did not land claims nothing, so it severs nothing.
-        if claimed > 0 {
-            if let Err(err) =
-                ledger.sever_file_ownership_except(canonical.as_str(), &request.files, &keep_ids)
-            {
-                warn!(error = %err, project_dir, "changeset_claim sever failed");
-            }
-        }
+                    // Sever any prior owner ([D120]): a claim asserts sole ownership, so
+                    // remove other sessions' rows for these paths — a dead originator can't
+                    // silently re-own the file on re-open, and it leaves the orphaned
+                    // bucket. The kept set is the claimant's whole line — its fresh rows
+                    // AND everything written under ids it has since rotated away from.
+                    // A batch that did not land claims nothing, so it severs nothing.
+                    if claimed > 0 {
+                        if let Err(err) =
+                            ledger.sever_file_ownership_except(&canonical_dir, &files, &keep_ids)
+                        {
+                            warn!(error = %err, project_dir, "changeset_claim sever failed");
+                        }
+                    }
+                    let claimant = ledger.get(&session_id).ok().flatten();
+                    (claimed, line, keep_ids, claimant)
+                })
+                .await
+        };
 
         self.registry.changeset_all_bump().notify_one();
         // Honesty check: a claim whose claimant this instance's ledger has
@@ -1506,7 +1536,6 @@ impl AgentSupervisor {
         // seated on an open card, and the claim will hold on the next
         // recompose — even when the id the request arrived under is itself
         // a demoted older segment.
-        let claimant = ledger.get(&request.session_id).ok().flatten();
         let claimant_live = line.as_ref().map(|l| l.any_live).unwrap_or(false)
             || claimant
                 .as_ref()
@@ -1584,67 +1613,77 @@ impl AgentSupervisor {
                 "not an open project",
             );
         }
-        let Some(ledger) = self.session_ledger.as_ref() else {
+        let Some(handle) = self.ledger_handle() else {
             return Self::send_changeset_disclaim_err(&self.control_tx, project_dir, "no ledger");
         };
 
         let canonical = crate::path_resolver::CanonicalPath::from_raw(dir);
         let repo_root = crate::feeds::attribution::repo_root_for(dir).await;
-        // A disclaim is a user gesture in this session, same as a claim —
-        // revive a demoted row so the session's remaining files keep a live
-        // owner on the recompose this gesture triggers.
-        if let Err(err) =
-            ledger.revive_on_activity(&request.session_id, crate::session_ledger::now_millis())
-        {
-            warn!(
-                error = %err,
-                session_id = %request.session_id,
-                "changeset_disclaim revive_on_activity failed"
-            );
-        }
-        let mut paths = Vec::with_capacity(request.files.len());
-        for path in &request.files {
-            let Some(file_path) = crate::feeds::attribution::repo_relative_key(
-                repo_root.as_deref(),
-                std::path::Path::new(path),
-            ) else {
-                warn!(
-                    project_dir,
-                    path, "changeset_disclaim path outside the repo; skipped"
-                );
-                continue;
-            };
-            paths.push(file_path);
-        }
+        // Every ledger read and write of the disclaim, in one trip off the
+        // worker.
+        let disclaimed = {
+            let session_id = request.session_id.clone();
+            let files = request.files.clone();
+            let canonical_dir = canonical.as_str().to_string();
+            let project_dir_owned = project_dir.to_string();
+            handle
+                .run(move |ledger| {
+                    let project_dir = project_dir_owned.as_str();
+                    // A disclaim is a user gesture in this session, same as a claim —
+                    // revive a demoted row so the session's remaining files keep a live
+                    // owner on the recompose this gesture triggers.
+                    if let Err(err) =
+                        ledger.revive_on_activity(&session_id, crate::session_ledger::now_millis())
+                    {
+                        warn!(
+                            error = %err,
+                            session_id = %session_id,
+                            "changeset_disclaim revive_on_activity failed"
+                        );
+                    }
+                    let mut paths = Vec::with_capacity(files.len());
+                    for path in &files {
+                        let Some(file_path) = crate::feeds::attribution::repo_relative_key(
+                            repo_root.as_deref(),
+                            std::path::Path::new(path),
+                        ) else {
+                            warn!(
+                                project_dir,
+                                path, "changeset_disclaim path outside the repo; skipped"
+                            );
+                            continue;
+                        };
+                        paths.push(file_path);
+                    }
 
-        // The renouncing owner is a line ([P01]): expand the incoming id to
-        // every segment the line has worn, so a disclaim empties the whole
-        // line's hold on the paths — not just the slice written under the
-        // current id, which would leave an older segment silently re-owning
-        // the file on the next recompose.
-        let mut renouncing_ids: Vec<String> = vec![request.session_id.clone()];
-        if let Some(l) = ledger
-            .line_of(&request.session_id)
-            .and_then(|line_id| ledger.line_ownership(&line_id).ok().flatten())
-        {
-            renouncing_ids.extend(
-                l.segment_ids
-                    .into_iter()
-                    .filter(|id| *id != request.session_id),
-            );
-        }
-        let disclaimed =
-            match ledger.disclaim_file_ownership(canonical.as_str(), &paths, &renouncing_ids) {
-                Ok(deleted) => deleted,
-                Err(err) => {
-                    warn!(error = %err, project_dir, "changeset_disclaim failed");
-                    return Self::send_changeset_disclaim_err(
-                        &self.control_tx,
-                        project_dir,
-                        &err.to_string(),
-                    );
-                }
-            };
+                    // The renouncing owner is a line ([P01]): expand the incoming id to
+                    // every segment the line has worn, so a disclaim empties the whole
+                    // line's hold on the paths — not just the slice written under the
+                    // current id, which would leave an older segment silently re-owning
+                    // the file on the next recompose.
+                    let mut renouncing_ids: Vec<String> = vec![session_id.clone()];
+                    if let Some(l) = ledger
+                        .line_of(&session_id)
+                        .and_then(|line_id| ledger.line_ownership(&line_id).ok().flatten())
+                    {
+                        renouncing_ids
+                            .extend(l.segment_ids.into_iter().filter(|id| *id != session_id));
+                    }
+                    ledger.disclaim_file_ownership(&canonical_dir, &paths, &renouncing_ids)
+                })
+                .await
+        };
+        let disclaimed = match disclaimed {
+            Ok(deleted) => deleted,
+            Err(err) => {
+                warn!(error = %err, project_dir, "changeset_disclaim failed");
+                return Self::send_changeset_disclaim_err(
+                    &self.control_tx,
+                    project_dir,
+                    &err.to_string(),
+                );
+            }
+        };
 
         self.registry.changeset_all_bump().notify_one();
         let body = serde_json::json!({
@@ -1850,16 +1889,7 @@ impl AgentSupervisor {
                 // dies with it ([P14]).
                 let landed = !outcome.previewed && outcome.commit_hash.is_some();
                 if landed {
-                    if let Some(ledger) = self.session_ledger.as_deref() {
-                        Self::clear_arc_draft(ledger, project_dir, &owner_key);
-                        // The arc the sessions were mated to no longer
-                        // exists ([P05]) — release every binding to it.
-                        log_ledger_err(
-                            "clear_arc_bindings_for_arc",
-                            &owner_key,
-                            ledger.clear_arc_bindings_for_arc(&owner_key),
-                        );
-                    }
+                    self.forget_arc(project_dir, &owner_key).await;
                     self.registry.changeset_all_bump().notify_one();
                 }
                 // The landing's receipt (Spec S01) — server-formatted, so the
@@ -1892,7 +1922,7 @@ impl AgentSupervisor {
                         // the base the join landed on. No numstat here — the
                         // list above is `--stat` shaped, and under any strategy
                         // but `squash` it is empty for the reason given there.
-                        if let Some(sessions) = self.session_ledger.as_ref() {
+                        if self.ledger_handle().is_some() {
                             let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
                             let fact = crate::feeds::facts_library::commit_fact(
                                 crate::session_ledger::now_millis(),
@@ -1903,9 +1933,7 @@ impl AgentSupervisor {
                                 None,
                                 Some(&outcome.base_branch),
                             );
-                            if let Err(e) = sessions.record_fact(&fact) {
-                                warn!(error = %e, "join commit fact write failed");
-                            }
+                            self.record_commit_fact(fact, "join").await;
                         }
                         let summary = crate::feeds::changeset::format_join_summary(
                             &crate::feeds::changeset::JoinSummary {
@@ -1919,14 +1947,14 @@ impl AgentSupervisor {
                                 record: arc_record.as_ref(),
                             },
                         );
-                        receipt_id = Self::record_landing_receipt(
-                            self.shell_ledger.as_ref(),
-                            self.session_ledger.as_ref(),
-                            request.session_id.as_deref(),
-                            "/arc-join",
-                            &summary,
-                            project_dir,
-                        );
+                        receipt_id = self
+                            .record_landing_receipt_off_worker(
+                                request.session_id.as_deref(),
+                                "/arc-join",
+                                &summary,
+                                project_dir,
+                            )
+                            .await;
                         Some(summary)
                     }
                     _ => None,
@@ -1989,6 +2017,41 @@ impl AgentSupervisor {
                 false
             }
         }
+    }
+
+    /// Write a landing's commit fact off the worker. A failed write warns and
+    /// never fails the landing it describes.
+    async fn record_commit_fact(
+        &self,
+        fact: crate::session_ledger::NewFact,
+        landing: &'static str,
+    ) {
+        let Some(handle) = self.ledger_handle() else {
+            return;
+        };
+        if let Err(e) = handle.run(move |ledger| ledger.record_fact(&fact)).await {
+            warn!(error = %e, landing, "commit fact write failed");
+        }
+    }
+
+    /// A landed or discarded arc is gone: its join draft dies with it ([P14])
+    /// — a reused name must never inherit the dead arc's message — and every
+    /// session binding to it is released ([P05]).
+    async fn forget_arc(&self, project_dir: &str, owner_key: &str) {
+        let Some(handle) = self.ledger_handle() else {
+            return;
+        };
+        let (project_dir, owner_key) = (project_dir.to_string(), owner_key.to_string());
+        handle
+            .run(move |ledger| {
+                Self::clear_arc_draft(ledger, &project_dir, &owner_key);
+                log_ledger_err(
+                    "clear_arc_bindings_for_arc",
+                    &owner_key,
+                    ledger.clear_arc_bindings_for_arc(&owner_key),
+                );
+            })
+            .await;
     }
 
     /// Persist a landing receipt to the shell ledger ([P06]), the same way the
@@ -2537,10 +2600,13 @@ impl AgentSupervisor {
         // rather than trusted from the press: the card's copy is as old as its
         // last recompute, and a session that has since put its hand on the
         // path must still be named in the fold and told about it.
+        // LEDGER-SYNC: `live_base_dirt_for` composes the snapshot in
+        // `feeds/changeset.rs`, which this conversion does not reach.
+        let handle = self.ledger_handle();
         let live = crate::feeds::changeset::live_base_dirt_for(
             dir,
             &request.arc,
-            self.session_ledger.as_deref(),
+            handle.as_ref().map(|h| h.ledger().as_ref()),
         )
         .await;
         let live_dirt: std::collections::BTreeMap<String, String> = live
@@ -2867,16 +2933,7 @@ impl AgentSupervisor {
                 );
                 // The discarded arc's join draft dies with it ([P14]) — a
                 // reused name must never inherit the dead arc's message.
-                if let Some(ledger) = self.session_ledger.as_deref() {
-                    Self::clear_arc_draft(ledger, project_dir, &owner_key);
-                    // As on the join path: the arc is gone, so its bindings
-                    // go with it ([P05]).
-                    log_ledger_err(
-                        "clear_arc_bindings_for_arc",
-                        &owner_key,
-                        ledger.clear_arc_bindings_for_arc(&owner_key),
-                    );
-                }
+                self.forget_arc(project_dir, &owner_key).await;
                 self.registry.changeset_all_bump().notify_one();
                 // The discard's receipt (Spec S02): the header names what was
                 // destroyed, the body lists the subjects the preflight showed.
@@ -2887,14 +2944,14 @@ impl AgentSupervisor {
                     &round_subjects,
                     outcome.documents_kept.as_deref(),
                 );
-                let receipt_id = Self::record_landing_receipt(
-                    self.shell_ledger.as_ref(),
-                    self.session_ledger.as_ref(),
-                    request.session_id.as_deref(),
-                    "/arc-discard",
-                    &summary,
-                    project_dir,
-                );
+                let receipt_id = self
+                    .record_landing_receipt_off_worker(
+                        request.session_id.as_deref(),
+                        "/arc-discard",
+                        &summary,
+                        project_dir,
+                    )
+                    .await;
                 let body = serde_json::json!({
                     "action": "changeset_discard_ok",
                     "project_dir": project_dir,
@@ -3000,14 +3057,14 @@ impl AgentSupervisor {
                     &outcome.name,
                     &outcome.files,
                 );
-                let receipt_id = Self::record_landing_receipt(
-                    self.shell_ledger.as_ref(),
-                    self.session_ledger.as_ref(),
-                    request.session_id.as_deref(),
-                    "/arc-delete-documents",
-                    &summary,
-                    project_dir,
-                );
+                let receipt_id = self
+                    .record_landing_receipt_off_worker(
+                        request.session_id.as_deref(),
+                        "/arc-delete-documents",
+                        &summary,
+                        project_dir,
+                    )
+                    .await;
                 let body = serde_json::json!({
                     "action": "changeset_delete_documents_ok",
                     "project_dir": project_dir,

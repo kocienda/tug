@@ -1046,7 +1046,8 @@ impl AgentSupervisor {
             .as_ref()
             .filter(|from| **from != tug_session_id)
         {
-            self.record_relocated_prompt_lineage(from, &tug_session_id);
+            self.record_relocated_prompt_lineage(from, &tug_session_id)
+                .await;
         }
         let ack = serde_json::json!({
             "action": "spawn_session_ok",

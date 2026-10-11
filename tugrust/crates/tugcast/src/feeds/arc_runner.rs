@@ -2902,12 +2902,14 @@ async fn reverse(
         );
     }
 
-    ctx.supervisor.record_arc_receipt(
-        arc.session.as_str(),
-        &arc.name,
-        &arc.project.to_string_lossy(),
-        &format_arc_pickup_receipt(&arc.name, stage, what_moved),
-    );
+    ctx.supervisor
+        .record_arc_receipt(
+            arc.session.as_str(),
+            &arc.name,
+            &arc.project.to_string_lossy(),
+            &format_arc_pickup_receipt(&arc.name, stage, what_moved),
+        )
+        .await;
 
     {
         let mut map = state.lock().await;
@@ -3338,7 +3340,9 @@ pub(crate) async fn stop_arc_for_session(
                 reason.as_str(),
             )
         };
-        supervisor.record_arc_receipt(session.as_str(), name, &project.to_string_lossy(), &summary);
+        supervisor
+            .record_arc_receipt(session.as_str(), name, &project.to_string_lossy(), &summary)
+            .await;
     }
 
     if how.record {
@@ -3404,12 +3408,14 @@ async fn finish(
     // stop path was reordered; the completion's ordering is left as it is
     // rather than changed by a step that was not about it.
     let summary = format_arc_receipt(&reading.record);
-    ctx.supervisor.record_arc_receipt(
-        arc.session.as_str(),
-        &arc.name,
-        &arc.project.to_string_lossy(),
-        &summary,
-    );
+    ctx.supervisor
+        .record_arc_receipt(
+            arc.session.as_str(),
+            &arc.name,
+            &arc.project.to_string_lossy(),
+            &summary,
+        )
+        .await;
     if let Err(refusal) = wheel::hand_back(&ctx.supervisor, &arc.session).await {
         warn!(
             arc = %arc.name,
