@@ -4,16 +4,25 @@
  * app that has stopped answering.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { capLines, capSecs, declaredTimeoutSecs, lastSecsFrom, WEDGE_FLOOR_SECS } from "./wedge-cap";
+import {
+    basisSecs,
+    capLines,
+    capSecs,
+    declaredTimeoutSecs,
+    lastSecsFrom,
+    median,
+    recentSecsFrom,
+    WEDGE_FLOOR_SECS,
+} from "./wedge-cap";
 
 const RUN_CAPPED = join(import.meta.dir, "run-capped.sh");
 
 describe("capSecs", () => {
-    test("three times the last recorded time", () => {
+    test("three times the basis it is given", () => {
         expect(capSecs(160)).toBe(480);
         expect(capSecs(41)).toBe(123);
     });
@@ -37,6 +46,27 @@ describe("capSecs", () => {
         expect(capSecs(null, 300)).toBe(300);
         expect(capSecs(null, 60)).toBe(120);
         expect(capSecs(160, 300)).toBe(480);
+    });
+});
+
+describe("the basis is the median of the recent times", () => {
+    test("the middle value, or the mean of the middle two", () => {
+        expect(median([9, 400, 8, 10, 7])).toBe(9);
+        expect(median([12, 10, 20, 11])).toBe(11.5);
+        expect(median([42])).toBe(42);
+    });
+
+    test("nothing usable is no median", () => {
+        expect(median([])).toBeNull();
+        expect(median([0, -1, Number.NaN])).toBeNull();
+        expect(median([0, 30])).toBe(30);
+    });
+
+    test("recent times win over the last one, which is the fallback", () => {
+        expect(basisSecs([10, 400, 11], 10)).toBe(11);
+        expect(basisSecs(undefined, 40)).toBe(40);
+        expect(basisSecs([], 40)).toBe(40);
+        expect(basisSecs(undefined, undefined)).toBeNull();
     });
 });
 
@@ -65,6 +95,7 @@ describe("reading the history verb", () => {
         ],
     });
 
+    // An answer from a ledger that carries no recentSecs: the cap falls back to lastSecs.
     test("takes lastSecs where the ledger has one", () => {
         const last = lastSecsFrom(history);
         expect(last.get("at0622.test.ts")).toBe(163);
@@ -95,6 +126,23 @@ describe("reading the history verb", () => {
         });
         expect(proc.exitCode).toBe(0);
         expect(proc.stdout.toString()).toBe("at0622.test.ts\t489\t163\nb.test.ts\t120\t-\n");
+    });
+
+    test("one slow run does not move the cap: it takes the median of recentSecs", () => {
+        const recent = JSON.stringify({
+            files: [
+                // The newest run was the slow one; lastSecs alone would cap it at 1200 s.
+                { file: "slow-once.test.ts", answer: "last-green", lastSecs: 400, recentSecs: [400, 100, 90, 110, 95] },
+                { file: "quick.test.ts", answer: "last-green", lastSecs: 300, recentSecs: [300, 8, 7] },
+                { file: "two.test.ts", answer: "red-streak", count: 1, lastSecs: 60, recentSecs: [60, 50] },
+            ],
+        });
+        expect(recentSecsFrom(recent).get("slow-once.test.ts")).toEqual([400, 100, 90, 110, 95]);
+        expect(capLines(recent, ["slow-once.test.ts", "quick.test.ts", "two.test.ts"])).toEqual([
+            "slow-once.test.ts\t300\t100",
+            "quick.test.ts\t120\t8",
+            "two.test.ts\t165\t55",
+        ]);
     });
 });
 
@@ -150,4 +198,69 @@ describe("run-capped.sh", () => {
         expect(proc.exitCode).toBe(124);
         expect(existsSync(marker)).toBe(false);
     });
+
+    test("past its cap the whole process group dies, grandchildren included", async () => {
+        const dir = scratch();
+        const marker = join(dir, "wedged");
+        const pidFile = join(dir, "grandchild.pid");
+        // The command's child is a subshell, and the subshell's child is a sleep — two
+        // generations below the script, which a kill of the command and its children misses.
+        const proc = Bun.spawnSync(
+            ["bash", RUN_CAPPED, "1", marker, "bash", "-c", '( sleep 30 & echo $! > "$0"; wait ); wait', pidFile],
+            { env: { ...process.env, TUG_APPTEST_WEDGE_GRACE: "1" }, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(proc.exitCode).toBe(124);
+        const grandchild = Number(readFileSync(pidFile, "utf8").trim());
+        expect(grandchild).toBeGreaterThan(0);
+        const alive = () => {
+            try {
+                process.kill(grandchild, 0);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        // A signalled process is gone within moments; allow for its reaping, never for it to live.
+        const deadline = Date.now() + 2_000;
+        while (alive() && Date.now() < deadline) await Bun.sleep(50);
+        const survived = alive();
+        if (survived) process.kill(grandchild, "SIGKILL");
+        expect(survived).toBe(false);
+    });
+
+    // The command leads a group of its own, outside the terminal's foreground group, so a
+    // ^C, a TERM, or a closed terminal reaches only the script — which must pass it on.
+    for (const [signal, status] of [
+        ["SIGINT", 130],
+        ["SIGTERM", 130],
+        ["SIGHUP", 129],
+    ] as const) {
+        test(`a ${signal} to the script takes the command's whole group with it`, async () => {
+            const dir = scratch();
+            const pidFile = join(dir, "grandchild.pid");
+            const proc = Bun.spawn(
+                ["bash", RUN_CAPPED, "30", join(dir, "wedged"), "bash", "-c", '( sleep 30 & echo $! > "$0"; wait ); wait', pidFile],
+                { stdout: "pipe", stderr: "pipe" },
+            );
+            const started = Date.now();
+            while (!existsSync(pidFile) && Date.now() - started < 5_000) await Bun.sleep(20);
+            const grandchild = Number(readFileSync(pidFile, "utf8").trim());
+            expect(grandchild).toBeGreaterThan(0);
+            proc.kill(signal);
+            expect(await proc.exited).toBe(status);
+            const alive = () => {
+                try {
+                    process.kill(grandchild, 0);
+                    return true;
+                } catch {
+                    return false;
+                }
+            };
+            const deadline = Date.now() + 2_000;
+            while (alive() && Date.now() < deadline) await Bun.sleep(50);
+            const survived = alive();
+            if (survived) process.kill(grandchild, "SIGKILL");
+            expect(survived).toBe(false);
+        });
+    }
 });

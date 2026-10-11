@@ -38,6 +38,8 @@ Every recipe name, flag, environment variable, and output line stays the same. `
 
 **[B04] `file_history` returns the last five non-wedge durations as `recentSecs`, and `wedge-cap.ts` caps on three times their median, floored at 120 s.** Five is enough to shrug off one slow run and few enough that a file that got slower on purpose moves the cap within a week. `lastSecs` stays in the JSON for the `history:` line. The ledger query is one more column in the row it already reads; the JSON field is additive.
 
+*Resolved in implementation:* the wedged-file detail line said `(3× its last recorded Ns)`, which the median makes false. The non-goal against changing output lines exists to keep the report's contract stable, not to keep a line that misstates the cap, so that one clause now reads `(3× the median of its recent recorded times, Ns)`, N being the median; every other line, flag and variable is unchanged. The cap's third column in `wedge-cap.ts` carries that median (or `lastSecs`, the fallback for a ledger answer without `recentSecs`).
+
 **[B05] Beyond [B02]'s sweep, the script's logic is not refactored in this arc.** The body is a single bash program with twenty-odd functions; the arc puts it where a test can reach it and proves the move. Splitting its phases is a follow-on once it has lived outside the Justfile for a while and the first tests against it say which seams are real.
 
 ---

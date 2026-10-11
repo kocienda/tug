@@ -123,8 +123,8 @@ The summary also lists every file with `[PASS]` / `[FAIL]` / `[SKIP]`
 `Failures:` block when any file fails. The app-test cleanup design
 record's summary-format spec [S01] states the contract.
 
-`[WEDGED]` is a file the recipe killed at its cap: three times its last
-recorded wall time, floored at two minutes
+`[WEDGED]` is a file the recipe killed at its cap: three times the median of
+its five most recent recorded wall times, floored at two minutes
 (`scripts/wedge-cap.ts`, enforced by `scripts/run-capped.sh`). It is a
 machine state rather than a result — the app stopped answering — so the
 results ledger never reads it as a red and never takes a duration from

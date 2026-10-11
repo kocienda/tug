@@ -1,0 +1,8 @@
+# shellcheck reads this for every script under the repository (`just shellcheck`).
+# Each disabled code is house style, not an oversight; say why beside it.
+
+# SC2155 "declare and assign separately": `export NAME="$(…)"` is the house
+# idiom for publishing a computed value, carried over from the Justfile's
+# recipes. The runner scripts run without `set -e` and check what matters
+# explicitly, so the masked status is never one they were going to read.
+disable=SC2155

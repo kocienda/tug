@@ -18,6 +18,7 @@ INSTANCE_ID="${1:?usage: tail-instance-logs.sh <instance-id>}"
 LOGS="$HOME/Library/Application Support/Tug/instances/$INSTANCE_ID/Logs"
 
 newest() {
+    # shellcheck disable=SC2012  # newest by mtime; log names are tug-made
     ls -t "$LOGS/$1".* 2>/dev/null | head -1
 }
 

@@ -1,6 +1,6 @@
 # Code Signing on macOS — Apple Developer ID + Inside-Out Signing
 
-*The signing pipeline that gives `Tug.app` a stable designated requirement across rebuilds (so TCC Accessibility grants persist), why the app-test harness depends on it, and the procedures + failure modes you need to know. Read this before changing anything in `Justfile`'s `build-app` / `app-test` recipes, in `tugrust/scripts/sign-bundle.sh`, in `scripts/setup-dev-signing.sh`, or in the bundle's entitlements / signing settings.*
+*The signing pipeline that gives `Tug.app` a stable designated requirement across rebuilds (so TCC Accessibility grants persist), why the app-test harness depends on it, and the procedures + failure modes you need to know. Read this before changing anything in `Justfile`'s `build-app` / `app-test` recipes (the latter's body is `tests/app-test/scripts/app-test.sh`), in `tugrust/scripts/sign-bundle.sh`, in `scripts/setup-dev-signing.sh`, or in the bundle's entitlements / signing settings.*
 
 > **Platform scope.** This document is **macOS-only**. The whole pipeline is structured around Apple's TCC database, the `security` CLI, the `codesign` tool, Xcode's build settings, macOS Accessibility (AX) permissions, and `notarytool`. None of it has a meaningful analogue on Linux or Windows.
 
@@ -424,7 +424,7 @@ spctl --assess --type execute --verbose /tmp/Tug-quarantine-test.app
 | `tugrust/scripts/notarize.sh` | Submits to Apple notary, staples ticket, verifies Gatekeeper. Release path only. |
 | `tugrust/scripts/build-app.sh` | Production / release build pipeline; calls `sign-bundle.sh` then `notarize.sh`. |
 | `Justfile` `build-app` recipe | Dev build pipeline; calls `sign-bundle.sh`; captures sentinel. |
-| `Justfile` `app-test` recipe | DR + sentinel comparison; defensive re-sign; `APP_TEST_SKIP_RESIGN=1` opt-out. |
+| `tests/app-test/scripts/app-test.sh` (the `app-test` recipe's body) | DR + sentinel comparison; defensive re-sign; `APP_TEST_SKIP_RESIGN=1` opt-out. |
 | `Justfile` `teardown-dev-signing` recipe | Clears the sentinel. |
 | `tugapp/Tug.entitlements` | Outer Swift binary entitlements (minimal). |
 | `tugapp/tugcode.entitlements` | bun-permissive entitlements for the `tugcode` binary. |

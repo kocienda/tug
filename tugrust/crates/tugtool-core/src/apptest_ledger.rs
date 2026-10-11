@@ -215,7 +215,17 @@ pub struct FileHistory {
     /// that must cut can break its last tie on. `None` with no outcomes.
     #[serde(rename = "lastSecs", skip_serializing_if = "Option::is_none")]
     pub last_secs: Option<i64>,
+    /// The newest [`RECENT_SECS_LEN`] recorded outcomes' durations, newest
+    /// first — what the runner's wedge cap takes a median of, so one slow run
+    /// does not triple the next cap. Empty, and omitted, with no outcomes.
+    #[serde(rename = "recentSecs", skip_serializing_if = "Vec::is_empty")]
+    pub recent_secs: Vec<i64>,
 }
+
+/// How many recorded durations [`FileHistory::recent_secs`] carries: enough
+/// to shrug off one slow run, few enough that a file made slower on purpose
+/// moves its cap within a handful of runs.
+pub const RECENT_SECS_LEN: usize = 5;
 
 /// The machine-global ledger path.
 pub fn default_path() -> PathBuf {
@@ -355,7 +365,7 @@ struct Outcome {
 /// So are `WEDGED` rows: the runner killed the file at its cap because the
 /// app stopped answering, which says nothing about the file either. Read as a
 /// red it would indict a file for a machine state, and read as a duration it
-/// would triple the next run's cap — so it is neither. A wedged file *did*
+/// would inflate the next run's cap — so it is neither. A wedged file *did*
 /// run, though, and contended with its batch, so it still counts toward
 /// `files_in_run`.
 pub fn file_history(
@@ -399,6 +409,11 @@ pub fn file_history(
             file: file.clone(),
             history: answer_from(&outcomes),
             last_secs: outcomes.first().map(|o| o.secs),
+            recent_secs: outcomes
+                .iter()
+                .take(RECENT_SECS_LEN)
+                .map(|o| o.secs)
+                .collect(),
         });
     }
     Ok(out)
@@ -1057,6 +1072,7 @@ mod tests {
             file: "at9999.test.ts".into(),
             history: History::NoHistory,
             last_secs: None,
+            recent_secs: Vec::new(),
         })
         .unwrap();
         assert_eq!(none["answer"], "no-history");
@@ -1136,6 +1152,62 @@ mod tests {
         let none = serde_json::to_value(&answers[2]).unwrap();
         assert_eq!(none["answer"], "no-history");
         assert!(none.get("lastSecs").is_none(), "omitted, not null: {none}");
+    }
+
+    /// The wedge cap takes a median of the recent durations, so the answer
+    /// carries the newest five — newest first, skipping exactly what
+    /// `lastSecs` skips — beside the one `lastSecs` it always carried.
+    #[test]
+    fn the_answer_carries_the_five_newest_durations() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        let mut conn = ledger(dir.path());
+        let timed = |status: &str, secs: i64| FileResult {
+            secs,
+            ..file("at0001.test.ts", status)
+        };
+        // Oldest first. The WEDGED and SKIP rows are no durations at all.
+        let outcomes = [
+            ("PASS", 9),
+            ("PASS", 10),
+            ("FAIL", 11),
+            ("WEDGED", 400),
+            ("PASS", 12),
+            ("SKIP", 0),
+            ("PASS", 60),
+            ("PASS", 13),
+        ];
+        for (i, (status, secs)) in outcomes.iter().enumerate() {
+            record_run(
+                &mut conn,
+                &run(
+                    &root,
+                    &format!("sha{i:04}"),
+                    1_700_000_000 + i as i64 * 86_400,
+                    vec![timed(status, *secs)],
+                ),
+            )
+            .unwrap();
+        }
+        let base = resolve_base_root(Path::new(&root));
+        let answers = file_history(
+            &conn,
+            &base,
+            &["at0001.test.ts".into(), "at0002.test.ts".into()],
+        )
+        .unwrap();
+        assert_eq!(answers[0].recent_secs, vec![13, 60, 12, 11, 10]);
+        assert_eq!(answers[0].last_secs, Some(13), "lastSecs is unchanged");
+        assert!(answers[1].recent_secs.is_empty());
+
+        let json = serde_json::to_value(&answers[0]).unwrap();
+        assert_eq!(json["recentSecs"], serde_json::json!([13, 60, 12, 11, 10]));
+        assert_eq!(json["lastSecs"], 13);
+        let none = serde_json::to_value(&answers[1]).unwrap();
+        assert!(
+            none.get("recentSecs").is_none(),
+            "omitted, not empty: {none}"
+        );
     }
 
     fn reach_record(root: &str, sha: &str, at: i64, file: &str, map: &str) -> ReachRecord {

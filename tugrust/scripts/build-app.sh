@@ -63,7 +63,6 @@ echo "    Bundle ID: $BUNDLE_ID"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TUGCODE_DIR="$REPO_ROOT/tugrust"
-TUGDECK_DIR="$REPO_ROOT/tugdeck"
 TUGAPP_DIR="$REPO_ROOT/tugapp"
 TUGPLUG_DIR="$REPO_ROOT/tugplug"
 
