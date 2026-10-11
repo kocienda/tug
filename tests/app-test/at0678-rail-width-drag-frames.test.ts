@@ -43,6 +43,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import { MIN_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -62,7 +63,6 @@ const STEPS = 40;
 const STEP_MS = 16;
 /** Fewer frames than this inside the gesture means the window was not served. */
 const MIN_FRAMES = 20;
-const TOL = 1.5;
 const AFTER_LAND_MS = 900;
 
 const MEMBERS = ["overview", "jots", "layout"] as const;
@@ -341,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               Math.abs((widths[member] ?? 0) - expected),
               `${member} stands at ${expected}px (read ${widths[member]?.toFixed(1)})`,
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
           }
         } finally {
           await app.close();
@@ -388,7 +388,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               Math.max(Math.abs(w.min - expected), Math.abs(w.max - expected)),
               `${member} held ${expected}px on every frame (read ${w.min.toFixed(1)}–${w.max.toFixed(1)})`,
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
           }
         } finally {
           await app.close();

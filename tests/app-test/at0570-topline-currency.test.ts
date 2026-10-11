@@ -53,6 +53,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -80,25 +81,6 @@ afterAll(() => {
     rmSync(projectDir, { recursive: true, force: true });
   }
 });
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session A", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 /** A `session_updated` frame body — exactly what the supervisor pushes. */
 function sessionUpdated(fields: Record<string, unknown>): string {
@@ -143,7 +125,7 @@ describe.skipIf(!SHOULD_RUN)("AT0570: the topline answers a new ask at once", ()
     async () => {
       const app = await launchTugApp({ testName: "at0570-topline-currency" });
       try {
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 30_000 },

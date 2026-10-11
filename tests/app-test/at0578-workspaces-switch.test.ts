@@ -71,6 +71,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { RESTORE_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -89,9 +90,6 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const SPACE_ONE = "space-one";
 const SPACE_TWO = "space-two";
-
-/** Pixel tolerance for "landed on the same spot". */
-const RESTORE_TOLERANCE_PX = 2;
 
 /**
  * Two workspaces on disk. The first is empty — the fixture runner seeds its
@@ -200,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
             return el.scrollTop;
           })()`,
         );
-        expect(savedTop).toBeGreaterThan(RESTORE_TOLERANCE_PX);
+        expect(savedTop).toBeGreaterThan(RESTORE_TOL_PX);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SCROLLER)}).getAttribute("data-tug-scroll-state") !== null`,
           { timeoutMs: 4_000 },
@@ -223,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         const leftAt = await app.evalJS<number>(
           `document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop`,
         );
-        expect(leftAt).toBeGreaterThan(RESTORE_TOLERANCE_PX);
+        expect(leftAt).toBeGreaterThan(RESTORE_TOL_PX);
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_TWO)} }), null)`,
         );
@@ -290,7 +288,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             if (el === null) return false;
-            return Math.abs(el.scrollTop - ${leftAt}) <= ${RESTORE_TOLERANCE_PX};
+            return Math.abs(el.scrollTop - ${leftAt}) <= ${RESTORE_TOL_PX};
           })()`,
           { timeoutMs: 10_000 },
         );

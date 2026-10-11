@@ -66,6 +66,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -142,25 +143,6 @@ afterAll(() => {
   for (const dir of fixtureDirs) rmScratchSession(dir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 /**
  * The two segments of one line, exactly as a rotation leaves the ledger: both
  * live, the root bound, the stage forked from it and carrying the label only a
@@ -223,6 +205,8 @@ function seedTheArc(arc: string): void {
   appendArcLogLine(log, arc, "arc-stage", `implement ${STAGE} opus`);
 }
 
+// Kept local: every file's `arcReport` reads the fields its own arc assertions
+// need, so the name is shared and the function is not.
 /** What `tugtool arc record --json` says about the arc right now. */
 function arcReport(arc: string): {
   stopped: [string, string] | null;
@@ -250,7 +234,7 @@ function arcReport(arc: string): {
 }
 
 async function awaitDeck(app: App): Promise<void> {
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 30_000 },

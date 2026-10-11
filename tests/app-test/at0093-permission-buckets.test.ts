@@ -35,6 +35,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import { projectClaudeDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -76,25 +77,6 @@ afterAll(() => {
   }
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 /** Read the whole settings.local.json object, or `{}` if absent. */
 function readSettings(): Record<string, unknown> {
   const path = settingsLocal();
@@ -134,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)(
         const app = await launchTugApp({ testName: "at0093-permission-buckets" });
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape({ width: 820, height: 640 }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );

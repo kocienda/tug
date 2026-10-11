@@ -106,6 +106,7 @@
  * line is a number that has started to move. The first-paint bar needs no such
  * tier, having no margin left to drift inside.
  *
+ * @motion
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  * @covers tugdeck/src/lib/space-switch-frames.ts
  * @covers tugdeck/src/components/chrome/space-layer.css

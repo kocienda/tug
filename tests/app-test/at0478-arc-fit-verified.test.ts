@@ -39,6 +39,7 @@ import { realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -156,25 +157,6 @@ afterAll(() => {
   rmScratchSession(fixtureDir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
@@ -230,7 +212,7 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
       });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

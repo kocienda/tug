@@ -28,6 +28,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -43,7 +44,6 @@ const REST_MS = 400;
 const MOVING_MS = 40;
 /** A sample this long after a move is inside a rest. */
 const RESTED_MS = 200;
-const TOL = 1.5;
 const AFTER_LAND_MS = 900;
 
 const MEMBERS = ["overview", "jots"] as const;
@@ -242,16 +242,16 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               Math.abs(s.m.overview.body - bodyAtRest),
               `moving: the Overview's body holds ${bodyAtRest.toFixed(1)} (read ${s.m.overview.body.toFixed(1)} in a ${s.m.overview.frame.toFixed(1)} frame)`,
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
             expect(
               Math.abs(s.m.overview.offset - rest.m.overview.offset),
               "moving: the held body stays at the rail's outer edge",
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
             // Jots reflows live, with its frame.
             expect(
               Math.abs(s.m.jots.frame - s.m.jots.body - inset),
               `moving: Jots' body fills its frame (frame ${s.m.jots.frame.toFixed(1)}, body ${s.m.jots.body.toFixed(1)})`,
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
           }
 
           // Rested: the held content has reflowed to the frame it stands in.
@@ -259,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               Math.abs(s.m.overview.frame - s.m.overview.body - inset),
               `rested: the Overview's body fills its frame (frame ${s.m.overview.frame.toFixed(1)}, body ${s.m.overview.body.toFixed(1)})`,
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
           }
 
           // Released: the hold is gone, and the body stands in the committed
@@ -270,11 +270,11 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             Math.abs(last.m.overview.frame - (RAIL_WIDTH + GROW_PX)),
             `the rail landed at ${RAIL_WIDTH + GROW_PX} (read ${last.m.overview.frame.toFixed(1)})`,
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
           expect(
             Math.abs(last.m.overview.frame - last.m.overview.body - inset),
             "released: the Overview's body fills its frame",
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
         } finally {
           await app.close();
         }

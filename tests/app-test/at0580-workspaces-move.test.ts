@@ -66,6 +66,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { RESTORE_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -84,9 +85,6 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const HOME_SPACE = "space-home";
 const AWAY_SPACE = "space-away";
-
-/** Pixel tolerance for "landed on the same spot", as at0578 uses. */
-const RESTORE_TOLERANCE_PX = 2;
 
 /**
  * Two workspaces. The home one is empty — the fixture runner seeds the ACTIVE
@@ -199,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
             return el.scrollTop;
           })()`,
         );
-        expect(savedTop).toBeGreaterThan(RESTORE_TOLERANCE_PX);
+        expect(savedTop).toBeGreaterThan(RESTORE_TOL_PX);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SCROLLER)}).getAttribute("data-tug-scroll-state") !== null`,
           { timeoutMs: 4_000 },
@@ -271,7 +269,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             if (el === null) return false;
-            return Math.abs(el.scrollTop - ${savedTop}) <= ${RESTORE_TOLERANCE_PX};
+            return Math.abs(el.scrollTop - ${savedTop}) <= ${RESTORE_TOL_PX};
           })()`,
           { timeoutMs: 10_000 },
         );

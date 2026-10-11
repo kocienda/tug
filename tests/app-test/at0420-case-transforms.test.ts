@@ -75,6 +75,8 @@ function paneOf(component: string) {
   };
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 async function seed(app: App, component: string): Promise<void> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: paneOf(component), focusCardId: "A" });

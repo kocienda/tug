@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -41,27 +42,6 @@ const TEST_TIMEOUT_MS = 60_000;
 const EDITOR = `.jots-list .jot-editor`;
 const TARGET = "s6";
 const TARGET_ROW = `[data-jot-id="${TARGET}"]`;
-
-function priorCardDeck() {
-  return {
-    cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Accordion", closable: true },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
 
 interface Frame {
   t: number;

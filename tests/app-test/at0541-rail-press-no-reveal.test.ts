@@ -44,6 +44,8 @@ import { launchTugApp, note, type App } from "./_harness";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 const AFTER_LAND_MS = 900;
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 const EPSILON = 1;
 /* A hairline coming and going is a whole pixel, so "did not move" is measured
    against nothing rather than against a tolerance that would swallow it. */

@@ -67,6 +67,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -206,25 +207,6 @@ afterAll(() => {
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -301,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
       });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

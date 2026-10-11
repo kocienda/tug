@@ -40,6 +40,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -72,25 +73,6 @@ function capabilities() {
     commands: [],
     agents: [],
     ipc_version: 2,
-  };
-}
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
   };
 }
 
@@ -183,7 +165,7 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /arc-review card verb", () => {
       const app = await launchTugApp({ testName: "at0412-arc-review-verb" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

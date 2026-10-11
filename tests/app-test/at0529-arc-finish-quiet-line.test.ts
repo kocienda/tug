@@ -38,6 +38,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -73,32 +74,13 @@ const STOPPED = [
 const GESTURE_COMMAND = "arc create atom-selections";
 const GESTURE_OUTPUT = "atom-selections: arc created";
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 1100, height: 760 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 describe.skipIf(!SHOULD_RUN)("AT0529: the finish is a line, the stop is a receipt", () => {
   test(
     "a complete arc paints a quiet line beside the other gestures; a stop keeps its offer",
     async () => {
       const app = await launchTugApp({ testName: "at0529-arc-finish-quiet-line" });
       try {
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 1100, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 20_000 },

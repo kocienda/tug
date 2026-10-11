@@ -33,6 +33,7 @@
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
+ * @motion
  * @covers tugdeck/src/fold.ts
  * @covers tugdeck/src/components/tugways/cards/session-card.css
  * @covers tugdeck/src/components/tugways/tug-pane.css
@@ -88,6 +89,8 @@ function deckShape(): Record<string, unknown> {
   };
 }
 
+// Kept local: every file's `standUp` launches into its own deck and transcript,
+// so the name is shared and the function is not.
 async function standUp(): Promise<App> {
   const app = await launchTugApp({ testName: "at0716-zoom-fold-z2-ride" });
   await app.enableDeckTrace(true);
@@ -142,6 +145,8 @@ function restBottom(app: App): Promise<number> {
   );
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Arm a per-frame sampler, flip the fold, and hand back what it saw.
  *

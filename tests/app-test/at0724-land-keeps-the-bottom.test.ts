@@ -68,6 +68,8 @@ const ZOOMS = [1, 0.9] as const;
 const RECORD_MS = 1_600;
 const AFTER_LAND_MS = 1_800;
 
+// Its own number, not `SCROLL_TOL_PX` (8) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /**
  * How far from its bottom a following transcript may read on any visible
  * tick. The hop reads hundreds of px; a scroller at its bottom reads 0 or a

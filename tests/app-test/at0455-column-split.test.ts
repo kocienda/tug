@@ -50,6 +50,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -65,8 +66,6 @@ const GAP = 5;
  * one.
  */
 const GAP_BOTTOM = GAP;
-/** Geometry tolerance: sub-pixel layout rounding, never a real disagreement. */
-const EPSILON = 1.5;
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
 
@@ -240,12 +239,12 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         ).toBe(0);
         // Two panes sharing a slot draw the SAME rect: that is what a stack is,
         // and it is the frame case 4 has to return to.
-        expect(Math.abs(stacked.p1.top - stacked.p2.top)).toBeLessThan(EPSILON);
+        expect(Math.abs(stacked.p1.top - stacked.p2.top)).toBeLessThan(PIXEL_TOL);
         expect(Math.abs(stacked.p1.bottom - stacked.p2.bottom)).toBeLessThan(
-          EPSILON,
+          PIXEL_TOL,
         );
         expect(Math.abs(stacked.p1.left - stacked.p2.left)).toBeLessThan(
-          EPSILON,
+          PIXEL_TOL,
         );
 
         // ── 1. A split tiles the run and leaves the band alone. ──
@@ -265,31 +264,31 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           expect(
             Math.abs(top.top - stacked.p1.top),
             "the top member starts exactly where the stacked card did",
-          ).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
           expect(
             Math.abs(bottom.bottom - stacked.p1.bottom),
             "the bottom member ends exactly where the stacked card did",
-          ).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
           // Exactly one gap of air between them — the same rhythm as every
           // other seam on the deck.
           expect(
             Math.abs(bottom.top - top.bottom - GAP),
             "one imposition gap between the two members",
-          ).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
           // The column-specific half: a split divides the RUN, never the band.
           expect(
             Math.abs(top.left - stacked.p1.left),
             "a split does not move the slot's left edge",
-          ).toBeLessThan(EPSILON);
-          expect(Math.abs(bottom.left - stacked.p1.left)).toBeLessThan(EPSILON);
-          expect(Math.abs(top.width - stacked.p1.width)).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
+          expect(Math.abs(bottom.left - stacked.p1.left)).toBeLessThan(PIXEL_TOL);
+          expect(Math.abs(top.width - stacked.p1.width)).toBeLessThan(PIXEL_TOL);
           expect(Math.abs(bottom.width - stacked.p1.width)).toBeLessThan(
-            EPSILON,
+            PIXEL_TOL,
           );
           // And the OTHER slot is untouched — a column is a per-slot record.
-          expect(Math.abs(after.p3.top - stacked.p3.top)).toBeLessThan(EPSILON);
+          expect(Math.abs(after.p3.top - stacked.p3.top)).toBeLessThan(PIXEL_TOL);
           expect(Math.abs(after.p3.bottom - stacked.p3.bottom)).toBeLessThan(
-            EPSILON,
+            PIXEL_TOL,
           );
           note(
             `slot 0 split: ${Math.round(top.height)}px over ${Math.round(bottom.height)}px, left unmoved at ${Math.round(top.left)}`,
@@ -325,19 +324,19 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           expect(
             Math.abs(after.p3.height - before.p3.height),
             "dragging slot 0's seam leaves slot 1's division exactly as it was",
-          ).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
           expect(Math.abs(after.p4.height - before.p4.height)).toBeLessThan(
-            EPSILON,
+            PIXEL_TOL,
           );
           // Slot 0 is still tiled — a drag moves the boundary, never the ends.
           const [top, bottom] = [after.p1, after.p2].sort(
             (a, b) => a.top - b.top,
           );
-          expect(Math.abs(top.top - stacked.p1.top)).toBeLessThan(EPSILON);
+          expect(Math.abs(top.top - stacked.p1.top)).toBeLessThan(PIXEL_TOL);
           expect(Math.abs(bottom.bottom - stacked.p1.bottom)).toBeLessThan(
-            EPSILON,
+            PIXEL_TOL,
           );
-          expect(Math.abs(bottom.top - top.bottom - GAP)).toBeLessThan(EPSILON);
+          expect(Math.abs(bottom.top - top.bottom - GAP)).toBeLessThan(PIXEL_TOL);
           // ── 3. The clamp held, and the weights landed keyed by PANE id. ──
           //
           // The hand went to y=20, which is above the deck's own top gap — an
@@ -393,13 +392,13 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
           expect(
             Math.abs(survivor.top - stacked.p1.top),
             "the survivor takes the whole run again, from the top gap",
-          ).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
           expect(
             Math.abs(survivor.bottom - stacked.p1.bottom),
             "…down to the bottom gap",
-          ).toBeLessThan(EPSILON);
+          ).toBeLessThan(PIXEL_TOL);
           expect(Math.abs(survivor.left - stacked.p1.left)).toBeLessThan(
-            EPSILON,
+            PIXEL_TOL,
           );
           // Slot 1's split is untouched by a close in slot 0.
           expect(await splitFrameCount(app)).toBe(2);
@@ -417,10 +416,10 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         const canvasBottom = await app.evalJS<number>(
           `document.querySelector("[data-deck-canvas-background]").getBoundingClientRect().bottom`,
         );
-        expect(Math.abs(stacked.p1.top - canvasTop - GAP)).toBeLessThan(EPSILON);
+        expect(Math.abs(stacked.p1.top - canvasTop - GAP)).toBeLessThan(PIXEL_TOL);
         expect(
           Math.abs(canvasBottom - stacked.p1.bottom - GAP_BOTTOM),
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
       } finally {
         await app.close();
       }
@@ -789,23 +788,23 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         expect(
           Math.abs(flowRects.p1.left - flowRects.p2.left),
           "the two members of the split column share one place in the strip",
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
         expect(
           Math.abs(flowRects.p3.left - flowRects.p4.left),
           "and so do slot 1's",
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
         // One extent plus one gap, not two extents: slot 1 stands exactly one
         // card-width and one gap right of slot 0.
         expect(
           Math.abs(flowRects.p3.left - (flowRects.p1.left + PANE_WIDTH + GAP)),
           "slot 1 follows slot 0 by one extent and one gap, not by two",
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
         // Still divided, and still tiling its run.
         expect(await splitFrameCount(app)).toBe(2);
         const [top, bottom] = [flowRects.p1, flowRects.p2].sort(
           (a, b) => a.top - b.top,
         );
-        expect(Math.abs(bottom.top - top.bottom - GAP)).toBeLessThan(EPSILON);
+        expect(Math.abs(bottom.top - top.bottom - GAP)).toBeLessThan(PIXEL_TOL);
         note(
           `flow strip: slot0 at ${Math.round(flowRects.p1.left)}, slot1 at ${Math.round(flowRects.p3.left)} (fit had ${Math.round(fitLefts.p3)})`,
         );
@@ -833,11 +832,11 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split", () => {
         expect(
           Math.abs(resized.p2.width - PANE_WIDTH),
           "its neighbour in the column kept its own width — a column shares a place, not a width",
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
         expect(
           Math.abs(resized.p3.left - (resized.p1.left + resized.p1.width + GAP)),
           "the strip re-measured slot 0 from its now-widest member, so slot 1 still clears it",
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
         expect(
           resized.p3.left,
           "…which means slot 1 moved right rather than staying put",

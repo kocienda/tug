@@ -38,6 +38,7 @@
  * These legs were `at0622-deck-settle-frames`, which carried every gesture in
  * one file and so selected — and paid for — all of them on a change to any one.
  *
+ * @motion
  * @covers tugdeck/src/lib/flash-pane-border.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugdeck/src/components/chrome/slot-vacancy.css

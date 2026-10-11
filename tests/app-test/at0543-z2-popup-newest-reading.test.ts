@@ -30,6 +30,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -47,29 +48,10 @@ const PLACARD = ".session-telemetry-status-placard";
 const LOG_SCROLLER = `${PLACARD} .tug-popup-list-grid-scroller`;
 const LOG_ROW = '[data-slot="tug-popup-list-row"]';
 
+// The same 8 as `SCROLL_TOL_PX` in `_harness/tolerances.ts`, but not that
+// tolerance: it mirrors the scroller's own stick threshold, so it follows the product.
 /** Distance from the bottom the scroller's own stick threshold allows. */
 const STICK_TOLERANCE_PX = 8;
-
-function deckShape() {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 /** Commit one turn: a sent prompt, a text reply, and its `turn_complete`. */
 async function buildTurn(app: App, i: number): Promise<void> {
@@ -111,7 +93,7 @@ describe.skipIf(!SHOULD_RUN)(
           // `isEngineReady` reads the deck trace, so the trace has to be on
           // before the card mounts its engine.
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );

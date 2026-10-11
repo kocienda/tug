@@ -54,11 +54,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 
 import { launchTugApp, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -88,12 +86,7 @@ const BUBBLE = '[data-slot="tug-tooltip"]';
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
-function mkFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0404-"));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, "fixture line 1\nfixture line 2\n", "utf8");
-  return file;
-}
+const FIXTURE_CONTENT = "fixture line 1\nfixture line 2\n";
 
 /**
  * Two panes in slot 0 so the stack badge has something to report, at
@@ -317,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: deckShape(),
             cardStates: {
-              A: { content: { path: mkFixture(), anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+              A: { content: { path: mkTextFixture("at0404-", FIXTURE_CONTENT).file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
             },
             focusCardId: "A",
           });
@@ -506,7 +499,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.seedDeckState({
             state: deckShape(),
             cardStates: {
-              A: { content: { path: mkFixture(), anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+              A: { content: { path: mkTextFixture("at0404-", FIXTURE_CONTENT).file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
             },
             focusCardId: "A",
           });

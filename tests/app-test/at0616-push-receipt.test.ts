@@ -55,6 +55,7 @@ import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -138,25 +139,6 @@ afterAll(() => {
   rmScratchSession(fixtureDir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
@@ -172,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
         });
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
@@ -277,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
           // A reload drops the seeded deck and the resumed session with it, so
           // both are re-established before the ledger's row is looked for —
           // the restore is what is under test, not the re-seat ([at0461]).
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 20000 },

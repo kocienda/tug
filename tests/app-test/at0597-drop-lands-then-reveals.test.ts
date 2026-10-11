@@ -30,14 +30,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import { RAIL_GUTTER_PX } from "../../tugdeck/src/lib/layout-imposer";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
-/** Frames are measured in device pixels; a rounded pin is within a pixel. */
-const TOL = 1.5;
 /** The largest move one 8ms sample may show. A landing spring covers ~5px a
  *  sample and a settle ~2px; the hop this test exists to catch was the whole
  *  reveal distance (48px here) in one sample. */
@@ -167,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)("at0597 — a drop lands, then reveals", () => {
         expect(
           owed,
           "the target tile must straddle the band edge, or no reveal is owed",
-        ).toBeGreaterThan(TOL);
+        ).toBeGreaterThan(PIXEL_TOL);
 
         // ── The drop: onto the tile, short of its centre ──────────────────
         const titleBar = `.tug-pane[data-pane-id="p1"] [data-testid="tug-pane-title-bar"]`;
@@ -195,12 +194,12 @@ describe.skipIf(!SHOULD_RUN)("at0597 — a drop lands, then reveals", () => {
         ).toBeLessThan(tile.left - 40);
 
         // ── 1. The landing: to the TILE, with the strip standing still ────
-        const afterRelease = samples.filter((s) => s.dropped > released.left - TOL);
-        const landedAt = afterRelease.findIndex((s) => Math.abs(s.dropped - tile.left) <= TOL);
+        const afterRelease = samples.filter((s) => s.dropped > released.left - PIXEL_TOL);
+        const landedAt = afterRelease.findIndex((s) => Math.abs(s.dropped - tile.left) <= PIXEL_TOL);
         expect(landedAt, "the card reached the tile's edge").toBeGreaterThan(0);
         const landing = afterRelease.slice(0, landedAt + 1);
         const neighbourMovedDuringLanding = landing.some(
-          (s) => Math.abs(s.neighbour - neighbourBefore) > TOL,
+          (s) => Math.abs(s.neighbour - neighbourBefore) > PIXEL_TOL,
         );
         note(
           `landing: ${landing.length} samples from ${Math.round(landing[0].dropped)} to ${Math.round(
@@ -217,8 +216,8 @@ describe.skipIf(!SHOULD_RUN)("at0597 — a drop lands, then reveals", () => {
           .slice(landedAt)
           .filter(
             (s) =>
-              Math.abs(s.dropped - tile.left) <= TOL &&
-              Math.abs(s.neighbour - neighbourBefore) <= TOL,
+              Math.abs(s.dropped - tile.left) <= PIXEL_TOL &&
+              Math.abs(s.neighbour - neighbourBefore) <= PIXEL_TOL,
           );
         note(`at rest on the tile with the strip standing: ${rest.length} samples`);
         expect(
@@ -230,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)("at0597 — a drop lands, then reveals", () => {
         expect(
           Math.abs(after.right - bandRight),
           "at rest the card is whole in the band, revealed by the least slide",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           neighbourBefore - neighbourAfter,
           "the neighbours slid by the same distance",
@@ -246,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)("at0597 — a drop lands, then reveals", () => {
         expect(
           worstDrift,
           "the card moves WITH the strip during the reveal, never on its own",
-        ).toBeLessThanOrEqual(TOL * 2);
+        ).toBeLessThanOrEqual(PIXEL_TOL * 2);
 
         // ── No hop anywhere ───────────────────────────────────────────────
         let worstStep = 0;

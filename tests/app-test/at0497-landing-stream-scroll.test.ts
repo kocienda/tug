@@ -27,6 +27,7 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -52,25 +53,6 @@ afterAll(() => {
     rmSync(projectDir, { recursive: true, force: true });
   }
 });
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 const settle = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 
@@ -131,7 +113,7 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
       const app = await launchTugApp({ testName: "at0497-landing-stream-scroll" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

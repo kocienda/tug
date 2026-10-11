@@ -38,6 +38,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -87,9 +88,6 @@ const paneSelected = (paneId: string) =>
 const CARD_A_POINT = { x: 200, y: 200 };
 const CARD_B_POINT = { x: 700, y: 200 };
 const CANVAS_POINT = { x: 700, y: 700 };
-
-/** Frames are measured in device pixels; a rounded pin is within a pixel. */
-const TOL = 1.5;
 
 /**
  * Scenario 3's deck: five 420px cards standing side by side in a flow strip,
@@ -273,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
         // The straddler: far enough past the edge to be visibly cut, and with
         // enough of its near side showing to aim at.
         const straddler = frames.find(
-          (f) => f.right > edge + TOL && f.left < edge - 120,
+          (f) => f.right > edge + PIXEL_TOL && f.left < edge - 120,
         );
         note(
           `frames: ${frames
@@ -323,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
         expect(
           after?.right ?? Infinity,
           "the card the click named is fully in view",
-        ).toBeLessThanOrEqual(edge + TOL);
+        ).toBeLessThanOrEqual(edge + PIXEL_TOL);
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0295] log tail:\n${tail}\n`);

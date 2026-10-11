@@ -52,10 +52,9 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -85,15 +84,6 @@ const FIXTURE_CONTENT = Array.from(
   { length: 40 },
   (_, i) => `at0642 line ${String(i + 1).padStart(3, "0")}`,
 ).join("\n") + "\n";
-
-function mkFixture(): { dir: string; file: string } {
-  // `realpathSync` because macOS hands back `/var/...` for a `/private/var`
-  // temp directory, and the card holds the path it is given.
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "at0642-")));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
-  return { dir, file };
-}
 
 function deckShape(): Record<string, unknown> {
   return {
@@ -232,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "real boxes in the dark; observer silent hidden and delivered on show; nothing stale on screen",
       async () => {
-        const fixture = mkFixture();
+        const fixture = mkTextFixture("at0642-", FIXTURE_CONTENT, { realpath: true });
         const app = await launchTugApp({ testName: "at0642-hidden-layer-measures" });
         try {
           // The save mode the card reads at mount, seeded the way at0602 does.

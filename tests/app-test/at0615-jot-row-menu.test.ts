@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -91,32 +92,6 @@ function menuRows(): string {
          disabled: item.getAttribute("aria-disabled") === "true",
        };
      })`;
-}
-
-function priorCardDeck() {
-  return {
-    cards: [
-      {
-        id: "A",
-        componentId: "gallery-accordion",
-        title: "Accordion",
-        closable: true,
-      },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
 }
 
 /** Three jots: one written, one blank, and a neighbour a misdirected Paste

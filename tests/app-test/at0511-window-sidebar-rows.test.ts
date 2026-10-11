@@ -43,6 +43,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import type { MenuItemSnapshot, MenuItemState } from "./_harness/types";
 import {
   mkTempTugbank,
@@ -200,33 +201,6 @@ async function viewRowOrder(app: App): Promise<(string | undefined)[]> {
   return (rows ?? []).map((item) => item.identifier);
 }
 
-/** One free content card, so the keyboard has somewhere to be that is not the rail. */
-function priorCardDeck() {
-  return {
-    cards: [
-      {
-        id: "A",
-        componentId: "gallery-accordion",
-        title: "Accordion",
-        closable: true,
-      },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
-
 describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
   test(
     "the row's mark walks the toggle's three rungs and back",
@@ -240,6 +214,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
           persistInTestMode: true,
         });
         try {
+          // One free content card, so the keyboard has somewhere to be that is not the rail.
           await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `window.__tug.assertHostRootRegistered("A")`,

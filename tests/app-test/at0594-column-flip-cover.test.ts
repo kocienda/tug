@@ -48,12 +48,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-/** Geometry tolerance: sub-pixel layout rounding, never a real disagreement. */
-const EPSILON = 1.5;
 /**
  * How long the sampler runs. A fused settle is one `room` beat at 1.0× of the
  * 400ms nominal; the sampler runs well past its end so the rest frames are in
@@ -180,6 +179,8 @@ async function readNow(app: App, paneIds: string[]): Promise<Sample> {
   return app.evalJS<Sample>(sampleScript(paneIds));
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Arm a per-frame sampler, flip slot 0's mode, and hand back what the sampler
  * saw. Installed BEFORE the dispatch and reading on `requestAnimationFrame`,
@@ -217,7 +218,7 @@ const settlingFrames = (samples: Sample[]): Sample[] =>
   samples.filter((s) => s.settling);
 
 const sameRect = (a: FrameSample, b: FrameSample): boolean =>
-  Math.abs(a.top - b.top) < EPSILON && Math.abs(a.height - b.height) < EPSILON;
+  Math.abs(a.top - b.top) < PIXEL_TOL && Math.abs(a.height - b.height) < PIXEL_TOL;
 
 /**
  * The claims every flip holds, in either direction, for any member count:

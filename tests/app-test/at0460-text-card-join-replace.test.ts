@@ -103,6 +103,8 @@ interface Fixture {
  */
 const FIXTURE_HOME = join(CHECKOUT, ".tug");
 
+// Kept local: a git repository with a fork and a feature branch, not the
+// one-file temp directory `mkTextFixture` in `_harness/fixtures.ts` makes.
 /**
  * A repository whose `main` holds the fork body and whose `feature` branch
  * holds the merged one — so the test itself performs the squash, with real git

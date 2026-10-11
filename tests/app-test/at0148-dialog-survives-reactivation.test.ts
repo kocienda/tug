@@ -41,6 +41,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -83,25 +84,6 @@ function exists(app: App, selector: string): Promise<boolean> {
   return app.evalJS<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) !== null`,
   );
-}
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
 }
 
 async function presentPermission(app: App): Promise<void> {
@@ -165,7 +147,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );

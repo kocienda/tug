@@ -53,6 +53,8 @@ const GATE = '[data-slot="tug-restore-gate"]';
 let projectDir = "";
 let fixtureDir = "";
 
+// Kept local: this is the transcript this file replays. The shared one-turn
+// transcript is `oneTurnSessionJsonl` in `_harness/fixtures.ts`.
 /**
  * A resumable transcript of `turns` committed turns, each answer carrying
  * enough markdown (a heading, a list, a code block) that the reveal lays

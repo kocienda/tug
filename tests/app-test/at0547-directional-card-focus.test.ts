@@ -192,6 +192,8 @@ async function paneAgainstCanvas(
   );
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 async function seed(app: App, state: unknown, panes: number, focusCardId: string) {
   await app.seedDeckState({ state, focusCardId });
   await app.waitForCondition<boolean>(

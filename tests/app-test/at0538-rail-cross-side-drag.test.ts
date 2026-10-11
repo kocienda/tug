@@ -31,6 +31,7 @@
  * Declaring the engine and the imposer's transform alone: the gesture and the
  * canvas are at the selection budget's fan-out ceiling and at0457 names both.
  *
+ * @motion
  * @covers tugdeck/src/lib/drop-zones.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  */
@@ -47,6 +48,8 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Geometry tolerance, in px. */
 const EPSILON = 3;
 /** The settle window, with room for the tween to land. */

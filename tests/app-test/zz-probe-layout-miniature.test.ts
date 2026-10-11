@@ -44,6 +44,8 @@ const RAIL_WIDTH = 420;
 /** Deliberately uneven, and wide enough that no stack's minimum flattens them
  *  — the drawing has nothing to say about proportions a deck does not hold. */
 const PANE_WIDTHS = [720, 480, 620, 540, 500];
+// A tolerance on percentages, not pixels, so it is not one of the table's
+// tolerances in `_harness/tolerances.ts`.
 /** Percentages are written from floating-point arithmetic at both ends. */
 const TOL = 0.02;
 /** The settle window, with room for the reveal's tween to land. */

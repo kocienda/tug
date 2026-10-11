@@ -34,6 +34,7 @@
  *   hold goes on, and the browser clamps its scroll ([B04]: the held member
  *   opens its still crossing at arm).
  *
+ * @motion
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
@@ -43,6 +44,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { note } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import type { App } from "./_harness";
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import {
@@ -76,7 +78,7 @@ const SURVIVOR = "at0622-p2";
  * pinned. Sub-pixel: the findings read 441 px, and a scroller that is
  * genuinely at its bottom reads 0 or a fraction of a pixel of rounding.
  */
-const PIN_EPSILON_PX = 1.5;
+const PIN_EPSILON_PX = PIXEL_TOL;
 
 /** How long the recorder runs after the dispatch: past the land and the gate's release. */
 const RECORD_MS = AFTER_LAND_MS + 300;

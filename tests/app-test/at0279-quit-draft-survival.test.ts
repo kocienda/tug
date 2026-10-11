@@ -41,6 +41,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -53,7 +54,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
 
 const CARD_ID = "A";
-const INPUT_PERSIST_KEY = "gallery-input/size/sm";
 const TYPED = "survive-the-quit";
 
 const CARDSTATE_DOMAIN = "dev.tugapp.deck.cardstate";
@@ -68,10 +68,6 @@ interface TerminationVerdict {
   failedCards: string[];
   layoutSaved: boolean;
   elapsedMs: number;
-}
-
-function inputSelectorFor(cardId: string): string {
-  return `[data-card-id="${cardId}"] [data-tug-state-key="${INPUT_PERSIST_KEY}"]`;
 }
 
 describe.skipIf(!SHOULD_RUN)("m279: typing survives the termination pipeline", () => {

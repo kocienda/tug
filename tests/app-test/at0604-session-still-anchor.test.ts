@@ -39,6 +39,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -49,27 +50,6 @@ const TURNS = 40;
 const SCROLLER = '[data-tug-scroll-key="session-card-transcript"]';
 const JUMP_BUTTON = ".tug-jump-to-bottom-button";
 const CARD_ROOT = '[data-slot="session-card"]';
-
-function deckShape(): Record<string, unknown> {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 760 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 async function seedTurn(app: App, n: number): Promise<void> {
   const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
@@ -129,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)("AT0604: the session card's still anchor", () => {
       const app = await launchTugApp({ testName: "at0604-still-anchor" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

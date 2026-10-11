@@ -91,11 +91,11 @@ mod tests {
                 format!("const QUIESCE_FLUSH_BUDGET_MS = {FLUSH_BUDGET_MS};"),
             ),
             (
-                "tests/app-test/_harness/index.ts",
+                "tests/app-test/_harness/tolerances.ts",
                 format!("const QUIESCE_TEARDOWN_DEADLINE_MS = {TEARDOWN_DEADLINE_MS};"),
             ),
             (
-                "tests/app-test/_harness/index.ts",
+                "tests/app-test/_harness/tolerances.ts",
                 format!("export const QUIESCE_DRAIN_DEADLINE_MS = {DRAIN_DEADLINE_MS};"),
             ),
             (

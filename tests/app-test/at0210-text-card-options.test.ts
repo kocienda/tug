@@ -32,6 +32,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -56,13 +57,6 @@ const LINE_WRAP_SWITCH = `${OPTIONS_PANEL} [data-testid="text-card-option-line-w
 
 const FIXTURE_CONTENT =
   Array.from({ length: 12 }, (_, i) => `fixture line ${i + 1}`).join("\n") + "\n";
-
-function mkFixture(): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0210-"));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
-  return { dir, file };
-}
 
 /** A fixture whose newlines are CRLF (Windows). */
 function mkCrlfFixture(): { dir: string; file: string } {
@@ -159,7 +153,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
   test(
     "the masthead names the file; the gear's options reconfigure the live editor",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0210-", FIXTURE_CONTENT);
       const app = await launchTugApp({ testName: "at0210-text-card-options" });
       try {
         await seedTextCard(app, file);

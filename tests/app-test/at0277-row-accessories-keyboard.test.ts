@@ -67,6 +67,8 @@ const JOTS = Array.from({ length: 4 }, (_, i) => ({
   text: `row-${i} jot handle`,
 }));
 
+// Kept local: this deck also states its imposition, so it is not the shared
+// `priorCardDeck` in `_harness/shapes.ts`.
 function priorCardDeck() {
   return {
     // A Text card, so the Cards card has a row to descend into once

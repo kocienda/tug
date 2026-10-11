@@ -38,9 +38,8 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -52,13 +51,6 @@ const PANE = '[data-pane-id="p1"]';
 const OPTIONS_BUTTON = `${PANE} [data-testid="tug-pane-title-bar-item-show-card-settings"]`;
 const OPTIONS_PANEL = '[data-testid="text-card-options"]';
 const SOFT_TABS_SWITCH = `${OPTIONS_PANEL} [data-testid="text-card-option-soft-tabs"]`;
-
-function mkFixture(content: string): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0531-"));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, content, "utf8");
-  return { dir, file };
-}
 
 /** Type through CM6's real beforeinput pipeline, leaving the caret after it. */
 async function typeIntoEditor(app: App, selector: string, text: string): Promise<void> {
@@ -153,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
   test(
     "a file editor's Tab lands at the caret, honours the tab policy, and still block-indents a selection",
     async () => {
-      const { dir, file } = mkFixture("hello world\nsecond line\n");
+      const { dir, file } = mkTextFixture("at0531-", "hello world\nsecond line\n");
       const app = await launchTugApp({
         testName: "at0531-tab-inserts-at-the-caret",
       });

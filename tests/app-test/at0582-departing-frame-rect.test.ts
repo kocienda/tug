@@ -68,6 +68,8 @@ const SLIM_PX = 560;
  * chain, so the departure's entire life is in the record.
  */
 const CENSUS_MS = 2_000;
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /**
  * Geometry tolerance, in px: sub-pixel layout rounding, never a real
  * disagreement. The strip gap alone is `IMPOSITION_GAP_PX` (5px).
@@ -129,6 +131,8 @@ function deckShape() {
   };
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 /**
  * Seed the deck, bind its cards, and let the imposer settle, so the close
  * lands on a deck at rest.
@@ -155,6 +159,8 @@ async function frameRect(app: App, paneId: string): Promise<Rect> {
   );
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /** Arm the per-frame sampler, close the pane, and hand back every frame's reading. */
 async function census(app: App, paneId: string): Promise<Sample[]> {
   await app.evalJS<null>(

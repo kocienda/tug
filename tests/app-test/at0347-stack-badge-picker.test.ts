@@ -255,6 +255,8 @@ async function waitForMenu(app: App, present: boolean): Promise<void> {
   );
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 async function seed(app: App, state: unknown, focusCardId: string): Promise<void> {
   await app.seedDeckState({ state, focusCardId });
   await app.waitForCondition<boolean>(

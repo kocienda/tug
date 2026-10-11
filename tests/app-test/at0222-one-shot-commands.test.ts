@@ -51,6 +51,8 @@ const TEST_TIMEOUT_MS = 120_000;
 
 const SID = "a7c0d1ea-0000-4000-8000-00000000a222";
 
+// Kept local: this is the transcript this file replays. The shared one-turn
+// transcript is `oneTurnSessionJsonl` in `_harness/fixtures.ts`.
 /** Two plain turns, each carrying one `oneshotmark` occurrence. */
 function buildFixtureJsonl(cwd: string, sessionId: string): string {
   const base = {

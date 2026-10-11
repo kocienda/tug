@@ -57,6 +57,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 import { decodePngFile } from "./_harness/png";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -72,13 +73,6 @@ const SAVE_LINE = `[data-pane-id="p1"] [data-testid="card-masthead-detail"]`;
 const CLOSE_BUTTON = `[data-testid="tug-pane-close-button"]`;
 
 const ORIGINAL = "alpha\nbeta\ngamma\n";
-
-function mkFixture(): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0212-"));
-  const file = path.join(dir, "manual.txt");
-  fs.writeFileSync(file, ORIGINAL, "utf8");
-  return { dir, file };
-}
 
 function deckShape() {
   return {
@@ -195,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
   test(
     "edits stay off disk; menu gates + dynamic ⇧⌘S",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-gates" });
       try {
         await seedTextCard(app, file);
@@ -238,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
   test(
     "save survives a title-bar interaction (focus reclaim on cardDidMove)",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-reclaim" });
       try {
         await seedTextCard(app, file);
@@ -289,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
   test(
     "conflict: Save Anyway writes the buffer to the real file ([P12])",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-conflict" });
       try {
         await seedTextCard(app, file);
@@ -325,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
   test(
     "dirty close via X-click and control both gate on the close sheet",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-close" });
       try {
         await seedTextCard(app, file);
@@ -375,7 +369,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         os.homedir(),
         "Library/Application Support/Tug/Autosave Information",
       );
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-aside" });
       try {
         await seedTextCard(app, file);
@@ -414,7 +408,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
   test(
     "automatic mode keeps Save enabled when clean (no-beep guard, [P07])",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-automatic" });
       try {
         await seedTextCard(app, file, "automatic");
@@ -623,7 +617,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
   test(
     "New Text Card opens a second Untitled editor",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
       const app = await launchTugApp({ testName: "at0212-new-text-card" });
       try {
         await seedTextCard(app, file);

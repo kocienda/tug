@@ -135,6 +135,8 @@ interface Sample {
   mark: string;
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Arm a per-frame sampler, flip the flag, and hand back what it saw. Installed
  * BEFORE the dispatch and reading on `requestAnimationFrame`, so the first

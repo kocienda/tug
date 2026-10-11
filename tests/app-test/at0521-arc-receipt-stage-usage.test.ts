@@ -50,6 +50,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -85,25 +86,6 @@ function usagePush(sessionId: string, usage: Record<string, number>): string {
   return JSON.stringify({ session_id: sessionId, usage });
 }
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 1100, height: 760 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const textsJS = (selector: string): string =>
   `Array.from(document.querySelectorAll(${JSON.stringify(selector)}))
      .map(function (n) { return (n.textContent || "").trim(); })`;
@@ -116,7 +98,7 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
         testName: "at0521-arc-receipt-stage-usage",
       });
       try {
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 1100, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 20_000 },

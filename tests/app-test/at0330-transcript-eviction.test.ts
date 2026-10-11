@@ -44,6 +44,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -65,27 +66,6 @@ const FEED_CODE_OUTPUT = 0x40;
 const SID = "at0330-A";
 const TURNS = 60;
 const SCROLLER = '[data-tug-scroll-key="session-card-transcript"]';
-
-function deckShape(): Record<string, unknown> {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 760 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 function replyText(n: number): string {
   return [
@@ -148,11 +128,13 @@ async function seedTurns(app: App, turns: number): Promise<void> {
   }
 }
 
+// Kept local: every file's `standUp` launches into its own deck and transcript,
+// so the name is shared and the function is not.
 /** Launch, seed, and wait until eviction has armed. */
 async function standUp(testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
   );

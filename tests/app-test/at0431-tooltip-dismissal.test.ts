@@ -53,11 +53,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 
 import { launchTugApp, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -82,13 +80,7 @@ const EDITOR_LINE = `${EDITOR} .cm-line`;
 const wait = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
 
 /** A file long enough that its editor has somewhere to scroll to. */
-function mkFixture(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0431-"));
-  const file = path.join(dir, "sample.txt");
-  const lines = Array.from({ length: 400 }, (_, i) => `fixture line ${i + 1}`);
-  fs.writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
-  return file;
-}
+const FIXTURE_CONTENT = `${Array.from({ length: 400 }, (_, i) => `fixture line ${i + 1}`).join("\n")}\n`;
 
 /** One pane holding a Text card: a title bar to hover, an editor to act in. */
 function deckShape() {
@@ -169,12 +161,14 @@ async function hoverAndSee(app: App): Promise<boolean> {
   return app.evalJS<boolean>(HAS_BUBBLE);
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 /** Seed the deck, wait for the pane, and settle. */
 async function seed(app: App): Promise<void> {
   await app.seedDeckState({
     state: deckShape(),
     cardStates: {
-      A: { content: { path: mkFixture(), anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+      A: { content: { path: mkTextFixture("at0431-", FIXTURE_CONTENT).file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
     },
     focusCardId: "A",
   });

@@ -51,6 +51,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -65,25 +66,6 @@ const OVERVIEW_CARD = '[data-testid="overview-card"]';
 const OVERVIEW_FIELD = '[data-testid="overview-composer-field"]';
 const OVERVIEW_MIC = `${OVERVIEW_CARD} [data-testid="tug-dictation-button"]`;
 const OVERVIEW_TEXT = `${OVERVIEW_FIELD} .cm-content`;
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 760, height: 560 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 async function push(app: App, event: Record<string, unknown>): Promise<void> {
   await app.evalJS<null>(
@@ -151,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
       });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 760, height: 560 }), focusCardId: "A" });
         // The session card mounts its picker by default; binding a fake session
         // is what renders `SessionCardBody` and with it the prompt entry. Bound
         // before the host-root wait, which is the order `at0024` establishes.

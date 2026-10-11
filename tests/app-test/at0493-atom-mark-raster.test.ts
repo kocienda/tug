@@ -63,9 +63,13 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The sub-pixel offsets a pill can land on in an ordinary row. */
 const SHIFTS = [0, 0.2, 0.25, 0.3, 0.5, 0.75];
 
+// A raster reading, not layout geometry, so it is not one of the table's
+// tolerances in `_harness/tolerances.ts`.
 /** How far apart the two ink centroids may sit, in device px. */
 const CONCENTRIC_TOLERANCE = 0.25;
 
+// A raster reading, not layout geometry, so it is not one of the table's
+// tolerances in `_harness/tolerances.ts`.
 /** The same, for the big treatment's fractional mark box — see the loop. */
 const BIG_TOLERANCE = 0.5;
 

@@ -118,6 +118,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 import {
   pickerPanelNaturalHeight,
@@ -200,8 +201,6 @@ const SITTER_FOLDED_TIER_PX = 145;
 const CENSUS_MS = 1_600;
 /** The whole choreography's window, with room for the last beat to land. */
 const AFTER_LAND_MS = 1_800;
-/** Geometry tolerance: sub-pixel layout rounding, never a real disagreement. */
-const EPSILON = 1.5;
 
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -308,6 +307,8 @@ interface Sample {
   departing: Array<{ key: string; top: number; height: number; opacity: number }>;
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Arm a per-frame sampler, run one gesture, and hand back what it saw.
  *
@@ -627,6 +628,8 @@ async function measureAtListCap(app: App, label: string): Promise<void> {
   note(label, `panel natural ${natural ?? -1}px with the list at its cap`);
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 /** Seed the deck, wait for both frames, and let the imposer settle. */
 async function seed(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "C" });
@@ -749,7 +752,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           newcomerRest,
           "the arriving card stands at least at the height the app bid for it",
-        ).toBeGreaterThanOrEqual(bid - EPSILON);
+        ).toBeGreaterThanOrEqual(bid - PIXEL_TOL);
         // And the sitter holds every pixel the newcomer did not take: the two
         // members and the gap between them are the run the sitter held alone.
         expect(
@@ -915,7 +918,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           departStep.step,
           "no frame changes size during the depart beat",
-        ).toBeLessThan(EPSILON);
+        ).toBeLessThan(PIXEL_TOL);
 
         // ── What departs is the CARD'S OWN FRAME, marked with its own pane
         //    id, standing where it stood before the close and fading there.
@@ -1026,7 +1029,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           Math.abs(before[SITTER].height - SITTER_FOLDED_TIER_PX),
           "alone in its column the folded sitter stands at its tier",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         await app.evalJS<null>(`(${addSessionCard}, null)`);
         await app.waitForCondition<boolean>(
@@ -1059,7 +1062,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX,
           "and the room the folded sitter leaves is well past what the newcomer bid",
-        ).toBeGreaterThan(bid + EPSILON);
+        ).toBeGreaterThan(bid + PIXEL_TOL);
 
         // ── It took the ROOM, not its bid. Read the strong way round: above
         //    the height it bid, which the ceiling this arc removed could never
@@ -1067,13 +1070,13 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           arrival.height,
           "the newcomer stands above the height it bid — the bid is a floor, not a ceiling",
-        ).toBeGreaterThan(bid + EPSILON);
+        ).toBeGreaterThan(bid + PIXEL_TOL);
         expect(
           Math.abs(
             arrival.height - (run - IMPOSITION_GAP_PX - SITTER_FOLDED_TIER_PX),
           ),
           "and it stands at everything the folded sitter's tier did not claim",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── And the sitter claims its TIER and nothing more: what a folded
         //    member is worth is its tier, and every pixel past it went to the
@@ -1081,7 +1084,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           Math.abs(after[SITTER].height - SITTER_FOLDED_TIER_PX),
           "the folded sitter stands at its tier and claims no more",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── NO BAND BENEATH IT. The column's last member reaches the run's
         //    own bottom, read against slot 1's frame. This is the dead band
@@ -1089,11 +1092,11 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           Math.abs(after.p3.bottom - arrival.bottom),
           "the column's last member reaches the bottom of the run",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           Math.abs(after.p3.top - after[SITTER].top),
           "and its first member stands at the top of it",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── The arrival's own weight is in the record, so the next
         //    re-division agrees with what the eye saw rather than handing the
@@ -1112,7 +1115,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         expect(
           fit?.overflow ?? 999,
           "the panel stands at its natural height rather than capped short",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           fit?.bottomSlack ?? -1,
           "and its bottom edge sits inside the frame that took the room",

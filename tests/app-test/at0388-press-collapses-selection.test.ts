@@ -34,9 +34,8 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -53,13 +52,6 @@ const FIXTURE = `${LINES.join("\n")}\n`;
 /** The line the gesture happens on (1-based), and its text. */
 const TARGET_LINE = 3;
 const TARGET_TEXT = LINES[TARGET_LINE - 1] as string;
-
-function mkFixture(): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0388-"));
-  const file = path.join(dir, "lines.txt");
-  fs.writeFileSync(file, FIXTURE, "utf8");
-  return { dir, file };
-}
 
 async function seedTextCard(app: App, filePath: string): Promise<void> {
   // The gutter makes the selection, so it has to be on before the card mounts.
@@ -145,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "nothing stays selected while the button is held down",
       async () => {
-        const { dir, file } = mkFixture();
+        const { dir, file } = mkTextFixture("at0388-", FIXTURE, { name: "lines.txt" });
         const app = await launchTugApp({
           testName: "at0388-press-collapses-selection",
         });

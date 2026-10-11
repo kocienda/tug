@@ -39,6 +39,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -85,27 +86,6 @@ const OPEN_GEOMETRY = `(() => {
     cellBottom: Math.round(r.bottom),
   };
 })()`;
-
-function priorCardDeck() {
-  return {
-    cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Accordion", closable: true },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
 
 /** A document that overflows the card: 150 jots, the target carrying `text`.
  *  The harness rail stands well over a thousand pixels tall, so it takes this

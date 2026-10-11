@@ -95,6 +95,8 @@ interface Census {
   mutations: Mutation[];
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /** Arm a per-frame sampler and a mutation log on the pane, flip the flag, and hand back both. */
 async function census(app: App, folded: boolean): Promise<Census> {
   await app.evalJS<null>(

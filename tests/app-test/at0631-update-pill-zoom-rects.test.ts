@@ -126,6 +126,8 @@ async function elementCount(app: App, selector: string): Promise<number> {
   );
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Run one census: start the per-frame sampler, dispatch the click on `selector`
  * **in the same task**, and hand back every frame.

@@ -82,6 +82,7 @@ import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -172,27 +173,8 @@ afterAll(() => {
   for (const dir of fixtureDirs) rmScratchSession(dir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 async function awaitDeck(app: App): Promise<void> {
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 30_000 },
@@ -220,6 +202,8 @@ function arcStopLines(): string[] {
     .filter((line) => line.includes(`  ${ARC}  `) && line.includes("arc-stop"));
 }
 
+// Kept local: every file's `arcReport` reads the fields its own arc assertions
+// need, so the name is shared and the function is not.
 function arcReport(): { stopped: [string, string] | null; stages: number } {
   const out = JSON.parse(
     tugtool(["arc", "record", ARC, "--json"], {

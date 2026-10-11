@@ -69,6 +69,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -88,13 +89,6 @@ const FIXTURE_LINES: ReadonlyArray<string> = Array.from(
   (_, i) => `fixture line ${String(i + 1).padStart(2, "0")} alpha beta gamma`,
 );
 const FIXTURE_CONTENT = FIXTURE_LINES.join("\n") + "\n";
-
-function mkFixture(): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0209-"));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
-  return { dir, file };
-}
 
 function rmFixture(dir: string): void {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -355,7 +349,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
   test(
     "open, autosave-to-disk, conflict banner, reload-from-disk",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0209-", FIXTURE_CONTENT);
       const app = await launchTugApp({ testName: "at0209-core-loop" });
       try {
         await seedTextCard(app, file);
@@ -416,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
   test(
     "quit-flush inside the debounce window, relaunch re-opens from disk",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0209-", FIXTURE_CONTENT);
 
       // Phase A: type and quit immediately — the teardown flush (not
       // the debounce timer) must land the edit.

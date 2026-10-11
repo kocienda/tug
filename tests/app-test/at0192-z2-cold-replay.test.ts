@@ -52,6 +52,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -73,6 +74,8 @@ const SID = "a7c0d1ea-0000-4000-8000-00000000c0c0";
 // report "No conversation found" and `resume_failed`, which reverts the card
 // to the picker before the replayed Z2 can stick. `cwd` must equal the
 // resolved project dir, so the fixture is built per-run.
+// Kept local: this is the transcript this file replays. The shared one-turn
+// transcript is `oneTurnSessionJsonl` in `_harness/fixtures.ts`.
 function buildFixtureJsonl(cwd: string, sessionId: string): string {
   const base = {
     isSidechain: false,
@@ -177,25 +180,6 @@ afterAll(() => {
   }
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 describe.skipIf(!SHOULD_RUN)(
   "AT0192: Z2 reconstructs from a real cold replay (cost-only smoke)",
   () => {
@@ -238,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)(
 
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 15_000 },

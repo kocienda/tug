@@ -63,6 +63,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -155,25 +156,6 @@ afterAll(() => {
   if (tugbankPath !== "") rmTempTugbank(tugbankPath);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 1100, height: 760 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 /**
  * Every pill on a surface, measured.
  *
@@ -251,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
 
         // ── A real arc, on a real session, on a scratch repo ───────────────
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 1100, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

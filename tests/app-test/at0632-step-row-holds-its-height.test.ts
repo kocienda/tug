@@ -162,6 +162,8 @@ async function elementCount(app: App, selector: string): Promise<number> {
   );
 }
 
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /**
  * How far two row heights may differ and still be the same height.
  *

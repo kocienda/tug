@@ -47,6 +47,7 @@ import {
   registerSubsetMatcher,
   type CaretState,
 } from "./_harness";
+import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
 
 // ---------------------------------------------------------------------------
 // Matcher registration (once per module load)
@@ -71,11 +72,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
  * because it is the first input in the gallery-input content, which
  * keeps the click target stable against future gallery reorganizations.
  */
-const INPUT_PERSIST_KEY = "gallery-input/size/sm";
-
-function inputSelectorFor(cardId: string): string {
-  return `[data-card-id="${cardId}"] [data-tug-state-key="${INPUT_PERSIST_KEY}"]`;
-}
 
 /**
  * Selector for a tab in the current pane's tab bar. `tug-tab-bar`

@@ -26,6 +26,13 @@
  * inside the app, whatever mode it launched in, so a background launch does not make them
  * background. Reading only the launch option missed that second class entirely.
  *
+ * A test that samples motion or a settle declares that with `@motion`. Those files read
+ * frame timing, and a frame read under a batch of other apps launching is a reading of the
+ * batch: they go red in batches and green alone. The recipe runs them after the batched
+ * set, one at a time, so the reading is of the gesture. The per-gesture settle files —
+ * named `atNNNN-settle-…` — are the motion files by construction, and `--check` refuses one
+ * that does not carry the tag.
+ *
  * Usage:
  *   bun scripts/select-tests.ts                  # derive changed paths from this session's changes
  *   bun scripts/select-tests.ts <path>...        # explicit changed paths
@@ -34,6 +41,7 @@
  *   bun scripts/select-tests.ts --core           # the core tier's file list
  *   bun scripts/select-tests.ts --foreground <f>...   # the @foreground subset of <f>...
  *   bun scripts/select-tests.ts --foreground-check    # lint: @foreground matches behavior
+ *   bun scripts/select-tests.ts --queues <f>...       # each of <f>... with the queue it runs in
  *   bun scripts/select-tests.ts --reach [<f>...]      # each test's executed share of what it covers
  *
  * Selected test filenames go to stdout, one per line (feed straight to `just app-test`).
@@ -425,6 +433,8 @@ interface TestCoverage {
     covers: string[];
     /** Declared by `@foreground`: this file takes the screen for its duration. */
     foreground: boolean;
+    /** Declared by `@motion`: this file samples motion or a settle, and runs alone. */
+    motion: boolean;
     /** Passes a possibly-true `foreground` launch option at some launch site. */
     foregroundOption: boolean;
     /** Calls an app-lifecycle RPC verb, which takes the screen whatever the launch mode. */
@@ -445,6 +455,13 @@ function testFiles(): string[] {
 
 const COVERS_LINE = /^\s*\*?\s*@covers\s+(\S+)/;
 const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b/;
+const MOTION_LINE = /^\s*\*?\s*@motion\b/;
+
+/**
+ * The per-gesture settle files, by name. Each one reads the settle's own frame record, so
+ * each one is a motion file whether or not its author remembered to say so.
+ */
+const SETTLE_FILE = /^at\d{4}-settle-/;
 
 /**
  * The launch option the `@foreground` tag declares. Matched anywhere in the file body.
@@ -474,10 +491,12 @@ function readCoverage(file: string): TestCoverage {
     const text = readFileSync(join(APP_TEST_DIR, file), "utf8");
     const covers: string[] = [];
     let foreground = false;
+    let motion = false;
     for (const line of text.split("\n")) {
         const m = COVERS_LINE.exec(line);
         if (m) covers.push(m[1]);
         if (FOREGROUND_LINE.test(line)) foreground = true;
+        if (MOTION_LINE.test(line)) motion = true;
         // Declarations live in the header docblock; stop at the first import.
         if (/^import\s/.test(line)) break;
     }
@@ -485,6 +504,7 @@ function readCoverage(file: string): TestCoverage {
         file,
         covers,
         foreground,
+        motion,
         foregroundOption: FOREGROUND_OPTION.test(text),
         activatingVerb: ACTIVATING_VERB.test(text),
     };
@@ -813,6 +833,7 @@ const holesOnly = args.includes("--holes");
 const coreOnly = args.includes("--core");
 const foregroundOnly = args.includes("--foreground");
 const foregroundCheck = args.includes("--foreground-check");
+const queuesOnly = args.includes("--queues");
 const reachReport = args.includes("--reach");
 const explicit = args.filter((a) => !a.startsWith("--"));
 
@@ -909,6 +930,29 @@ if (foregroundOnly) {
     const tagged = new Set(coverage.filter((c) => c.foreground).map((c) => c.file));
     for (const name of explicit.map(normalizeTestName)) {
         if (tagged.has(name)) process.stdout.write(`${name}\n`);
+    }
+    process.exit(0);
+}
+
+/**
+ * The queue each file runs in, in the order given. Three queues, run in this order:
+ * `batch` runs `TUG_APPTEST_JOBS` at a time; `motion` runs after it, one at a time, so its
+ * frame readings are of the gesture and not of the batch; `foreground` runs last, one at a
+ * time, after the question about the screen. A file that is both motion and foreground is
+ * `foreground` — that queue is already serial, and it is the one that needs the answer.
+ */
+type Queue = "batch" | "motion" | "foreground";
+
+function queueOf(c: TestCoverage | undefined): Queue {
+    if (c?.foreground) return "foreground";
+    if (c?.motion) return "motion";
+    return "batch";
+}
+
+if (queuesOnly) {
+    const byFile = new Map(coverage.map((c) => [c.file, c]));
+    for (const name of explicit.map(normalizeTestName)) {
+        process.stdout.write(`${queueOf(byFile.get(name))}\t${name}\n`);
     }
     process.exit(0);
 }
@@ -1052,6 +1096,7 @@ if (holesOnly) {
 
 if (checkOnly) {
     const missing = coverage.filter((c) => c.covers.length === 0);
+    const unmotioned = coverage.filter((c) => SETTLE_FILE.test(c.file) && !c.motion);
     const dangling = coverage.flatMap((c) =>
         c.covers.filter((p) => !resolvesOnDisk(p)).map((p) => ({ file: c.file, pattern: p })),
     );
@@ -1179,6 +1224,13 @@ if (checkOnly) {
         );
     }
 
+    if (unmotioned.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${unmotioned.length} per-gesture settle file(s) carry no @motion tag — they\n` +
+                `               would run inside a batch, where their frame readings are of the batch:\n`,
+        );
+        for (const u of unmotioned) process.stderr.write(`  ${u.file}\n`);
+    }
     if (missing.length > 0) {
         process.stderr.write(
             `[select-tests] ${missing.length} test file(s) declare no @covers — they can never be\n` +
@@ -1195,6 +1247,7 @@ if (checkOnly) {
     }
     if (
         missing.length === 0 &&
+        unmotioned.length === 0 &&
         dangling.length === 0 &&
         overBudget.length === 0 &&
         raised.length === 0 &&

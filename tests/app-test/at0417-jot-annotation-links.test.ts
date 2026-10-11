@@ -45,6 +45,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -76,32 +77,6 @@ function sessionDeck() {
   return {
     cards: [
       { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 900, height: 700 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
-
-function priorCardDeck() {
-  return {
-    cards: [
-      {
-        id: "A",
-        componentId: "gallery-accordion",
-        title: "Accordion",
-        closable: true,
-      },
     ],
     panes: [
       {
@@ -158,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
         });
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
+          await app.seedDeckState({ state: priorCardDeck({ size: { width: 900, height: 700 } }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 5_000 },

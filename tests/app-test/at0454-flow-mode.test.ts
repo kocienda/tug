@@ -75,6 +75,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import {
   IMPOSITION_GAP_PX,
   IMPOSITION_SETTLE_MS,
@@ -100,8 +101,6 @@ const TEST_TIMEOUT_MS = 120_000;
 
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
-/** Frames are measured in device pixels; a rounded pin is within a pixel. */
-const TOL = 1.5;
 const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 /** Part 6's cards. Wide enough that the band — three 420s across — holds one
@@ -378,7 +377,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         const fitRects = await slotRects(app);
         const fitOverlaps = fitRects.some(
           (rect, index) =>
-            index > 0 && rect.left < fitRects[index - 1].right - TOL,
+            index > 0 && rect.left < fitRects[index - 1].right - PIXEL_TOL,
         );
         note(`fit: ${fitRects.length} slots, overlapping = ${fitOverlaps}`);
         expect(
@@ -395,7 +394,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
           expect(
             rects[i].left,
             `slot ${i} starts at or after slot ${i - 1} ends`,
-          ).toBeGreaterThanOrEqual(rects[i - 1].right - TOL);
+          ).toBeGreaterThanOrEqual(rects[i - 1].right - PIXEL_TOL);
         }
         const bandBox = await band(app);
         const stripLength = rects[rects.length - 1].right - rects[0].left;
@@ -435,11 +434,11 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           revealed.right,
           "the activated card is inside the band's right edge",
-        ).toBeLessThanOrEqual(bandAfter.right + TOL);
+        ).toBeLessThanOrEqual(bandAfter.right + PIXEL_TOL);
         expect(
           revealed.right,
           "and no further in than it had to come — the move is minimal",
-        ).toBeGreaterThanOrEqual(bandAfter.right - TOL);
+        ).toBeGreaterThanOrEqual(bandAfter.right - PIXEL_TOL);
 
         // Activating a card already in view commits nothing.
         const offsetBefore = await flowOffset(app);
@@ -522,7 +521,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           Math.abs(clamped.right - clamped.band),
           "an offset past the strip's end still lands its last place on the band's edge",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── 5. The band's edge is occlusion, not a cut ──────────────────────
         // A card that straddles the band's far edge keeps painting: across the
@@ -968,19 +967,19 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           arrived.left,
           "the arrived card's near edge is not under the rail",
-        ).toBeGreaterThanOrEqual(bandAfter.left - TOL);
+        ).toBeGreaterThanOrEqual(bandAfter.left - PIXEL_TOL);
         // Minimal: a card that fits comes in until its far edge meets the
         // band's; one wider than the band stops at the edge reading starts at.
-        if (width <= bandWidth + TOL) {
+        if (width <= bandWidth + PIXEL_TOL) {
           expect(
             Math.abs(arrived.right - bandAfter.right),
             "and no further in than it had to come — flush with the far edge",
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
         } else {
           expect(
             Math.abs(arrived.left - bandAfter.left),
             "and no further in than it had to come — pinned at the near edge",
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
         }
 
         // ── TWO MOVES, NOT ONE ──────────────────────────────────────────────
@@ -992,10 +991,10 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(seen.length, "the card was on screen to be sampled").toBeGreaterThan(0);
         const landed = seen[0].left;
         const settled = seen[seen.length - 1].left;
-        const stillLanded = seen.filter((s) => Math.abs(s.left - landed) <= TOL);
+        const stillLanded = seen.filter((s) => Math.abs(s.left - landed) <= PIXEL_TOL);
         const heldMs = stillLanded[stillLanded.length - 1].t - stillLanded[0].t;
         const travelling = seen.filter(
-          (s) => s.left < landed - TOL && s.left > settled + TOL,
+          (s) => s.left < landed - PIXEL_TOL && s.left > settled + PIXEL_TOL,
         );
         note(
           `${seen.length} samples: landed at ${Math.round(landed)}, held ${Math.round(
@@ -1010,7 +1009,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           landed + width,
           "the card is first seen where it landed, not already in view",
-        ).toBeGreaterThan(bandAfter.right + TOL);
+        ).toBeGreaterThan(bandAfter.right + PIXEL_TOL);
 
         // 2. And it is left there long enough to be read as its own event.
         //    Half the beat is the floor, so a sampler the harness throttles
@@ -1097,7 +1096,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           survivorBefore?.left ?? NaN,
           "the fixture must leave the inheriting card out of the band, or the close has nothing to reveal",
-        ).toBeLessThan(bandBefore.left - TOL);
+        ).toBeLessThan(bandBefore.left - PIXEL_TOL);
 
         await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
         await takeCuts(app);
@@ -1132,11 +1131,11 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode", () => {
         expect(
           survivor?.left ?? NaN,
           "the card the close activates comes fully inside the band's near edge",
-        ).toBeGreaterThanOrEqual(bandAfter.left - TOL);
+        ).toBeGreaterThanOrEqual(bandAfter.left - PIXEL_TOL);
         expect(
           survivor?.left ?? NaN,
           "and no further in than it had to come — the reveal is minimal, so it stands ON that edge",
-        ).toBeLessThanOrEqual(bandAfter.left + TOL);
+        ).toBeLessThanOrEqual(bandAfter.left + PIXEL_TOL);
         expect(
           closeCuts.length,
           "and the slide is the close's own settle rather than a second move after it",

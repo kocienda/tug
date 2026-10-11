@@ -61,6 +61,7 @@ import {
   type App,
   type CaretState,
 } from "./_harness";
+import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
 
 /**
  * Block until the composite first-responder bit names `cardId`. The harness
@@ -94,11 +95,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
  * set. The `sm` variant is the first input in the gallery-input content
  * — the same target m01 probes.
  */
-const INPUT_PERSIST_KEY = "gallery-input/size/sm";
-
-function inputSelectorFor(cardId: string): string {
-  return `[data-card-id="${cardId}"] [data-tug-state-key="${INPUT_PERSIST_KEY}"]`;
-}
 
 /**
  * Selector for a pane's title text. `CardTitleBar` stamps

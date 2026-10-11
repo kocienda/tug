@@ -52,6 +52,8 @@ function deckShape(componentId: string, title: string): Record<string, unknown> 
   };
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 async function seed(app: App, componentId: string, title: string, ready: string): Promise<void> {
   await app.seedDeckState({ state: deckShape(componentId, title), cardStates: {}, focusCardId: "A" });
   await app.waitForCondition<boolean>(

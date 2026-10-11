@@ -124,6 +124,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import { testTmpDir } from "./_harness/test-cleanup";
 import {
   mkTempTugbank,
@@ -143,8 +144,6 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-/** Geometry tolerance: sub-pixel layout rounding, never a real disagreement. */
-const EPSILON = 1.5;
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
 
@@ -499,7 +498,7 @@ async function assertFitAtListCap(app: App): Promise<void> {
   expect(
     full?.overflow ?? 999,
     "with the list at its cap the panel stands at its natural height rather than capped short",
-  ).toBeLessThanOrEqual(EPSILON);
+  ).toBeLessThanOrEqual(PIXEL_TOL);
   // The panel not hanging past the frame it stands in. This is the reading
   // that catches a height constant one pixel too small: the clip's
   // `overflow: hidden` cuts the panel there without touching `scrollHeight`,
@@ -519,6 +518,8 @@ async function assertFitAtListCap(app: App): Promise<void> {
   ).toBeGreaterThanOrEqual(0);
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 /** Seed the deck, wait for all three frames, and let the imposer settle. */
 async function seed(app: App, shares: Record<string, number>): Promise<void> {
   await app.seedDeckState({ state: deckShape(shares), focusCardId: "A" });
@@ -568,7 +569,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(before.p2.height - SEEDED_OPENING_BID_PX),
           `the unbound card stands at SEEDED_OPENING_BID_PX (${SEEDED_OPENING_BID_PX})`,
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── And the neighbour holds all of the rest of the run. ──
         expect(
@@ -576,7 +577,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
             before.p1.height - (run - IMPOSITION_GAP_PX - SEEDED_OPENING_BID_PX),
           ),
           "the neighbour holds the run less the gap and the pinned height",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── And nothing is left BENEATH the lower member: the column divides
         //    its whole run. Read against slot 1's frame rather than against
@@ -586,7 +587,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(bandBeneath(before)),
           "no run is left beneath the column's last member",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── The declaration is neither the stack floor nor the share. With
         //    these shares the weighted division would put the card at a
@@ -597,11 +598,11 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           SEEDED_OPENING_BID_PX - SESSION_FLOOR_PX,
           "the declaration is above the stack floor, so it is the floor that binds",
-        ).toBeGreaterThan(EPSILON);
+        ).toBeGreaterThan(PIXEL_TOL);
         expect(
           (run - IMPOSITION_GAP_PX) * 0.25,
           "and above the share the hand gave it, so the share does not lift it",
-        ).toBeLessThan(SEEDED_OPENING_BID_PX - EPSILON);
+        ).toBeLessThan(SEEDED_OPENING_BID_PX - PIXEL_TOL);
 
         await raisePicker(app);
 
@@ -646,7 +647,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           panel?.overflow ?? 999,
           "the panel stands at its natural height rather than capped short",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           panel?.bottomSlack ?? -1,
           "and its bottom edge sits inside the frame rather than clipped by it",
@@ -659,7 +660,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(open.p2.height - before.p2.height),
           "raising the picker moves nothing — the card was already its height",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── The same picker over a project with more sessions than the
         //    list's cap holds — the case a real project presents, on the
@@ -694,15 +695,15 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(settled.p2.height - SESSION_FLOOR_PX),
           "the bound card is back at the height its stored share gives it",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           Math.abs(settled.p1.height - (run - IMPOSITION_GAP_PX - SESSION_FLOOR_PX)),
           "and the neighbour gave the room back",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           Math.abs(settled.p2.height - before.p2.height),
           "the card really did move — the pin was doing something",
-        ).toBeGreaterThan(EPSILON);
+        ).toBeGreaterThan(PIXEL_TOL);
       } finally {
         await app.close();
       }
@@ -732,27 +733,27 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(before.p2.height - (run - IMPOSITION_GAP_PX) * 0.75),
           "the unbound card takes its three parts of four",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         // Read the other way, so a division that merely happened to land near
         // the declaration could not pass: the card stands ABOVE what it
         // declared, which a ceiling could never allow.
         expect(
           before.p2.height,
           "which is well above the height it declared — no ceiling held it",
-        ).toBeGreaterThan(SEEDED_OPENING_BID_PX + EPSILON);
+        ).toBeGreaterThan(SEEDED_OPENING_BID_PX + PIXEL_TOL);
         expect(
           Math.abs(
             before.p1.height - (run - IMPOSITION_GAP_PX) * 0.25,
           ),
           "and the neighbour keeps its own one part, no more",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // ── The other half of the roomy case: the card that took the room
         //    reaches the bottom of the run, with no band under it. ──
         expect(
           Math.abs(bandBeneath(before)),
           "the member that took the room reaches the bottom of the run",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         await raisePicker(app);
 
@@ -773,7 +774,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           panel?.overflow ?? 999,
           "and the panel was never capped short here either",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           panel?.bottomSlack ?? -1,
           "nor clipped by the frame around it",
@@ -781,11 +782,11 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(open.p2.height - before.p2.height),
           "raising the picker moves nothing — the card is already taller than the claim",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           Math.abs(open.p1.height - before.p1.height),
           "so the neighbour does not move either",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         await assertFitAtListCap(app);
 
@@ -807,15 +808,15 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         expect(
           Math.abs(settled.p2.height - before.p2.height),
           "the card does not move across the binding",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           settled.p2.height,
           "the bound card takes its three parts of four, well clear of its floor",
-        ).toBeGreaterThan(SESSION_FLOOR_PX + EPSILON);
+        ).toBeGreaterThan(SESSION_FLOOR_PX + PIXEL_TOL);
         expect(
           Math.abs(settled.p2.height - (run - IMPOSITION_GAP_PX) * 0.75),
           "and the division really is the stored 3:1",
-        ).toBeLessThanOrEqual(EPSILON);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
       } finally {
         await app.close();
       }

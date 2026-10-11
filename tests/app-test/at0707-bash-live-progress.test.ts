@@ -25,6 +25,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -37,27 +38,6 @@ const BAND = `${BLOCK} [data-slot="bash-live-band"]`;
 const ELAPSED = `${BLOCK} [data-slot="tool-call-header-elapsed"]`;
 const JOBS_CELL = '[data-slot="tug-status-cell"][data-priority="jobs"]';
 const LIVE_RUN = '[data-slot="session-jobs-popover-live-run"]';
-
-function deckShape(): Record<string, unknown> {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 700 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 function frame(app: App, decoded: Record<string, unknown>): Promise<unknown> {
   return app.driveSession("A", {
@@ -82,7 +62,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
         // `awaitEngineReady` reads the deck trace, which records nothing
         // until it is enabled.
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 700 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

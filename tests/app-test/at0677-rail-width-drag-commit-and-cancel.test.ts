@@ -49,6 +49,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -58,8 +59,6 @@ const RAIL_WIDTH = 420;
 /** How far the drag narrows the rail: well past the move threshold and well
  *  clear of the members' 320px floors, so the drag lands where it was aimed. */
 const NARROW_PX = 60;
-/** Frames are measured in device pixels; a rounded width is within a pixel. */
-const TOL = 1.5;
 /** The settle window (`IMPOSITION_SETTLE_MS`), with room for the tween. */
 const AFTER_LAND_MS = 900;
 /** Long enough for a few animation frames to run after a pointer event. */
@@ -150,6 +149,8 @@ function deckShape() {
   };
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 async function seed(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -202,7 +203,7 @@ function expectEveryMember(
     expect(
       Math.abs((widths[member] ?? 0) - expected),
       `${phase}: ${member} stands at ${expected}px (read ${widths[member]?.toFixed(1)})`,
-    ).toBeLessThanOrEqual(TOL);
+    ).toBeLessThanOrEqual(PIXEL_TOL);
   }
 }
 

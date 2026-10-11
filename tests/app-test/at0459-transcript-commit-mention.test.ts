@@ -45,6 +45,7 @@ import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -67,25 +68,6 @@ const LABEL = `commit:${HEAD_SHA.slice(0, 8)}`;
 
 const FIRST = `Step 9 landed as \`${WRITTEN_SHA}\`.`;
 const SECOND = " Opening step 10 — the mini gauge.";
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 const userMsg = (text: string) => ({
   type: "add_user_message",
@@ -168,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)(
           };
 
         try {
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 30_000 },

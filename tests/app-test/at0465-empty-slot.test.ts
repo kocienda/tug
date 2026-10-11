@@ -56,6 +56,8 @@ const TEST_TIMEOUT_MS = 180_000;
 
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Geometry tolerance, in px. */
 const EPSILON = 3;
 

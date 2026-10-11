@@ -149,6 +149,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -185,15 +186,6 @@ const WARMUP_BODY = "WARMUP marker\n";
  */
 const OUTAGE_SENTINEL = "WRITTEN DURING THE OUTAGE";
 const OUTAGE_CONTENT = `${OUTAGE_SENTINEL}\n${FIXTURE_CONTENT}`;
-
-function mkFixture(prefix: string, content: string): { dir: string; file: string } {
-  // `realpathSync` because macOS hands back `/var/...` for a `/private/var`
-  // temp directory, and the watch is keyed by the path the card holds.
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, content, "utf8");
-  return { dir, file };
-}
 
 function rmFixture(dir: string): void {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -584,7 +576,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "an external write reloads in place with no input event",
     async () => {
-      const { dir, file } = mkFixture("at0602-hold-", TALL_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-hold-", TALL_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-viewport-hold" });
       note(`at0602 out-of-workspace fixture: ${file}`);
       try {
@@ -662,7 +654,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
     async () => {
       const BURSTS = 20;
       const body = (i: number) => `BURST-MARKER-${String(i).padStart(2, "0")}\n${FIXTURE_CONTENT}`;
-      const { dir, file } = mkFixture("at0602-burst-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-burst-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-burst" });
       try {
         await seedTextCard(app, file, "manual");
@@ -707,7 +699,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "automatic mode merges a distant external edit into a dirty buffer",
     async () => {
-      const { dir, file } = mkFixture("at0602-merge-auto-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-merge-auto-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-merge-automatic" });
       try {
         await seedTextCard(app, file, "automatic");
@@ -755,7 +747,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "manual mode merges a distant external edit into a dirty buffer",
     async () => {
-      const { dir, file } = mkFixture("at0602-merge-manual-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-merge-manual-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-merge-manual" });
       try {
         await seedTextCard(app, file, "manual");
@@ -800,7 +792,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
     "undo after an external reload removes only the user's typing",
     async () => {
       const UNDO_RUN = "UNDO-RUN-ONE ";
-      const { dir, file } = mkFixture("at0602-undo-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-undo-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-undo-after-reload" });
       try {
         await seedTextCard(app, file, "automatic");
@@ -874,8 +866,8 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "an external write reloads an unfocused but visible card in place",
     async () => {
-      const { dir, file } = mkFixture("at0602-unfocused-", TALL_CONTENT);
-      const other = mkFixture("at0602-unfocused-other-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-unfocused-", TALL_CONTENT, { realpath: true });
+      const other = mkTextFixture("at0602-unfocused-other-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-unfocused-visible" });
       note(`at0602 out-of-workspace fixture: ${file}`);
       try {
@@ -995,8 +987,8 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "an external write to a hidden card is current and in place when it is shown",
     async () => {
-      const { dir, file } = mkFixture("at0602-hidden-", TALL_CONTENT);
-      const other = mkFixture("at0602-hidden-other-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-hidden-", TALL_CONTENT, { realpath: true });
+      const other = mkTextFixture("at0602-hidden-other-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-hidden-then-shown" });
       note(`at0602 out-of-workspace fixture: ${file}`);
       try {
@@ -1148,7 +1140,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "a write during a tugcast outage lands on reconnect with no interaction",
     async () => {
-      const { dir, file } = mkFixture("at0602-outage-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-outage-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-reconnect-heal" });
       note(`at0602 out-of-workspace fixture: ${file}`);
       try {
@@ -1244,8 +1236,8 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "a merge into a hidden dirty buffer sets the aside to the merged text",
     async () => {
-      const { dir, file } = mkFixture("at0602-hidden-dirty-", FIXTURE_CONTENT);
-      const other = mkFixture("at0602-hidden-dirty-other-", FIXTURE_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-hidden-dirty-", FIXTURE_CONTENT, { realpath: true });
+      const other = mkTextFixture("at0602-hidden-dirty-other-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-hidden-dirty-merge" });
       note(`at0602 out-of-workspace fixture: ${file}`);
       try {
@@ -1367,7 +1359,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   test(
     "an external write to a card in a hidden workspace is current and in place",
     async () => {
-      const { dir, file } = mkFixture("at0602-space-", TALL_CONTENT);
+      const { dir, file } = mkTextFixture("at0602-space-", TALL_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0602-hidden-workspace" });
       note(`at0602 out-of-workspace fixture: ${file}`);
       try {

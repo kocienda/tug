@@ -60,6 +60,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { SCROLL_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -76,10 +77,6 @@ const TEST_TIMEOUT_MS = 60_000;
  * first-pass apply, exposing the virtualization race the fix has
  * to handle. */
 const REGION_SCROLL_TARGET = 600;
-
-/** Px tolerance for "scroll settled at expected". Matches the
- * existing `at0014-scroll-persistence.test.ts` tolerance. */
-const SCROLL_TOLERANCE = 8;
 
 const CARD_ID = "A";
 
@@ -168,7 +165,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
           await app.waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
-              return Math.abs(el.scrollTop - ${REGION_SCROLL_TARGET}) <= ${SCROLL_TOLERANCE};
+              return Math.abs(el.scrollTop - ${REGION_SCROLL_TARGET}) <= ${SCROLL_TOL_PX};
             })()`,
             { timeoutMs: 2000 },
           );
@@ -191,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         const regionScroll = onDisk?.value?.regionScroll;
         expect(regionScroll).toBeTruthy();
         expect(regionScroll?.["markdown-view"]?.y).toBeGreaterThanOrEqual(
-          REGION_SCROLL_TARGET - SCROLL_TOLERANCE,
+          REGION_SCROLL_TARGET - SCROLL_TOL_PX,
         );
 
         // ── Phase B: relaunch, re-seed bag from disk, assert live. ──
@@ -238,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
               `(function(){
                 var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
                 if (!el) return false;
-                if (Math.abs(el.scrollTop - ${REGION_SCROLL_TARGET}) > ${SCROLL_TOLERANCE}) {
+                if (Math.abs(el.scrollTop - ${REGION_SCROLL_TARGET}) > ${SCROLL_TOL_PX}) {
                   window.__m14ColdBootStable = 0;
                   window.__m14ColdBootLastY = el.scrollTop;
                   return false;
@@ -265,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
                 return el ? el.scrollTop : -1;
               })()`,
             );
-            expect(Math.abs(live - REGION_SCROLL_TARGET)).toBeLessThanOrEqual(SCROLL_TOLERANCE);
+            expect(Math.abs(live - REGION_SCROLL_TARGET)).toBeLessThanOrEqual(SCROLL_TOL_PX);
           } finally {
             // Use quitGracefully (NOT close) so tugcast shuts down via
             // UDS — see at0010-cold-boot-selection for rationale.

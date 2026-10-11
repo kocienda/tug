@@ -57,6 +57,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -143,25 +144,6 @@ const PATH_INPUT_FOCUSED = `(function(){
 
 const PICKER_OPEN = `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`;
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 760, height: 600 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 describe.skipIf(!SHOULD_RUN)("AT0141: the session picker is a persistent keyboard cycle", () => {
   test(
     "seeds Open, Tab wraps to the path field then Recents, Recents is one roving stop, and the path field releases Tab when its menu is closed",
@@ -169,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)("AT0141: the session picker is a persistent keyboar
       const app = await launchTugApp({ testName: "at0141-picker-keys" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 760, height: 600 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

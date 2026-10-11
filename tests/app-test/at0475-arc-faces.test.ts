@@ -51,6 +51,7 @@ import { resolve } from "node:path";
 import { realpathSync } from "node:fs";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "./_harness/tugbank-helpers";
 import {
   appendArcLogLine,
@@ -118,25 +119,6 @@ function appendArcLine(marker: string, arcNote: string): void {
   appendArcLogLine(logPath, ARC_NAME, marker, arcNote);
 }
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   project = makeArcScratchRepo({ prefix: "at0475", checkout: CHECKOUT });
@@ -166,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
       });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 30_000 },

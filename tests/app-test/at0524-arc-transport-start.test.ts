@@ -34,6 +34,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -89,25 +90,8 @@ afterAll(() => {
   rmScratchSession(fixtureDir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
+// Kept local: every file's `arcReport` reads the fields its own arc assertions
+// need, so the name is shared and the function is not.
 /** What `tugtool arc record --json` says about the arc, read from the fixture. */
 function arcReport(): { kind: string | null; document: string | null } {
   const out = JSON.parse(
@@ -149,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
       });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 30_000 },

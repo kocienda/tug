@@ -221,6 +221,8 @@ const FLOW_PANE_WIDTH = 700;
 const HALF_PANE_OFFSET_PX = 350;
 /** A seed's settle, and the reveal's, cleared with room. */
 const AFTER_SETTLE_MS = 900;
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Frames are measured in device pixels; a rounded pin is within a pixel. */
 const TOL = 2;
 

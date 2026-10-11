@@ -29,6 +29,7 @@ import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -68,25 +69,6 @@ beforeAll(() => {
 afterAll(() => {
   if (existsSync(scratchPath)) rmSync(scratchPath, { force: true });
 });
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 1000, height: 720 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
@@ -129,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
           ],
         });
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 1000, height: 720 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

@@ -28,6 +28,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -47,7 +48,6 @@ const PAST_CEILING_PX = 200;
 const NARROW_PX = 100;
 const STEPS = 20;
 const STEP_MS = 16;
-const TOL = 1.5;
 const AFTER_LAND_MS = 900;
 const FRAMES_MS = 250;
 /** The readout's fade, and the draft's removal after it, with room. */
@@ -112,6 +112,8 @@ function deckShape() {
   };
 }
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 async function seed(app: App): Promise<void> {
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
@@ -241,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             Math.abs(readoutWidth(mid.readout) - target),
             `the readout reads ${target} (read ${mid.readout})`,
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
           expect(mid.readoutLimit, "the readout is at no limit").toBeNull();
           expect(mid.limit.every((l) => l === null), "no member is at a limit").toBe(true);
 
@@ -251,7 +253,7 @@ describe.skipIf(!SHOULD_RUN)(
           const samples = await takeSamples(app);
           const after = samples.filter((s) => !s.down);
           const between = after.filter(
-            (s) => Math.abs(s.width - target) > TOL,
+            (s) => Math.abs(s.width - target) > PIXEL_TOL,
           );
           expect(
             between.length,
@@ -265,7 +267,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(READOUT_GONE_MS);
           expect(await count(app, ".tug-rail-readout"), "the readout is gone").toBe(0);
           expect(await count(app, "[data-rail-held]"), "nothing is still held").toBe(0);
-          expect(Math.abs((await storedWidth(app, "pLayout")) - target)).toBeLessThanOrEqual(TOL);
+          expect(Math.abs((await storedWidth(app, "pLayout")) - target)).toBeLessThanOrEqual(PIXEL_TOL);
         } finally {
           await app.close();
         }
@@ -296,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             Math.abs(readoutWidth(mid.readout) - ceiling),
             `the readout reads the ceiling, ${ceiling} (read ${mid.readout})`,
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
           expect(mid.readoutLimit, "the readout says it is at the ceiling").toBe("ceiling");
           expect(mid.limit, "every member is marked at the ceiling").toEqual(
             MEMBERS.map(() => "ceiling"),
@@ -316,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)(
           const samples = await takeSamples(app);
           const after = samples.filter((s) => !s.down);
           const spring = after.filter(
-            (s) => s.width > ceiling + TOL && s.width < mid.width - TOL,
+            (s) => s.width > ceiling + PIXEL_TOL && s.width < mid.width - PIXEL_TOL,
           );
           note(
             `after release: ${after.length} frames; spring frames: ${spring
@@ -328,12 +330,12 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               after[i].width,
               "the spring only ever moves toward the ceiling",
-            ).toBeLessThanOrEqual(after[i - 1].width + TOL);
+            ).toBeLessThanOrEqual(after[i - 1].width + PIXEL_TOL);
           }
           expect(
             Math.abs(after[after.length - 1].width - ceiling),
             "the rail lands on the ceiling",
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
 
           await wait(READOUT_GONE_MS);
           expect(await count(app, ".tug-rail-readout"), "the readout is gone").toBe(0);
@@ -343,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(
               Math.abs((await storedWidth(app, pane)) - ceiling),
               `${pane} committed the ceiling`,
-            ).toBeLessThanOrEqual(TOL);
+            ).toBeLessThanOrEqual(PIXEL_TOL);
           }
         } finally {
           await app.close();

@@ -120,6 +120,8 @@ async function key(app: App, k: string, modifiers: readonly NativeModifier[]): P
   await wait(SETTLE_MS);
 }
 
+// Kept local: every file's `standUp` launches into its own deck and transcript,
+// so the name is shared and the function is not.
 async function standUp(): Promise<App> {
   const app = await launchTugApp({ testName: "at0718-zoom-levels-and-toggle" });
   await app.evalJS<null>(

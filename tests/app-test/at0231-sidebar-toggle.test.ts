@@ -43,6 +43,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -65,27 +66,6 @@ async function railPaneExists(app: App): Promise<boolean> {
 
 async function dispatch(app: App, action: string): Promise<void> {
   await app.dispatchControlAction(action);
-}
-
-function priorCardDeck() {
-  return {
-    cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Accordion", closable: true },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
 }
 
 describe.skipIf(!SHOULD_RUN)(

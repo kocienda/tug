@@ -115,6 +115,8 @@ const TEST_TIMEOUT_MS = 180_000;
 const HOME_SPACE = "space-home";
 const AWAY_SPACE = "space-away";
 
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** The line box is a rasterized measurement; a pixel of drift is not a defect. */
 const LINE_BOX_TOLERANCE_PX = 1;
 

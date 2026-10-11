@@ -46,6 +46,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -130,25 +131,6 @@ afterAll(() => {
   rmScratchSession(silent.fixtureDir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 async function runCommand(app: App, line: string): Promise<void> {
@@ -171,7 +153,7 @@ async function runCommand(app: App, line: string): Promise<void> {
  */
 async function resolveArc(app: App, arc: Arc): Promise<string> {
   const row = `${LANE} [data-slot="session-changes-arc-row"][data-arc="${arc.arc}"]`;
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 15000 },

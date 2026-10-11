@@ -66,9 +66,8 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -101,15 +100,6 @@ const WARMUP_BODY = "WARMUP marker\n";
 
 /** `markerFor` in `diff-block.tsx`: a real minus sign, not a hyphen. */
 const REMOVE_MARKER = "−";
-
-function mkFixture(prefix: string): { dir: string; file: string } {
-  // `realpathSync` because macOS hands back `/var/...` for a `/private/var`
-  // temp directory, and the watch is keyed by the path the card holds.
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
-  return { dir, file };
-}
 
 function rmFixture(dir: string): void {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -347,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
       const TYPED_TWO = "DISCARDED-TYPING ";
       const EXTERNAL_ONE = "EXTERNAL-LINE-ONE marker";
       const EXTERNAL_TWO = "EXTERNAL-LINE-TWO marker";
-      const { dir, file } = mkFixture("at0607-auto-");
+      const { dir, file } = mkTextFixture("at0607-auto-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0607-compare-automatic" });
       try {
         await seedTextCard(app, file, "automatic");
@@ -448,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
       const TYPED_TWO = "MANUAL-KEPT ";
       const EXTERNAL_ONE = "EXTERNAL-MANUAL-ONE marker";
       const EXTERNAL_TWO = "EXTERNAL-MANUAL-TWO marker";
-      const { dir, file } = mkFixture("at0607-manual-");
+      const { dir, file } = mkTextFixture("at0607-manual-", FIXTURE_CONTENT, { realpath: true });
       const app = await launchTugApp({ testName: "at0607-compare-manual" });
       try {
         await seedTextCard(app, file, "manual");

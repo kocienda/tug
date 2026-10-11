@@ -151,6 +151,8 @@ interface Sample {
   cards: Record<CardId, CardSample>;
 }
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Arm a per-frame sampler, dispatch one arrangement change, and hand back what
  * the sampler saw.

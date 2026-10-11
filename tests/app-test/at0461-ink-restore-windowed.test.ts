@@ -40,6 +40,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -76,6 +77,8 @@ interface InkFacts {
 let projectDir = "";
 let fixtureDir = "";
 
+// Kept local: this is the transcript this file replays. The shared one-turn
+// transcript is `oneTurnSessionJsonl` in `_harness/fixtures.ts`.
 /**
  * One committed Claude turn, timestamped well BEFORE the live shell execs so
  * the replayed turn sorts ahead of every ledger-restored exchange. Carries
@@ -146,25 +149,6 @@ afterAll(() => {
   }
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session A", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 /** Ink truth from the stores — never the DOM; see the file docblock. */
 async function inkFacts(app: App): Promise<InkFacts> {
   return app.evalJS<InkFacts>(`window.__tug.inkRestoreFacts("A")`);
@@ -196,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)(
         const app = await launchTugApp({ testName: "at0461-ink-restore-windowed" });
         try {
           await app.enableDeckTrace(true);
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 15_000 },
@@ -214,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // --- Reload → real resume replay + ledger restore. ---
           await app.appReload();
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 15_000 },

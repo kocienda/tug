@@ -142,6 +142,8 @@ function deckShape() {
   };
 }
 
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Frames are device px and the offset is rounded; a pin is within a pixel or
  *  two of the arithmetic. */
 const FLOW_TOL = 3;

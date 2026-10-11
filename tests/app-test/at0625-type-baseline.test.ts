@@ -80,6 +80,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import {
   rowBaselinesJS,
   trackCompensationJS,
@@ -104,25 +105,6 @@ const DISCLOSURE = `${HEADER} [data-slot="tool-call-header-disclosure"]`;
 /** The skill whose header this measures, and the args giving it a body. */
 const SKILL_NAME = "tugplug:draft";
 const SKILL_ARGS = "write the landing draft";
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 const replayStarted = () => ({ type: "replay_started", tug_session_id: SID });
 const replayComplete = () => ({
@@ -153,7 +135,7 @@ async function mountSkillHeader(app: Harness): Promise<void> {
   const ingest = (decoded: unknown) =>
     app.driveSession("A", { op: "ingestFrame", feedId: CODE_OUTPUT_FEED, decoded });
 
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 30_000 },
@@ -276,7 +258,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
   const ingest = (decoded: unknown) =>
     app.driveSession("A", { op: "ingestFrame", feedId: CODE_OUTPUT_FEED, decoded });
 
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 30_000 },

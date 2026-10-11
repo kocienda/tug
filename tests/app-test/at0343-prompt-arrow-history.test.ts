@@ -31,6 +31,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -40,25 +41,6 @@ const ENTRY = `${CARD} .tug-prompt-entry`;
 const EDITOR_HOST = `${ENTRY} .tug-text-editor`;
 const EDITOR_CONTENT = `${EDITOR_HOST} .cm-content`;
 const SUBMITTED = "at0343-history-entry";
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 /** Dispatch a real keydown on the focused element; it travels the document
  *  capture pipeline and CM6's handlers exactly as a hardware key would. */
@@ -103,7 +85,7 @@ async function seedCardWithCaret(
 ): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
   );

@@ -103,6 +103,8 @@ const TEST_TIMEOUT_MS = 180_000;
 /** The pane `fixtures/runner`'s deck shape puts the session card in. */
 const FRAME = '.tug-pane[data-pane-id="p1"]';
 
+// Its own number, not `SCROLL_TOL_PX` (8) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /**
  * How far the anchored row's top edge may sit from where it was.
  *
@@ -113,6 +115,8 @@ const FRAME = '.tug-pane[data-pane-id="p1"]';
  */
 const ANCHOR_TOLERANCE_PX = 2;
 
+// Its own number, not `SCROLL_TOL_PX` (8) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /**
  * The same bound for a soft-wrapped CodeMirror document, where the unit is a
  * wrapped row rather than a pixel: narrowing the card adds rows to the line

@@ -82,6 +82,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -169,28 +170,6 @@ afterAll(() => {
   rmScratchSession(fixtureDir);
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        // Load-bearing, not incidental: below this the `@container` rungs in
-        // `tug-status-cell.css` start hiding cells, and a hidden cell still
-        // computes a width.
-        size: { width: 900, height: 680 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 interface RowWidths {
   arc: string | null;
   cells: Record<string, { width: string; display: string; box: number }>;
@@ -269,7 +248,10 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
       });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        // The pane size is load-bearing, not incidental: below the default
+        // 900×680 the `@container` rungs in `tug-status-cell.css` start hiding
+        // cells, and a hidden cell still computes a width.
+        await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

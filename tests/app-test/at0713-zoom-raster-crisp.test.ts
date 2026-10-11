@@ -30,6 +30,8 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const STEMS = 6;
+// A raster reading, not layout geometry, so it is not one of the table's
+// tolerances in `_harness/tolerances.ts`.
 /** How much softer than 1.0 an edge may read, in device px, before it is a stretch. */
 const SOFTNESS_TOLERANCE = 0.5;
 

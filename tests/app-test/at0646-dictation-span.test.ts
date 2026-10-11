@@ -54,6 +54,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -66,25 +67,6 @@ const EDITOR = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const VOLATILE = `${EDITOR} .tug-dictation-volatile`;
 /** Any user turn the transcript has drawn. Dictation must never mint one. */
 const USER_TURN = `${CARD} [data-testid="session-card-transcript-user-body"]`;
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 760, height: 560 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 /** One event, in the shape `DictationEvent.jsonObject` emits host-side. */
 async function push(app: App, event: Record<string, unknown>): Promise<void> {
@@ -110,7 +92,7 @@ describe.skipIf(!SHOULD_RUN)("AT0646: dictation lands in the Session composer", 
       const app = await launchTugApp({ testName: "at0646-dictation-span" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 760, height: 560 }), focusCardId: "A" });
         // The session card mounts its picker by default; binding a fake session
         // is what renders `SessionCardBody` and with it the prompt entry. Bound
         // before the host-root wait, which is the order `at0024` establishes.

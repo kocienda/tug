@@ -48,6 +48,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -63,27 +64,6 @@ const FIND_INPUT = `${FIND_BAR} [data-testid="session-card-find-input"] .cm-cont
 /** Planted once per reply, so every turn holds exactly one match. */
 const PROBE = "quartzmarker";
 const TURNS = 60;
-
-function deckShape(): Record<string, unknown> {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 760 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 /** Synthetic chord at the active element (the at0339 precedent). */
 async function chord(
@@ -216,10 +196,12 @@ const BOTTOM_VISIBLE_ROW_EXPR = `(function () {
   return best;
 })()`;
 
+// Kept local: every file's `standUp` launches into its own deck and transcript,
+// so the name is shared and the function is not.
 async function standUp(testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 15_000 },
@@ -378,7 +360,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals a match inside an editor", ()
       const app = await launchTugApp({ testName: "at0494-find-reveal-editor" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },
@@ -605,7 +587,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: the active match stays painted", () => {
       const app = await launchTugApp({ testName: "at0494-find-paint-persists" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },
@@ -701,7 +683,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a revealed match stays painted", () => {
       const app = await launchTugApp({ testName: "at0494-find-paint-travel" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },
@@ -843,7 +825,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every mounted match paints", () => {
       const app = await launchTugApp({ testName: "at0494-find-paint-census" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },
@@ -983,7 +965,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a counted match is a paintable match", () 
       const app = await launchTugApp({ testName: "at0494-find-receipt-paint" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },
@@ -1120,7 +1102,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a match past a header clamp is shown", () 
       const app = await launchTugApp({ testName: "at0494-find-header-clamp" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           { timeoutMs: 15_000 },

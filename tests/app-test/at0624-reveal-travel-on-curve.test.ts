@@ -72,6 +72,7 @@
  * this gesture, and a bar that can only be argued about after it goes red is
  * worth less than one standing before it does.
  *
+ * @motion
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/cascade.ts
  * @covers tugdeck/src/lib/open-file-in-card.ts
@@ -272,6 +273,8 @@ const slotOf = (app: App, cardId: string): Promise<number | null> =>
     })()`,
   );
 
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 /**
  * Put the fixture back, and the reader with it.
  *

@@ -80,6 +80,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import {
   COMFORT_OVERVIEW_WIDTH_PX,
   DEFAULT_OVERVIEW_WIDTH_PX,
@@ -109,8 +110,6 @@ const PREFERRED = 420;
 const MIN_RAIL_WIDTH_PX = 320;
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
-/** Frames are measured in device pixels; a rounded pin is within a pixel. */
-const TOL = 1.5;
 
 // Three-up, and the fixture seeds three cards into its three slots: the chain
 // the allocator solves is every slot the KIND defines, occupied or not
@@ -348,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)(
             0,
           );
           for (const seam of await seams(app)) {
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
 
           // ── The preference is untouched. Read through the path that owns
@@ -413,7 +412,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(grown).toBeCloseTo(predictedRailWidth(canvas, reachable), 0);
           expect(grown).toBeGreaterThan(PREFERRED);
           for (const seam of await seams(app)) {
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
 
           // Then a surplus it cannot: the solve sits 320px above the chosen
@@ -490,7 +489,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(
             Math.abs((await seams(app))[0] - GAP),
-          ).toBeGreaterThan(TOL);
+          ).toBeGreaterThan(PIXEL_TOL);
 
           // Re-click the layout that is ALREADY active. This used to be a
           // total no-op; it now runs the same re-tune the settled-resize
@@ -503,7 +502,7 @@ describe.skipIf(!SHOULD_RUN)(
             0,
           );
           for (const seam of await seams(app)) {
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
         } finally {
           await app.close();
@@ -565,7 +564,7 @@ describe.skipIf(!SHOULD_RUN)(
             0,
           );
           for (const seam of await seams(app)) {
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
         } finally {
           await app.close();
@@ -614,7 +613,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(fedOverview).toBeGreaterThan(DEFAULT_OVERVIEW_WIDTH_PX);
           expect(Math.round(fedOverview)).not.toBe(Math.round(heldRail));
           for (const seam of await seams(app)) {
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
 
           // ── Deficit. Now the chain wants 140px LESS rail than the two
@@ -644,7 +643,7 @@ describe.skipIf(!SHOULD_RUN)(
           // a post stops painting at all.
           expect(holdingOverview).toBeGreaterThanOrEqual(MIN_OVERVIEW_WIDTH_PX);
           for (const seam of await seams(app)) {
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
         } finally {
           await app.close();
@@ -702,7 +701,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the chain occlude by whatever the arithmetic left over.
           for (const seam of await seams(app)) {
             expect(seam, "no two chain panes overlap").toBeGreaterThan(0);
-            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(TOL);
+            expect(Math.abs(seam - GAP)).toBeLessThanOrEqual(PIXEL_TOL);
           }
 
           // And it was bought with the Overview's comfort, at the Layout card's

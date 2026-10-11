@@ -44,6 +44,8 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { oneTurnSessionJsonl } from "./_harness/fixtures";
+import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -64,58 +66,6 @@ const INSTANCE_ID = `${process.env.TUG_APPTEST_ID_PREFIX ?? "apptest"}-line-rela
 let projectDir = "";
 let fixtureDir = "";
 
-/**
- * One committed turn, so the segment has a transcript on disk. `has_jsonl` is
- * what routes a restore to `mode=resume` rather than to a fresh spawn, so a
- * segment with no file would never be seated at all.
- */
-function buildFixtureJsonl(cwd: string, sessionId: string): string {
-  const t0 = new Date(Date.now() - 600_000).toISOString();
-  const t1 = new Date(Date.now() - 599_000).toISOString();
-  const base = {
-    isSidechain: false,
-    userType: "external",
-    cwd,
-    sessionId,
-    version: "2.1.105",
-    gitBranch: "main",
-  };
-  const head = `00000000-0000-4000-8000-0000000${sessionId.slice(-5)}`;
-  const lines = [
-    {
-      ...base,
-      parentUuid: null,
-      type: "user",
-      uuid: head,
-      timestamp: t0,
-      message: { role: "user", content: [{ type: "text", text: "hello" }] },
-    },
-    {
-      ...base,
-      parentUuid: head,
-      type: "assistant",
-      uuid: `00000000-0000-4000-8000-0000001${sessionId.slice(-5)}`,
-      timestamp: t1,
-      message: {
-        id: `msg-${sessionId.slice(-6)}`,
-        type: "message",
-        role: "assistant",
-        model: "claude-opus-4-8",
-        content: [{ type: "text", text: "hi there" }],
-        stop_reason: "end_turn",
-        stop_sequence: null,
-        usage: {
-          input_tokens: 1200,
-          output_tokens: 50,
-          cache_creation_input_tokens: 100,
-          cache_read_input_tokens: 8000,
-        },
-      },
-    },
-  ];
-  return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
-}
-
 beforeAll(() => {
   if (!SHOULD_RUN) return;
   projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-at0480-")));
@@ -123,7 +73,10 @@ beforeAll(() => {
   fixtureDir = claudeProjectDir(projectDir);
   mkdirSync(fixtureDir, { recursive: true });
   for (const id of [ROOT, STAGE]) {
-    writeFileSync(join(fixtureDir, `${id}.jsonl`), buildFixtureJsonl(projectDir, id));
+    // One committed turn, so the segment has a transcript on disk. `has_jsonl` is
+    // what routes a restore to `mode=resume` rather than to a fresh spawn, so a
+    // segment with no file would never be seated at all.
+    writeFileSync(join(fixtureDir, `${id}.jsonl`), oneTurnSessionJsonl(projectDir, id));
   }
 });
 
@@ -135,25 +88,6 @@ afterAll(() => {
     rmSync(fixtureDir, { recursive: true, force: true });
   }
 });
-
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session A", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 900, height: 640 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 interface LineFacts {
   tugSessionId: string;
@@ -206,7 +140,7 @@ async function awaitLineFacts(app: App): Promise<LineFacts> {
 }
 
 async function awaitDeck(app: App): Promise<void> {
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_SHORT, { title: "Session A" }), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 15_000 },

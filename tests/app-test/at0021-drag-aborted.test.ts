@@ -41,15 +41,11 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
 import { keyboardIsInCard } from "./_harness/selectors";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
-const INPUT_PERSIST_KEY = "gallery-input/size/sm";
-
-function inputSelectorFor(cardId: string): string {
-  return `[data-card-id="${cardId}"] [data-tug-state-key="${INPUT_PERSIST_KEY}"]`;
-}
 
 function tabSelectorFor(cardId: string): string {
   return `[data-testid="tug-tab-${cardId}"]`;

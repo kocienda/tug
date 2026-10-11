@@ -61,6 +61,8 @@ function deckShape(): Record<string, unknown> {
   };
 }
 
+// Kept local: every file's `standUp` launches into its own deck and transcript,
+// so the name is shared and the function is not.
 async function standUp(): Promise<App> {
   const app = await launchTugApp({ testName: "at0715-zoom-z2-pinned-to-entry" });
   await app.enableDeckTrace(true);

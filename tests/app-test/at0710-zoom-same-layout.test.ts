@@ -32,6 +32,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -46,27 +47,6 @@ const CARD_WIDTH = 700;
 const ZOOM_FACTORS = Array.from({ length: 16 }, (_, i) => (50 + i * 10) / 100).filter(
   (f) => f !== 1,
 );
-
-function deckShape(): Record<string, unknown> {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: CARD_WIDTH, height: 700 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 /** One committed prompt → reply turn, so Z2 has its readings. */
 async function seedTurn(app: App): Promise<void> {
@@ -93,11 +73,13 @@ async function seedTurn(app: App): Promise<void> {
   await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
 }
 
+// Kept local: every file's `standUp` launches into its own deck and transcript,
+// so the name is shared and the function is not.
 async function standUp(testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   // `awaitEngineReady` reads the deck trace, which records only when enabled.
   await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape({ width: CARD_WIDTH, height: 700 }), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
   );

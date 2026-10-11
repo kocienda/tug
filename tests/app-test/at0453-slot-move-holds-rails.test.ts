@@ -36,6 +36,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import { DEFAULT_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -43,8 +44,6 @@ const TEST_TIMEOUT_MS = 90_000;
 
 /** The settle window, with room for the tween to land. */
 const AFTER_LAND_MS = 900;
-/** Frames are measured in device pixels; a rounded pin is within a pixel. */
-const TOL = 1.5;
 const LAYOUT_WIDTH = 420;
 const PANE_WIDTH = 420;
 /**
@@ -176,11 +175,11 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             Math.abs(railAfter - railBefore),
             "the left rail is the user's, and a slot move never asked for it",
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
           expect(
             Math.abs(layoutAfter - layoutBefore),
             "nor the right one",
-          ).toBeLessThanOrEqual(TOL);
+          ).toBeLessThanOrEqual(PIXEL_TOL);
 
           // ── The guard on the guard ──────────────────────────────────────
           // Re-assert the layout, which IS one of the allocator's moments. The
@@ -195,8 +194,8 @@ describe.skipIf(!SHOULD_RUN)(
           const layoutRetuned = await frameWidth(app, "pRail");
           note(`after a licensed retune: rail ${railRetuned}, layout ${layoutRetuned}`);
           expect(
-            Math.abs(railRetuned - railBefore) > TOL ||
-              Math.abs(layoutRetuned - layoutBefore) > TOL,
+            Math.abs(railRetuned - railBefore) > PIXEL_TOL ||
+              Math.abs(layoutRetuned - layoutBefore) > PIXEL_TOL,
             "a Layouts click does re-solve — the width was there to take",
           ).toBe(true);
         } finally {

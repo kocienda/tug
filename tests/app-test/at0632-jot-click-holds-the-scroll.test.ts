@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -43,32 +44,6 @@ const CARD = ".jots-card";
 const EDITOR = ".jots-list .jot-editor";
 /** Enough rows that the card overflows in the harness window. Forty did not. */
 const JOT_COUNT = 200;
-
-function priorCardDeck() {
-  return {
-    cards: [
-      {
-        id: "A",
-        componentId: "gallery-accordion",
-        title: "Accordion",
-        closable: true,
-      },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
 
 /** Short jots, so the overflow comes from the COUNT and every row is one line. */
 function seedJots(path: string): void {

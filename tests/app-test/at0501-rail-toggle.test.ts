@@ -49,6 +49,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -76,32 +77,6 @@ async function toggleRail(app: App, side: "left" | "right"): Promise<void> {
 
 /** One free content card, so the ladder has somewhere to have come from and
  *  somewhere to go back to. */
-function priorCardDeck() {
-  return {
-    cards: [
-      {
-        id: "A",
-        componentId: "gallery-accordion",
-        title: "Accordion",
-        closable: true,
-      },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
-
 describe.skipIf(!SHOULD_RUN)("at0501 — the rail toggle chords", () => {
   test(
     "the chord opens a side, lands the keyboard in it, and takes it away",

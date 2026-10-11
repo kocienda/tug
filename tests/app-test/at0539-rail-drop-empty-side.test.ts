@@ -40,6 +40,7 @@
  * but nothing else in the corpus claims `rail-vacancy.css`, and the outline
  * this file reads stands where that file puts the tile.
  *
+ * @motion
  * @covers tugdeck/src/lib/drop-zones.ts
  * @covers tugdeck/src/components/chrome/rail-vacancy.css
  */
@@ -57,6 +58,8 @@ import { ZONE_INDICATOR_INSET_PX } from "../../tugdeck/src/lib/drop-zone-indicat
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
 
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Geometry tolerance, in px. */
 const EPSILON = 3;
 const AFTER_LAND_MS = 900;

@@ -51,6 +51,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -64,27 +65,6 @@ const CARDS_LIST = ".cards-list";
 const CARDS_KBD = `${CARDS_LIST}[data-key-view-kbd]`;
 const CURSOR_ROW = `${CARDS_LIST} [data-key-cursor]`;
 const CARD_KBD = ".cards-card [data-key-view-kbd]";
-
-function priorCardDeck() {
-  return {
-    // A Text card: the prior card ⌘L stashes, and the Cards row whose
-    // slot picker the drive assigns from.
-    cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
 
 /** Whether anything inside the Cards card wears the visible keyboard mark. */
 async function cardKbdVisible(app: App): Promise<boolean> {
@@ -119,7 +99,9 @@ describe.skipIf(!SHOULD_RUN)("at0278 — the Cards card lands the keyboard visib
         });
         try {
           await app.seedDeckState({
-            state: priorCardDeck(),
+            // A Text card: the prior card ⌘L stashes, and the Cards row whose
+            // slot picker the drive assigns from.
+            state: priorCardDeck({ card: { componentId: "text", title: "File" } }),
             cardStates: {
               A: { content: { path: filePath, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
             },

@@ -91,6 +91,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { RESTORE_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -109,9 +110,6 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const SPACE_ONE = "space-one";
 const SPACE_TWO = "space-two";
-
-/** Pixel tolerance for "landed on the same spot", as at0578 uses. */
-const RESTORE_TOLERANCE_PX = 2;
 
 /** The stamp that makes step 5's assertion about one DOM node. */
 const STAMP = "data-at0587-scroller";
@@ -393,7 +391,7 @@ describe.skipIf(!SHOULD_RUN)(
               return el.scrollTop;
             })()`,
           );
-          expect(savedTop).toBeGreaterThan(RESTORE_TOLERANCE_PX);
+          expect(savedTop).toBeGreaterThan(RESTORE_TOL_PX);
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SCROLLER)}).getAttribute("data-tug-scroll-state") !== null`,
             { timeoutMs: 4_000 },
@@ -430,7 +428,7 @@ describe.skipIf(!SHOULD_RUN)(
           const leftAt = await app.evalJS<number>(
             `document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop`,
           );
-          expect(leftAt).toBeGreaterThan(RESTORE_TOLERANCE_PX);
+          expect(leftAt).toBeGreaterThan(RESTORE_TOL_PX);
           await app.evalJS<null>(
             `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(SPACE_TWO)} }), null)`,
           );
@@ -568,7 +566,7 @@ describe.skipIf(!SHOULD_RUN)(
           note(`after the return: ${JSON.stringify(landed)}`);
           expect(landed.sameNode).toBe(true);
           expect(Math.abs(landed.scrollTop - leftAt)).toBeLessThanOrEqual(
-            RESTORE_TOLERANCE_PX,
+            RESTORE_TOL_PX,
           );
           expect(await app.getActiveCardId()).toBe("A");
 

@@ -171,6 +171,8 @@ interface Census {
 }
 type Deliveries = Delivery[];
 
+// Kept local: every file's `census` samples its own gesture's readings, so the
+// name is shared and the function is not.
 /**
  * Observe the boxes inside every card, sample every animation frame, run the
  * gesture, and hand back both records on one clock.

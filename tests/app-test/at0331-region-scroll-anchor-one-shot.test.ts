@@ -53,6 +53,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { SCROLL_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -68,7 +69,6 @@ const TEST_TIMEOUT_MS = 60_000;
 
 const SCROLL_KEY = "fixture-list-view-scroll";
 const RESTORE_TARGET_PX = 600;
-const SCROLL_TOLERANCE_PX = 8;
 
 const DECK_STATE = {
   cards: [
@@ -269,7 +269,7 @@ describe.skipIf(!SHOULD_RUN)(
           const restored = await readScroll(app, "A");
           expect(
             Math.abs(restored.scrollTop - RESTORE_TARGET_PX),
-          ).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          ).toBeLessThanOrEqual(SCROLL_TOL_PX);
           expect(restored.distanceFromBottom).toBeGreaterThan(200);
 
           // -------- Phase 3: move the anchored row.
@@ -296,7 +296,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The saved pixel is now unreachable by the anchored content.
           expect(
             Math.abs(shifted.scrollTop - RESTORE_TARGET_PX),
-          ).toBeGreaterThan(SCROLL_TOLERANCE_PX);
+          ).toBeGreaterThan(SCROLL_TOL_PX);
 
           // -------- Phase 4: take the live edge, then stream into it.
           await app.click(buttonFor("A", "gallery-list-view-scroll-to-bottom"));
@@ -304,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
-                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOLERANCE_PX};
+                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOL_PX};
             })()`,
             { timeoutMs: 3000 },
           );
@@ -338,7 +338,7 @@ describe.skipIf(!SHOULD_RUN)(
           const afterGrowth = await readScroll(app, "A");
           expect(afterGrowth.itemCount).toBe(atEdge.itemCount + 3);
           expect(afterGrowth.distanceFromBottom).toBeLessThanOrEqual(
-            SCROLL_TOLERANCE_PX,
+            SCROLL_TOL_PX,
           );
 
           // Stronger signal: no recorded position regressed toward the

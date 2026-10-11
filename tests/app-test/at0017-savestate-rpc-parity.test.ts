@@ -33,16 +33,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
 const TEST_TIMEOUT_MS = 60_000;
 
-const INPUT_PERSIST_KEY = "gallery-input/size/sm";
-
-function inputSelectorFor(cardId: string): string {
-  return `[data-card-id="${cardId}"] [data-tug-state-key="${INPUT_PERSIST_KEY}"]`;
-}
 
 describe.skipIf(!SHOULD_RUN)("m17: saveState RPC captures same axes as will-phase saves", () => {
   test("saveState() bag === window-blur bag for steady state", async () => {

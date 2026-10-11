@@ -77,6 +77,8 @@ const GAP_BOTTOM = GAP;
 /** The floor `fixture-tall-floor` declares — and, in a run too short to hold
  *  three of them, the whole of what it stands at ([P02]). */
 const FLOOR = 400;
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Geometry tolerance. A shade wider than at0455's, because the offset is
  *  published rounded to the pixel and every member's top carries that
  *  rounding. */

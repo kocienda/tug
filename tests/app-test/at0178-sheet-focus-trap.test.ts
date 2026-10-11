@@ -27,6 +27,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -38,25 +39,6 @@ const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
 const MODE_CHIP = `${CARD} [data-slot="ai-chip"]`;
 const SHEET = '[data-slot="tug-sheet"]';
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const HAS_FOCUS_MODE = `document.documentElement.hasAttribute("data-focus-mode")`;
 const KEY_VIEW_IN_CARD = `(function(){ var kv = document.querySelector("[data-key-view]"); var card = document.querySelector(${JSON.stringify(CARD)}); return kv !== null && card !== null && card.contains(kv); })()`;
 
@@ -67,7 +49,7 @@ describe.skipIf(!SHOULD_RUN)("AT0178: sheet pushes/pops a focus-trap mode", () =
       const app = await launchTugApp({ testName: "at0178-sheet-focus-trap" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

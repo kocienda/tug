@@ -33,9 +33,8 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -50,13 +49,8 @@ const BAR = '[data-card-id="A"] [data-slot="text-card-find-bar"]';
 const DETAIL = '[data-testid="card-masthead-detail"]';
 const RELOAD = '[data-testid="text-card-conflict-reload"]';
 
-function mkFixture(prefix: string): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, BODY, "utf8");
-  return { dir, file };
-}
-
+// Kept local: every file's `seed` builds its own deck and waits on its own
+// readiness, so the name is shared and the function is not.
 /** One Text card on the fixture, in automatic save mode. */
 async function seed(app: App, file: string): Promise<void> {
   await app.evalJS<null>(
@@ -135,7 +129,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
   test(
     "Return, the Find menu and ⌘F each open a folded card, and the keyboard lands where it was sent",
     async () => {
-      const { dir, file } = mkFixture("at0669-find");
+      const { dir, file } = mkTextFixture("at0669-find-", BODY);
       const app = await launchTugApp({ testName: "at0669-find" });
       try {
         await seed(app, file);
@@ -178,7 +172,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
   test(
     "a conflict raised while folded rides the masthead, and the banner presents on the unfold",
     async () => {
-      const { dir, file } = mkFixture("at0669-conflict");
+      const { dir, file } = mkTextFixture("at0669-conflict-", BODY);
       const app = await launchTugApp({ testName: "at0669-conflict" });
       try {
         await seed(app, file);

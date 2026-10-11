@@ -43,6 +43,11 @@ import { shortToken, tmuxSocketLabel } from "./fnv1a";
 import { unionReachMaps, type ReachMap } from "./reach-map";
 import { onTestRunEnd } from "./test-cleanup";
 import { RpcClient, type RpcTransport } from "./rpc";
+import {
+  QUIESCE_DRAIN_DEADLINE_MS,
+  QUIESCE_TEARDOWN_DEADLINE_MS,
+  STATE_SETTLE_MS,
+} from "./tolerances";
 import type {
   AccessibilityStatus,
   EvalJsOptions,
@@ -203,18 +208,6 @@ const LOGS_DIR = pathResolve(import.meta.dir, "..", "logs");
  */
 const LAUNCH_CONTENT_SIZE = { width: 1659, height: 1051 } as const;
 
-/**
- * Settle after the big state transitions — launch handshake,
- * `seedDeckState`, `bindSession` — before the harness lets ANY further
- * driving happen. A person cannot act on an app that is still painting its
- * first frame; a test must not either (keys posted into the launch window
- * land nowhere and beep). Override with `TUGAPP_STATE_SETTLE_MS`.
- */
-const STATE_SETTLE_MS = (() => {
-  const raw = Number(process.env.TUGAPP_STATE_SETTLE_MS ?? "500");
-  return Number.isFinite(raw) && raw >= 0 ? raw : 500;
-})();
-
 /** Dwell `STATE_SETTLE_MS` after a state transition resolves. */
 async function settleAfterStateChange<T>(p: Promise<T>): Promise<T> {
   const v = await p;
@@ -248,23 +241,8 @@ interface ResolvedLaunch {
   ephemeralInstanceId: boolean;
 }
 
-/**
- * The `tug-quiesce` teardown deadline: how long the harness gives a whole
- * Tug.app teardown before it escalates to SIGKILL. Mirror of
- * `tugcore::quiesce::TEARDOWN_DEADLINE_MS` (the source of truth; its
- * `quiesce_constants_are_mirrored` test fails the Rust build if this
- * drifts). It sits above the app's own 4 s process-group drain deadline,
- * which in turn sits above each service's 2 s self-enforced flush budget
- * — so in a healthy teardown nothing here ever fires.
- */
-const QUIESCE_TEARDOWN_DEADLINE_MS = 8000;
-
-/**
- * The shutdown supervisor's process-group drain deadline, as tests assert it in
- * `quiesce-report.json`. Mirror of `tugcore::quiesce::DRAIN_DEADLINE_MS`,
- * pinned by the same build-failing Rust mirror test.
- */
-export const QUIESCE_DRAIN_DEADLINE_MS = 4000;
+/** Tests read the drain deadline through the harness entry point. */
+export { QUIESCE_DRAIN_DEADLINE_MS };
 
 /**
  * Filename of the per-shutdown quiesce report Tug.app writes into its

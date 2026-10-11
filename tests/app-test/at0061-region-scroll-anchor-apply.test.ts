@@ -64,6 +64,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { SCROLL_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -77,7 +78,6 @@ const TEST_TIMEOUT_MS = 60_000;
 
 const SCROLL_KEY = "fixture-list-view-scroll";
 const REGION_SCROLL_TARGET = 600;
-const SCROLL_TOLERANCE_PX = 8;
 
 function scrollContainerSelectorFor(cardId: string): string {
   return `[data-card-id="${cardId}"] [data-tug-scroll-key="${SCROLL_KEY}"]`;
@@ -387,7 +387,7 @@ describe.skipIf(!SHOULD_RUN)(
           const scrollTopDelta = Math.abs(
             postReload.scrollTop - preReload.scrollTop,
           );
-          expect(scrollTopDelta).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          expect(scrollTopDelta).toBeLessThanOrEqual(SCROLL_TOL_PX);
 
           // -------- Assertion: anchor match.
           //
@@ -405,7 +405,7 @@ describe.skipIf(!SHOULD_RUN)(
           const offsetDelta = Math.abs(
             postReload.anchor.offset - preReload.anchor.offset,
           );
-          expect(offsetDelta).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          expect(offsetDelta).toBeLessThanOrEqual(SCROLL_TOL_PX);
         } catch (err) {
           const tail = app.tailLog(200);
           if (tail !== "") {

@@ -13,6 +13,7 @@
  * These legs were `at0622-deck-settle-frames`, which carried every gesture in
  * one file and so selected — and paid for — all of them on a change to any one.
  *
+ * @motion
  * @covers tugdeck/src/components/chrome/tug-pane.tsx
  * @covers tugdeck/src/sidebar-toggle.ts
  * @covers tugdeck/src/lib/settle-frame-probe.ts

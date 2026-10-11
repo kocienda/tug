@@ -76,6 +76,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
+import { SCROLL_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -89,8 +90,6 @@ const TEST_TIMEOUT_MS = 60_000;
 const SCROLL_KEY = "fixture-list-view-scroll";
 /** Mid-list save target — not the bottom, so the restore anchor is non-trivial. */
 const RESTORE_TARGET_PX = 600;
-/** Sub-pixel rounding slack for scroll-position comparisons. */
-const SCROLL_TOLERANCE_PX = 8;
 
 const DECK_STATE = {
   cards: [
@@ -304,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)(
           const restored = await readScroll(app, "A");
           expect(
             Math.abs(restored.scrollTop - RESTORE_TARGET_PX),
-          ).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          ).toBeLessThanOrEqual(SCROLL_TOL_PX);
           // ...and is genuinely NOT at the bottom — otherwise a
           // scroll-to-bottom that "lands at the bottom" would be
           // vacuously true.
@@ -329,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
-                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOLERANCE_PX};
+                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOL_PX};
             })()`,
             { timeoutMs: 3000 },
           );
@@ -343,7 +342,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Decisive assertion: still at the bottom — the restore
           // anchor did NOT pull it back.
           expect(afterJump.distanceFromBottom).toBeLessThanOrEqual(
-            SCROLL_TOLERANCE_PX,
+            SCROLL_TOL_PX,
           );
 
           // Stronger signal: no scroll event after the jump regressed
@@ -401,7 +400,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
-                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOLERANCE_PX};
+                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOL_PX};
             })()`,
             { timeoutMs: 3000 },
           );
@@ -413,11 +412,11 @@ describe.skipIf(!SHOULD_RUN)(
           await new Promise<void>((resolve) => setTimeout(resolve, 200));
           const afterNoop = await readScroll(app, "A");
           expect(afterNoop.distanceFromBottom).toBeLessThanOrEqual(
-            SCROLL_TOLERANCE_PX,
+            SCROLL_TOL_PX,
           );
           expect(
             Math.abs(afterNoop.scrollTop - beforeNoop.scrollTop),
-          ).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          ).toBeLessThanOrEqual(SCROLL_TOL_PX);
 
           // -------- Phase D — disengage follow-bottom via a real
           // scroll-up wheel gesture, then grow the list: content
@@ -441,7 +440,7 @@ describe.skipIf(!SHOULD_RUN)(
           const beforeGrowth = await readScroll(app, "A");
           expect(
             Math.abs(beforeGrowth.scrollTop - 200),
-          ).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          ).toBeLessThanOrEqual(SCROLL_TOL_PX);
 
           for (let i = 0; i < 3; i += 1) {
             const target = beforeGrowth.itemCount + i + 1;
@@ -458,7 +457,7 @@ describe.skipIf(!SHOULD_RUN)(
           // scroller must keep the user's position. scrollTop unchanged.
           expect(
             Math.abs(afterGrowth.scrollTop - beforeGrowth.scrollTop),
-          ).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+          ).toBeLessThanOrEqual(SCROLL_TOL_PX);
           // ...and it genuinely grew (otherwise the no-pin assertion
           // is vacuous).
           expect(afterGrowth.itemCount).toBe(beforeGrowth.itemCount + 3);
@@ -470,7 +469,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
-                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOLERANCE_PX};
+                (el.scrollHeight - el.clientHeight - el.scrollTop) <= ${SCROLL_TOL_PX};
             })()`,
             { timeoutMs: 3000 },
           );
@@ -492,7 +491,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(afterPin.itemCount).toBe(beforePin.itemCount + 3);
           // Followed the bottom down as the list grew.
           expect(afterPin.distanceFromBottom).toBeLessThanOrEqual(
-            SCROLL_TOLERANCE_PX,
+            SCROLL_TOL_PX,
           );
           expect(afterPin.scrollTop).toBeGreaterThan(beforePin.scrollTop);
         } catch (err) {

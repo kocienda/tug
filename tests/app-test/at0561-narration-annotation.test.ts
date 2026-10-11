@@ -100,6 +100,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -197,27 +198,6 @@ afterAll(() => {
   }
 });
 
-function deckShape() {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session A", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 820, height: 620 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 /** One DIGEST frame body, scoped to this session, as the emitter writes it. */
 function digestFrame(text: string, beat: number, kind?: string): string {
   return JSON.stringify({
@@ -276,7 +256,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0561-narration-annotation",
         });
         try {
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT, { title: "Session A" }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 30_000 },
@@ -415,7 +395,7 @@ describe.skipIf(!SHOULD_RUN)(
           testName: "at0561-narration-annotation-atoms",
         });
         try {
-          await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+          await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT, { title: "Session A" }), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
             { timeoutMs: 30_000 },

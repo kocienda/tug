@@ -36,6 +36,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -50,27 +51,6 @@ const FIELD_CONTENT = `${FIELD} .cm-content`;
 
 const settle = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
-
-function deckShape() {
-  return {
-    cards: [
-      { id: "A", componentId: "session", title: "Session", closable: true },
-    ],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        size: { width: 860, height: 720 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
 
 function questionForward(): Record<string, unknown> {
   return {
@@ -124,7 +104,7 @@ function probe(app: App): Promise<Record<string, unknown>> {
 
 async function openTheQuestionDialog(app: App): Promise<void> {
   await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+  await app.seedDeckState({ state: sessionCardShape({ width: 860, height: 720 }), focusCardId: "A" });
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
     { timeoutMs: 15_000 },

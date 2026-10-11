@@ -27,6 +27,7 @@ import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, note } from "./_harness";
+import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -59,28 +60,6 @@ afterAll(() => {
   }
 });
 
-function deckShape() {
-  return {
-    cards: [{ id: "A", componentId: "session", title: "Session", closable: true }],
-    panes: [
-      {
-        id: "p1",
-        position: { x: 40, y: 40 },
-        // Tall enough that the landing field's card-fraction ceiling does not
-        // bind: the field's height is a count of lines, and the count is only
-        // the answer on a card that can afford it.
-        size: { width: 820, height: 780 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "p1",
-    hasFocus: true,
-  };
-}
-
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
@@ -90,7 +69,10 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
       const app = await launchTugApp({ testName: "at0253-commit-dialog" });
       try {
         await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        // Tall enough that the landing field's card-fraction ceiling does not
+        // bind: the field's height is a count of lines, and the count is only
+        // the answer on a card that can afford it.
+        await app.seedDeckState({ state: sessionCardShape({ width: 820, height: 780 }), focusCardId: "A" });
         await app.waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );

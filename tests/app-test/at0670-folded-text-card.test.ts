@@ -36,9 +36,8 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { launchTugApp, note, type App } from "./_harness";
+import { mkTextFixture } from "./_harness/fixtures";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 150_000;
@@ -63,13 +62,6 @@ const T_EDITOR = '[data-card-id="T"] [data-slot="tug-text-card-editor"] .cm-cont
 const GLYPH = '[data-testid="tug-pane-title-bar-fold-glyph"]';
 
 const wait = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
-
-function mkFixture(): { dir: string; file: string } {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "at0670-"));
-  const file = path.join(dir, "sample.txt");
-  fs.writeFileSync(file, BODY, "utf8");
-  return { dir, file };
-}
 
 function frame(paneId: string): string {
   return `.tug-pane[data-pane-id="${paneId}"]`;
@@ -111,7 +103,7 @@ describe.skipIf(!SHOULD_RUN)("at0670: the folded Text card", () => {
   test(
     "⌃⌘Y folds a Text card to the tier, the slit keeps the reader's line, and Return on the glyph opens it",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0670-", BODY);
       const app = await launchTugApp({ testName: "at0670-text-fold" });
       try {
         await app.seedDeckState({
@@ -197,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("at0670: the folded Text card", () => {
   test(
     "a split column of one Session card and one Text card packs both at the tier",
     async () => {
-      const { dir, file } = mkFixture();
+      const { dir, file } = mkTextFixture("at0670-", BODY);
       const app = await launchTugApp({ testName: "at0670-wall" });
       try {
         await app.seedDeckState({

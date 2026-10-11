@@ -41,6 +41,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -91,27 +92,6 @@ function typeFilter(
     el.dispatchEvent(new Event("input", { bubbles: true }));
     return null;
   })()`);
-}
-
-function priorCardDeck() {
-  return {
-    cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Accordion", closable: true },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
 }
 
 describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {

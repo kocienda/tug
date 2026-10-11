@@ -366,20 +366,37 @@ done
 # so the pre-gate shell never hands a reordered list forward.
 # It hands the pending question forward instead ($TUG_APPTEST_ASK_OUT), and
 # this is where the answer is collected.
-FG_FILES="$(bun scripts/select-tests.ts --foreground "${FILES[@]}")"
-# Both queues are always built: the runner drives them separately, on
+#
+# Motion files (`@motion`) sample frame timing, and a frame read beside other
+# apps launching is a reading of the batch: they go red in batches and green
+# alone. So they run after the batched set, one at a time — before the
+# screen-takers, which still wait on their question. `select-tests.ts --queues`
+# names each file's queue; a file that is both is a screen-taker.
+#
+# If the queue read fails, every file runs in the batch, as it did before the
+# tags existed: an empty QUEUES would otherwise empty all three queues, and
+# the run would launch nothing at all.
+if ! QUEUES="$(bun scripts/select-tests.ts --queues "${FILES[@]}")"; then
+    echo "==> select-tests.ts --queues failed; running every file in the batch." >&2
+    QUEUES="$(printf 'batch\t%s\n' "${FILES[@]}")"
+fi
+# All three queues are always built: the runner drives them separately, on
 # different concurrency rules, so "there are no screen-takers" is an empty
 # FG_QUEUE rather than an unpartitioned FILES.
 declare -a FG_QUEUE=()
+declare -a MOTION_QUEUE=()
 declare -a BG_QUEUE=()
-for f in "${FILES[@]}"; do
-    if [ -n "$FG_FILES" ] && printf '%s\n' "$FG_FILES" | grep -qx "$f"; then
-        FG_QUEUE+=("$f")
-    else
-        BG_QUEUE+=("$f")
-    fi
-done
-FILES=(${BG_QUEUE[@]+"${BG_QUEUE[@]}"} ${FG_QUEUE[@]+"${FG_QUEUE[@]}"})
+while IFS="$(printf '\t')" read -r queue f; do
+    case "$queue" in
+        foreground) FG_QUEUE+=("$f") ;;
+        motion) MOTION_QUEUE+=("$f") ;;
+        batch) BG_QUEUE+=("$f") ;;
+    esac
+done <<< "$QUEUES"
+FILES=(${BG_QUEUE[@]+"${BG_QUEUE[@]}"} ${MOTION_QUEUE[@]+"${MOTION_QUEUE[@]}"} ${FG_QUEUE[@]+"${FG_QUEUE[@]}"})
+if [ "${#MOTION_QUEUE[@]}" -gt 0 ] && [ "${#BG_QUEUE[@]}" -gt 0 ]; then
+    echo "==> the ${#MOTION_QUEUE[@]} motion test(s) run after the batched set, one at a time."
+fi
 if [ "${#FG_QUEUE[@]}" -gt 0 ] && [ "${#BG_QUEUE[@]}" -gt 0 ]; then
     echo "==> running ${#BG_QUEUE[@]} background test(s) now; the ${#FG_QUEUE[@]} that take the screen come last."
 fi
@@ -793,6 +810,15 @@ if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
         BATCH=()
     fi
 fi
+
+# The motion tail, strictly one at a time and at an unscaled budget: alone,
+# a motion file has the machine its frame bars were sized for.
+for f in ${MOTION_QUEUE[@]+"${MOTION_QUEUE[@]}"}; do
+    [ -n "$HALTED" ] && break
+    TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
+    reap_stragglers
+    collect_file "$f"
+done
 
 # The screen-takers, strictly one at a time. The decision resolves here,
 # after every background file has already run.

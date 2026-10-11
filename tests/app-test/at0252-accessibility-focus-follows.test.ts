@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, type App } from "./_harness";
+import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -42,27 +43,6 @@ const JOTS_KBD = `${JOTS_LIST}[data-key-view-kbd]`;
 const CURSOR = `${JOTS_LIST} [data-key-cursor]`;
 
 const ROWS = 5;
-
-function priorCardDeck() {
-  return {
-    cards: [
-      { id: "A", componentId: "gallery-accordion", title: "Accordion", closable: true },
-    ],
-    panes: [
-      {
-        id: "pA",
-        position: { x: 60, y: 60 },
-        size: { width: 520, height: 420 },
-        cardIds: ["A"],
-        activeCardId: "A",
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: "pA",
-    hasFocus: true,
-  };
-}
 
 async function activeElementProbe(app: App): Promise<{
   isSink: boolean;

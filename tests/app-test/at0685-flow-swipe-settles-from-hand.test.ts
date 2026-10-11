@@ -125,6 +125,7 @@
  * the settle engine's arm, and the hump's size, which is the constant in
  * `layout-imposer.ts`; all three are named below.
  *
+ * @motion
  * @covers tugdeck/src/components/chrome/settle-plan.ts
  * @covers tugdeck/src/deck-manager-store.ts
  * @covers tugdeck/src/components/chrome/settle-engine.ts
@@ -135,6 +136,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { PIXEL_TOL } from "./_harness/tolerances";
 import {
   expectMotionSealed,
   settleFrameRows,
@@ -153,8 +155,6 @@ const TEST_TIMEOUT_MS = 120_000;
 const AFTER_LAND_MS = 900;
 /** The canvas wheel's idle quiet (`FLOW_WHEEL_IDLE_MS`), with slack. */
 const IDLE_MS = 180 + 120;
-/** Frames are measured in device pixels; a rounded pin is within a pixel. */
-const TOL = 1.5;
 const RAIL_WIDTH = 420;
 const PANE_WIDTH = 420;
 const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
@@ -475,7 +475,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         // No frame behind the hand. The snap-back is the first frame after the
         // commit: a slide planned from the pre-swipe offset holds every card
         // at `restLeft` for a frame and tweens it forward again.
-        const behind = after.filter((s) => s.left > trace.handLeft + TOL);
+        const behind = after.filter((s) => s.left > trace.handLeft + PIXEL_TOL);
         const worst = behind.reduce(
           (m, s) => Math.max(m, s.left - trace.handLeft),
           0,
@@ -496,7 +496,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         let worstBacktrack = 0;
         for (let i = 1; i < trace.samples.length; i += 1) {
           const step = trace.samples[i].left - trace.samples[i - 1].left;
-          if (step > TOL) {
+          if (step > PIXEL_TOL) {
             backtracks += 1;
             worstBacktrack = Math.max(worstBacktrack, step);
           }
@@ -519,7 +519,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           Math.abs((await paneLeft(app)) - (restLeft - SLOT_PITCH_PX)),
           "the card ends on the next slot's stop",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
 
         // The motion is sealed, read with the swipe's carve-out: the
         // prelaunch's own commit is noted, and nothing else may land between
@@ -566,7 +566,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         await wait(IDLE_MS + AFTER_LAND_MS);
         const under = await stopSwipe(app);
         const moved = under.samples.filter(
-          (s) => Math.abs(s.left - restLeft) > TOL,
+          (s) => Math.abs(s.left - restLeft) > PIXEL_TOL,
         );
         note(
           `under the hump: ${underPx}px over ${UNDER_COUNT} events; ` +
@@ -630,7 +630,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           let count = 0;
           for (let i = 1; i < after.length; i += 1) {
             const step = (after[i].left - after[i - 1].left) * dir;
-            if (step > TOL) count += 1;
+            if (step > PIXEL_TOL) count += 1;
           }
           return count;
         };
@@ -662,7 +662,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           Math.abs((await paneLeft(app)) - (restLeft - SLOT_PITCH_PX)),
           "the card stands on the second slot's stop",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(
           against(partial, 1),
           "every frame after the hand moved the hand's way",
@@ -687,7 +687,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           slotLeft - reversed.handLeft,
           "the hand still stood past the slot when it stopped",
-        ).toBeGreaterThan(TOL);
+        ).toBeGreaterThan(PIXEL_TOL);
         expect(
           await flowOffset(app),
           "the release went the way the hand last moved",
@@ -751,8 +751,8 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         // property is either the hand's last drawn value or the stop's.
         const strays = after.filter(
           (s) =>
-            Math.abs(s.drawn - trace.handDrawn) > TOL &&
-            Math.abs(s.drawn - stopDrawn) > TOL,
+            Math.abs(s.drawn - trace.handDrawn) > PIXEL_TOL &&
+            Math.abs(s.drawn - stopDrawn) > PIXEL_TOL,
         );
         note(
           `lift: hand drawn ${trace.handDrawn}, stop drawn ${stopDrawn}, ` +
@@ -763,15 +763,15 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         // One way, from the hand to the stop, never past it.
         let backtracks = 0;
         for (let i = 1; i < trace.samples.length; i += 1) {
-          if (trace.samples[i].left - trace.samples[i - 1].left > TOL) backtracks += 1;
+          if (trace.samples[i].left - trace.samples[i - 1].left > PIXEL_TOL) backtracks += 1;
         }
-        const past = after.filter((s) => s.left < stopLeft - TOL);
+        const past = after.filter((s) => s.left < stopLeft - PIXEL_TOL);
         expect(backtracks, "the card only ever moved the hand's way").toBe(0);
         expect(past.length, "no frame went past the stop").toBe(0);
 
         // No plateau between the hand and the landing: the longest stretch the
         // card stood still before it reached the stop.
-        const landed = after.find((s) => Math.abs(s.left - stopLeft) <= TOL);
+        const landed = after.find((s) => Math.abs(s.left - stopLeft) <= PIXEL_TOL);
         expect(landed, "the card reached the stop").toBeDefined();
         let plateau = 0;
         let stillSince = trace.tLastDelta;
@@ -795,7 +795,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           Math.abs((await paneLeft(app)) - stopLeft),
           "the card ends on the next slot's stop",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
       } finally {
         await app.close();
       }
@@ -839,14 +839,14 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           const early = launch[Math.round((launch.length - 1) * EARLY_FRACTION)];
           let backtracks = 0;
           for (let i = 1; i < trace.samples.length; i += 1) {
-            if (trace.samples[i].left - trace.samples[i - 1].left > TOL) backtracks += 1;
+            if (trace.samples[i].left - trace.samples[i - 1].left > PIXEL_TOL) backtracks += 1;
           }
           return {
             handToStop: trace.handLeft - stopLeft,
             early: early ?? 0,
             launched: launch.length,
             backtracks,
-            past: after.filter((s) => s.left < stopLeft - TOL).length,
+            past: after.filter((s) => s.left < stopLeft - PIXEL_TOL).length,
             landed: Math.abs((await paneLeft(app)) - stopLeft),
             store: await flowOffset(app),
             stop: SLOT_PITCH_PX * stops,
@@ -863,11 +863,11 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           Math.abs(fast.handToStop - slow.handToStop),
           "both lifts left the same distance to their stop",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         for (const [name, run] of [["fast", fast], ["slow", slow]] as const) {
           expect(run.launched, `the ${name} lift launched a slide`).toBeGreaterThan(2);
           expect(run.store, `the ${name} lift settled on its next stop`).toBeCloseTo(run.stop, 0);
-          expect(run.landed, `the ${name} card ends on its stop`).toBeLessThanOrEqual(TOL);
+          expect(run.landed, `the ${name} card ends on its stop`).toBeLessThanOrEqual(PIXEL_TOL);
           expect(run.backtracks, `the ${name} card only moved the hand's way`).toBe(0);
           expect(run.past, `no ${name} frame went past the stop`).toBe(0);
         }
@@ -925,19 +925,19 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           settled,
           "the flick travelled past the next stop",
-        ).toBeGreaterThan(SLOT_PITCH_PX + TOL);
+        ).toBeGreaterThan(SLOT_PITCH_PX + PIXEL_TOL);
         expect(
           Math.abs(restLeft - landedLeft - settled),
           "the card ends where the store settled",
-        ).toBeLessThanOrEqual(TOL);
+        ).toBeLessThanOrEqual(PIXEL_TOL);
         expect(trace.momentumUntaken, "every momentum event was taken").toBe(0);
         let backtracks = 0;
         for (let i = 1; i < trace.samples.length; i += 1) {
-          if (trace.samples[i].left - trace.samples[i - 1].left > TOL) backtracks += 1;
+          if (trace.samples[i].left - trace.samples[i - 1].left > PIXEL_TOL) backtracks += 1;
         }
         expect(backtracks, "the card only ever moved the hand's way").toBe(0);
         expect(
-          after.filter((s) => s.left < landedLeft - TOL).length,
+          after.filter((s) => s.left < landedLeft - PIXEL_TOL).length,
           "no frame went past where the flick landed",
         ).toBe(0);
       } finally {
@@ -1051,12 +1051,12 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         expect(
           lastBefore.left - slideStop,
           "the slide was still short of its stop when the hand touched",
-        ).toBeGreaterThan(TOL);
+        ).toBeGreaterThan(PIXEL_TOL);
         const atLift = trace.samples.filter((s) => s.t <= trace.tLift).pop()!;
         expect(
           atLift.left - lastBefore.left,
           "the slide had carried the strip on from the hand before the catch",
-        ).toBeGreaterThan(TOL);
+        ).toBeGreaterThan(PIXEL_TOL);
 
         // No jump at the catch: the strip stood where the slide had it, to
         // within one frame of the slide's travel, and did not leap to the stop.
@@ -1091,7 +1091,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
         const backs: string[] = [];
         for (let i = 1; i < trace.samples.length; i += 1) {
           const step = trace.samples[i].left - trace.samples[i - 1].left;
-          if (step > TOL) {
+          if (step > PIXEL_TOL) {
             backs.push(
               `${Math.round(step)}px at ${Math.round(trace.samples[i].t - trace.tCatch)}ms from the catch`,
             );

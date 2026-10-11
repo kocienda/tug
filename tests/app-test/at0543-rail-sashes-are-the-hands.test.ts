@@ -53,6 +53,8 @@ import {
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
+// Its own number, not `PIXEL_TOL` (1.5) from `_harness/tolerances.ts`: a different
+// tolerance is this file's decision, so the table does not flatten it.
 /** Geometry tolerance, in px: sub-pixel rounding, never a real disagreement. */
 const EPSILON = 3;
 /** Room past the settle attribute clearing for the tween's own tail. */
