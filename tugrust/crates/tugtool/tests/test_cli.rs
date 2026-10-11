@@ -21,6 +21,14 @@ const RED_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </testsuites>
 "#;
 
+/// `test last --json`'s report, out of the `--json` envelope it rides.
+fn last_report(stdout: &str) -> serde_json::Value {
+    let envelope: serde_json::Value = serde_json::from_str(stdout).unwrap();
+    assert_eq!(envelope["command"], "test last", "{envelope}");
+    assert_eq!(envelope["status"], "ok", "{envelope}");
+    envelope["data"].clone()
+}
+
 fn run(db: &Path, cwd: &Path, args: &[&str]) -> Output {
     tugtool()
         .args(args)
@@ -75,7 +83,7 @@ fn a_recorded_failure_is_named_by_test_last() {
     );
 
     let out = run(&db, &scratch, &["test", "last", "--json"]);
-    let report: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let report = last_report(&stdout(&out));
     assert_eq!(report["runs"][0]["suite"], "deck");
     assert_eq!(report["runs"][0]["verdict"], "FAIL");
     assert_eq!(report["runs"][0]["failures"][0]["name"], "bad two");
@@ -215,7 +223,7 @@ fn test_run_wraps_a_red_bun_run_and_records_its_failure() {
         "s  (fail) a.test.ts › bad two\n      expect(received).toBe(expected)\n"
     );
     let out = run(&db, &scratch, &["test", "last", "--json"]);
-    let report: serde_json::Value = serde_json::from_str(&stdout(&out)).unwrap();
+    let report = last_report(&stdout(&out));
     assert_eq!(report["runs"][0]["tests"], 3);
     assert_eq!(report["runs"][0]["exitCode"], 1);
 }

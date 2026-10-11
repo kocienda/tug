@@ -38,6 +38,7 @@ type Fingerprints = BTreeMap<PathBuf, [u8; 32]>;
 pub fn run_run(scopes: &[String], command: &[String]) -> Result<(), AppError> {
     let Some((program, args)) = command.split_first() else {
         return Err(AppError::Exit1(
+            "failed",
             "no command to run — pass it after `--`".to_string(),
         ));
     };
@@ -91,7 +92,7 @@ pub fn run_run(scopes: &[String], command: &[String]) -> Result<(), AppError> {
     match status {
         Ok(0) => Ok(()),
         Ok(code) => Err(AppError::ExitStatus(code)),
-        Err(err) => Err(AppError::Exit1(err)),
+        Err(err) => Err(AppError::Exit1("failed", err)),
     }
 }
 
@@ -101,9 +102,10 @@ fn repo_root() -> Result<PathBuf, AppError> {
     let out = tugcore::git_command()
         .args(["rev-parse", "--show-toplevel"])
         .output()
-        .map_err(|e| AppError::Exit1(format!("git: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("git: {e}")))?;
     if !out.status.success() {
         return Err(AppError::Exit1(
+            "failed",
             "not inside a git repository — `file run` needs one to scope the universe".to_string(),
         ));
     }
@@ -117,10 +119,13 @@ fn resolve_scopes(root: &Path, scopes: &[String]) -> Result<Vec<PathBuf>, AppErr
     for scope in scopes {
         let path = super::file::absolute(Path::new(scope));
         if !path.starts_with(root) {
-            return Err(AppError::Exit1(format!(
-                "{}: outside the repository, so nothing in it could be receipted",
-                path.display()
-            )));
+            return Err(AppError::Exit1(
+                "failed",
+                format!(
+                    "{}: outside the repository, so nothing in it could be receipted",
+                    path.display()
+                ),
+            ));
         }
         out.push(path);
     }
@@ -141,7 +146,7 @@ fn fingerprint_universe(root: &Path, scopes: &[PathBuf]) -> Result<Fingerprints,
         root,
         &["ls-files", "--cached", "--others", "--exclude-standard"],
     )
-    .map_err(|e| AppError::Exit1(format!("git ls-files: {e}")))?;
+    .map_err(|e| AppError::Exit1("failed", format!("git ls-files: {e}")))?;
 
     let mut map = Fingerprints::new();
     for rel in listed {

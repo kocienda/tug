@@ -13,18 +13,24 @@ use tugchanges_core::{
     PreflightOptions,
 };
 
-use crate::output::print_ok;
+use crate::output::{print_error, print_ok, print_receipt};
 
 /// A CLI failure carrying its intended exit code. Exit 2 is the ledger's
 /// "can't resolve the session" outcome (`changes`/`preflight`); exit 3 is the
 /// `commit` refusal ([P03], unattributed files with no disposition); exit 1 is a
 /// real error. Keeping the code with the message lets `main` map cleanly instead
 /// of collapsing them the way a bare `String` would.
+///
+/// Each numbered variant also carries a machine **cause** — the `code` a
+/// `--json` caller reads from `issues[0].code` instead of matching the
+/// sentence. A typed error names its own cause through its `From` impl; a site
+/// that builds one from a sentence names the variant's general cause
+/// (`failed`, `unresolved`, `refused`) unless it has a sharper one.
 #[derive(Debug)]
 pub enum AppError {
-    Exit1(String),
-    Exit2(String),
-    Exit3(String),
+    Exit1(&'static str, String),
+    Exit2(&'static str, String),
+    Exit3(&'static str, String),
     /// A child process's exit status, propagated verbatim and silently — the
     /// child has already said whatever it had to say.
     ExitStatus(u8),
@@ -40,9 +46,9 @@ impl AppError {
     /// theirs; the numbered variants are their own number.
     pub fn exit_code(&self) -> u8 {
         match self {
-            AppError::Exit1(_) => 1,
-            AppError::Exit2(_) => 2,
-            AppError::Exit3(_) => 3,
+            AppError::Exit1(..) => 1,
+            AppError::Exit2(..) => 2,
+            AppError::Exit3(..) => 3,
             AppError::ExitStatus(code) | AppError::Reported(code) => *code,
         }
     }
@@ -50,56 +56,74 @@ impl AppError {
     /// The report, empty for the two variants that carry none.
     pub fn message(&self) -> &str {
         match self {
-            AppError::Exit1(m) | AppError::Exit2(m) | AppError::Exit3(m) => m,
+            AppError::Exit1(_, m) | AppError::Exit2(_, m) | AppError::Exit3(_, m) => m,
             AppError::ExitStatus(_) | AppError::Reported(_) => "",
         }
+    }
+
+    /// The machine cause, `None` for the two variants that report nothing.
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            AppError::Exit1(c, _) | AppError::Exit2(c, _) | AppError::Exit3(c, _) => Some(c),
+            AppError::ExitStatus(_) | AppError::Reported(_) => None,
+        }
+    }
+
+    /// Report this failure and return its exit: under `--json` the error
+    /// envelope on stdout, otherwise `error: <message>` on stderr. The two
+    /// silent variants print nothing either way — their report has already
+    /// been made.
+    pub fn report(&self, command: &str, json: bool) -> ExitCode {
+        if self.code().is_some() {
+            if json {
+                print_error(command, self);
+            } else {
+                eprintln!("error: {}", self.message());
+            }
+        }
+        ExitCode::from(self.exit_code())
     }
 }
 
 impl From<ChangesError> for AppError {
     fn from(err: ChangesError) -> Self {
-        if err.is_exit_two() {
-            AppError::Exit2(err.to_string())
-        } else {
-            AppError::Exit1(err.to_string())
+        let message = err.to_string();
+        match err {
+            ChangesError::NoSessionId => AppError::Exit2("no_session_id", message),
+            ChangesError::NoLedger { .. } => AppError::Exit2("no_ledger", message),
+            ChangesError::UnknownSession { .. } => AppError::Exit2("unknown_session", message),
+            ChangesError::Other(_) => AppError::Exit1("failed", message),
         }
     }
 }
 
 impl From<CommitError> for AppError {
     fn from(err: CommitError) -> Self {
-        if err.is_refusal() {
-            AppError::Exit3(err.to_string())
-        } else {
-            AppError::Exit1(err.to_string())
+        let message = err.to_string();
+        match err {
+            CommitError::UnattributedPresent { .. } => {
+                AppError::Exit3("unattributed_present", message)
+            }
+            CommitError::HunkDrift { .. } => AppError::Exit1("hunk_drift", message),
+            CommitError::BadPath { .. } => AppError::Exit1("bad_path", message),
+            CommitError::Other(_) => AppError::Exit1("failed", message),
         }
     }
 }
 
 impl From<String> for AppError {
     fn from(msg: String) -> Self {
-        AppError::Exit1(msg)
+        AppError::Exit1("failed", msg)
     }
 }
 
-/// Map a git-verb result to a process exit code, printing the error to stderr.
-pub fn finish(result: Result<(), AppError>) -> ExitCode {
+/// Map a verb's result to a process exit code, reporting a failure the way
+/// [`AppError::report`] does — the envelope under `--json`, a line on stderr
+/// otherwise.
+pub fn finish(command: &str, json: bool, result: Result<(), AppError>) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(AppError::Exit1(msg)) => {
-            eprintln!("error: {msg}");
-            ExitCode::from(1)
-        }
-        Err(AppError::Exit2(msg)) => {
-            eprintln!("error: {msg}");
-            ExitCode::from(2)
-        }
-        Err(AppError::Exit3(msg)) => {
-            eprintln!("error: {msg}");
-            ExitCode::from(3)
-        }
-        Err(AppError::ExitStatus(code)) => ExitCode::from(code),
-        Err(AppError::Reported(code)) => ExitCode::from(code),
+        Err(e) => e.report(command, json),
     }
 }
 
@@ -181,7 +205,7 @@ fn tell_ownership_verb(
     json: bool,
 ) -> Result<(), AppError> {
     if paths.is_empty() {
-        return Err(AppError::Exit1(format!("no paths to {verb}")));
+        return Err(AppError::Exit1("failed", format!("no paths to {verb}")));
     }
     // Claiming is a **write** about who owns a file, so it is addressed to
     // the line's live segment rather than to whatever id this process was
@@ -191,12 +215,15 @@ fn tell_ownership_verb(
     let session_id = crate::session_identity::resolve_soft(session.as_deref())
         .map(|r| r.session_id)
         .ok_or_else(|| {
-            AppError::Exit1("no session — pass --session or set TUG_SESSION_ID".to_string())
+            AppError::Exit1(
+                "failed",
+                "no session — pass --session or set TUG_SESSION_ID".to_string(),
+            )
         })?;
     let project_dir = match project {
         Some(p) => p,
         None => std::env::current_dir()
-            .map_err(|e| AppError::Exit1(format!("cannot resolve cwd: {e}")))?,
+            .map_err(|e| AppError::Exit1("failed", format!("cannot resolve cwd: {e}")))?,
     };
     // Canonicalize so the project_dir matches a WorkspaceRegistry entry (the
     // backend guards on it) regardless of symlinked checkout spellings.
@@ -239,7 +266,10 @@ fn tell_ownership_verb(
                     .and_then(|r| r.get("detail"))
                     .and_then(|d| d.as_str())
                     .unwrap_or("refused");
-                return Err(AppError::Exit1(format!("{verb} refused: {detail}")));
+                return Err(AppError::Exit1(
+                    "ownership_refused",
+                    format!("{verb} refused: {detail}"),
+                ));
             }
             let count_key = format!("{verb}ed");
             let count = reply
@@ -252,34 +282,41 @@ fn tell_ownership_verb(
                 .and_then(|r| r.get("warning"))
                 .and_then(|w| w.as_str())
                 .map(str::to_owned);
+            // A shortfall is a failure with a receipt attached, not a
+            // success: the caller asked for N and got fewer.
+            let verdict = if (count as usize) < paths.len() {
+                Err(AppError::Exit1(
+                    "ownership_shortfall",
+                    format!(
+                        "{verb} shortfall: {count} of {} file(s) landed",
+                        paths.len()
+                    ),
+                ))
+            } else {
+                Ok(())
+            };
             if json {
                 let mut data = serde_json::Map::new();
                 data.insert(count_key, count.into());
                 if let Some(w) = &warning {
                     data.insert("warning".to_string(), w.as_str().into());
                 }
-                print_ok(verb, serde_json::Value::Object(data));
-            } else {
-                println!("{verb}ed {count} file(s) for session {session_id}");
-                if let Some(w) = &warning {
-                    eprintln!("warning: {w}");
-                }
+                return print_receipt(verb, serde_json::Value::Object(data), verdict);
             }
-            // A shortfall is a failure with a receipt attached, not a
-            // success: the caller asked for N and got fewer.
-            if (count as usize) < paths.len() {
-                return Err(AppError::Exit1(format!(
-                    "{verb} shortfall: {count} of {} file(s) landed",
-                    paths.len()
-                )));
+            println!("{verb}ed {count} file(s) for session {session_id}");
+            if let Some(w) = &warning {
+                eprintln!("warning: {w}");
             }
-            Ok(())
+            verdict
         }
-        Ok(resp) => Err(AppError::Exit1(format!(
-            "tugcast returned status {}",
-            resp.status().as_u16()
-        ))),
-        Err(e) => Err(AppError::Exit1(format!("{verb} request failed: {e}"))),
+        Ok(resp) => Err(AppError::Exit1(
+            "failed",
+            format!("tugcast returned status {}", resp.status().as_u16()),
+        )),
+        Err(e) => Err(AppError::Exit1(
+            "failed",
+            format!("{verb} request failed: {e}"),
+        )),
     }
 }
 
@@ -449,7 +486,7 @@ fn refusal_to_app_error(err: CommitError) -> AppError {
                  --leave-unattributed (proceed without them), --tree (commit the \
                  whole dirty tree), or --paths <p…> (choose explicitly)",
             );
-            AppError::Exit3(msg)
+            AppError::Exit3("unattributed_present", msg)
         }
         other => AppError::from(other),
     }

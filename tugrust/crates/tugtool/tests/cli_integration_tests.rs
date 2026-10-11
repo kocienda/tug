@@ -180,7 +180,7 @@ fn test_json_output_init() {
     // Parse JSON
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
     assert_eq!(json["schema_version"], "1");
-    assert_eq!(json["command"], "init");
+    assert_eq!(json["command"], "host init");
     assert_eq!(json["status"], "ok");
     assert!(json["data"]["files_created"].is_array());
 }
@@ -244,7 +244,7 @@ fn test_init_check_json_uninitialized() {
     // Parse JSON
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
     assert_eq!(json["schema_version"], "1");
-    assert_eq!(json["command"], "init");
+    assert_eq!(json["command"], "host init");
     assert_eq!(json["status"], "ok");
     assert_eq!(json["data"]["initialized"], false);
     assert_eq!(json["data"]["path"], ".tugtool/");
@@ -269,7 +269,7 @@ fn test_init_check_json_initialized() {
     // Parse JSON
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("should be valid JSON");
     assert_eq!(json["schema_version"], "1");
-    assert_eq!(json["command"], "init");
+    assert_eq!(json["command"], "host init");
     assert_eq!(json["status"], "ok");
     assert_eq!(json["data"]["initialized"], true);
     assert_eq!(json["data"]["path"], ".tugtool/");

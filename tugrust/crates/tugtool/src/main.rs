@@ -44,12 +44,20 @@ fn main() -> ExitCode {
             project,
             all,
             diff,
-        }) => changes::finish(changes::run_changes(session, project, all, diff, json)),
+        }) => changes::finish(
+            "changes",
+            json,
+            changes::run_changes(session, project, all, diff, json),
+        ),
         Some(Commands::Preflight {
             session,
             project,
             log_limit,
-        }) => changes::finish(changes::run_preflight(session, project, log_limit, json)),
+        }) => changes::finish(
+            "preflight",
+            json,
+            changes::run_preflight(session, project, log_limit, json),
+        ),
         Some(Commands::Commit {
             message,
             session,
@@ -60,60 +68,91 @@ fn main() -> ExitCode {
             leave_unattributed,
             tree,
             hunks,
-        }) => changes::finish(changes::run_commit(
-            message,
-            session,
-            project,
-            paths,
-            all,
-            include_unattributed,
-            leave_unattributed,
-            tree,
-            hunks,
+        }) => changes::finish(
+            "commit",
             json,
-        )),
+            changes::run_commit(
+                message,
+                session,
+                project,
+                paths,
+                all,
+                include_unattributed,
+                leave_unattributed,
+                tree,
+                hunks,
+                json,
+            ),
+        ),
         Some(Commands::Claim {
             paths,
             session,
             project,
-        }) => changes::finish(changes::run_claim(paths, session, project, json)),
+        }) => changes::finish(
+            "claim",
+            json,
+            changes::run_claim(paths, session, project, json),
+        ),
         Some(Commands::Disclaim {
             paths,
             session,
             project,
-        }) => changes::finish(changes::run_disclaim(paths, session, project, json)),
+        }) => changes::finish(
+            "disclaim",
+            json,
+            changes::run_disclaim(paths, session, project, json),
+        ),
         Some(Commands::Log { limit, range }) => {
-            changes::finish(changes::run_log(limit, range, json))
+            changes::finish("log", json, changes::run_log(limit, range, json))
         }
         Some(Commands::Diff {
             range,
             staged,
             session,
             project,
-        }) => changes::finish(changes::run_diff(range, staged, session, project, json)),
-        Some(Commands::Draft(cmd)) => changes::finish(match cmd {
-            cli::DraftCommands::Set {
-                owner,
-                project,
-                message,
-                include,
-                exclude,
-                port,
-                instance,
-            } => draft::run_set(
-                owner, project, message, include, exclude, port, instance, json,
-            ),
-            cli::DraftCommands::Show { owner, project } => draft::run_show(owner, project, json),
-            cli::DraftCommands::Clear {
-                owner,
-                project,
-                port,
-                instance,
-            } => draft::run_clear(owner, project, port, instance, json),
-        }),
+        }) => changes::finish(
+            "diff",
+            json,
+            changes::run_diff(range, staged, session, project, json),
+        ),
+        Some(Commands::Draft(cmd)) => {
+            let (command, result) = match cmd {
+                cli::DraftCommands::Set {
+                    owner,
+                    project,
+                    message,
+                    include,
+                    exclude,
+                    port,
+                    instance,
+                } => (
+                    "draft set",
+                    draft::run_set(
+                        owner, project, message, include, exclude, port, instance, json,
+                    ),
+                ),
+                cli::DraftCommands::Show { owner, project } => {
+                    ("draft show", draft::run_show(owner, project, json))
+                }
+                cli::DraftCommands::Clear {
+                    owner,
+                    project,
+                    port,
+                    instance,
+                } => (
+                    "draft clear",
+                    draft::run_clear(owner, project, port, instance, json),
+                ),
+            };
+            changes::finish(command, json, result)
+        }
 
         // File lifecycle verbs — receipts are the attribution surface.
-        Some(Commands::File(cmd)) => changes::finish(commands::run_file(cmd)),
+        Some(Commands::File(cmd)) => changes::finish(
+            commands::file::command_name(&cmd),
+            json,
+            commands::run_file(cmd),
+        ),
 
         // Arcs (tugarc_core) and host plumbing (command modules).
         Some(Commands::Arc(cmd)) => arc::dispatch(cmd, json, quiet),
@@ -128,49 +167,73 @@ fn main() -> ExitCode {
         Some(Commands::Session(cmd)) => session::dispatch(cmd, json),
 
         // The plugin's hooks, answered from the binary.
-        Some(Commands::Hook(cmd)) => changes::finish(commands::run_hook(cmd)),
+        Some(Commands::Hook(cmd)) => {
+            let command = match &cmd {
+                commands::HookCommands::PreToolUse => "hook pre-tool-use",
+            };
+            changes::finish(command, json, commands::run_hook(cmd))
+        }
 
         // The app-test results ledger.
-        Some(Commands::Apptest(cmd)) => changes::finish(match cmd {
-            cli::ApptestCommands::Record => apptest::run_record(),
-            cli::ApptestCommands::History { root, files, .. } => apptest::run_history(root, files),
-            cli::ApptestCommands::Reach { command } => match command {
-                cli::ReachCommands::Record => apptest::run_reach_record(),
-                cli::ReachCommands::Show { root, files } => apptest::run_reach_show(root, files),
-            },
-        }),
+        Some(Commands::Apptest(cmd)) => {
+            let (command, result) = match cmd {
+                cli::ApptestCommands::Record => ("apptest record", apptest::run_record()),
+                cli::ApptestCommands::History { root, files } => {
+                    ("apptest history", apptest::run_history(root, files))
+                }
+                cli::ApptestCommands::Reach { command } => match command {
+                    cli::ReachCommands::Record => {
+                        ("apptest reach record", apptest::run_reach_record())
+                    }
+                    cli::ReachCommands::Show { root, files } => {
+                        ("apptest reach show", apptest::run_reach_show(root, files))
+                    }
+                },
+            };
+            changes::finish(command, json, result)
+        }
 
         // The unit-test results ledger.
-        Some(Commands::Test(cmd)) => changes::finish(match cmd {
-            cli::TestCommands::Record {
-                suite,
-                junit,
-                root,
-                exit_code,
-                started_at,
-                command,
-            } => test_ledger_cli::run_record(suite, junit, root, exit_code, started_at, command),
-            cli::TestCommands::Run {
-                suite,
-                kind,
-                junit,
-                label,
-                needles,
-                command,
-            } => test_run::run(test_run::RunArgs {
-                suite,
-                kind,
-                junit,
-                label,
-                needles,
-                command,
-            }),
-            cli::TestCommands::Last {
-                failures,
-                suite,
-                root,
-            } => test_ledger_cli::run_last(failures, suite, root, json),
-        }),
+        Some(Commands::Test(cmd)) => {
+            let command = match &cmd {
+                cli::TestCommands::Record { .. } => "test record",
+                cli::TestCommands::Run { .. } => "test run",
+                cli::TestCommands::Last { .. } => "test last",
+            };
+            let result = match cmd {
+                cli::TestCommands::Record {
+                    suite,
+                    junit,
+                    root,
+                    exit_code,
+                    started_at,
+                    command,
+                } => {
+                    test_ledger_cli::run_record(suite, junit, root, exit_code, started_at, command)
+                }
+                cli::TestCommands::Run {
+                    suite,
+                    kind,
+                    junit,
+                    label,
+                    needles,
+                    command,
+                } => test_run::run(test_run::RunArgs {
+                    suite,
+                    kind,
+                    junit,
+                    label,
+                    needles,
+                    command,
+                }),
+                cli::TestCommands::Last {
+                    failures,
+                    suite,
+                    root,
+                } => test_ledger_cli::run_last(failures, suite, root, json),
+            };
+            changes::finish(command, json, result)
+        }
 
         // A running command's progress line. Telemetry: silent, always 0.
         Some(Commands::Progress {

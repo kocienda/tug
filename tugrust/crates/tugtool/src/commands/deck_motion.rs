@@ -27,8 +27,10 @@
 //! `0` on a reading, `2` when the instance's eval door is shut (with the
 //! remedy printed), `1` for everything else.
 
+use crate::changes::AppError;
 use crate::cli::{DeckMotionCommands, DeckTarget};
 use crate::commands::tell::{Remedy, resolve_port};
+use crate::output::{print_error, print_ok};
 
 /// What a 403 from `/api/eval` means, and the one command that fixes it.
 pub const EVAL_GATED_REMEDY: &str = "eval is gated on this instance — run 'tugtool deck motion enable' (loopback only; 'disable' revokes it)";
@@ -36,6 +38,44 @@ pub const EVAL_GATED_REMEDY: &str = "eval is gated on this instance — run 'tug
 /// Exit code for a shut eval door. Distinct from 1 so a script can tell
 /// "not allowed to ask" from "asked and it went wrong".
 pub(crate) const EXIT_GATED: i32 = 2;
+
+/// Report a shut eval door and return [`EXIT_GATED`]: the remedy on stderr,
+/// or under `--json` the error envelope carrying it as `eval_gated`.
+pub(crate) fn eval_gated(command: &str, json_output: bool) -> i32 {
+    if json_output {
+        print_error(
+            command,
+            &AppError::Exit2("eval_gated", EVAL_GATED_REMEDY.to_string()),
+        );
+    } else {
+        eprintln!("{EVAL_GATED_REMEDY}");
+    }
+    EXIT_GATED
+}
+
+/// The name a `deck motion` verb's envelope carries in `command`.
+pub fn command_name(cmd: &DeckMotionCommands) -> &'static str {
+    match cmd {
+        DeckMotionCommands::List { .. } => "deck motion list",
+        DeckMotionCommands::Cost { .. } => "deck motion cost",
+        DeckMotionCommands::Rest { .. } => "deck motion rest",
+        DeckMotionCommands::Layers { .. } => "deck motion layers",
+        DeckMotionCommands::Pause { .. } => "deck motion pause",
+        DeckMotionCommands::Resume { .. } => "deck motion resume",
+        DeckMotionCommands::Bisect { .. } => "deck motion bisect",
+        DeckMotionCommands::Input { .. } => "deck motion input",
+        DeckMotionCommands::Probe { .. } => "deck motion probe",
+        DeckMotionCommands::Demote { .. } => "deck motion demote",
+        DeckMotionCommands::Record { .. } => "deck motion record",
+        DeckMotionCommands::Chains { .. } => "deck motion chains",
+        DeckMotionCommands::Gesture { .. } => "deck motion gesture",
+        DeckMotionCommands::Slide { .. } => "deck motion slide",
+        DeckMotionCommands::Settle { .. } => "deck motion settle",
+        DeckMotionCommands::Walk { .. } => "deck motion walk",
+        DeckMotionCommands::Enable { .. } => "deck motion enable",
+        DeckMotionCommands::Disable { .. } => "deck motion disable",
+    }
+}
 
 /// How long an armed gesture chain runs before it stops itself, in ms.
 ///
@@ -243,16 +283,14 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             )
         }
         other => {
+            let command = command_name(&other);
             let code = eval_code_for(&other).expect("only enable/disable have no eval code");
             let result = match post_eval(port, &code)? {
-                EvalOutcome::Gated => {
-                    eprintln!("{EVAL_GATED_REMEDY}");
-                    return Ok(EXIT_GATED);
-                }
+                EvalOutcome::Gated => return Ok(eval_gated(command, json_output)),
                 EvalOutcome::Ok(value) => value,
             };
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&result).unwrap());
+                print_ok(command, &result);
             } else {
                 render(&other, &result);
             }
@@ -319,9 +357,13 @@ fn set_eval_opt_in(port: u16, on: bool, json_output: bool) -> Result<i32, String
     }
     let state = if on { "enabled" } else { "disabled" };
     if json_output {
-        println!(
-            "{}",
-            serde_json::json!({"status": "ok", "eval": state, "port": port})
+        print_ok(
+            if on {
+                "deck motion enable"
+            } else {
+                "deck motion disable"
+            },
+            serde_json::json!({"eval": state, "port": port}),
         );
     } else {
         println!("eval {state} on port {port}");
@@ -345,10 +387,7 @@ fn run_record(
         None => "window.__tugMotion.record()".to_string(),
     };
     let mut value = match post_eval(port, &code)? {
-        EvalOutcome::Gated => {
-            eprintln!("{EVAL_GATED_REMEDY}");
-            return Ok(EXIT_GATED);
-        }
+        EvalOutcome::Gated => return Ok(eval_gated("deck motion record", json_output)),
         EvalOutcome::Ok(value) => value,
     };
     let waiting = !record_next_load(&value).is_empty();
@@ -380,7 +419,7 @@ fn run_record(
         })?;
     }
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+        print_ok("deck motion record", &value);
     } else {
         println!("{}", record_summary(&value));
     }

@@ -438,10 +438,6 @@ pub enum ApptestCommands {
         /// checkout, so an arc worktree and its checkout share one history.
         #[arg(long)]
         root: Option<PathBuf>,
-        /// Emit JSON. The only rendering today; named so the recipe's call
-        /// site says what it expects.
-        #[arg(long)]
-        json: bool,
         /// Test files to answer for, as the report names them.
         #[arg(required = true, num_args = 1..)]
         files: Vec<String>,
@@ -1572,10 +1568,6 @@ pub enum HostCommands {
         /// Sweep without confirming.
         #[arg(long)]
         yes: bool,
-
-        /// Emit the report as JSON without removing anything.
-        #[arg(long)]
-        json: bool,
 
         /// Report what would be swept and stop. Never prompts.
         #[arg(long, conflicts_with = "yes")]

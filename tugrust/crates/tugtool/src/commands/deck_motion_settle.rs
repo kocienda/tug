@@ -46,7 +46,7 @@
 //! commit's span. That is the set-up's cost a gesture's frames wait behind,
 //! read on the deck the user runs rather than barred in an app-test.
 
-use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED};
+use crate::commands::deck_motion::eval_gated;
 use crate::commands::deck_motion_slide::{
     RawCommit, RawTask, RawTell, census, commit_timings, ensure_recorder, origins_label,
     print_census, script_page,
@@ -900,10 +900,7 @@ pub fn run_settle(
     chains: bool,
     json_output: bool,
 ) -> Result<i32, String> {
-    let gated = || {
-        eprintln!("{EVAL_GATED_REMEDY}");
-        Ok(EXIT_GATED)
-    };
+    let gated = || Ok(eval_gated("deck motion settle", json_output));
     check_args(gesture, &args)?;
     if drives_once(gesture) && count > 1 && !json_output {
         let what = if gesture == "close" {
@@ -1017,9 +1014,9 @@ pub fn run_settle(
     }
 
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
+        crate::output::print_ok(
+            "deck motion settle",
+            json!({
                 "census": census,
                 "rest": rest,
                 "gesture": gesture,
@@ -1027,8 +1024,7 @@ pub fn run_settle(
                 "framesPerturbedByTasks": tasks,
                 "chainsCensus": chains_census,
                 "readings": readings,
-            }))
-            .unwrap()
+            }),
         );
     }
     Ok(0)

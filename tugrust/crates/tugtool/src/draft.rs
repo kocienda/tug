@@ -120,6 +120,7 @@ fn resolve_owner(owner: Option<String>, project_dir: &str) -> Result<Owner, AppE
     // `TUG_CHANGES_DB` run) the posted id is the whole answer, as before.
     let resolved = crate::session_identity::resolve_soft(None).ok_or_else(|| {
         AppError::Exit1(
+            "failed",
             "no owner — pass --owner, run inside an arc worktree, or set TUG_SESSION_ID"
                 .to_string(),
         )
@@ -180,6 +181,7 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
     if owner == "session" {
         let resolved = crate::session_identity::resolve_soft(None).ok_or_else(|| {
             AppError::Exit1(
+                "failed",
                 "--owner session names the calling session, so run this from a Session card, \
                  spell the id as session:<id>, or set TUG_SESSION_ID"
                     .to_string(),
@@ -193,7 +195,10 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
     }
     if let Some(id) = owner.strip_prefix("session:") {
         if id.is_empty() {
-            return Err(AppError::Exit1("empty session id in --owner".to_string()));
+            return Err(AppError::Exit1(
+                "failed",
+                "empty session id in --owner".to_string(),
+            ));
         }
         // A hand-typed session id goes stale exactly the way an inherited one
         // does, so it is resolved on the same terms.
@@ -209,14 +214,20 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
     if let Some(name) = owner.strip_prefix("arc:") {
         let name = name.strip_prefix("tugarc/").unwrap_or(name);
         if name.is_empty() {
-            return Err(AppError::Exit1("empty arc name in --owner".to_string()));
+            return Err(AppError::Exit1(
+                "failed",
+                "empty arc name in --owner".to_string(),
+            ));
         }
         let (id, legacy) = arc_owner(name, project_dir);
         return build("arc", id, Some(name.to_string()), legacy);
     }
-    Err(AppError::Exit1(format!(
-        "invalid --owner '{owner}': expected session, session:<id>, arc:<name>, or unattributed"
-    )))
+    Err(AppError::Exit1(
+        "failed",
+        format!(
+            "invalid --owner '{owner}': expected session, session:<id>, arc:<name>, or unattributed"
+        ),
+    ))
 }
 
 /// Resolve `--project` (default cwd) to `(project, legacy)` spellings.
@@ -228,8 +239,8 @@ fn parse_owner(owner: &str, project_dir: &str) -> Result<Owner, AppError> {
 /// CLI builds used as their row key; it rides along solely so the server
 /// supersedes/sweeps rows written under it.
 fn resolve_project(project: Option<PathBuf>) -> Result<Project, AppError> {
-    let cwd =
-        std::env::current_dir().map_err(|e| AppError::Exit1(format!("cannot resolve cwd: {e}")))?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| AppError::Exit1("failed", format!("cannot resolve cwd: {e}")))?;
     let raw = match project {
         Some(p) if p.is_absolute() => p,
         Some(p) => cwd.join(p),
@@ -369,25 +380,31 @@ fn post_draft_api(
 ) -> Result<serde_json::Value, AppError> {
     use crate::commands::tell::{Remedy, resolve_port_any};
     let port = resolve_port_any(port, instance).map_err(|e| {
-        AppError::Exit1(format!(
-            "draft writes go through a running Tug instance, but none was found ({})",
-            e.describe(Remedy::Flags)
-        ))
+        AppError::Exit1(
+            "failed",
+            format!(
+                "draft writes go through a running Tug instance, but none was found ({})",
+                e.describe(Remedy::Flags)
+            ),
+        )
     })?;
     let url = format!("http://127.0.0.1:{port}/api/draft");
     let response = ureq::post(&url)
         .send_json(body)
-        .map_err(|e| AppError::Exit1(format!("cannot reach tugcast at {url}: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("cannot reach tugcast at {url}: {e}")))?;
     let value: serde_json::Value = response
         .into_body()
         .read_json()
-        .map_err(|e| AppError::Exit1(format!("bad response from tugcast: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("bad response from tugcast: {e}")))?;
     if value.get("status").and_then(|s| s.as_str()) != Some("ok") {
         let message = value
             .get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("unknown error");
-        return Err(AppError::Exit1(format!("draft request failed: {message}")));
+        return Err(AppError::Exit1(
+            "failed",
+            format!("draft request failed: {message}"),
+        ));
     }
     Ok(value)
 }
@@ -398,7 +415,7 @@ fn draft_row_from_api(row: &serde_json::Value) -> Result<DraftRow, AppError> {
         row.get(key)
             .and_then(|v| v.as_str())
             .map(str::to_owned)
-            .ok_or_else(|| AppError::Exit1(format!("malformed draft row: missing {key}")))
+            .ok_or_else(|| AppError::Exit1("failed", format!("malformed draft row: missing {key}")))
     };
     Ok(DraftRow {
         owner_kind: s("owner_kind")?,
@@ -424,7 +441,7 @@ fn open_changes_db() -> Result<Connection, AppError> {
         let _ = std::fs::create_dir_all(dir);
     }
     let conn = tugcore::ledger_db::open(&path)
-        .map_err(|e| AppError::Exit1(format!("cannot open changes ledger: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("cannot open changes ledger: {e}")))?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS changeset_drafts (
             owner_kind   TEXT NOT NULL,
@@ -438,7 +455,7 @@ fn open_changes_db() -> Result<Connection, AppError> {
             PRIMARY KEY (owner_kind, owner_id, project_dir)
         );",
     )
-    .map_err(|e| AppError::Exit1(format!("cannot bootstrap changes ledger: {e}")))?;
+    .map_err(|e| AppError::Exit1("failed", format!("cannot bootstrap changes ledger: {e}")))?;
     Ok(conn)
 }
 
@@ -567,7 +584,7 @@ pub fn run_set(
         let response = post_draft_api(body, port, instance)?;
         let row = response
             .get("row")
-            .ok_or_else(|| AppError::Exit1("malformed response: missing row".to_string()))
+            .ok_or_else(|| AppError::Exit1("failed", "malformed response: missing row".to_string()))
             .and_then(draft_row_from_api)?;
         if json {
             print_ok("draft set", &row);
@@ -597,6 +614,7 @@ pub fn run_set(
     };
     if message.trim().is_empty() {
         return Err(AppError::Exit1(
+            "failed",
             "nothing to set: no --message given and no draft on file".to_string(),
         ));
     }
@@ -619,7 +637,7 @@ pub fn run_set(
             selection,
         ],
     )
-    .map_err(|e| AppError::Exit1(format!("cannot write draft: {e}")))?;
+    .map_err(|e| AppError::Exit1("failed", format!("cannot write draft: {e}")))?;
     // Every sibling of the row just written is now stale and superseded by
     // it: the legacy *spelling* of the project dir, and — for an arc — every
     // row under the legacy *owner key* ([P03]).
@@ -654,7 +672,10 @@ pub fn run_show(
     let Some(row) =
         open_changes_db_readonly().and_then(|conn| read_row(&conn, &owner_resolved, &project))
     else {
-        return Err(AppError::Exit1(format!("no draft on file for {owner}")));
+        return Err(AppError::Exit1(
+            "failed",
+            format!("no draft on file for {owner}"),
+        ));
     };
     if json {
         print_ok("draft show", &row);
@@ -751,7 +772,7 @@ pub fn run_clear(
              WHERE owner_kind = ?1 AND owner_id = ?2 AND project_dir = ?3",
             params![owner_kind, owner_id, project_dir],
         )
-        .map_err(|e| AppError::Exit1(format!("cannot clear draft: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("cannot clear draft: {e}")))?;
     for (kind, id, dir) in sibling_rows(&owner_resolved, &project) {
         deleted += conn
             .execute(

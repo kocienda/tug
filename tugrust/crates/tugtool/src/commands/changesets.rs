@@ -25,7 +25,7 @@ pub fn run_changesets(
         .map_err(|e| format!("reading response failed: {e}"))?;
 
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&body).unwrap());
+        crate::output::print_ok("host changesets", &body);
         return Ok(0);
     }
 

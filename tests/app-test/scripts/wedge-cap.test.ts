@@ -13,6 +13,7 @@ import {
     capLines,
     capSecs,
     declaredTimeoutSecs,
+    historyRows,
     lastSecsFrom,
     median,
     recentSecsFrom,
@@ -101,6 +102,22 @@ describe("reading the history verb", () => {
         expect(last.get("at0622.test.ts")).toBe(163);
         expect(last.get("at0001.test.ts")).toBe(7);
         expect(last.has("at0999.test.ts")).toBe(false);
+    });
+
+    // The verb prints the --json envelope; an older tugtool on PATH prints the bare object.
+    test("reads the envelope's rows and the bare rows alike", () => {
+        const rows = JSON.parse(history).files;
+        const envelope = { schema_version: "1", command: "apptest history", status: "ok", data: { files: rows }, issues: [] };
+        expect(historyRows(envelope)).toEqual(rows);
+        expect(historyRows(JSON.parse(history))).toEqual(rows);
+        expect(lastSecsFrom(JSON.stringify(envelope)).get("at0622.test.ts")).toBe(163);
+    });
+
+    test("another verb's envelope is not a history answer", () => {
+        const changes = { schema_version: "1", command: "changes", status: "ok", data: { files: [{ path: "a.ts" }] }, issues: [] };
+        expect(historyRows(changes)).toBeNull();
+        expect(historyRows({ schema_version: "1", command: "apptest history", status: "error", data: null, issues: [] })).toBeNull();
+        expect(historyRows(null)).toBeNull();
     });
 
     test("prints one line per named file, in order, unknowns at the floor", () => {

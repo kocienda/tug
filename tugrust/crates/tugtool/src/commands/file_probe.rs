@@ -68,7 +68,7 @@ struct Snapshot {
 impl Snapshot {
     fn take(dir: PathBuf, targets: &[PathBuf]) -> Result<Self, AppError> {
         std::fs::create_dir_all(&dir)
-            .map_err(|e| AppError::Exit1(format!("{}: {e}", dir.display())))?;
+            .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", dir.display())))?;
 
         let mut files = Vec::new();
         for (index, target) in targets.iter().enumerate() {
@@ -83,7 +83,7 @@ impl Snapshot {
             // the same file name cannot collide in the snapshot directory.
             let stored = dir.join(format!("{index}.orig"));
             std::fs::copy(target, &stored)
-                .map_err(|e| AppError::Exit1(format!("{}: {e}", target.display())))?;
+                .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", target.display())))?;
             files.push(Saved {
                 target: target.clone(),
                 stored: Some(stored),
@@ -196,6 +196,7 @@ pub fn run_probe(
 ) -> Result<(), AppError> {
     let Some((program, args)) = command.split_first() else {
         return Err(AppError::Exit1(
+            "failed",
             "no command to run — pass it after `--`".to_string(),
         ));
     };
@@ -217,6 +218,7 @@ pub fn run_probe(
 
     if targets.is_empty() {
         return Err(AppError::Exit1(
+            "failed",
             "the patch names no files and no --path was given — nothing to protect".to_string(),
         ));
     }
@@ -252,16 +254,19 @@ pub fn run_probe(
     match status {
         Ok(0) => Ok(()),
         Ok(code) => Err(AppError::ExitStatus(code)),
-        Err(err) => Err(AppError::Exit1(err)),
+        Err(err) => Err(AppError::Exit1("failed", err)),
     }
 }
 
 fn restore_or_report(restorer: &mut Restorer) -> Result<(), AppError> {
     restorer.restore_now().map_err(|err| {
-        AppError::Exit1(format!(
-            "probe could not restore {err}\nthe originals are in {}",
-            restorer.snapshot.dir.display()
-        ))
+        AppError::Exit1(
+            "failed",
+            format!(
+                "probe could not restore {err}\nthe originals are in {}",
+                restorer.snapshot.dir.display()
+            ),
+        )
     })
 }
 
@@ -313,10 +318,10 @@ pub(super) fn read_patch(source: &str) -> Result<String, AppError> {
         let mut buf = String::new();
         std::io::stdin()
             .read_to_string(&mut buf)
-            .map_err(|e| AppError::Exit1(format!("stdin: {e}")))?;
+            .map_err(|e| AppError::Exit1("failed", format!("stdin: {e}")))?;
         return Ok(buf);
     }
-    std::fs::read_to_string(source).map_err(|e| AppError::Exit1(format!("{source}: {e}")))
+    std::fs::read_to_string(source).map_err(|e| AppError::Exit1("failed", format!("{source}: {e}")))
 }
 
 /// Every path the patch will touch, resolved against the current directory —
@@ -471,24 +476,27 @@ fn run_git_apply(patch: &str, check_only: bool, cached: bool) -> Result<(), AppE
 
     let mut child = command
         .spawn()
-        .map_err(|e| AppError::Exit1(format!("git apply: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("git apply: {e}")))?;
     child
         .stdin
         .take()
-        .ok_or_else(|| AppError::Exit1("git apply: no stdin".to_string()))?
+        .ok_or_else(|| AppError::Exit1("failed", "git apply: no stdin".to_string()))?
         .write_all(patch.as_bytes())
-        .map_err(|e| AppError::Exit1(format!("git apply: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("git apply: {e}")))?;
 
     let output = child
         .wait_with_output()
-        .map_err(|e| AppError::Exit1(format!("git apply: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("git apply: {e}")))?;
     if output.status.success() {
         Ok(())
     } else {
-        Err(AppError::Exit1(format!(
-            "git apply: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )))
+        Err(AppError::Exit1(
+            "failed",
+            format!(
+                "git apply: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        ))
     }
 }
 

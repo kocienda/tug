@@ -21,22 +21,31 @@ use tugtool_core::plan::{self, Severity};
 
 use crate::changes::{self, AppError};
 use crate::cli::PlanCommands;
-use crate::output::{JsonIssue, JsonResponse};
+use crate::output::{JsonIssue, print_diagnosed};
 
 /// Dispatch a `plan` subcommand. Exit 0 clean-or-warnings, 1 on any error
 /// diagnostic, 2 when the document cannot be read or is not a plan.
 pub fn dispatch(cmd: PlanCommands, json: bool) -> ExitCode {
-    changes::finish(match cmd {
-        PlanCommands::Lint { path } => {
-            resolve_document_argument(&path).and_then(|p| run_lint(&p, json))
-        }
-        PlanCommands::Status { path } => {
-            resolve_document_argument(&path).and_then(|p| run_status(&p, json))
-        }
-        PlanCommands::Stamp { path } => {
-            resolve_document_argument(&path).and_then(|p| run_stamp(&p, json))
-        }
-    })
+    let command = match &cmd {
+        PlanCommands::Lint { .. } => "plan lint",
+        PlanCommands::Status { .. } => "plan status",
+        PlanCommands::Stamp { .. } => "plan stamp",
+    };
+    changes::finish(
+        command,
+        json,
+        match cmd {
+            PlanCommands::Lint { path } => {
+                resolve_document_argument(&path).and_then(|p| run_lint(&p, json))
+            }
+            PlanCommands::Status { path } => {
+                resolve_document_argument(&path).and_then(|p| run_status(&p, json))
+            }
+            PlanCommands::Stamp { path } => {
+                resolve_document_argument(&path).and_then(|p| run_stamp(&p, json))
+            }
+        },
+    )
 }
 
 /// The document a `plan` verb's argument names.
@@ -51,10 +60,15 @@ fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
     match DocumentArgument::parse(arg) {
         DocumentArgument::Path(path) => Ok(path),
         DocumentArgument::Name(name) => {
-            let cwd = std::env::current_dir()
-                .map_err(|e| AppError::Exit2(format!("cannot read the current directory: {e}")))?;
+            let cwd = std::env::current_dir().map_err(|e| {
+                AppError::Exit2(
+                    "unresolved",
+                    format!("cannot read the current directory: {e}"),
+                )
+            })?;
             let root = tugtool_core::find_repo_root_from(&cwd).map_err(|_| {
                 AppError::Exit2(
+                    "unresolved",
                     "not in a git repository — run from the checkout root, or pass the plan's path"
                         .to_string(),
                 )
@@ -64,10 +78,13 @@ fn resolve_document_argument(arg: &str) -> Result<PathBuf, AppError> {
             // these verbs can read — `status` reports its ledger — and holding
             // it to the skeleton is `lint`'s business, not this resolver's.
             tugarc_core::ledger_file(&root, &name).ok_or_else(|| {
-                AppError::Exit2(format!(
-                    "arc '{name}' has no plan at {}",
-                    tugarc_core::plan_file(&root, &name).display()
-                ))
+                AppError::Exit2(
+                    "unresolved",
+                    format!(
+                        "arc '{name}' has no plan at {}",
+                        tugarc_core::plan_file(&root, &name).display()
+                    ),
+                )
             })
         }
     }
@@ -87,10 +104,10 @@ struct LintData {
 
 fn run_lint(path: &Path, json: bool) -> Result<(), AppError> {
     let source = std::fs::read_to_string(path)
-        .map_err(|e| AppError::Exit2(format!("{}: {e}", path.display())))?;
+        .map_err(|e| AppError::Exit2("unresolved", format!("{}: {e}", path.display())))?;
 
-    let doc =
-        plan::parse(&source).map_err(|e| AppError::Exit2(format!("{}: {e}", path.display())))?;
+    let doc = plan::parse(&source)
+        .map_err(|e| AppError::Exit2("unresolved", format!("{}: {e}", path.display())))?;
 
     let diagnostics = plan::lint(&doc);
     let errors = diagnostics
@@ -116,16 +133,7 @@ fn run_lint(path: &Path, json: bool) -> Result<(), AppError> {
                 anchor: d.anchor.as_ref().map(|a| format!("#{a}")),
             })
             .collect();
-        // `print_ok` hardcodes `status: "ok"`, so a run carrying an error
-        // diagnostic has to build its own envelope.
-        let response = if errors > 0 {
-            JsonResponse::error("plan lint", data, issues)
-        } else {
-            let mut ok = JsonResponse::ok("plan lint", data);
-            ok.issues = issues;
-            ok
-        };
-        println!("{}", serde_json::to_string_pretty(&response).unwrap());
+        print_diagnosed("plan lint", data, issues);
     } else {
         for d in &diagnostics {
             match d.line {
@@ -157,11 +165,20 @@ fn run_lint(path: &Path, json: bool) -> Result<(), AppError> {
     }
 
     if errors > 0 {
-        return Err(AppError::Exit1(format!(
-            "{}: {errors} error diagnostic{}",
-            path.display(),
-            if errors == 1 { "" } else { "s" }
-        )));
+        // Under `--json` the envelope above already carries every error
+        // diagnostic, so the failure is reported; a second envelope would
+        // make stdout two documents.
+        if json {
+            return Err(AppError::Reported(1));
+        }
+        return Err(AppError::Exit1(
+            "failed",
+            format!(
+                "{}: {errors} error diagnostic{}",
+                path.display(),
+                if errors == 1 { "" } else { "s" }
+            ),
+        ));
     }
     Ok(())
 }
@@ -252,9 +269,9 @@ impl StepCounts {
 /// "broken", which is the distinction exit 2 already draws.
 fn run_status(path: &Path, json: bool) -> Result<(), AppError> {
     let source = std::fs::read_to_string(path)
-        .map_err(|e| AppError::Exit2(format!("{}: {e}", path.display())))?;
-    let doc =
-        plan::parse(&source).map_err(|e| AppError::Exit2(format!("{}: {e}", path.display())))?;
+        .map_err(|e| AppError::Exit2("unresolved", format!("{}: {e}", path.display())))?;
+    let doc = plan::parse(&source)
+        .map_err(|e| AppError::Exit2("unresolved", format!("{}: {e}", path.display())))?;
 
     // A task list is held to no skeleton, so it is not linted here — see
     // `StatusData::lint`.
@@ -346,34 +363,49 @@ fn run_stamp(path: &Path, json: bool) -> Result<(), AppError> {
     use plan::StampError;
 
     let source = std::fs::read_to_string(path)
-        .map_err(|e| AppError::Exit2(format!("{}: {e}", path.display())))?;
+        .map_err(|e| AppError::Exit2("unresolved", format!("{}: {e}", path.display())))?;
 
     let edited = plan::set_review_stamp(&source).map_err(|e| match e {
-        StampError::NotAPlan => AppError::Exit2(format!("{}: {e}", path.display())),
-        StampError::NoRecord => AppError::Exit1(format!(
-            "{}: no Review Record section — a stamp records what a review read, \
+        StampError::NotAPlan => AppError::Exit2("unresolved", format!("{}: {e}", path.display())),
+        StampError::NoRecord => AppError::Exit1(
+            "failed",
+            format!(
+                "{}: no Review Record section — a stamp records what a review read, \
              so there has to be a review",
-            path.display()
-        )),
-        StampError::NoRound => AppError::Exit1(format!(
-            "{}: no review round to stamp — write the round paragraph first",
-            path.display()
-        )),
-        StampError::AlreadyStamped { round, stamp } => AppError::Exit1(format!(
-            "{}: round {round} is already stamped `plan:{stamp}` — two stamps on one round \
+                path.display()
+            ),
+        ),
+        StampError::NoRound => AppError::Exit1(
+            "failed",
+            format!(
+                "{}: no review round to stamp — write the round paragraph first",
+                path.display()
+            ),
+        ),
+        StampError::AlreadyStamped { round, stamp } => AppError::Exit1(
+            "failed",
+            format!(
+                "{}: round {round} is already stamped `plan:{stamp}` — two stamps on one round \
              cannot both be true, so append a new round instead",
-            path.display()
-        )),
-        StampError::RoundTrip => AppError::Exit1(format!(
-            "{}: the stamped round did not read back; nothing was written",
-            path.display()
-        )),
+                path.display()
+            ),
+        ),
+        StampError::RoundTrip => AppError::Exit1(
+            "failed",
+            format!(
+                "{}: the stamped round did not read back; nothing was written",
+                path.display()
+            ),
+        ),
     })?;
 
-    let doc =
-        plan::parse(&edited).map_err(|e| AppError::Exit1(format!("{}: {e}", path.display())))?;
+    let doc = plan::parse(&edited)
+        .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", path.display())))?;
     let round = doc.review_rounds.last().ok_or_else(|| {
-        AppError::Exit1(format!("{}: the stamped round vanished", path.display()))
+        AppError::Exit1(
+            "failed",
+            format!("{}: the stamped round vanished", path.display()),
+        )
     })?;
     let data = StampData {
         path: path.display().to_string(),
@@ -382,7 +414,7 @@ fn run_stamp(path: &Path, json: bool) -> Result<(), AppError> {
     };
 
     std::fs::write(path, &edited)
-        .map_err(|e| AppError::Exit1(format!("{}: {e}", path.display())))?;
+        .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", path.display())))?;
 
     if json {
         crate::output::print_ok("plan stamp", &data);

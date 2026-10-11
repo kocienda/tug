@@ -9,7 +9,7 @@ use std::fs;
 
 use tugtool_core::{find_repo_root, project_state_dir};
 
-use crate::output::JsonResponse;
+use crate::output::print_ok;
 
 #[derive(serde::Serialize)]
 struct StateDirData {
@@ -24,8 +24,7 @@ pub fn run_state_dir(json: bool, quiet: bool) -> Result<i32, String> {
 
     let path = dir.to_string_lossy().into_owned();
     if json {
-        let response = JsonResponse::ok("state-dir", StateDirData { path: path.clone() });
-        println!("{}", serde_json::to_string_pretty(&response).unwrap());
+        print_ok("host state-dir", StateDirData { path: path.clone() });
     } else if !quiet {
         println!("{}", path);
     }

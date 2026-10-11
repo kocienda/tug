@@ -23,7 +23,7 @@
 //! the gesture stamp `deck motion gesture` waits for, which a dispatched click
 //! never reaches (`[F08]`).
 
-use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED, EvalOutcome, post_eval};
+use crate::commands::deck_motion::{EvalOutcome, eval_gated, post_eval};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -921,10 +921,7 @@ pub fn run_slide(
     tasks: bool,
     json_output: bool,
 ) -> Result<i32, String> {
-    let gated = || {
-        eprintln!("{EVAL_GATED_REMEDY}");
-        Ok(EXIT_GATED)
-    };
+    let gated = || Ok(eval_gated("deck motion slide", json_output));
 
     if tasks && !ensure_recorder(port, json_output)? {
         return gated();
@@ -1052,9 +1049,9 @@ pub fn run_slide(
         None => None,
     };
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
+        crate::output::print_ok(
+            "deck motion slide",
+            json!({
                 "census": census,
                 "from": from,
                 "to": to,
@@ -1074,8 +1071,7 @@ pub fn run_slide(
                 "press_task": press_task,
                 "click_task": click_task,
                 "longFrames": (queries || tasks).then_some(&long_frames),
-            }))
-            .unwrap()
+            }),
         );
     } else {
         println!();

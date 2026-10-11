@@ -49,7 +49,11 @@ fn history(db: &Path, root: &Path, files: &[&str]) -> serde_json::Value {
         out.status.code(),
         String::from_utf8_lossy(&out.stderr)
     );
-    serde_json::from_slice(&out.stdout).unwrap()
+    // The answer rides the `--json` envelope; every assertion reads its data.
+    let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(envelope["command"], "apptest history", "{envelope}");
+    assert_eq!(envelope["status"], "ok", "{envelope}");
+    envelope["data"].clone()
 }
 
 fn payload(root: &Path, sha: &str, at: i64, file: &str, status: &str) -> String {

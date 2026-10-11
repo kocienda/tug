@@ -620,12 +620,14 @@ fn pump<R: Read>(mut src: R, mut filter: impl FnMut(&[u8]) -> Vec<u8>, to_stderr
 pub fn run(args: RunArgs) -> Result<(), AppError> {
     let Some(program) = args.command.first() else {
         return Err(AppError::Exit2(
+            "unresolved",
             "test run names the command to run after `--`".into(),
         ));
     };
     let junit_path = match (args.kind, &args.junit) {
         (RunKind::Nextest, None) => {
             return Err(AppError::Exit2(
+                "unresolved",
                 "--kind nextest names its junit document with --junit".into(),
             ));
         }

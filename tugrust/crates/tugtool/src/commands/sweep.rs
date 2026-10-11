@@ -21,10 +21,7 @@ pub fn run_sweep(yes: bool, json: bool, quiet: bool, dry_run: bool) -> Result<i3
     // truncated would be worse than a long one.
     if json {
         let report = janitor::sweep_all(SweepMode::Report);
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
-        );
+        crate::output::print_ok("host sweep", &report);
         return Ok(0);
     }
 

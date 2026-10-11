@@ -77,6 +77,25 @@ fn blocker_details(blockers: &[JoinBlocker]) -> String {
 }
 
 impl ArcError {
+    /// Whether this is a git write that lost the race for the index — the
+    /// one failure a caller retries rather than reports. The same predicate
+    /// the engine's own commit loop retries on, so the two cannot disagree
+    /// about what is transient.
+    pub fn is_index_locked(&self) -> bool {
+        matches!(self, ArcError::Git { stderr, .. } if crate::ops::index_lock_blocked(stderr))
+    }
+
+    /// Whether this is a git write that could not take some *other* lock —
+    /// a ref, a config file — because another git process holds it. As
+    /// transient as the index's, but the engine does not retry it itself, so
+    /// it is named apart from [`Self::is_index_locked`] for a caller that will.
+    pub fn is_lock_held(&self) -> bool {
+        matches!(self, ArcError::Git { stderr, .. }
+            if stderr.contains("cannot lock ref")
+                || stderr.contains("could not lock")
+                || (stderr.contains("Unable to create") && stderr.contains(".lock")))
+    }
+
     /// A git failure: `what` leads, git's own stderr follows.
     pub(crate) fn git(what: impl Into<String>, args: &[&str], stderr: impl Into<String>) -> Self {
         ArcError::Git {

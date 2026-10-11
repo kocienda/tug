@@ -22,6 +22,20 @@ use tugtool::receipt::{Receipt, current_hunk_ids, hunks_this_edit_produced};
 use crate::changes::AppError;
 use crate::cli::FileCommands;
 
+/// The name a `file` verb's `--json` envelope carries in `command`.
+pub fn command_name(cmd: &FileCommands) -> &'static str {
+    match cmd {
+        FileCommands::Rm { .. } => "file rm",
+        FileCommands::Mv { .. } => "file mv",
+        FileCommands::Cp { .. } => "file cp",
+        FileCommands::Edit { .. } => "file edit",
+        FileCommands::Stage { .. } => "file stage",
+        FileCommands::Probe { .. } => "file probe",
+        FileCommands::Run { .. } => "file run",
+        FileCommands::Gate { .. } => "file gate",
+    }
+}
+
 pub fn run_file(command: FileCommands) -> Result<(), AppError> {
     match command {
         FileCommands::Rm { paths } => run_rm(&paths),
@@ -81,7 +95,7 @@ fn run_rm(patterns: &[String]) -> Result<(), AppError> {
 
     receipt.emit();
     match failure {
-        Some(msg) => Err(AppError::Exit1(msg)),
+        Some(msg) => Err(AppError::Exit1("failed", msg)),
         None => Ok(()),
     }
 }
@@ -94,7 +108,10 @@ fn run_mv(src: &str, dst: &str) -> Result<(), AppError> {
     let src = absolute(Path::new(src));
     let dst = destination(&src, Path::new(dst));
     if !src.exists() {
-        return Err(AppError::Exit1(format!("{}: no such file", src.display())));
+        return Err(AppError::Exit1(
+            "failed",
+            format!("{}: no such file", src.display()),
+        ));
     }
 
     // Pair every contained file's old and new spelling before the move erases
@@ -112,14 +129,18 @@ fn run_mv(src: &str, dst: &str) -> Result<(), AppError> {
 
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| AppError::Exit1(format!("{}: {e}", parent.display())))?;
+            .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", parent.display())))?;
     }
 
     if git_tracks(&src) {
         git(&["mv", "--"], &[&src, &dst])?;
     } else {
-        std::fs::rename(&src, &dst)
-            .map_err(|e| AppError::Exit1(format!("{} -> {}: {e}", src.display(), dst.display())))?;
+        std::fs::rename(&src, &dst).map_err(|e| {
+            AppError::Exit1(
+                "failed",
+                format!("{} -> {}: {e}", src.display(), dst.display()),
+            )
+        })?;
     }
 
     let mut receipt = Receipt::default();
@@ -138,7 +159,10 @@ fn run_cp(src: &str, dst: &str) -> Result<(), AppError> {
     let src = absolute(Path::new(src));
     let dst = destination(&src, Path::new(dst));
     if !src.exists() {
-        return Err(AppError::Exit1(format!("{}: no such file", src.display())));
+        return Err(AppError::Exit1(
+            "failed",
+            format!("{}: no such file", src.display()),
+        ));
     }
 
     let mut receipt = Receipt::default();
@@ -148,19 +172,19 @@ fn run_cp(src: &str, dst: &str) -> Result<(), AppError> {
             let landed = dst.join(rel);
             if let Some(parent) = landed.parent() {
                 std::fs::create_dir_all(parent)
-                    .map_err(|e| AppError::Exit1(format!("{}: {e}", parent.display())))?;
+                    .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", parent.display())))?;
             }
             std::fs::copy(&file, &landed)
-                .map_err(|e| AppError::Exit1(format!("{}: {e}", file.display())))?;
+                .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", file.display())))?;
             receipt.created(&landed);
         }
     } else {
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::Exit1(format!("{}: {e}", parent.display())))?;
+                .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", parent.display())))?;
         }
         std::fs::copy(&src, &dst)
-            .map_err(|e| AppError::Exit1(format!("{}: {e}", src.display())))?;
+            .map_err(|e| AppError::Exit1("failed", format!("{}: {e}", src.display())))?;
         receipt.created(&dst);
     }
     receipt.emit();
@@ -202,7 +226,7 @@ fn edit_by_patch(source: &str, preview: bool) -> Result<(), AppError> {
     if targets.is_empty() {
         return Err(patch_failure(
             "usage",
-            AppError::Exit1("the patch names no files".to_string()),
+            AppError::Exit1("failed", "the patch names no files".to_string()),
             &text,
             &[],
         ));
@@ -296,7 +320,10 @@ fn run_stage(source: &str) -> Result<(), AppError> {
     let text = read_patch(source)?;
     let targets = patch_targets(&text);
     if targets.is_empty() {
-        return Err(AppError::Exit1("the patch names no files".to_string()));
+        return Err(AppError::Exit1(
+            "failed",
+            "the patch names no files".to_string(),
+        ));
     }
 
     // Validate before staging: a patch that will not apply must leave the
@@ -522,7 +549,10 @@ fn git_dir_for(path: &Path) -> Option<PathBuf> {
 
 fn git(args: &[&str], paths: &[&Path]) -> Result<(), AppError> {
     let Some(dir) = paths.first().and_then(|p| git_dir_for(p)) else {
-        return Err(AppError::Exit1("no directory to run git in".to_string()));
+        return Err(AppError::Exit1(
+            "failed",
+            "no directory to run git in".to_string(),
+        ));
     };
     let mut command = tugcore::git_command();
     command.arg("-C").arg(&dir);
@@ -532,11 +562,12 @@ fn git(args: &[&str], paths: &[&Path]) -> Result<(), AppError> {
     }
     let output = command
         .output()
-        .map_err(|e| AppError::Exit1(format!("git: {e}")))?;
+        .map_err(|e| AppError::Exit1("failed", format!("git: {e}")))?;
     if output.status.success() {
         Ok(())
     } else {
         Err(AppError::Exit1(
+            "failed",
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ))
     }

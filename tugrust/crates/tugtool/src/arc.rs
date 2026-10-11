@@ -16,14 +16,14 @@ use tugarc_core::{
 use crate::arc_turn::{self, StepMove};
 use crate::changes::AppError;
 use crate::cli::{ArcCommands, StepAction};
-use crate::output::print_ok;
+use crate::output::{print_ok, print_receipt};
 
 /// Dispatch an `arc` subcommand, mapping its error to an exit code: an engine
 /// failure by [`exit_code_for`], a failure of this shell's own exit 1.
 pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
+    let command = command_name(&cmd);
     if let Some(refusal) = git_preflight(&cmd) {
-        eprintln!("error: {refusal}");
-        return ExitCode::from(1);
+        return AppError::Exit1("git_unavailable", refusal).report(command, json);
     }
     let result: Result<(), AppError> = match cmd {
         ArcCommands::Create {
@@ -127,12 +127,39 @@ pub fn dispatch(cmd: ArcCommands, json: bool, quiet: bool) -> ExitCode {
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            if !e.message().is_empty() {
-                eprintln!("error: {}", e.message());
-            }
-            ExitCode::from(e.exit_code())
-        }
+        Err(e) => e.report(command, json),
+    }
+}
+
+/// The name an `arc` verb's envelope carries in `command` — the same string
+/// its success envelope does, so a caller reads one field for either outcome.
+fn command_name(cmd: &ArcCommands) -> &'static str {
+    match cmd {
+        ArcCommands::Create { .. } => "arc create",
+        ArcCommands::Commit { .. } => "arc commit",
+        ArcCommands::Join { resolve: true, .. } => "arc join --resolve",
+        ArcCommands::Join { .. } => "arc join",
+        ArcCommands::Replay { .. } => "arc replay",
+        ArcCommands::ResolveBase { .. } => "arc resolve-base",
+        ArcCommands::Verify { .. } => "arc verify",
+        ArcCommands::Undo { .. } => "arc undo",
+        ArcCommands::Redo { .. } => "arc redo",
+        ArcCommands::Discard { .. } => "arc discard",
+        ArcCommands::DeleteDocuments { .. } => "arc delete-documents",
+        ArcCommands::Config => "arc config",
+        ArcCommands::List => "arc list",
+        ArcCommands::Show { .. } => "arc show",
+        ArcCommands::Status { .. } => "arc status",
+        ArcCommands::Doctor { .. } => "arc doctor",
+        ArcCommands::Step { .. } => "arc step",
+        ArcCommands::Mark { .. } => "arc mark",
+        ArcCommands::Run { .. } => "arc run",
+        ArcCommands::Documents { .. } => "arc documents",
+        ArcCommands::Record { .. } => "arc record",
+        ArcCommands::Bind { .. } => "arc bind",
+        ArcCommands::Stop { .. } => "arc stop",
+        ArcCommands::Ask { .. } => "arc ask",
+        ArcCommands::Unbind { .. } => "arc unbind",
     }
 }
 
@@ -154,20 +181,37 @@ pub fn exit_code_for(e: &ArcError) -> u8 {
 
 impl From<ArcError> for AppError {
     fn from(e: ArcError) -> Self {
+        let code = match &e {
+            ArcError::InvalidName(_) => "arc_invalid_name",
+            ArcError::NotFound { .. } => "arc_not_found",
+            ArcError::Blocked(_) => "arc_blocked",
+            ArcError::Conflicted(_) => "arc_conflicted",
+            ArcError::Refused(_) => "arc_refused",
+            ArcError::Git { .. } if e.is_index_locked() => "git_index_locked",
+            ArcError::Git { .. } if e.is_lock_held() => "git_lock_held",
+            ArcError::Git { .. } => "git_failed",
+            ArcError::Io { .. } => "io_failed",
+        };
         let message = e.to_string();
         match exit_code_for(&e) {
-            2 => AppError::Exit2(message),
-            3 => AppError::Exit3(message),
-            _ => AppError::Exit1(message),
+            2 => AppError::Exit2(code, message),
+            3 => AppError::Exit3(code, message),
+            _ => AppError::Exit1(code, message),
         }
     }
 }
 
 /// Report an engine failure from a verb that owns its exit code, and return
 /// the code [`exit_code_for`] gives it.
-fn engine_failed(e: &ArcError) -> ExitCode {
-    eprintln!("error: {e}");
-    ExitCode::from(exit_code_for(e))
+fn engine_failed(command: &str, json: bool, e: ArcError) -> ExitCode {
+    AppError::from(e).report(command, json)
+}
+
+/// The repository a verb that owns its exit code acts on, or that verb's
+/// report of why there is none.
+fn repo_or_report(command: &str, json: bool) -> Result<std::path::PathBuf, ExitCode> {
+    tugtool_core::find_repo_root()
+        .map_err(|e| AppError::Exit1("not_a_repository", e.to_string()).report(command, json))
 }
 
 /// The repository the verb acts on, resolved once from the cwd — the CLI's
@@ -214,8 +258,12 @@ fn run_create(
     let repo = arc_repo_root()?;
     let data = ops::create_in(&repo, name, description, carry, base)?;
     let claim = claim_arc(name);
+    // The worktree exists either way, and the receipt says so. What did not
+    // happen is the record of who is working it — and that is the half a
+    // stderr warning on an exit-0 run used to swallow.
+    let verdict = claim_verdict(claim.refusal(name));
     if json {
-        print_ok("arc create", merge_claim(&data, &claim)?);
+        return print_receipt("arc create", merge_claim(&data, &claim)?, verdict);
     } else if !quiet {
         if data.created {
             println!("Created arc '{}'", data.name);
@@ -227,11 +275,13 @@ fn run_create(
         println!("  Base: {}", data.base_branch);
         print_base_census(&data);
     }
-    // The worktree exists either way, and the receipt above says so. What did
-    // not happen is the record of who is working it — and that is the half a
-    // stderr warning on an exit-0 run used to swallow.
-    match claim.refusal(name) {
-        Some(refusal) => Err(refusal.into()),
+    verdict
+}
+
+/// A refused claim fails the verb that made it, under `claim_refused`.
+fn claim_verdict(refusal: Option<String>) -> Result<(), AppError> {
+    match refusal {
+        Some(message) => Err(AppError::Exit1("claim_refused", message)),
         None => Ok(()),
     }
 }
@@ -418,8 +468,21 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
     {
         broadcast_arc_gone(&repo, &owner_key, ArcGone::Joined);
     }
+    // A real (non-preview) join that hit conflicts is a refusal exit for
+    // scripts — the code an engine `Conflicted` carries.
+    let verdict = if !data.previewed && !data.conflicts.is_empty() {
+        Err(AppError::Exit3(
+            "arc_conflicted",
+            format!(
+                "join conflicts in {} file(s); working tree restored",
+                data.conflicts.len()
+            ),
+        ))
+    } else {
+        Ok(())
+    };
     if json {
-        print_ok("arc join", &data);
+        return print_receipt("arc join", &data, verdict);
     } else if !quiet {
         if data.previewed {
             if data.conflicts.is_empty() {
@@ -467,15 +530,7 @@ fn run_join(name: &str, opts: JoinOptions, json: bool, quiet: bool) -> Result<()
             }
         }
     }
-    // A real (non-preview) join that hit conflicts is a refusal exit for
-    // scripts — the code an engine `Conflicted` carries.
-    if !data.previewed && !data.conflicts.is_empty() {
-        return Err(AppError::Exit3(format!(
-            "join conflicts in {} file(s); working tree restored",
-            data.conflicts.len()
-        )));
-    }
-    Ok(())
+    verdict
 }
 
 /// `tugtool arc join --resolve`: run the resolution ladder, then land the candidate
@@ -500,18 +555,27 @@ fn run_join_resolve(
     if !break_lease
         && let Some(lease) = resolve::resolve_lease(&repo_root, name, std::time::SystemTime::now())
     {
-        return Err(AppError::Exit3(ops::live_resolve_detail(
-            name, &lease, "resolve",
-        )));
+        return Err(AppError::Exit3(
+            "arc_refused",
+            ops::live_resolve_detail(name, &lease, "resolve"),
+        ));
     }
 
     let outcome = resolve::resolve_conflicts(&repo_root, name, None)?;
 
     let Some(candidate) = outcome.candidate_commit.clone() else {
         // Some files could not be resolved algorithmically.
+        let unresolved = AppError::Exit3(
+            "arc_unresolved",
+            format!(
+                "{} file(s) unresolved; run the join from a Session card for AI assist",
+                outcome.unresolved.len()
+            ),
+        );
         if json {
-            print_ok("arc join --resolve", &outcome);
-        } else if !quiet {
+            return print_receipt("arc join --resolve", &outcome, Err(unresolved));
+        }
+        if !quiet {
             println!(
                 "Could not fully resolve arc '{}': {} file(s) still conflict:",
                 name,
@@ -524,10 +588,7 @@ fn run_join_resolve(
                 println!("  resolved {} ({:?})", r.path, r.resolved_by);
             }
         }
-        return Err(AppError::Exit3(format!(
-            "{} file(s) unresolved; run the join from a Session card for AI assist",
-            outcome.unresolved.len()
-        )));
+        return Err(unresolved);
     };
 
     // Captured before the teardown, for the reason `capture_owner_key` states.
@@ -760,8 +821,25 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), A
     let repo = arc_repo_root()?;
     let outcome = tugarc_core::doctor::doctor(&repo, name, repair)?;
 
+    // A repair that reconciled everything it could still reports the arc as
+    // unhealthy if anything is left — the verb answers "do the records agree",
+    // not "did I try".
+    let verdict = if outcome.diagnosis.healthy() || (repair && outcome.left_for_a_person == 0) {
+        Ok(())
+    } else {
+        Err(AppError::Exit1(
+            "records_disagree",
+            format!(
+                "'{name}' has {} record disagreement(s) no automatic repair can settle",
+                outcome.left_for_a_person
+            ),
+        ))
+    };
+
     if json {
-        print_ok("arc doctor", &outcome);
+        // One document either way: an unhealthy arc's findings ride the
+        // error envelope as its `data`.
+        return print_receipt("arc doctor", &outcome, verdict);
     } else if !quiet {
         if let Some(ledger) = &outcome.diagnosis.ledger {
             println!("Ledger: {ledger}");
@@ -794,18 +872,7 @@ fn run_doctor(name: &str, repair: bool, json: bool, quiet: bool) -> Result<(), A
         }
     }
 
-    // A repair that reconciled everything it could still reports the arc as
-    // unhealthy if anything is left — the verb answers "do the records agree",
-    // not "did I try".
-    if outcome.diagnosis.healthy() || (repair && outcome.left_for_a_person == 0) {
-        Ok(())
-    } else {
-        Err(format!(
-            "'{name}' has {} record disagreement(s) no automatic repair can settle",
-            outcome.left_for_a_person
-        )
-        .into())
-    }
+    verdict
 }
 
 /// Drive one ledger row and its arc log line (Spec S02).
@@ -869,13 +936,15 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
         jobs_ended = arc_turn::report_step_closed(data.step);
     }
 
+    // The row moved either way; what may not have happened is the claim.
+    let verdict = claim_verdict(claim.as_ref().and_then(|claim| claim.refusal(name)));
     if json {
         let mut value = match &claim {
             Some(claim) => merge_claim(&data, claim)?,
             None => serde_json::to_value(&data).map_err(|e| format!("cannot serialize: {e}"))?,
         };
         merge_jobs_ended(&mut value, jobs_ended.as_deref());
-        print_ok("arc step", value)
+        return print_receipt("arc step", value, verdict);
     } else if !quiet {
         for line in step_receipt_lines(
             &data,
@@ -886,11 +955,7 @@ fn run_step(name: &str, action: StepAction, json: bool, quiet: bool) -> Result<(
             println!("{line}");
         }
     }
-    // The row moved either way; what may not have happened is the claim.
-    match claim.as_ref().and_then(|claim| claim.refusal(name)) {
-        Some(refusal) => Err(refusal.into()),
-        None => Ok(()),
-    }
+    verdict
 }
 
 /// Declare a stage git cannot see ([P09]) — one arc log line, nothing else.
@@ -977,12 +1042,10 @@ fn replay_exit_status(outcome: &ReplayOutcome) -> u8 {
 }
 
 fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
-    let repo = match tugtool_core::find_repo_root() {
+    const COMMAND: &str = "arc resolve-base";
+    let repo = match repo_or_report(COMMAND, json) {
         Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(code) => return code,
     };
     // The CLI has no attribution view — that is the running instance's — so
     // every overlap here reads as the user's own, which is the right answer
@@ -990,10 +1053,10 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
     let outcome =
         match tugarc_core::ops::resolve_base_in(&repo, name, &std::collections::BTreeMap::new()) {
             Ok(o) => o,
-            Err(e) => return engine_failed(&e),
+            Err(e) => return engine_failed(COMMAND, json, e),
         };
     if json {
-        print_ok("arc resolve-base", &outcome);
+        print_ok(COMMAND, &outcome);
     } else if !quiet {
         for path in &outcome.dropped {
             println!("dropped  {path}  (the arc carries these bytes)");
@@ -1017,7 +1080,7 @@ fn run_resolve_base(name: &str, json: bool, quiet: bool) -> ExitCode {
 fn run_replay(name: &str, json: bool, quiet: bool) -> ExitCode {
     let outcome = match arc_repo_root().and_then(|repo| replay::replay_onto(&repo, name)) {
         Ok(o) => o,
-        Err(e) => return engine_failed(&e),
+        Err(e) => return engine_failed("arc replay", json, e),
     };
     if json {
         print_ok("arc replay", &outcome);
@@ -1039,21 +1102,19 @@ fn run_verify(
     json: bool,
     quiet: bool,
 ) -> ExitCode {
-    let repo = match tugtool_core::find_repo_root() {
+    const COMMAND: &str = "arc verify";
+    let repo = match repo_or_report(COMMAND, json) {
         Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(code) => return code,
     };
     let report =
         match tugarc_core::surfaces::verify_in(&repo, name, base.as_deref(), head.as_deref()) {
             Ok(r) => r,
-            Err(e) => return engine_failed(&e),
+            Err(e) => return engine_failed(COMMAND, json, e),
         };
 
     if json {
-        print_ok("arc verify", &report);
+        print_ok(COMMAND, &report);
     } else if !quiet {
         print_verify(&report);
     }
@@ -1146,12 +1207,9 @@ fn declaration_hint(unclaimed: &[String]) -> String {
         .join(", ")
 }
 fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
-    let repo = match tugtool_core::find_repo_root() {
+    let repo = match repo_or_report("arc undo", json) {
         Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(code) => return code,
     };
 
     if list {
@@ -1169,7 +1227,7 @@ fn run_undo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
 
     let outcome = match tugarc_core::undo_in(&repo, name) {
         Ok(o) => o,
-        Err(e) => return engine_failed(&e),
+        Err(e) => return engine_failed("arc undo", json, e),
     };
     if json {
         print_ok("arc undo", &outcome);
@@ -1228,12 +1286,9 @@ fn print_oplog(ops: &[tugarc_core::OpPayload]) {
 }
 
 fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode {
-    let repo = match tugtool_core::find_repo_root() {
+    let repo = match repo_or_report("arc redo", json) {
         Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {}", e);
-            return ExitCode::from(1);
-        }
+        Err(code) => return code,
     };
 
     // One printer, two flags: `undo --list` and `redo --list` are the same
@@ -1253,7 +1308,7 @@ fn run_redo(name: Option<&str>, list: bool, json: bool, quiet: bool) -> ExitCode
 
     let outcome = match tugarc_core::redo_in(&repo, name) {
         Ok(o) => o,
-        Err(e) => return engine_failed(&e),
+        Err(e) => return engine_failed("arc redo", json, e),
     };
     if json {
         print_ok("arc redo", &outcome);
@@ -1802,8 +1857,30 @@ fn walk_instances(
 pub(crate) fn calling_session_id(
     subject: &str,
     session: Option<&str>,
-) -> Result<crate::session_identity::Resolved, String> {
+) -> Result<crate::session_identity::Resolved, AppError> {
     crate::session_identity::resolve(subject, session)
+        .map_err(|message| AppError::Exit1(session_cause(&message), message))
+}
+
+/// The machine cause of a session-addressed failure, read off the answer the
+/// instances gave.
+///
+/// The instance answers `unknown_session` when the session is not its own —
+/// bare from the walk, or as the trailing `(unknown_session)` token
+/// [`crate::session_identity::resolve`] keeps on its sentence when every
+/// instance said it — and the owner answers that no segment of the line is live when the session
+/// it holds has not yet been recorded as seated. Both say the same thing to a
+/// caller — the ledger does not know this session as live, yet — so both are
+/// `unknown_session`. Anything else is the owner saying no on the merits.
+fn session_cause(message: &str) -> &'static str {
+    if message == "unknown_session"
+        || message.ends_with("(unknown_session)")
+        || message.contains("no segment of its line is live")
+    {
+        "unknown_session"
+    } else {
+        "session_refused"
+    }
 }
 
 /// The session the server says it acted on, preferring its answer over
@@ -1845,7 +1922,8 @@ fn print_rotation_note(resolved: &crate::session_identity::Resolved, landed: &st
 /// rotations dead, or at nothing at all — which is the whole of why the
 /// documented repair gesture read as a success. Every session-addressed arc
 /// refusal now carries the **resolved** id and the ledger's word for it.
-fn refuse(resolved: &crate::session_identity::Resolved, message: String) -> String {
+fn refuse(resolved: &crate::session_identity::Resolved, message: String) -> AppError {
+    let cause = session_cause(&message);
     let state = resolved
         .state
         .as_deref()
@@ -1858,7 +1936,7 @@ fn refuse(resolved: &crate::session_identity::Resolved, message: String) -> Stri
         out.push_str(&format!("; line {line}"));
     }
     out.push(')');
-    out
+    AppError::Exit1(cause, out)
 }
 
 fn run_bind(
@@ -2213,7 +2291,7 @@ fn run_bind_reporting_as(
         "project_dir": project.to_string_lossy(),
         "arc": name,
     }))
-    .map_err(|e| refuse(session, e))?;
+    .map_err(|e| refuse(session, e).message().to_string())?;
     Ok(answered_session(&response, session))
 }
 
@@ -2543,6 +2621,33 @@ fn run_show(name: &str, json: bool, quiet: bool) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A git failure's code names a lock another process holds, so a caller
+    /// that retries contention reads a code instead of git's prose.
+    #[test]
+    fn a_held_git_lock_is_named_apart_from_other_git_failures() {
+        let git = |stderr: &str| {
+            AppError::from(ArcError::Git {
+                what: "commit".into(),
+                args: vec![],
+                stderr: stderr.into(),
+            })
+            .code()
+        };
+        assert_eq!(
+            git("fatal: Unable to create '/r/.git/index.lock': File exists."),
+            Some("git_index_locked")
+        );
+        assert_eq!(
+            git("error: cannot lock ref 'refs/heads/tugarc/x'"),
+            Some("git_lock_held")
+        );
+        assert_eq!(
+            git("error: could not lock config file .git/config"),
+            Some("git_lock_held")
+        );
+        assert_eq!(git("fatal: bad revision 'nope'"), Some("git_failed"));
+    }
 
     // ── the exit-code table ────────────────────────────────────────────────
 

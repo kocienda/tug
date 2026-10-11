@@ -101,15 +101,23 @@ pub enum InstanceCommands {
         /// (off by default; see `instance remove --with-tcc`).
         #[arg(long)]
         with_tcc: bool,
-
-        /// Emit the orphan list as JSON without removing anything.
-        #[arg(long)]
-        json: bool,
     },
 }
 
-/// Entry point — dispatch to the right subcommand impl.
-pub fn run_instance(cmd: InstanceCommands) -> Result<i32, String> {
+/// The name a `host instance` verb's `--json` envelope carries in `command`.
+pub fn command_name(cmd: &InstanceCommands) -> &'static str {
+    match cmd {
+        InstanceCommands::List => "host instance list",
+        InstanceCommands::Stop { .. } => "host instance stop",
+        InstanceCommands::Current => "host instance current",
+        InstanceCommands::Remove { .. } => "host instance remove",
+        InstanceCommands::Prune { .. } => "host instance prune",
+    }
+}
+
+/// Entry point — dispatch to the right subcommand impl. `json` is the global
+/// `--json`, which `prune` reads as "report the orphans, remove nothing".
+pub fn run_instance(cmd: InstanceCommands, json: bool) -> Result<i32, String> {
     match cmd {
         InstanceCommands::List => run_list(),
         InstanceCommands::Stop {
@@ -123,11 +131,7 @@ pub fn run_instance(cmd: InstanceCommands) -> Result<i32, String> {
             data_only,
             yes,
         } => run_remove(&instance_id, with_tcc, data_only, yes),
-        InstanceCommands::Prune {
-            yes,
-            with_tcc,
-            json,
-        } => run_prune(yes, with_tcc, json),
+        InstanceCommands::Prune { yes, with_tcc } => run_prune(yes, with_tcc, json),
     }
 }
 
@@ -435,7 +439,7 @@ fn discover_orphans(json: bool) -> Result<Option<Vec<Orphan>>, String> {
     let base = tugcore::instances_root();
     if !base.exists() {
         if json {
-            println!("[]");
+            crate::output::print_ok("host instance prune", serde_json::json!([]));
         } else {
             println!("no instances directory at {}", base.display());
         }
@@ -516,10 +520,7 @@ fn report_and_remove_prune(
                 last_modified_unix: o.mtime,
             })
             .collect();
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
-        );
+        crate::output::print_ok("host instance prune", &report);
         return Ok(0);
     }
 

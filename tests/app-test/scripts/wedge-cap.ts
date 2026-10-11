@@ -58,6 +58,24 @@ export function declaredTimeoutSecs(source: string): number | null {
     return Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
 }
 
+/**
+ * The history verb's per-file rows, or `null` when the document is not its answer.
+ *
+ * `tugtool apptest history` prints the `--json` envelope, its rows at `data.files`. An
+ * older `tugtool` on PATH — the recipe falls back to the app's own when no debug build
+ * exists — prints the bare `{ files }`, so that shape is read too. Another verb's envelope
+ * is not a history answer even when its `data` carries a `files` array.
+ */
+export function historyRows(parsed: unknown): unknown[] | null {
+    const doc = parsed as { command?: unknown; data?: { files?: unknown }; files?: unknown } | null;
+    if (doc === null || typeof doc !== "object") return null;
+    if (typeof doc.command === "string") {
+        const rows = doc.data?.files;
+        return doc.command === "apptest history" && Array.isArray(rows) ? rows : null;
+    }
+    return Array.isArray(doc.files) ? doc.files : null;
+}
+
 /** Each file's last recorded seconds, from the history verb's JSON; absent when unknown. */
 export function lastSecsFrom(historyJson: string): Map<string, number> {
     const out = new Map<string, number>();
@@ -67,8 +85,8 @@ export function lastSecsFrom(historyJson: string): Map<string, number> {
     } catch {
         return out;
     }
-    const rows = (parsed as { files?: unknown })?.files;
-    if (!Array.isArray(rows)) return out;
+    const rows = historyRows(parsed);
+    if (rows === null) return out;
     for (const row of rows as { file?: unknown; lastSecs?: unknown }[]) {
         if (typeof row?.file === "string" && typeof row.lastSecs === "number") {
             out.set(row.file, row.lastSecs);
@@ -86,8 +104,8 @@ export function recentSecsFrom(historyJson: string): Map<string, number[]> {
     } catch {
         return out;
     }
-    const rows = (parsed as { files?: unknown })?.files;
-    if (!Array.isArray(rows)) return out;
+    const rows = historyRows(parsed);
+    if (rows === null) return out;
     for (const row of rows as { file?: unknown; recentSecs?: unknown }[]) {
         if (typeof row?.file === "string" && Array.isArray(row.recentSecs)) {
             out.set(

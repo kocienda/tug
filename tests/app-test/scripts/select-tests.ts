@@ -76,6 +76,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { changedSymbols, describeChanged, mentionSet, reachOf, type MapEvidence } from "./changed-symbols";
 import { lostOn, rank, reportLine, type RankInput } from "./rank";
+import { historyRows } from "./wedge-cap";
 
 const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const REPO_ROOT = resolve(APP_TEST_DIR, "..", "..");
@@ -588,8 +589,8 @@ function ledgerHistory(files: string[]): Map<string, LedgerAnswer> {
     } catch {
         return unavailable("unreadable JSON");
     }
-    const rows = (parsed as { files?: unknown })?.files;
-    if (!Array.isArray(rows)) return unavailable("unreadable JSON");
+    const rows = historyRows(parsed);
+    if (rows === null) return unavailable("unreadable JSON");
     for (const row of rows as { file?: string; answer?: string; count?: number; lastSecs?: number }[]) {
         if (typeof row.file !== "string") continue;
         const red = row.answer === "red-streak" ? (row.count ?? 1) : 0;

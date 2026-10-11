@@ -29,7 +29,7 @@
 //! anything to put back fails, so a green run is the proof the deck was left
 //! as found.
 
-use crate::commands::deck_motion::{EVAL_GATED_REMEDY, EXIT_GATED};
+use crate::commands::deck_motion::eval_gated;
 #[cfg(test)]
 use crate::commands::deck_motion_slide::script_call;
 use crate::commands::deck_motion_slide::script_page;
@@ -370,11 +370,10 @@ struct ArmReading {
 /// Only the `restore` op: put back whatever an interrupted reading left.
 pub fn run_restore(port: u16, json_output: bool) -> Result<i32, String> {
     let Some(answer) = page(port, json!({"op": "restore"}))? else {
-        eprintln!("{EVAL_GATED_REMEDY}");
-        return Ok(EXIT_GATED);
+        return Ok(eval_gated("deck motion walk", json_output));
     };
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&answer).unwrap());
+        crate::output::print_ok("deck motion walk", &answer);
     } else {
         match restore_failure(&answer) {
             Some(found) => println!(
@@ -396,8 +395,7 @@ pub fn run_walk(
     json_output: bool,
 ) -> Result<i32, String> {
     let Some(census) = page(port, json!({"op": "census"}))? else {
-        eprintln!("{EVAL_GATED_REMEDY}");
-        return Ok(EXIT_GATED);
+        return Ok(eval_gated("deck motion walk", json_output));
     };
     let touched = census["touched"].as_i64().unwrap_or(0);
     if touched > 0 || census["pending"].as_bool() == Some(true) {
@@ -439,17 +437,11 @@ pub fn run_walk(
     let closing = page(port, json!({"op": "restore"}));
     let readings = match readings? {
         Some(r) => r,
-        None => {
-            eprintln!("{EVAL_GATED_REMEDY}");
-            return Ok(EXIT_GATED);
-        }
+        None => return Ok(eval_gated("deck motion walk", json_output)),
     };
     let closing = match closing? {
         Some(c) => c,
-        None => {
-            eprintln!("{EVAL_GATED_REMEDY}");
-            return Ok(EXIT_GATED);
-        }
+        None => return Ok(eval_gated("deck motion walk", json_output)),
     };
 
     let baseline_walks: Vec<f64> = readings.iter().map(|(base, _, _)| base.walk()).collect();
@@ -513,9 +505,9 @@ pub fn run_walk(
         .collect();
 
     if json_output {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
+        crate::output::print_ok(
+            "deck motion walk",
+            json!({
                 "census": census,
                 "baseline": {
                     "median": p50(&baseline_walks),
@@ -534,8 +526,7 @@ pub fn run_walk(
                 "rounds": rounds,
                 "frames": frames,
                 "restore": closing,
-            }))
-            .unwrap()
+            }),
         );
     } else {
         println!();

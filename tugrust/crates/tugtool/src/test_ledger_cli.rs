@@ -30,8 +30,9 @@ pub(crate) fn now_epoch() -> i64 {
 fn root_or_cwd(root: Option<PathBuf>) -> Result<PathBuf, AppError> {
     match root {
         Some(r) => Ok(r),
-        None => std::env::current_dir()
-            .map_err(|err| AppError::Exit1(format!("cannot resolve the run root: {err}"))),
+        None => std::env::current_dir().map_err(|err| {
+            AppError::Exit1("failed", format!("cannot resolve the run root: {err}"))
+        }),
     }
 }
 
@@ -107,7 +108,7 @@ pub fn run_record(
         exit_code,
         wall_secs: (ended_at - started_at).max(0) as f64,
     };
-    let recorded = record(&run, doc.as_ref().ok()).map_err(AppError::Exit1)?;
+    let recorded = record(&run, doc.as_ref().ok()).map_err(|e| AppError::Exit1("failed", e))?;
     println!(
         "{}",
         serde_json::json!({
@@ -145,10 +146,7 @@ pub fn run_last(
         });
     let report = LastReport { base_root, runs };
     if json {
-        println!(
-            "{}",
-            serde_json::to_string(&report).map_err(|err| AppError::Exit1(err.to_string()))?
-        );
+        crate::output::print_ok("test last", &report);
     } else {
         print!("{}", render_last(&report, failures_only));
     }

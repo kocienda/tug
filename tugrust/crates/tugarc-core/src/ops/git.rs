@@ -106,7 +106,7 @@ pub(super) const INDEX_LOCK_BACKOFF: std::time::Duration = std::time::Duration::
 /// Matched on the lock file's name, which git spells the same way in every
 /// message that reports it. One predicate for both sites, so they can never
 /// disagree about what is transient.
-fn index_lock_blocked(stderr: &str) -> bool {
+pub(crate) fn index_lock_blocked(stderr: &str) -> bool {
     stderr.contains("index.lock")
 }
 

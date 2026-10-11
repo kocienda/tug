@@ -52,9 +52,13 @@ struct BriefDirData {
 
 /// Dispatch a `brief` subcommand.
 pub fn dispatch(cmd: BriefCommands, json: bool) -> ExitCode {
-    changes::finish(match cmd {
-        BriefCommands::Dir { ensure } => run_dir(ensure, json),
-    })
+    changes::finish(
+        "brief dir",
+        json,
+        match cmd {
+            BriefCommands::Dir { ensure } => run_dir(ensure, json),
+        },
+    )
 }
 
 /// Resolve a template against a project directory.
@@ -109,8 +113,12 @@ fn read_briefs_template() -> Option<String> {
 }
 
 fn run_dir(ensure: bool, json: bool) -> Result<(), AppError> {
-    let project_dir = tugtool_core::find_project_root()
-        .map_err(|_| AppError::Exit1("not inside a project — run from a checkout".to_string()))?;
+    let project_dir = tugtool_core::find_project_root().map_err(|_| {
+        AppError::Exit1(
+            "failed",
+            "not inside a project — run from a checkout".to_string(),
+        )
+    })?;
 
     let (template, source) = match read_briefs_template() {
         Some(t) => (t, "setting"),
@@ -119,8 +127,9 @@ fn run_dir(ensure: bool, json: bool) -> Result<(), AppError> {
     let dir = resolve_briefs_dir(&project_dir, &template);
 
     if ensure {
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| AppError::Exit1(format!("cannot create {}: {e}", dir.display())))?;
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            AppError::Exit1("failed", format!("cannot create {}: {e}", dir.display()))
+        })?;
     }
 
     if json {

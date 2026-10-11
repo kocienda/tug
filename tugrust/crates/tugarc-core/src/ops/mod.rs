@@ -30,6 +30,7 @@ pub use commit::*;
 pub use create::*;
 pub use discard::*;
 pub use documents::*;
+pub(crate) use git::index_lock_blocked;
 pub use git::*;
 pub use identity::*;
 pub use join::*;

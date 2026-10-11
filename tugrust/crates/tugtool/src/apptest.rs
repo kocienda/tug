@@ -27,13 +27,14 @@ pub fn run_record() -> Result<(), AppError> {
     let mut payload = String::new();
     std::io::stdin()
         .read_to_string(&mut payload)
-        .map_err(|err| AppError::Exit1(format!("cannot read the run payload: {err}")))?;
+        .map_err(|err| AppError::Exit1("failed", format!("cannot read the run payload: {err}")))?;
     let run: RunRecord = serde_json::from_str(&payload)
-        .map_err(|err| AppError::Exit1(format!("malformed run payload: {err}")))?;
-    let mut conn = apptest_ledger::open_ledger(ledger_path())
-        .map_err(|err| AppError::Exit1(format!("cannot open the results ledger: {err}")))?;
+        .map_err(|err| AppError::Exit1("failed", format!("malformed run payload: {err}")))?;
+    let mut conn = apptest_ledger::open_ledger(ledger_path()).map_err(|err| {
+        AppError::Exit1("failed", format!("cannot open the results ledger: {err}"))
+    })?;
     let recorded = apptest_ledger::record_run(&mut conn, &run)
-        .map_err(|err| AppError::Exit1(format!("cannot record the run: {err}")))?;
+        .map_err(|err| AppError::Exit1("failed", format!("cannot record the run: {err}")))?;
     println!(
         "{}",
         serde_json::json!({
@@ -49,8 +50,9 @@ pub fn run_record() -> Result<(), AppError> {
 fn base_root(root: Option<PathBuf>) -> Result<String, AppError> {
     let root = match root {
         Some(r) => r,
-        None => std::env::current_dir()
-            .map_err(|err| AppError::Exit1(format!("cannot resolve the run root: {err}")))?,
+        None => std::env::current_dir().map_err(|err| {
+            AppError::Exit1("failed", format!("cannot resolve the run root: {err}"))
+        })?,
     };
     Ok(apptest_ledger::resolve_base_root(Path::new(&root)))
 }
@@ -58,11 +60,15 @@ fn base_root(root: Option<PathBuf>) -> Result<String, AppError> {
 /// Answer each named file's history for the run root's base checkout.
 pub fn run_history(root: Option<PathBuf>, files: Vec<String>) -> Result<(), AppError> {
     let base_root = base_root(root)?;
-    let conn = apptest_ledger::open_ledger(ledger_path())
-        .map_err(|err| AppError::Exit1(format!("cannot open the results ledger: {err}")))?;
-    let answers = apptest_ledger::file_history(&conn, &base_root, &files)
-        .map_err(|err| AppError::Exit1(format!("cannot read the results ledger: {err}")))?;
-    println!("{}", serde_json::json!({ "files": answers }));
+    let conn = apptest_ledger::open_ledger(ledger_path()).map_err(|err| {
+        AppError::Exit1("failed", format!("cannot open the results ledger: {err}"))
+    })?;
+    let answers = apptest_ledger::file_history(&conn, &base_root, &files).map_err(|err| {
+        AppError::Exit1("failed", format!("cannot read the results ledger: {err}"))
+    })?;
+    // JSON is this verb's only rendering, so it is the envelope with or
+    // without `--json`.
+    crate::output::print_ok("apptest history", serde_json::json!({ "files": answers }));
     Ok(())
 }
 
@@ -71,13 +77,16 @@ pub fn run_reach_record() -> Result<(), AppError> {
     let mut payload = String::new();
     std::io::stdin()
         .read_to_string(&mut payload)
-        .map_err(|err| AppError::Exit1(format!("cannot read the reach payload: {err}")))?;
+        .map_err(|err| {
+            AppError::Exit1("failed", format!("cannot read the reach payload: {err}"))
+        })?;
     let rec: ReachRecord = serde_json::from_str(&payload)
-        .map_err(|err| AppError::Exit1(format!("malformed reach payload: {err}")))?;
-    let mut conn = apptest_ledger::open_ledger(ledger_path())
-        .map_err(|err| AppError::Exit1(format!("cannot open the results ledger: {err}")))?;
+        .map_err(|err| AppError::Exit1("failed", format!("malformed reach payload: {err}")))?;
+    let mut conn = apptest_ledger::open_ledger(ledger_path()).map_err(|err| {
+        AppError::Exit1("failed", format!("cannot open the results ledger: {err}"))
+    })?;
     let stored = apptest_ledger::record_reach(&mut conn, &rec)
-        .map_err(|err| AppError::Exit1(format!("cannot record the reach maps: {err}")))?;
+        .map_err(|err| AppError::Exit1("failed", format!("cannot record the reach maps: {err}")))?;
     println!(
         "{}",
         serde_json::json!({ "recorded": true, "files": stored })
@@ -88,14 +97,16 @@ pub fn run_reach_record() -> Result<(), AppError> {
 /// Print each named file's stored reach map, for the run root's base checkout.
 pub fn run_reach_show(root: Option<PathBuf>, files: Vec<String>) -> Result<(), AppError> {
     let base_root = base_root(root)?;
-    let conn = apptest_ledger::open_ledger(ledger_path())
-        .map_err(|err| AppError::Exit1(format!("cannot open the results ledger: {err}")))?;
-    let rows = apptest_ledger::reach_for(&conn, &base_root, &files)
-        .map_err(|err| AppError::Exit1(format!("cannot read the results ledger: {err}")))?;
+    let conn = apptest_ledger::open_ledger(ledger_path()).map_err(|err| {
+        AppError::Exit1("failed", format!("cannot open the results ledger: {err}"))
+    })?;
+    let rows = apptest_ledger::reach_for(&conn, &base_root, &files).map_err(|err| {
+        AppError::Exit1("failed", format!("cannot read the results ledger: {err}"))
+    })?;
     // Serialized directly rather than through `json!`, which would parse each
     // stored map into a `Value` and re-order its keys; the map prints verbatim.
     let rows = serde_json::to_string(&rows)
-        .map_err(|err| AppError::Exit1(format!("cannot render the reach maps: {err}")))?;
+        .map_err(|err| AppError::Exit1("failed", format!("cannot render the reach maps: {err}")))?;
     println!("{{\"files\":{rows}}}");
     Ok(())
 }

@@ -95,8 +95,12 @@ fn run_gated(name: &str, label: &str, no_wait: bool, command: &[String], json: b
         .ok()
         .and_then(|s| s.parse::<u16>().ok());
     let Some(port) = override_port.or_else(|| tugcore::ports::gate_port(name)) else {
-        eprintln!("tugtool host gate: unknown gate name '{name}' (known: apptest)");
-        return EXIT_USAGE;
+        return refuse(
+            json,
+            "unknown_gate",
+            format!("tugtool host gate: unknown gate name '{name}' (known: apptest)"),
+            EXIT_USAGE,
+        );
     };
 
     loop {
@@ -123,17 +127,25 @@ fn run_gated(name: &str, label: &str, no_wait: bool, command: &[String], json: b
                         // Loop back and race to bind.
                     }
                     HolderProbe::Holder(other) => {
-                        eprintln!(
-                            "tugtool host gate: port {port} is held by gate '{}' (expected '{name}') — refusing to wait",
-                            other.gate
+                        return refuse(
+                            json,
+                            "gate_port_conflict",
+                            format!(
+                                "tugtool host gate: port {port} is held by gate '{}' (expected '{name}') — refusing to wait",
+                                other.gate
+                            ),
+                            1,
                         );
-                        return 1;
                     }
                     HolderProbe::NotAGate(detail) => {
-                        eprintln!(
-                            "tugtool host gate: port {port} is held by something that is not a tugtool gate ({detail}) — refusing to wait"
+                        return refuse(
+                            json,
+                            "gate_port_conflict",
+                            format!(
+                                "tugtool host gate: port {port} is held by something that is not a tugtool gate ({detail}) — refusing to wait"
+                            ),
+                            1,
                         );
-                        return 1;
                     }
                     HolderProbe::Vanished => {
                         // Holder exited between our bind attempt and the
@@ -142,11 +154,29 @@ fn run_gated(name: &str, label: &str, no_wait: bool, command: &[String], json: b
                 }
             }
             Err(err) => {
-                eprintln!("tugtool host gate: bind 127.0.0.1:{port} failed: {err}");
-                return 1;
+                return refuse(
+                    json,
+                    "gate_bind_failed",
+                    format!("tugtool host gate: bind 127.0.0.1:{port} failed: {err}"),
+                    1,
+                );
             }
         }
     }
+}
+
+/// Refuse the gated run before any child starts: the sentence on stderr, or
+/// under `--json` the error envelope carrying it, and `exit` either way.
+fn refuse(json: bool, code: &'static str, message: String, exit: i32) -> i32 {
+    if json {
+        crate::output::print_error(
+            "host gate run",
+            &crate::changes::AppError::Exit1(code, message),
+        );
+    } else {
+        eprintln!("{message}");
+    }
+    exit
 }
 
 /// Bind `127.0.0.1:<port>` with `SO_REUSEADDR`, via libc so the option
@@ -311,20 +341,14 @@ fn wait_for_release(port: u16) {
 
 fn report_held(greeting: &Greeting, json: bool) {
     if json {
-        let body = serde_json::json!({
-            "schema_version": "1",
-            "command": "gate run",
-            "status": "held",
-            "data": {
+        crate::output::print_held(
+            "host gate run",
+            serde_json::json!({
                 "gate": greeting.gate,
                 "label": greeting.label,
                 "pid": greeting.pid,
                 "since": greeting.since,
-            },
-        });
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&body).expect("serializes")
+            }),
         );
     } else {
         eprintln!(

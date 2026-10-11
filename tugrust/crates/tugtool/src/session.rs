@@ -11,7 +11,8 @@
 //! so. Nothing is lost — a request is a promise about a turn's end, and there
 //! is always a next turn.
 
-use crate::arc::{calling_session_id, post_instance_api};
+use crate::arc::post_instance_api;
+use crate::changes::AppError;
 use crate::cli::SessionCommands;
 use crate::output::print_ok;
 use serde::Serialize;
@@ -21,6 +22,12 @@ use tugarc_core::arc::{ArcStage, stage_model};
 /// The `session` command group. Every refusal exits 1 with its reason on
 /// stderr, so the asking turn shows what stopped it rather than nothing.
 pub fn dispatch(cmd: SessionCommands, json: bool) -> ExitCode {
+    let command = match &cmd {
+        SessionCommands::Rotate { .. } => "session rotate",
+        SessionCommands::Find { .. } => "session find",
+        SessionCommands::Show { .. } => "session show",
+        SessionCommands::IndexPut { .. } => "session index-put",
+    };
     let result: Result<(), String> = match cmd {
         SessionCommands::Rotate {
             prompt,
@@ -54,10 +61,7 @@ pub fn dispatch(cmd: SessionCommands, json: bool) -> ExitCode {
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::from(1)
-        }
+        Err(e) => AppError::from(e).report(command, json),
     }
 }
 
@@ -153,7 +157,7 @@ fn run_rotate(
     if cancel && (prompt.is_some() || model.is_some() || effort.is_some() || stage.is_some()) {
         return Err("--cancel withdraws a pending rotation and takes no other flags".to_string());
     }
-    let session = calling_session_id("a rotation", None)?;
+    let session = crate::session_identity::resolve("a rotation", None)?;
 
     if cancel {
         // Withdrawing is the whole of the ceremony a pending rotation deserves:
@@ -296,6 +300,17 @@ struct ShowPayload {
     shown: Vec<TurnPayload>,
 }
 
+/// A spelling that is neither an id nor a callsign: the caller mistyped.
+fn not_a_reference(reference: &str) -> AppError {
+    AppError::Exit1(
+        "not_a_session_reference",
+        format!(
+            "not a session reference: {reference} \
+             (expected a uuid, an 8-character short id, a callsign, or project/callsign)"
+        ),
+    )
+}
+
 fn verdict_word(provenance: tugcore::session_finder::Provenance) -> &'static str {
     match provenance {
         tugcore::session_finder::Provenance::Here => "here",
@@ -310,11 +325,7 @@ fn run_find(reference: &str, json: bool) -> ExitCode {
     // mistyped, and telling them "not on this machine" would send them
     // looking for a session instead of at their own command.
     if tugcore::session_finder::Reference::parse(reference).is_none() {
-        eprintln!(
-            "error: not a session reference: {reference} \
-             (expected a uuid, an 8-character short id, a callsign, or project/callsign)"
-        );
-        return ExitCode::from(1);
+        return not_a_reference(reference).report("session find", json);
     }
     let env = tugcore::session_finder::FinderEnv::from_process();
     match tugcore::session_finder::find(reference, &env) {
@@ -377,11 +388,7 @@ fn run_show(
     json: bool,
 ) -> ExitCode {
     if tugcore::session_finder::Reference::parse(reference).is_none() {
-        eprintln!(
-            "error: not a session reference: {reference} \
-             (expected a uuid, an 8-character short id, a callsign, or project/callsign)"
-        );
-        return ExitCode::from(1);
+        return not_a_reference(reference).report("session show", json);
     }
     let env = tugcore::session_finder::FinderEnv::from_process();
     let found = match tugcore::session_finder::find(reference, &env) {
@@ -389,8 +396,19 @@ fn run_show(
         tugcore::session_finder::Finding::Absent => {
             // To stderr, so a caller piping the transcript somewhere gets
             // an empty pipe rather than the word `absent` in the middle of
-            // what it thought was a document.
-            eprintln!("absent");
+            // what it thought was a document. Under `--json` there is no
+            // transcript to show, so it is the error envelope.
+            if json {
+                crate::output::print_error(
+                    "session show",
+                    &AppError::Exit3(
+                        "session_absent",
+                        format!("no session matching {reference} is on this machine"),
+                    ),
+                );
+            } else {
+                eprintln!("absent");
+            }
             return ExitCode::from(EXIT_ABSENT);
         }
     };

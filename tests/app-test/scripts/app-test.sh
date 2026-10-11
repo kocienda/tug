@@ -917,7 +917,7 @@ if [ "${#RED_FILES[@]}" -gt 0 ]; then
         HISTORY_ERR="jq is not on PATH"
     elif ! HISTORY_RAW="$("$TUGTOOL_BIN" apptest history --root "$REPO_ROOT" --json "${RED_FILES[@]}" 2>&1)"; then
         HISTORY_ERR="tugtool apptest history exited non-zero"
-    elif ! HISTORY_JSON="$(printf '%s' "$HISTORY_RAW" | jq -c '[.files[] | {key: .file, value: .}] | from_entries' 2>/dev/null)"; then
+    elif ! HISTORY_JSON="$(printf '%s' "$HISTORY_RAW" | jq -c '[(.data.files // .files)[] | {key: .file, value: .}] | from_entries' 2>/dev/null)"; then
         HISTORY_ERR="tugtool apptest history returned unreadable JSON"
         HISTORY_JSON=""
     fi

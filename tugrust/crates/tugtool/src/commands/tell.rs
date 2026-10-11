@@ -1,6 +1,7 @@
 //! Implementation of the tugcode tell command
 
-use crate::output::{JsonIssue, JsonResponse, TellData};
+use crate::changes::AppError;
+use crate::output::{TellData, print_error_with, print_ok};
 use serde_json::Value;
 
 /// Coerce a string value to an appropriate JSON type
@@ -231,22 +232,7 @@ pub fn run_tell(
         Ok(p) => p,
         Err(e) => {
             if json_output {
-                let response = JsonResponse::error(
-                    "tell",
-                    TellData {
-                        server_status: "error".to_string(),
-                    },
-                    vec![JsonIssue {
-                        code: "E099".to_string(),
-                        severity: "error".to_string(),
-                        message: e.clone(),
-                        file: None,
-                        line: None,
-                        anchor: None,
-                    }],
-                );
-                println!("{}", serde_json::to_string_pretty(&response).unwrap());
-                return Ok(1);
+                return Ok(tell_failed("instance_unresolved", e));
             } else {
                 return Err(e);
             }
@@ -257,22 +243,7 @@ pub fn run_tell(
         Ok(p) => p,
         Err(e) => {
             if json_output {
-                let response = JsonResponse::error(
-                    "tell",
-                    TellData {
-                        server_status: "error".to_string(),
-                    },
-                    vec![JsonIssue {
-                        code: "E099".to_string(),
-                        severity: "error".to_string(),
-                        message: e.clone(),
-                        file: None,
-                        line: None,
-                        anchor: None,
-                    }],
-                );
-                println!("{}", serde_json::to_string_pretty(&response).unwrap());
-                return Ok(1);
+                return Ok(tell_failed("bad_params", e));
             } else {
                 return Err(e);
             }
@@ -296,13 +267,12 @@ pub fn run_tell(
             if status_code == 200 {
                 // Success
                 if json_output {
-                    let response = JsonResponse::ok(
-                        "tell",
+                    print_ok(
+                        "host tell",
                         TellData {
                             server_status: "ok".to_string(),
                         },
                     );
-                    println!("{}", serde_json::to_string_pretty(&response).unwrap());
                 } else {
                     println!("ok");
                 }
@@ -311,21 +281,7 @@ pub fn run_tell(
                 // HTTP error
                 let msg = format!("server returned status {}", status_code);
                 if json_output {
-                    let response = JsonResponse::error(
-                        "tell",
-                        TellData {
-                            server_status: "error".to_string(),
-                        },
-                        vec![JsonIssue {
-                            code: "E099".to_string(),
-                            severity: "error".to_string(),
-                            message: msg,
-                            file: None,
-                            line: None,
-                            anchor: None,
-                        }],
-                    );
-                    println!("{}", serde_json::to_string_pretty(&response).unwrap());
+                    return Ok(tell_failed("server_error", msg));
                 } else {
                     eprintln!("Error: {}", msg);
                 }
@@ -336,27 +292,26 @@ pub fn run_tell(
             // Transport error (connection refused, timeout, etc.)
             let msg = format!("connection failed: {}", e);
             if json_output {
-                let response = JsonResponse::error(
-                    "tell",
-                    TellData {
-                        server_status: "error".to_string(),
-                    },
-                    vec![JsonIssue {
-                        code: "E099".to_string(),
-                        severity: "error".to_string(),
-                        message: msg.clone(),
-                        file: None,
-                        line: None,
-                        anchor: None,
-                    }],
-                );
-                println!("{}", serde_json::to_string_pretty(&response).unwrap());
-                Ok(1)
+                Ok(tell_failed("connection_failed", msg))
             } else {
                 Err(msg)
             }
         }
     }
+}
+
+/// A `--json` tell that did not land: the error envelope, its `data` the
+/// same `server_status` a landed tell reports, and exit 1.
+fn tell_failed(code: &'static str, message: String) -> i32 {
+    let error = AppError::Exit1(code, message);
+    print_error_with(
+        "host tell",
+        TellData {
+            server_status: "error".to_string(),
+        },
+        &error,
+    );
+    error.exit_code() as i32
 }
 
 #[cfg(test)]

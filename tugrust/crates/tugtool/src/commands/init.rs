@@ -6,7 +6,7 @@ use std::path::Path;
 
 use tugtool_core::config::DEFAULT_CONFIG;
 
-use crate::output::{InitCheckData, InitData, JsonResponse};
+use crate::output::{InitCheckData, InitData, print_ok};
 
 /// Check if the project is initialized
 ///
@@ -19,14 +19,13 @@ pub fn run_init_check(root: Option<&Path>, json_output: bool) -> Result<i32, Str
     let initialized = config_path.exists();
 
     if json_output {
-        let response = JsonResponse::ok(
-            "init",
+        print_ok(
+            "host init",
             InitCheckData {
                 initialized,
                 path: ".tugtool/".to_string(),
             },
         );
-        println!("{}", serde_json::to_string_pretty(&response).unwrap());
     }
 
     // Return exit code 0 if initialized, 9 (E009) if not
@@ -58,14 +57,13 @@ pub fn run_init(force: bool, check: bool, json_output: bool, quiet: bool) -> Res
         ensure_gitignore(quiet)?;
 
         if json_output {
-            let response = JsonResponse::ok(
-                "init",
+            print_ok(
+                "host init",
                 InitData {
                     path: ".tugtool/".to_string(),
                     files_created: files_created.clone(),
                 },
             );
-            println!("{}", serde_json::to_string_pretty(&response).unwrap());
         } else if !quiet {
             if files_created.is_empty() {
                 println!("Tug project already initialized in .tugtool/ (nothing to do)");
@@ -103,14 +101,13 @@ pub fn run_init(force: bool, check: bool, json_output: bool, quiet: bool) -> Res
     let files_created = vec!["config.toml".to_string()];
 
     if json_output {
-        let response = JsonResponse::ok(
-            "init",
+        print_ok(
+            "host init",
             InitData {
                 path: ".tugtool/".to_string(),
                 files_created,
             },
         );
-        println!("{}", serde_json::to_string_pretty(&response).unwrap());
     } else if !quiet {
         println!("Initialized tugtool project in .tugtool/");
         println!("  Created: config.toml");

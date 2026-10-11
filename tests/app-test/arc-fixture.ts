@@ -156,6 +156,37 @@ function transientGitFailure(stderr: string): boolean {
   );
 }
 
+/**
+ * The cause a `--json` verb names for its failure — `issues[0].code` of the
+ * envelope on stdout (`tuglaws/tugtool-json.md`) — or `null` when stdout is
+ * not a failed envelope (a verb run without `--json`, or one that died first).
+ */
+export function envelopeCode(stdout: string): string | null {
+  try {
+    const envelope = JSON.parse(stdout);
+    if (envelope?.status !== "error") return null;
+    const code = envelope.issues?.[0]?.code;
+    return typeof code === "string" ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `--json` codes for a git lock another process holds — the envelope's
+ * spelling of {@link transientGitFailure}. */
+const TRANSIENT_GIT_CODES = new Set(["git_index_locked", "git_lock_held"]);
+
+/**
+ * Whether a `tugtool` failure is git contention that will clear. A `--json`
+ * verb reports its cause on stdout and keeps stderr quiet, so the envelope's
+ * code decides; a verb run without `--json` still says it in git's own words.
+ */
+function transientTugtoolFailure(f: SpawnFailure): boolean {
+  const code = envelopeCode(f.stdout);
+  if (code !== null) return TRANSIENT_GIT_CODES.has(code);
+  return transientGitFailure(f.stderr);
+}
+
 /** Block the calling thread — these run in `beforeAll`, which is synchronous. */
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -175,6 +206,16 @@ const EMPTY_FAILURE: SpawnFailure = {
   stdout: "",
   stderr: "",
 };
+
+/** A finished spawn's whole corpse, both streams decoded. */
+function spawnFailure(out: ReturnType<typeof Bun.spawnSync>): SpawnFailure {
+  return {
+    exitCode: out.exitCode,
+    signalCode: out.signalCode ?? null,
+    stdout: out.stdout?.toString() ?? "",
+    stderr: out.stderr?.toString() ?? "",
+  };
+}
 
 /** The last `n` lines of `text`, or all of it when it is shorter. */
 function tailLines(text: string, n: number): string {
@@ -239,7 +280,7 @@ export function tugtool(args: string[], opts: TugtoolRun): string {
       stdout: out.stdout.toString(),
       stderr: out.stderr.toString(),
     };
-    if (!transientGitFailure(last.stderr)) break;
+    if (!transientTugtoolFailure(last)) break;
     sleepSync(LOCK_BACKOFF_MS);
   }
   if (opts.required === false) return "";
@@ -837,7 +878,13 @@ export function bindArc(
   const deadline = Date.now() + 20_000;
   for (;;) {
     const out = Bun.spawnSync(
-      [tugtoolPath(opts.binaryRoot ?? projectDir), "arc", "bind", name],
+      [
+        tugtoolPath(opts.binaryRoot ?? projectDir),
+        "arc",
+        "bind",
+        name,
+        "--json",
+      ],
       {
         cwd: projectDir,
         env: {
@@ -848,13 +895,12 @@ export function bindArc(
       },
     );
     if (out.exitCode === 0) return;
-    const stderr = out.stderr.toString();
-    const transient =
-      stderr.includes("unknown_session") ||
-      stderr.includes("no segment of its line is live");
+    // Both spellings of the lag arrive as one code: the CLI names the
+    // corpse refusal `unknown_session` too (`tuglaws/tugtool-json.md`).
+    const transient = envelopeCode(out.stdout.toString()) === "unknown_session";
     if (!transient || Date.now() >= deadline) {
       throw new Error(
-        `arc bind ${name} failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
+        `arc bind ${name} failed\n  ${describeFailure(spawnFailure(out))}`,
       );
     }
     sleepSync(500);
@@ -883,6 +929,7 @@ export function bindArcAtTheDoor(
         name,
         "--ensure",
         "--bind",
+        "--json",
       ],
       {
         cwd: projectDir,
@@ -894,13 +941,12 @@ export function bindArcAtTheDoor(
       },
     );
     if (out.exitCode === 0) return;
-    const stderr = out.stderr.toString();
-    const transient =
-      stderr.includes("unknown_session") ||
-      stderr.includes("no segment of its line is live");
+    // Both spellings of the lag arrive as one code: the CLI names the
+    // corpse refusal `unknown_session` too (`tuglaws/tugtool-json.md`).
+    const transient = envelopeCode(out.stdout.toString()) === "unknown_session";
     if (!transient || Date.now() >= deadline) {
       throw new Error(
-        `arc documents ${name} --ensure --bind failed\n  exit ${out.exitCode}\n  stderr: ${stderr.trim()}`,
+        `arc documents ${name} --ensure --bind failed\n  ${describeFailure(spawnFailure(out))}`,
       );
     }
     sleepSync(500);

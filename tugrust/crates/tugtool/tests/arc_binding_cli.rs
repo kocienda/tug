@@ -1148,14 +1148,20 @@ fn a_refused_claim_fails_arc_create_and_says_so_in_the_json() {
         !out.status.success(),
         "a claim that did not happen must not read as a clean run"
     );
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("card runs another-arc"),
-        "the refusal names the instance's own reason: {stderr}"
-    );
 
     let document: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("the receipt is still a document");
+    // Under `--json` the reason rides the envelope rather than stderr: the
+    // receipt is an error envelope whose first issue is the refusal.
+    assert_eq!(document["status"], "error", "{document}");
+    assert_eq!(document["issues"][0]["code"], "claim_refused", "{document}");
+    assert!(
+        document["issues"][0]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("card runs another-arc"),
+        "the refusal names the instance's own reason: {document}"
+    );
     assert_eq!(document["data"]["claimed"], false);
     assert!(
         document["data"]["claim_error"]
@@ -1350,4 +1356,37 @@ fn the_unknown_session_refusal_keeps_its_branchable_token() {
         stderr.contains("unknown_session"),
         "and a caller waiting out the spawn window reads the token: {stderr}"
     );
+}
+
+/// **Under `--json` the shrug is a code.** The same refusal as above, read
+/// the way `tests/app-test/arc-fixture.ts` reads it: `issues[0].code` is
+/// `unknown_session`, so the retry branches on a name rather than a sentence.
+#[test]
+fn the_unknown_session_refusal_is_a_code_under_json() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_path = tmp.path().canonicalize().unwrap();
+    let repo_dir = tempfile::tempdir().unwrap();
+    let root = repo_dir.path().canonicalize().unwrap();
+    repo_with_arc(&root, "demo");
+
+    let (port, _requests) = fake_tugcast_with(ResolveAnswer::UnknownSession);
+    register_fake_instance(&tmp_path, port);
+
+    for args in [
+        vec!["arc", "bind", "demo", "--json"],
+        vec!["arc", "documents", "demo", "--ensure", "--bind", "--json"],
+    ] {
+        let mut cmd = tug(&tmp_path);
+        cmd.current_dir(&root);
+        cmd.env("TUG_SESSION_ID", "sess-not-yet-recorded");
+        cmd.args(&args);
+        let out = cmd.output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?} is refused");
+        let envelope: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(envelope["status"], "error", "{args:?}: {envelope}");
+        assert_eq!(
+            envelope["issues"][0]["code"], "unknown_session",
+            "{args:?}: {envelope}"
+        );
+    }
 }
