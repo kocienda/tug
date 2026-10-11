@@ -993,7 +993,11 @@ async fn stop_harness(
     )
     .unwrap();
 
-    let (sup, ledger, register_rx) = test_minimal_supervisor_reading_its_ledger();
+    let (sup, ledger, register_rx) =
+        test_minimal_supervisor_reading_its_ledger_with(SupervisorDeps {
+            wheel: attach_wheel.then(|| Arc::new(crate::wheel::WheelState::default())),
+            ..Default::default()
+        });
     ledger
         .record_spawn(
             "claude-1",
@@ -1008,9 +1012,6 @@ async fn stop_harness(
     ledger
         .set_arc_binding("claude-1", Some(("tugarc/demo#1", "demo")))
         .unwrap();
-    if attach_wheel {
-        let _ = sup.wheel.set(Arc::new(crate::wheel::WheelState::default()));
-    }
 
     let id = TugSessionId::new("claude-1".to_string());
     let input_rx = install_live_session_for_tests(
@@ -1260,7 +1261,11 @@ async fn rotated_stop_harness(
     )
     .unwrap();
 
-    let (sup, ledger, register_rx) = test_minimal_supervisor_reading_its_ledger();
+    let (sup, ledger, register_rx) =
+        test_minimal_supervisor_reading_its_ledger_with(SupervisorDeps {
+            wheel: attach_wheel.then(|| Arc::new(crate::wheel::WheelState::default())),
+            ..Default::default()
+        });
     // One line, two segments: the card's own row first, the rotation's
     // later, so `live_segment_of("card-A")` is `segment-B`.
     for (id, now) in [("card-A", 1_000), ("segment-B", 2_000)] {
@@ -1279,9 +1284,6 @@ async fn rotated_stop_harness(
     ledger
         .set_arc_binding("segment-B", Some(("tugarc/demo#1", "demo")))
         .unwrap();
-    if attach_wheel {
-        let _ = sup.wheel.set(Arc::new(crate::wheel::WheelState::default()));
-    }
 
     let card = TugSessionId::new("card-A".to_string());
     let input_rx = install_live_session_for_tests(
@@ -1412,8 +1414,11 @@ async fn a_stop_on_a_segment_no_card_wears_is_refused() {
     std::fs::create_dir_all(root.join(".tug/arcs/demo")).unwrap();
     std::fs::write(root.join(".tug/arcs/demo/brief.md"), "# A brief\n").unwrap();
     tugarc_core::arc::append_arc_start(root, "demo", ".tug/arcs/demo/brief.md").unwrap();
-    let (sup, _ledger, _register_rx) = test_minimal_supervisor_reading_its_ledger();
-    let _ = sup.wheel.set(Arc::new(crate::wheel::WheelState::default()));
+    let (sup, _ledger, _register_rx) =
+        test_minimal_supervisor_reading_its_ledger_with(SupervisorDeps {
+            wheel: Some(Arc::new(crate::wheel::WheelState::default())),
+            ..Default::default()
+        });
 
     assert_eq!(
         sup.stop_arc_now(

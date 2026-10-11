@@ -14,8 +14,9 @@ use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::sync::{broadcast, mpsc};
 use tugarc_core::{FileMergeRequest, FileMerger};
-use tugcast_core::protocol::{FeedId, Frame};
+use tugcast_core::protocol::Frame;
 
+use crate::control::send_control;
 use crate::scribe::{self, ScribeSpawner};
 
 /// The ladder's AI rung ([P32]), backed by the scribe sidecar. Constructed per
@@ -142,10 +143,7 @@ pub fn emit_delta(
         "status": status,
         "text": text,
     });
-    let _ = control_tx.send(Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("changeset_join_resolve_delta serializes"),
-    ));
+    send_control(control_tx, body);
 }
 
 #[cfg(test)]

@@ -7,7 +7,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
-use tugcast_core::{FeedId, Frame};
+use tugcast_core::Frame;
+
+use crate::control::control_frame;
 
 /// Dev mode state: source tree path for the dev session
 #[derive(Clone, Debug)]
@@ -284,14 +286,13 @@ pub(crate) fn send_dev_notification(
         "count": count,
         "timestamp": timestamp,
     });
-    let payload = serde_json::to_vec(&json).unwrap_or_default();
 
     debug!(
         "dev: send_dev_notification type={} count={} timestamp={}",
         notification_type, count, timestamp
     );
 
-    let frame = Frame::new(FeedId::CONTROL, payload);
+    let frame = control_frame(json);
     match client_action_tx.send(frame) {
         Ok(receivers) => debug!(
             "dev: send_dev_notification sent to {} receiver(s)",
@@ -543,6 +544,7 @@ pub(crate) fn dev_app_watcher(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tugcast_core::FeedId;
 
     #[test]
     fn test_new_shared_dev_state_is_none() {

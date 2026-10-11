@@ -377,6 +377,7 @@ async fn close_session_marks_ledger_row_closed_when_claude_id_present() {
         AgentSupervisorConfig::default(),
         registry,
         cancel,
+        SupervisorDeps::default(),
     );
     // Drain merger registrations like make_supervisor_with_store does.
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });

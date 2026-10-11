@@ -811,10 +811,7 @@ pub fn build_session_updated_frame(
         // figure the reader is looking at.
         "usage": usage,
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("session_updated serializes"),
-    )
+    control_frame(body)
 }
 
 /// Build the `session_line_rebound` push — a card's line changed under it.
@@ -840,10 +837,7 @@ pub fn build_session_line_rebound_frame(
         "name": line.name,
         "name_user_set": line.name_user_set,
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("session_line_rebound serializes"),
-    )
+    control_frame(body)
 }
 
 /// Build the `session_line_seated` push — the card's line moved to a new
@@ -878,10 +872,7 @@ pub fn build_session_line_seated_frame(
         "session_id": session_id,
         "line_id": line_id,
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("session_line_seated serializes"),
-    )
+    control_frame(body)
 }
 
 /// Build the `session_updated { removed: true }` push for a deleted row.
@@ -891,10 +882,7 @@ pub fn build_session_removed_frame(session_id: &str) -> Frame {
         "session_id": session_id,
         "removed": true,
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("session_updated removed serializes"),
-    )
+    control_frame(body)
 }
 
 #[cfg(test)]

@@ -6,12 +6,14 @@
 //! built from the supervisor: it registers the bridges the supervisor's
 //! resolver and digester feed, and it holds the supervisor itself.
 //!
-//! The process-wide `OnceLock`s startup fills are filled in this stage, each
-//! marked where it happens: `agent_supervisor::LEDGER_HANDLE` (inside
-//! `AgentSupervisor::new_with_ledger`), `join_pilot::RUNNER`, the base-motion
-//! `BOARD` (inside `run_base_motion_engine`), and the supervisor's four
-//! late-bound channels. The crate's other `OnceLock` statics initialise
-//! lazily on first use and belong to no startup stage.
+//! The supervisor's collaborators that live outside it — the aggregate
+//! changeset watch, the three idle-transition channels, and the wheel — are
+//! built here before it and handed in as one `SupervisorDeps`; their consumers
+//! are spawned after it. The process-wide `OnceLock`s startup fills are filled
+//! in this stage, each marked where it happens: `join_pilot::RUNNER` and the
+//! base-motion `BOARD` (inside `run_base_motion_engine`). The crate's other
+//! `OnceLock` statics initialise lazily on first use and belong to no startup
+//! stage.
 
 use std::sync::Arc;
 
@@ -24,7 +26,7 @@ use crate::cli;
 use crate::feeds;
 use crate::feeds::agent_supervisor::{
     AgentSupervisor, AgentSupervisorConfig, LedgerSessionsRecorder, SessionsRecorder,
-    SpawnerFactory, default_spawner_factory,
+    SpawnerFactory, SupervisorDeps, default_spawner_factory,
 };
 use crate::jots;
 use crate::router::{FeedRouter, LagPolicy};
@@ -170,7 +172,34 @@ pub(crate) async fn supervisor(
     };
     let spawner_factory: SpawnerFactory = default_spawner_factory(&supervisor_config);
 
-    // Initialises `agent_supervisor::LEDGER_HANDLE` — owned by this stage.
+    // The supervisor's collaborators, built before it so it is constructed
+    // whole. Their consumers — the base-motion engine, the arc engine, the
+    // wheel — are spawned further down, once the supervisor they hold exists.
+    //
+    // The aggregate changeset watch (CHANGESET_ALL, 0x24): the feed that
+    // writes it is built below, but the on-demand draft path ([P21],
+    // #draft-engine) reads a CLONE of its receiver — never the bump `Notify`
+    // (single waiter) — so it sees every recompute the router does.
+    let (changeset_all_tx, changeset_all_rx) =
+        tokio::sync::watch::channel(Frame::new(FeedId::CHANGESET_ALL, vec![]));
+    // The idle transition, one sibling channel per consumer because an mpsc
+    // has one: the base-motion engine, the arc runner ([P05]), and the wheel
+    // ([P04]).
+    let (turn_complete_tx, turn_complete_rx) = mpsc::channel::<String>(64);
+    let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
+    let (wheel_tick_tx, wheel_tick_rx) = mpsc::channel::<String>(64);
+    // The wheel: perform the rotations `POST /api/session` parked, on the
+    // idle transition. A request is always parked and never performed at
+    // request time — a rotation mid-turn kills the claude that asked for it.
+    // The supervisor holds it too: the stoppers reachable from a CONTROL frame
+    // live there, and `stop_arc_for_session` takes the state ([P03]).
+    let wheel_state = Arc::new(wheel::WheelState::default());
+    // The armed hand-backs a previous process left owed. A card pinned on a
+    // stage model has nothing but the restore to un-pin it, and the debt
+    // outlives the turn it was taken on — so it is read back here, before the
+    // first turn of this process can end, and settled the ordinary way.
+    wheel_state.attach_ledger(Arc::clone(&ledger));
+
     let (mut supervisor, merger_register_rx) = AgentSupervisor::new_with_ledger(
         session_state_feed.clone(),
         session_sideband_feed.clone(),
@@ -183,6 +212,13 @@ pub(crate) async fn supervisor(
         supervisor_config,
         Arc::clone(&registry),
         cancel.clone(),
+        SupervisorDeps {
+            changeset_watch: Some(changeset_all_rx.clone()),
+            turn_complete_tx: Some(turn_complete_tx),
+            arc_tick_tx: Some(arc_tick_tx),
+            wheel_tick_tx: Some(wheel_tick_tx),
+            wheel: Some(Arc::clone(&wheel_state)),
+        },
     );
     // Give the supervisor the shell ledger so `list_shell_exchanges` can read
     // the tail the shell dispatcher writes.
@@ -677,11 +713,10 @@ pub(crate) async fn supervisor(
     // delivered like the other snapshot feeds (registered once, retained
     // latest value delivered on connect). Replaces the per-workspace
     // CHANGESET delivery, which only ever reached the bootstrap workspace.
-    let (changeset_all_tx, changeset_all_rx) =
-        tokio::sync::watch::channel(Frame::new(FeedId::CHANGESET_ALL, vec![]));
     let changeset_all_feed = feeds::changeset_all::ChangesetAllFeed::new(
         Arc::clone(&registry),
         Some(Arc::clone(&ledger)),
+        supervisor.busy_probe(),
         Arc::clone(&changeset_all_bump),
     );
     tugcast_core::spawn_snapshot_feed(
@@ -690,21 +725,13 @@ pub(crate) async fn supervisor(
         cancel.clone(),
     );
 
-    // The maintained-draft engine ([P21], #draft-engine) taps a CLONE of the
-    // aggregate watch receiver — never the bump `Notify` (single waiter) — so
-    // it sees every recompute the router does.
-    supervisor.start_draft_engine(changeset_all_rx.clone(), cancel.clone());
-
     // The base-motion engine: replay an arc onto its base the moment the base
     // moves and it is safe to. It subscribes to the same GIT_HEAD broadcast the
     // router fans out, so no new watcher exists; the other two wakes are a
     // workspace opening (the registry) and a turn ending (the supervisor),
     // because a HEAD signal is an edge and the gate refuses to act mid-turn.
     let (workspace_open_tx, workspace_open_rx) = mpsc::channel::<String>(16);
-    let (turn_complete_tx, turn_complete_rx) = mpsc::channel::<String>(64);
     registry.set_workspace_open_signal(workspace_open_tx);
-    // Late-binds `supervisor.turn_complete_tx` — owned by this stage.
-    let _ = supervisor.turn_complete_tx.set(turn_complete_tx);
     // The engine initialises `base_motion::BOARD` — owned by this stage.
     tokio::spawn(feeds::base_motion::run_base_motion_engine(
         feeds::base_motion::BaseMotionContext {
@@ -729,29 +756,10 @@ pub(crate) async fn supervisor(
     // base-motion takes, on a sibling channel because an mpsc has one consumer
     // ([P05]); the aggregate changeset watch is the slower floor, for a stage
     // that died without ever ending a turn.
-    // The wheel: perform the rotations `POST /api/session` parked, on the
-    // same idle transition, on a third sibling channel ([P04]). A request is
-    // always parked and never performed at request time — a rotation mid-turn
-    // kills the claude that asked for it.
     //
-    // Built before the arc engine because the engine holds it: every stopper
-    // goes through one path, and an ending arms a hand-back on these
-    // registries rather than sending one.
-    let wheel_state = Arc::new(wheel::WheelState::default());
-    // The armed hand-backs a previous process left owed. A card pinned on a
-    // stage model has nothing but the restore to un-pin it, and the debt
-    // outlives the turn it was taken on — so it is read back here, before the
-    // first turn of this process can end, and settled the ordinary way.
-    wheel_state.attach_ledger(Arc::clone(&ledger));
+    // The arc engine holds the wheel too: every stopper goes through one path,
+    // and an ending arms a hand-back on its registries rather than sending one.
     feed_router.wheel = Some(Arc::clone(&wheel_state));
-    // The supervisor holds it too: the stoppers reachable from a CONTROL
-    // frame live there, and `stop_arc_for_session` takes the state ([P03]).
-    // Late-binds `supervisor.wheel` — owned by this stage.
-    let _ = supervisor.wheel.set(Arc::clone(&wheel_state));
-
-    let (arc_tick_tx, arc_tick_rx) = mpsc::channel::<String>(64);
-    // Late-binds `supervisor.arc_tick_tx` — owned by this stage.
-    let _ = supervisor.arc_tick_tx.set(arc_tick_tx);
     tokio::spawn(feeds::arc_runner::run_arc_engine(
         feeds::arc_runner::ArcContext {
             supervisor: Arc::clone(&supervisor),
@@ -767,9 +775,6 @@ pub(crate) async fn supervisor(
         changeset_all_rx.clone(),
     ));
 
-    let (wheel_tick_tx, wheel_tick_rx) = mpsc::channel::<String>(64);
-    // Late-binds `supervisor.wheel_tick_tx` — owned by this stage.
-    let _ = supervisor.wheel_tick_tx.set(wheel_tick_tx);
     tokio::spawn(wheel::run_wheel(
         wheel::WheelContext {
             supervisor: Arc::clone(&supervisor),

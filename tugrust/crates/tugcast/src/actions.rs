@@ -4,6 +4,7 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::info;
 use tugcast_core::{ControlAction as A, FeedId, Frame};
 
+use crate::control::send_control;
 use crate::router::LagPolicy;
 
 /// Broadcast a `claude_auth_result` CONTROL frame from a resolved auth state.
@@ -64,9 +65,7 @@ fn broadcast_auth_result(
         "subscriptionType": subscription_type,
         "authMethod": auth_method,
     });
-    if let Ok(bytes) = serde_json::to_vec(&body) {
-        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-    }
+    send_control(&cat, body);
 }
 
 /// Probe the installed and newest-available Claude Code versions and broadcast
@@ -86,16 +85,13 @@ async fn broadcast_version_result(cat: Option<broadcast::Sender<Frame>>) {
         "installed": installed,
         "latest": latest,
     });
-    if let Ok(bytes) = serde_json::to_vec(&body) {
-        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-    }
+    send_control(&cat, body);
 }
 
 /// Send one CONTROL frame, or drop it if nothing is listening.
-fn send_control(cat: &Option<broadcast::Sender<Frame>>, body: &serde_json::Value) {
-    let Some(cat) = cat else { return };
-    if let Ok(bytes) = serde_json::to_vec(body) {
-        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
+fn send_if_listening(cat: &Option<broadcast::Sender<Frame>>, body: serde_json::Value) {
+    if let Some(cat) = cat {
+        send_control(cat, body);
     }
 }
 
@@ -131,9 +127,9 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
         &token,
         move |received, expected, version| {
             *progress_last.lock() = (received, expected, version.to_string());
-            send_control(
+            send_if_listening(
                 &progress_cat,
-                &serde_json::json!({
+                serde_json::json!({
                     "action": "claude_install_progress",
                     "received": received,
                     "expected": expected,
@@ -152,9 +148,9 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
         }
         FetchOutcome::Stopped(reason) => {
             let (received, expected, version) = last.lock().clone();
-            send_control(
+            send_if_listening(
                 &cat,
-                &serde_json::json!({
+                serde_json::json!({
                     "action": "claude_download_stopped",
                     "reason": match reason {
                         StopReason::Paused => "paused",
@@ -176,17 +172,17 @@ async fn run_claude_install(cat: Option<broadcast::Sender<Frame>>, result_action
             // official script is unchanged and still knows how ([B08]); the
             // row runs its barber pole because there are no bytes to count.
             info!("claude install: falling back to the official script");
-            send_control(
+            send_if_listening(
                 &cat,
-                &serde_json::json!({ "action": "claude_install_fallback" }),
+                serde_json::json!({ "action": "claude_install_fallback" }),
             );
             crate::feeds::claude_auth::install().await
         }
     };
 
-    send_control(
+    send_if_listening(
         &cat,
-        &serde_json::json!({ "action": result_action, "ok": ok, "error": error }),
+        serde_json::json!({ "action": result_action, "ok": ok, "error": error }),
     );
     // Re-probe regardless — on success `claude` is now reachable.
     let state = crate::feeds::claude_auth::probe().await;
@@ -214,9 +210,7 @@ fn broadcast_host_tools_result(
         "gitFloor": crate::feeds::host_tools::GIT_VERSION_FLOOR,
         "usable": tools.is_usable(),
     });
-    if let Ok(bytes) = serde_json::to_vec(&body) {
-        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-    }
+    send_control(&cat, body);
 }
 
 /// The router-owned state every ingress path hands to [`dispatch_action`].
@@ -350,9 +344,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                         "ok": ok,
                         "error": error,
                     });
-                    if let Ok(bytes) = serde_json::to_vec(&body) {
-                        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-                    }
+                    send_control(cat, body);
                 }
                 let tools = crate::feeds::host_tools::probe().await;
                 let settled = tools.is_usable();
@@ -482,9 +474,7 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                         "ok": ok,
                         "error": error,
                     });
-                    if let Ok(bytes) = serde_json::to_vec(&body) {
-                        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-                    }
+                    send_control(cat, body);
                 }
                 let state = crate::feeds::claude_auth::probe().await;
                 broadcast_auth_result(cat, state, None);

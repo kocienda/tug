@@ -1005,7 +1005,7 @@ impl AgentSupervisor {
             );
             return;
         };
-        let Some(watch_rx) = self.changeset_watch.get() else {
+        let Some(watch_rx) = self.changeset_watch.as_ref() else {
             warn!("changeset draft request: changeset watch not yet armed");
             Self::send_changeset_draft_error(
                 &self.control_tx,
@@ -1157,10 +1157,7 @@ impl AgentSupervisor {
             "state": "error",
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_draft_state serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_commit` CONTROL request (Spec S03, [P15]):
@@ -1278,10 +1275,7 @@ impl AgentSupervisor {
                     "summary": summary,
                     "receipt_id": receipt_id,
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_commit_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(detail) => {
                 Self::send_changeset_commit_err(&self.control_tx, project_dir, &detail);
@@ -1299,10 +1293,7 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_commit_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_push` CONTROL request (Spec S03): push the open
@@ -1357,10 +1348,7 @@ impl AgentSupervisor {
                     "upstream": receipt.upstream,
                     "commits": receipt.commits,
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_push_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(detail) => {
                 Self::send_changeset_push_err(&self.control_tx, project_dir, &detail);
@@ -1378,10 +1366,7 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_push_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_claim` CONTROL request: a session claims the listed
@@ -1565,10 +1550,7 @@ impl AgentSupervisor {
             "claimed": claimed,
             "warning": warning,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_claim_ok serializes"),
-        ));
+        send_control(&self.control_tx, body.clone());
         body
     }
 
@@ -1584,10 +1566,7 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_claim_err serializes"),
-        ));
+        send_control(control_tx, body.clone());
         body
     }
 
@@ -1691,10 +1670,7 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "disclaimed": disclaimed,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_disclaim_ok serializes"),
-        ));
+        send_control(&self.control_tx, body.clone());
         body
     }
 
@@ -1710,10 +1686,7 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_disclaim_err serializes"),
-        ));
+        send_control(control_tx, body.clone());
         body
     }
 
@@ -1991,10 +1964,7 @@ impl AgentSupervisor {
                 {
                     body["archaeology"] = archaeology;
                 }
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_join_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
                 landed
             }
             Ok(Err(detail)) => {
@@ -2134,10 +2104,7 @@ impl AgentSupervisor {
             "arc": arc,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Broadcast one join progress beat. A liveness hint only: the
@@ -2160,10 +2127,7 @@ impl AgentSupervisor {
             "beat": beat,
             "status": status,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_land_delta serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_join_resolve` CONTROL request (Spec S12, [P31]/[P32]):
@@ -2457,10 +2421,7 @@ impl AgentSupervisor {
                 "detail": "that question is no longer waiting for an answer — resolve the join again",
             })
         };
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_question_answer reply serializes"),
-        ));
+        send_control(&self.control_tx, body);
         self.registry.changeset_all_bump().notify_one();
     }
 
@@ -2488,10 +2449,7 @@ impl AgentSupervisor {
             );
             map.insert("arc".into(), serde_json::Value::String(arc.to_string()));
         }
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_resolve_ok serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Record why a resolve stopped, against the arc head it ran on.
@@ -2528,10 +2486,7 @@ impl AgentSupervisor {
             "detail": detail,
             "admission": true,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_resolve_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Clear the base-side work refusing an arc's join ([`resolve_base_in`]).
@@ -2607,6 +2562,7 @@ impl AgentSupervisor {
             dir,
             &request.arc,
             handle.as_ref().map(|h| h.ledger().as_ref()),
+            &self.busy_probe(),
         )
         .await;
         let live_dirt: std::collections::BTreeMap<String, String> = live
@@ -2663,10 +2619,7 @@ impl AgentSupervisor {
                 }
                 let body =
                     Self::changeset_join_resolve_base_ok_body(project_dir, &outcome.name, &outcome);
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_join_resolve_base_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Ok(Err(detail)) => {
                 Self::send_changeset_join_resolve_err(
@@ -2766,10 +2719,7 @@ impl AgentSupervisor {
             "arc": arc,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_resolve_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_join_resolve_base_undo` CONTROL request: put back
@@ -2825,11 +2775,7 @@ impl AgentSupervisor {
                 if let Some(tip) = outcome.base_tip.as_deref() {
                     body["base_tip"] = serde_json::Value::String(tip.to_string());
                 }
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body)
-                        .expect("changeset_join_resolve_base_undo_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Ok(Err(detail)) => {
                 self.registry.changeset_all_bump().notify_one();
@@ -2868,10 +2814,7 @@ impl AgentSupervisor {
             "arc": arc,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_join_resolve_base_undo_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_discard` CONTROL request: discard an arc (worktree +
@@ -2961,10 +2904,7 @@ impl AgentSupervisor {
                     "receipt_id": receipt_id,
                     "warnings": outcome.warnings,
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_discard_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Ok(Err(detail)) => {
                 Self::send_changeset_discard_err(
@@ -2997,10 +2937,7 @@ impl AgentSupervisor {
             "arc": arc,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_discard_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_delete_documents` CONTROL request: delete
@@ -3075,10 +3012,7 @@ impl AgentSupervisor {
                     "summary": summary,
                     "receipt_id": receipt_id,
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_delete_documents_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Ok(Err(detail)) => {
                 Self::send_changeset_delete_documents_err(
@@ -3111,10 +3045,7 @@ impl AgentSupervisor {
             "arc": arc,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_delete_documents_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `changeset_replay` CONTROL request: replay an arc's rounds onto
@@ -3186,10 +3117,7 @@ impl AgentSupervisor {
                     outcome = %serialized.get("outcome").and_then(|v| v.as_str()).unwrap_or("-"),
                     "arc-replay: completed"
                 );
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("changeset_replay_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Ok(Err(detail)) => {
                 Self::send_changeset_replay_err(
@@ -3226,10 +3154,7 @@ impl AgentSupervisor {
             "session_id": session_id,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_replay_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     fn send_changeset_git_init_ok(control_tx: &broadcast::Sender<Frame>, project_dir: &str) {
@@ -3237,10 +3162,7 @@ impl AgentSupervisor {
             "action": "changeset_git_init_ok",
             "project_dir": project_dir,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_git_init_ok serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     fn send_changeset_git_init_err(
@@ -3253,9 +3175,6 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "detail": detail,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("changeset_git_init_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 }

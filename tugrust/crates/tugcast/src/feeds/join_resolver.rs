@@ -43,6 +43,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
 use tugarc_core::ResolvedBy;
 
+use crate::control::send_control;
+
 /// The tools the resolver may use: read the tree, edit the tree. **No Bash** —
 /// verification is the orchestrator's job ([P05]), and a resolver that could
 /// run commands could also run git and move refs, which its charter forbids in
@@ -1026,10 +1028,7 @@ async fn escalate(ctx: &ResolverContext, ask: &ResolverAsk) -> Result<String, St
         "question": question.question,
         "options": question.options,
     });
-    let _ = ctx.control_tx.send(tugcast_core::protocol::Frame::new(
-        tugcast_core::protocol::FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("changeset_join_question serializes"),
-    ));
+    send_control(&ctx.control_tx, body);
     emit_resolver_delta(ctx, "asking", None);
     ctx.bump.notify_one();
 
@@ -1307,10 +1306,7 @@ fn emit_resolver_delta(ctx: &ResolverContext, status: &str, candidate: Option<&s
         "status": status,
         "text": Option::<&str>::None,
     });
-    let _ = ctx.control_tx.send(tugcast_core::protocol::Frame::new(
-        tugcast_core::protocol::FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("changeset_join_resolve_delta serializes"),
-    ));
+    send_control(&ctx.control_tx, body);
 }
 
 #[cfg(test)]

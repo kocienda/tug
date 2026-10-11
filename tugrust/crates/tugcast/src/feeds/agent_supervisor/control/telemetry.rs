@@ -587,10 +587,7 @@ impl AgentSupervisor {
                 "tug_session_id": tug_session_id_str,
                 "rows": serde_json::Value::Array(Vec::new()),
             });
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&body).expect("list_session_state_changes_ok serializes"),
-            ));
+            send_control(&self.control_tx, body);
             return;
         };
         let resolved_claude_id = {
@@ -624,10 +621,7 @@ impl AgentSupervisor {
                     "tug_session_id": tug_session_id_str,
                     "reason": "ledger_read_failed",
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("list_session_state_changes_err serializes"),
-                ));
+                send_control(&self.control_tx, body);
                 return;
             }
         };
@@ -647,10 +641,7 @@ impl AgentSupervisor {
             "tug_session_id": tug_session_id_str,
             "rows": wire_rows,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_session_state_changes_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// Handle a `list_digest_lines` CONTROL request — the deck's mount-time
@@ -712,10 +703,7 @@ impl AgentSupervisor {
             "action": "list_digest_lines_ok",
             "lines": lines,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_digest_lines_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// Handle a `list_overview_posts` CONTROL request — the Overview card's
@@ -760,10 +748,7 @@ impl AgentSupervisor {
             "has_more": has_more,
             "before_id": before_id,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_overview_posts_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// Handle a `list_shell_exchanges { tug_session_id, since_ms? }` CONTROL
@@ -825,10 +810,7 @@ impl AgentSupervisor {
             "max_seq": max_seq,
             "answered": answered,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_shell_exchanges_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// Handle a `list_refs { tug_session_id }` CONTROL request — the deck's
@@ -849,9 +831,6 @@ impl AgentSupervisor {
             "tug_session_id": tug_session_id,
             "run": run,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_refs_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 }

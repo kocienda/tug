@@ -319,7 +319,7 @@ pub struct LedgerEntry {
     /// degrades `holders_busy` to *late*, never *forever*.
     ///
     /// **The read point is the reap point, and there are two of them**: the
-    /// recompute's read of busyness ([`busy_session_ids`]) and the arc
+    /// recompute's read of busyness ([`BusyProbe::busy_session_ids`]) and the arc
     /// runner's read of one entry (`session_snapshot`). Both reap on their way
     /// past, so no timer task is needed and the bound holds on an arc nobody
     /// happens to be recomputing ([B04]).
@@ -711,7 +711,7 @@ impl LedgerEntry {
 /// would reap real work and offer its join early (Risk R01's residual is a
 /// silent job longer than this, accepted as the cost of never wedging).
 ///
-/// Read at both reap points — [`busy_session_ids`], the recompute's read of
+/// Read at both reap points — [`BusyProbe::busy_session_ids`], the recompute's read of
 /// busyness, and the arc runner's `session_snapshot`, its read of one entry —
 /// which is why it is visible past this module.
 pub(crate) const JOB_REAP_HORIZON: std::time::Duration = std::time::Duration::from_secs(30 * 60);

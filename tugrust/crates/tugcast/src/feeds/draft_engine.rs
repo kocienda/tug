@@ -24,8 +24,10 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+use tugcast_core::Frame;
 use tugcast_core::types::{ChangesetEntry, WorkspacesChangesetSnapshot};
-use tugcast_core::{FeedId, Frame};
+
+use crate::control::send_control;
 
 use super::agent_supervisor::ScribeContext;
 use super::workspace_registry::WorkspaceRegistry;
@@ -268,10 +270,7 @@ pub fn send_draft_cancelled(
         "owner_id": owner_id,
         "state": "cancelled",
     });
-    let _ = control_tx.send(Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("changeset_draft_state serializes"),
-    ));
+    send_control(control_tx, body);
 }
 
 /// Read the persisted draft for an entry, keyed by the canonical
@@ -716,10 +715,7 @@ fn send_state(deps: &EngineDeps, key: &EntryKey, state: &str, detail: Option<&st
     if let Some(detail) = detail {
         body["detail"] = serde_json::Value::String(detail.to_string());
     }
-    let _ = deps.control_tx.send(Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("changeset_draft_state serializes"),
-    ));
+    send_control(&deps.control_tx, body);
 }
 
 fn send_delta(deps: &EngineDeps, key: &EntryKey, text: &str) {
@@ -730,10 +726,7 @@ fn send_delta(deps: &EngineDeps, key: &EntryKey, text: &str) {
         "owner_id": key.owner_id,
         "text": text,
     });
-    let _ = deps.control_tx.send(Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("changeset_draft_delta serializes"),
-    ));
+    send_control(&deps.control_tx, body);
 }
 
 pub(crate) fn now_millis() -> i64 {

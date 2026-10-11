@@ -2013,15 +2013,6 @@ fn draft_session_snapshot(
 async fn changeset_draft_request_spawns_generation_over_snapshot() {
     use tugcore::test_fixtures::git::{GitFixture, git};
 
-    let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
-    sup.session_ledger = Some(Arc::new(
-        crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
-    ));
-    sup.set_scribe(ScribeContext {
-        spawner: Arc::new(DraftScribe("Draft message\n".to_string())),
-        model: Arc::new(|| "haiku".to_string()),
-    });
-
     // A repo with a committed file and one tracked modification.
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
@@ -2030,17 +2021,28 @@ async fn changeset_draft_request_spawns_generation_over_snapshot() {
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-m", "base"]);
     std::fs::write(root.join("a.txt"), "changed\n").unwrap();
-
-    let cancel = CancellationToken::new();
-    let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
     let root_str = root.to_string_lossy().to_string();
 
-    // Store the aggregate watch frame the request resolves against.
+    // The aggregate watch frame the request resolves against.
     let (_wtx, wrx) = watch::channel(Frame::new(
         FeedId::CHANGESET_ALL,
         serde_json::to_vec(&draft_session_snapshot(&root_str, &root_str)).unwrap(),
     ));
-    sup.changeset_watch.set(wrx).ok();
+    let (mut sup, _state_rx, _meta_rx, mut control_rx) =
+        make_supervisor_with_store_deps(SupervisorDeps {
+            changeset_watch: Some(wrx),
+            ..Default::default()
+        });
+    sup.session_ledger = Some(Arc::new(
+        crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
+    ));
+    sup.set_scribe(ScribeContext {
+        spawner: Arc::new(DraftScribe("Draft message\n".to_string())),
+        model: Arc::new(|| "haiku".to_string()),
+    });
+
+    let cancel = CancellationToken::new();
+    let _entry = sup.registry.get_or_create(&root, cancel.clone()).unwrap();
 
     let payload = serde_json::to_vec(&serde_json::json!({
         "action": "changeset_draft_request",
@@ -2090,15 +2092,6 @@ async fn changeset_draft_request_spawns_generation_over_snapshot() {
 
 #[tokio::test]
 async fn changeset_draft_request_nothing_to_generate_replies_error() {
-    let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
-    sup.session_ledger = Some(Arc::new(
-        crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
-    ));
-    sup.set_scribe(ScribeContext {
-        spawner: Arc::new(DraftScribe("unused".to_string())),
-        model: Arc::new(|| "haiku".to_string()),
-    });
-
     // An empty snapshot surfaces no eligible entry for the requested owner.
     let empty = tugcast_core::types::WorkspacesChangesetSnapshot {
         projects: vec![],
@@ -2108,7 +2101,18 @@ async fn changeset_draft_request_nothing_to_generate_replies_error() {
         FeedId::CHANGESET_ALL,
         serde_json::to_vec(&empty).unwrap(),
     ));
-    sup.changeset_watch.set(wrx).ok();
+    let (mut sup, _state_rx, _meta_rx, mut control_rx) =
+        make_supervisor_with_store_deps(SupervisorDeps {
+            changeset_watch: Some(wrx),
+            ..Default::default()
+        });
+    sup.session_ledger = Some(Arc::new(
+        crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
+    ));
+    sup.set_scribe(ScribeContext {
+        spawner: Arc::new(DraftScribe("unused".to_string())),
+        model: Arc::new(|| "haiku".to_string()),
+    });
 
     let payload = serde_json::to_vec(&serde_json::json!({
         "action": "changeset_draft_request",
@@ -2176,14 +2180,6 @@ async fn terminal_draft_frames_are_addressed_by_workspace_key() {
         ("changeset_draft_request", "error"),
         ("changeset_draft_cancel", "cancelled"),
     ] {
-        let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
-        sup.session_ledger = Some(Arc::new(
-            crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
-        ));
-        sup.set_scribe(ScribeContext {
-            spawner: Arc::new(DraftScribe("unused".to_string())),
-            model: Arc::new(|| "haiku".to_string()),
-        });
         let empty = tugcast_core::types::WorkspacesChangesetSnapshot {
             projects: vec![],
             ledger_degraded: false,
@@ -2192,7 +2188,18 @@ async fn terminal_draft_frames_are_addressed_by_workspace_key() {
             FeedId::CHANGESET_ALL,
             serde_json::to_vec(&empty).unwrap(),
         ));
-        sup.changeset_watch.set(wrx).ok();
+        let (mut sup, _state_rx, _meta_rx, mut control_rx) =
+            make_supervisor_with_store_deps(SupervisorDeps {
+                changeset_watch: Some(wrx),
+                ..Default::default()
+            });
+        sup.session_ledger = Some(Arc::new(
+            crate::session_ledger::SessionLedger::open_in_memory().unwrap(),
+        ));
+        sup.set_scribe(ScribeContext {
+            spawner: Arc::new(DraftScribe("unused".to_string())),
+            model: Arc::new(|| "haiku".to_string()),
+        });
 
         let payload = serde_json::to_vec(&serde_json::json!({
             "action": verb,
@@ -2426,6 +2433,7 @@ async fn changeset_commit_persists_the_landing_to_the_shell_ledger() {
         AgentSupervisorConfig::default(),
         registry,
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     sup.set_shell_ledger(Arc::clone(&shell_ledger));
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });

@@ -29,6 +29,7 @@ fn supervisor_over_forked_ink() -> (
         AgentSupervisorConfig::default(),
         Arc::new(WorkspaceRegistry::new_for_test()),
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     let shell = Arc::new(crate::shell_ledger::ShellLedger::open_in_memory().expect("shell ledger"));
     sup.set_shell_ledger(Arc::clone(&shell));
@@ -152,6 +153,7 @@ async fn list_shell_exchanges_returns_the_session_tail() {
         AgentSupervisorConfig::default(),
         Arc::new(WorkspaceRegistry::new_for_test()),
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     sup.set_shell_ledger(Arc::clone(&shell_ledger));
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
@@ -224,6 +226,7 @@ async fn list_refs_returns_the_sessions_latest_run() {
         AgentSupervisorConfig::default(),
         Arc::new(WorkspaceRegistry::new_for_test()),
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     sup.set_refs_ledger(Arc::clone(&refs_ledger));
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
@@ -303,6 +306,7 @@ async fn list_overview_posts_returns_the_channel_tail() {
         AgentSupervisorConfig::default(),
         Arc::new(WorkspaceRegistry::new_for_test()),
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
 
@@ -390,6 +394,7 @@ async fn list_digest_lines_answers_a_per_session_tail_from_memory() {
         AgentSupervisorConfig::default(),
         Arc::new(WorkspaceRegistry::new_for_test()),
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     sup.set_digester(digester);
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
@@ -488,6 +493,7 @@ async fn list_shell_exchanges_empty_for_unknown_session() {
         AgentSupervisorConfig::default(),
         Arc::new(WorkspaceRegistry::new_for_test()),
         CancellationToken::new(),
+        SupervisorDeps::default(),
     );
     sup.set_shell_ledger(shell_ledger);
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });

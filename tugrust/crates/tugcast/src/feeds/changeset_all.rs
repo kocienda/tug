@@ -41,6 +41,7 @@ use tracing::{debug, info};
 use tugcast_core::types::{ChangesetSnapshot, ProjectChangeset, WorkspacesChangesetSnapshot};
 use tugcast_core::{FeedId, Frame, SnapshotFeed};
 
+use super::agent_supervisor::BusyProbe;
 use super::changeset::{apply_session_rows, compose_snapshot};
 use super::git::is_within_git_worktree;
 use super::workspace_registry::WorkspaceRegistry;
@@ -59,6 +60,10 @@ pub struct ChangesetAllFeed {
     /// `None` in harnesses without a ledger — every dirty file then lands
     /// unattributed.
     ledger: Option<Arc<SessionLedger>>,
+    /// Which sessions are still working, read from the supervisor's in-memory
+    /// ledger so an arc is not offered for joining while the session that
+    /// built it is mid-turn. The default probe reads every session as quiet.
+    busy: BusyProbe,
     /// Process-global recompute signal — shared with `ChangesetBumper`, the
     /// registry's open/close hooks, and every workspace's event-driven git
     /// watch (`feeds/git_watch.rs`). Permit semantics: bursts coalesce. This is
@@ -70,11 +75,13 @@ impl ChangesetAllFeed {
     pub fn new(
         registry: Arc<WorkspaceRegistry>,
         ledger: Option<Arc<SessionLedger>>,
+        busy: BusyProbe,
         bump: Arc<Notify>,
     ) -> Self {
         Self {
             registry,
             ledger,
+            busy,
             bump,
         }
     }
@@ -108,7 +115,8 @@ impl SnapshotFeed for ChangesetAllFeed {
         // probed draft write). The probe tick itself never recomputes.
         loop {
             let started = std::time::Instant::now();
-            let snapshot = compose_aggregate(&self.registry, self.ledger.as_deref()).await;
+            let snapshot =
+                compose_aggregate(&self.registry, self.ledger.as_deref(), &self.busy).await;
             debug!(
                 projects = snapshot.projects.len(),
                 millis = started.elapsed().as_millis() as u64,
@@ -224,6 +232,7 @@ fn arc_log_stamps(registry: &WorkspaceRegistry) -> Vec<Option<std::time::SystemT
 pub(crate) async fn compose_aggregate(
     registry: &WorkspaceRegistry,
     ledger: Option<&SessionLedger>,
+    busy: &BusyProbe,
 ) -> WorkspacesChangesetSnapshot {
     let open = registry.project_dirs();
     let mut projects = Vec::with_capacity(open.len());
@@ -321,7 +330,7 @@ pub(crate) async fn compose_aggregate(
         });
     }
 
-    attach_arcs_per_repo(&mut projects, &compose_facts, ledger).await;
+    attach_arcs_per_repo(&mut projects, &compose_facts, ledger, busy).await;
 
     if !gone.is_empty() {
         registry.sweep_missing(&gone);
@@ -357,6 +366,7 @@ async fn attach_arcs_per_repo(
     projects: &mut [ProjectChangeset],
     compose_facts: &[(std::path::PathBuf, bool, bool)],
     ledger: Option<&SessionLedger>,
+    busy: &BusyProbe,
 ) {
     use std::collections::HashMap;
 
@@ -404,6 +414,7 @@ async fn attach_arcs_per_repo(
             super::changeset::attach_arc_composition(
                 project_dir,
                 ledger,
+                busy,
                 &mut projects[index].snapshot,
             )
             .await;
@@ -525,7 +536,7 @@ mod tests {
         let _base_entry = registry.get_or_create(&base, cancel.clone()).unwrap();
         let _wt_entry = registry.get_or_create(&wt, cancel.clone()).unwrap();
 
-        let snapshot = compose_aggregate(&registry, None).await;
+        let snapshot = compose_aggregate(&registry, None, &BusyProbe::default()).await;
         assert_eq!(snapshot.projects.len(), 2);
         let base_project = snapshot
             .projects
@@ -565,7 +576,7 @@ mod tests {
         let registry = Arc::new(WorkspaceRegistry::new_for_test());
         let _wt_entry = registry.get_or_create(&wt, cancel.clone()).unwrap();
 
-        let snapshot = compose_aggregate(&registry, None).await;
+        let snapshot = compose_aggregate(&registry, None, &BusyProbe::default()).await;
         assert_eq!(snapshot.projects.len(), 1);
         assert_eq!(
             arc_count(&snapshot.projects[0]),
@@ -592,7 +603,7 @@ mod tests {
         let _a_entry = registry.get_or_create(&a, cancel.clone()).unwrap();
         let _b_entry = registry.get_or_create(&b, cancel.clone()).unwrap();
 
-        let snapshot = compose_aggregate(&registry, None).await;
+        let snapshot = compose_aggregate(&registry, None, &BusyProbe::default()).await;
         assert_eq!(snapshot.projects.len(), 2);
         for project in &snapshot.projects {
             assert_eq!(
@@ -621,7 +632,7 @@ mod tests {
 
         let mut projects = vec![bare_project(&base), bare_project(&link)];
         let facts = vec![(base.clone(), false, true), (link.clone(), false, true)];
-        attach_arcs_per_repo(&mut projects, &facts, None).await;
+        attach_arcs_per_repo(&mut projects, &facts, None, &BusyProbe::default()).await;
 
         assert_eq!(
             arc_count(&projects[0]) + arc_count(&projects[1]),
@@ -649,7 +660,7 @@ mod tests {
         let mut projects = vec![bare_project(&base), bare_project(&wt)];
         // The base is open but its `compose_snapshot` failed this cycle.
         let facts = vec![(base.clone(), false, false), (wt.clone(), false, true)];
-        attach_arcs_per_repo(&mut projects, &facts, None).await;
+        attach_arcs_per_repo(&mut projects, &facts, None, &BusyProbe::default()).await;
 
         assert_eq!(arc_count(&projects[0]), 0, "a failed compose cannot own");
         assert_eq!(arc_count(&projects[1]), 1, "the sibling carries the list");
@@ -676,7 +687,7 @@ mod tests {
 
         std::fs::remove_dir_all(&doomed).unwrap();
 
-        let snapshot = compose_aggregate(&registry, None).await;
+        let snapshot = compose_aggregate(&registry, None, &BusyProbe::default()).await;
         assert_eq!(snapshot.projects.len(), 1, "the ghost composes nothing");
         assert_eq!(Path::new(&snapshot.projects[0].project_dir), live);
 
@@ -754,6 +765,7 @@ mod tests {
         let feed = ChangesetAllFeed::new(
             Arc::clone(&registry),
             Some(Arc::clone(&ledger)),
+            BusyProbe::default(),
             Arc::clone(&bump),
         );
 
@@ -853,7 +865,12 @@ mod tests {
         let _entry = registry.get_or_create(&repo, cancel.clone()).unwrap();
 
         let bump = Arc::new(Notify::new());
-        let feed = ChangesetAllFeed::new(Arc::clone(&registry), None, Arc::clone(&bump));
+        let feed = ChangesetAllFeed::new(
+            Arc::clone(&registry),
+            None,
+            BusyProbe::default(),
+            Arc::clone(&bump),
+        );
         let (tx, mut rx) = watch::channel(Frame::new(FeedId::CHANGESET_ALL, vec![]));
         let feed_cancel = CancellationToken::new();
         let task = spawn_snapshot_feed(Box::new(feed), tx, feed_cancel.clone());
@@ -975,7 +992,7 @@ mod tests {
         );
         ledger.record_file_event(&row).unwrap();
 
-        let snapshot = compose_aggregate(&registry, Some(&ledger)).await;
+        let snapshot = compose_aggregate(&registry, Some(&ledger), &BusyProbe::default()).await;
         let project = snapshot
             .projects
             .iter()

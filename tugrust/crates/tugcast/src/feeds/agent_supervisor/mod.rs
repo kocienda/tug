@@ -51,6 +51,7 @@ use super::session_metadata::{
 use super::session_scoped::SessionScopedFeed;
 use super::workspace_registry::{WorkspaceError, WorkspaceKey, WorkspaceRegistry};
 use crate::background_session::background_card_id;
+use crate::control::{control_frame, send_control};
 use tugcast_core::ControlAction;
 #[cfg(test)]
 use tugcast_core::LagPolicy;
@@ -93,53 +94,67 @@ pub use spawn_state::*;
 /// the entry's mutable fields.
 pub type Ledger = Arc<Mutex<HashMap<TugSessionId, Arc<Mutex<LedgerEntry>>>>>;
 
-/// The process's one supervisor ledger, published for readers that are not on
-/// the supervisor's own call graph.
+/// A read of which sessions are still working, handed to the readers that are
+/// not on the supervisor's own call graph.
 ///
 /// Whether a session is finished ([`LedgerEntry::is_quiet`]) lives only in
 /// memory — it is derived from frames as they cross the pipe and is deliberately
 /// not persisted, so a reader like the changeset recompute cannot go and look it
 /// up in `sessions.db`. Rather than mirror the fact into a second home and let
-/// the two drift, the ledger itself is published here and read directly. Set
-/// once, at supervisor construction; `None` in tests that never build one, where
+/// the two drift, the probe holds the ledger itself and reads it directly. The
+/// supervisor hands one out ([`AgentSupervisor::busy_probe`]); the default
+/// probe holds no ledger, for harnesses that never build a supervisor, where
 /// every session then reads as quiet — the honest answer when there is no
 /// supervisor to say otherwise.
-static LEDGER_HANDLE: std::sync::OnceLock<Ledger> = std::sync::OnceLock::new();
+#[derive(Clone, Default)]
+pub struct BusyProbe {
+    ledger: Option<Ledger>,
+}
 
-/// Every session that is **not** finished right now — mid-turn, or holding a
-/// background job that has not reported.
-///
-/// One snapshot per caller, so a recompute asking about many arcs locks the
-/// ledger once. Empty when no supervisor is running.
-pub async fn busy_session_ids() -> HashSet<String> {
-    let Some(ledger) = LEDGER_HANDLE.get() else {
-        return HashSet::new();
-    };
-    // The membership lock is released before any entry lock is taken: an entry
-    // is held across `await` points elsewhere, and holding the outer map while
-    // waiting on one would serialize the whole supervisor behind it.
-    let entries: Vec<(String, Arc<Mutex<LedgerEntry>>)> = {
-        let map = ledger.lock().await;
-        map.iter()
-            .map(|(id, entry)| (id.to_string(), Arc::clone(entry)))
-            .collect()
-    };
-    let mut busy = HashSet::new();
-    for (id, entry) in entries {
-        let mut entry = entry.lock().await;
-        // The read point is the reap point: no timer task, just a reader that
-        // consults busyness pruning what has gone stale on its way past. This
-        // is one of the two — the arc runner's `session_snapshot` takes the
-        // same two calls in the same order for the one entry it reads ([B04]).
-        entry.reap_stuck_jobs(std::time::Instant::now());
-        // And the turn flag, under the same doctrine ([B02]). Ordered after
-        // the jobs so one pass can take a session all the way to quiet.
-        entry.reap_stuck_turn(std::time::Instant::now());
-        if !entry.is_quiet() {
-            busy.insert(id);
+impl BusyProbe {
+    pub fn new(ledger: Ledger) -> Self {
+        Self {
+            ledger: Some(ledger),
         }
     }
-    busy
+
+    /// Every session that is **not** finished right now — mid-turn, or holding
+    /// a background job that has not reported.
+    ///
+    /// One snapshot per caller, so a recompute asking about many arcs locks the
+    /// ledger once. Empty when the probe holds no ledger.
+    pub async fn busy_session_ids(&self) -> HashSet<String> {
+        let Some(ledger) = &self.ledger else {
+            return HashSet::new();
+        };
+        // The membership lock is released before any entry lock is taken: an
+        // entry is held across `await` points elsewhere, and holding the outer
+        // map while waiting on one would serialize the whole supervisor behind
+        // it.
+        let entries: Vec<(String, Arc<Mutex<LedgerEntry>>)> = {
+            let map = ledger.lock().await;
+            map.iter()
+                .map(|(id, entry)| (id.to_string(), Arc::clone(entry)))
+                .collect()
+        };
+        let mut busy = HashSet::new();
+        for (id, entry) in entries {
+            let mut entry = entry.lock().await;
+            // The read point is the reap point: no timer task, just a reader
+            // that consults busyness pruning what has gone stale on its way
+            // past. This is one of the two — the arc runner's
+            // `session_snapshot` takes the same two calls in the same order for
+            // the one entry it reads ([B04]).
+            entry.reap_stuck_jobs(std::time::Instant::now());
+            // And the turn flag, under the same doctrine ([B02]). Ordered after
+            // the jobs so one pass can take a session all the way to quiet.
+            entry.reap_stuck_turn(std::time::Instant::now());
+            if !entry.is_quiet() {
+                busy.insert(id);
+            }
+        }
+        busy
+    }
 }
 
 /// A session with a live tugcode child and its captured `(pid, start_time)` —
@@ -421,9 +436,8 @@ pub struct AgentSupervisor {
     /// [`AgentSupervisor::set_digester`] in `main.rs`.
     pub digester: Option<crate::feeds::session_digest::SharedDigester>,
     /// The changeset scribe ([P11]/[P21]) — spawner + model resolver behind the
-    /// maintained-draft engine. `None` (tests, or a boot without wiring) makes
-    /// [`AgentSupervisor::start_draft_engine`] a no-op. Set via
-    /// [`AgentSupervisor::set_scribe`] in `main.rs`.
+    /// maintained-draft engine. `None` in tests, or a boot without wiring. Set
+    /// via [`AgentSupervisor::set_scribe`] in `main.rs`.
     pub scribe: Option<ScribeContext>,
     /// Per-spawn factory for the backing subprocess. Swapped for a mock in
     /// tests so unit tests do not need a real tugcode binary.
@@ -453,12 +467,13 @@ pub struct AgentSupervisor {
     /// because the critical section is bounded, non-awaiting, and never
     /// crosses an `.await` point.
     pub spawn_timestamps: Arc<SyncMutex<VecDeque<Instant>>>,
-    /// Latest CHANGESET_ALL aggregate watch receiver, stored at boot by
-    /// [`AgentSupervisor::start_draft_engine`]. `do_changeset_draft_request`
-    /// borrows its current frame to resolve an on-demand draft against the
-    /// latest snapshot ([P03]). `None` (its unset state) when the draft path
-    /// isn't wired (tests, or a boot without the aggregate feed).
-    pub changeset_watch: std::sync::OnceLock<watch::Receiver<Frame>>,
+    /// Latest CHANGESET_ALL aggregate watch receiver, for the on-demand draft
+    /// path (#draft-engine). No background loop reads it — generation runs only
+    /// on an explicit `changeset_draft_request`, which borrows its current
+    /// frame to resolve the draft against the latest snapshot ([P03]). `None`
+    /// when the draft path isn't wired (tests, or a boot without the aggregate
+    /// feed).
+    pub changeset_watch: Option<watch::Receiver<Frame>>,
     /// In-flight Auto-Message generation tasks, keyed by entry identity. A
     /// `changeset_draft_cancel` (or a superseding request) aborts the live
     /// handle; aborting kills only that draft's headless scribe child, never
@@ -469,9 +484,9 @@ pub struct AgentSupervisor {
     /// branch under a session that is mid-turn, and "the base moved during a
     /// turn" is the common shape of the problem — so a turn ending is the wake
     /// that lets a parked arc catch up seconds later rather than at the next
-    /// unrelated commit. Unset in tests and in any boot without the engine,
+    /// unrelated commit. `None` in tests and in any boot without the engine,
     /// where the send is simply skipped.
-    pub turn_complete_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    pub turn_complete_tx: Option<mpsc::Sender<String>>,
     /// The same idle transition, for the arc runner ([P05]).
     ///
     /// A sibling channel rather than a second receiver on `turn_complete_tx`:
@@ -479,23 +494,39 @@ pub struct AgentSupervisor {
     /// unrelated reasons — base-motion to catch a parked arc up, the arc to
     /// rotate its next stage. Both are fed from the one place the supervisor
     /// recognizes the transition, so neither re-derives it.
-    pub arc_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    pub arc_tick_tx: Option<mpsc::Sender<String>>,
     /// The same idle transition again, for the wheel ([P04]).
     ///
     /// A third sibling for the reason there is a second: an mpsc has one
     /// consumer, and a rotation asked for mid-turn must land at *that* turn's
     /// end — the edge computed here and nowhere else.
-    pub wheel_tick_tx: std::sync::OnceLock<mpsc::Sender<String>>,
+    pub wheel_tick_tx: Option<mpsc::Sender<String>>,
     /// The wheel itself, for the stoppers that live here rather than in the
     /// arc engine ([P03]).
     ///
     /// `stop_arc_for_session` takes the wheel state — a stop either sends the
     /// hand-back or arms it, and both are the wheel's registries — so a
     /// supervisor method that performs a stop needs the state and not just
-    /// the tick channel. Set in `main.rs` where `wheel_state` is built;
-    /// unset is the one way [`AgentSupervisor::stop_arc_now`] can decline,
-    /// and it says so rather than reporting a stop that did not happen.
-    pub wheel: std::sync::OnceLock<Arc<crate::wheel::WheelState>>,
+    /// the tick channel. Passed in by the boot stage, which builds
+    /// `wheel_state` before the supervisor; `None` is the one way
+    /// [`AgentSupervisor::stop_arc_now`] can decline, and it says so rather
+    /// than reporting a stop that did not happen.
+    pub wheel: Option<Arc<crate::wheel::WheelState>>,
+}
+
+/// The supervisor's collaborators that live outside it, handed in at
+/// construction: the boot stage builds every one of them before the
+/// supervisor and spawns their consumers after it. Each field is the
+/// supervisor field of the same name, and `None` means that collaborator is
+/// not wired — the default, for tests and for any boot without the engine it
+/// feeds.
+#[derive(Default)]
+pub struct SupervisorDeps {
+    pub changeset_watch: Option<watch::Receiver<Frame>>,
+    pub turn_complete_tx: Option<mpsc::Sender<String>>,
+    pub arc_tick_tx: Option<mpsc::Sender<String>>,
+    pub wheel_tick_tx: Option<mpsc::Sender<String>>,
+    pub wheel: Option<Arc<crate::wheel::WheelState>>,
 }
 
 /// Registration sent through [`AgentSupervisor::merger_register_tx`] so the
@@ -1548,10 +1579,7 @@ fn build_session_unknown_frame(tug_session_id: &TugSessionId) -> Frame {
         "detail": "session_unknown",
         "tug_session_id": tug_session_id.as_str(),
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("session_unknown payload serializes"),
-    )
+    control_frame(body)
 }
 
 /// P13 spawn-budget check. Run inside `do_spawn_session`'s Phase 1 critical
@@ -1637,10 +1665,7 @@ fn build_backpressure_frame(tug_session_id: &TugSessionId) -> Frame {
         "type": "session_backpressure",
         "tug_session_id": tug_session_id.as_str(),
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("session_backpressure payload serializes"),
-    )
+    control_frame(body)
 }
 
 /// Build the CONTROL error frame the dispatcher emits when the ledger
@@ -1656,10 +1681,7 @@ fn build_ledger_failure_frame(tug_session_id: &TugSessionId) -> Frame {
         "detail": "ledger_insert_failed",
         "tug_session_id": tug_session_id.as_str(),
     });
-    Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("ledger_insert_failed payload serializes"),
-    )
+    control_frame(body)
 }
 
 /// Routing decision produced by the CODE_INPUT dispatcher under the per-session
@@ -1727,10 +1749,7 @@ pub(crate) fn broadcast_bind_arc_ok(
             map.insert("card_id".into(), serde_json::Value::from(card_id));
         }
     }
-    let _ = control_tx.send(Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("bind_arc_ok serializes"),
-    ));
+    send_control(control_tx, body);
 }
 
 /// The unmating half of [`broadcast_bind_arc_ok`], with the same two doors.
@@ -1739,10 +1758,7 @@ pub(crate) fn broadcast_unbind_arc_ok(control_tx: &broadcast::Sender<Frame>, tug
         "action": "unbind_arc_ok",
         "tug_session_id": tug_session_id,
     });
-    let _ = control_tx.send(Frame::new(
-        FeedId::CONTROL,
-        serde_json::to_vec(&body).expect("unbind_arc_ok serializes"),
-    ));
+    send_control(control_tx, body);
 }
 
 /// Log a ledger mutation whose failure the caller does not otherwise act on.
@@ -1776,6 +1792,7 @@ impl AgentSupervisor {
         config: AgentSupervisorConfig,
         registry: Arc<WorkspaceRegistry>,
         cancel: CancellationToken,
+        deps: SupervisorDeps,
     ) -> (Self, mpsc::Receiver<MergerRegistration>) {
         Self::new_with_ledger(
             session_state,
@@ -1789,6 +1806,7 @@ impl AgentSupervisor {
             config,
             registry,
             cancel,
+            deps,
         )
     }
 
@@ -1809,8 +1827,16 @@ impl AgentSupervisor {
         config: AgentSupervisorConfig,
         registry: Arc<WorkspaceRegistry>,
         cancel: CancellationToken,
+        deps: SupervisorDeps,
     ) -> (Self, mpsc::Receiver<MergerRegistration>) {
         let (merger_register_tx, merger_register_rx) = mpsc::channel(64);
+        let SupervisorDeps {
+            changeset_watch,
+            turn_complete_tx,
+            arc_tick_tx,
+            wheel_tick_tx,
+            wheel,
+        } = deps;
         let sup = Self {
             ledger: Arc::new(Mutex::new(HashMap::new())),
             session_state,
@@ -1832,18 +1858,13 @@ impl AgentSupervisor {
             registry,
             cancel,
             spawn_timestamps: Arc::new(SyncMutex::new(VecDeque::new())),
-            changeset_watch: std::sync::OnceLock::new(),
+            changeset_watch,
             draft_tasks: crate::feeds::draft_engine::DraftTaskRegistry::default(),
-            turn_complete_tx: std::sync::OnceLock::new(),
-            arc_tick_tx: std::sync::OnceLock::new(),
-            wheel_tick_tx: std::sync::OnceLock::new(),
-            wheel: std::sync::OnceLock::new(),
+            turn_complete_tx,
+            arc_tick_tx,
+            wheel_tick_tx,
+            wheel,
         };
-        // Published for the readers that need to know whether a session is
-        // finished but have no path to the supervisor — the changeset
-        // recompute, which will not offer an arc for joining while the session
-        // that built it is still working.
-        let _ = LEDGER_HANDLE.set(Arc::clone(&sup.ledger));
         (sup, merger_register_rx)
     }
 
@@ -1923,8 +1944,20 @@ impl AgentSupervisor {
         &self,
     ) -> tugcast_core::types::WorkspacesChangesetSnapshot {
         // LEDGER-SYNC: compose_aggregate reads the ledger between its own git awaits, in a file this conversion does not reach.
-        super::changeset_all::compose_aggregate(&self.registry, self.session_ledger.as_deref())
-            .await
+        super::changeset_all::compose_aggregate(
+            &self.registry,
+            self.session_ledger.as_deref(),
+            &self.busy_probe(),
+        )
+        .await
+    }
+
+    /// A probe over this supervisor's in-memory ledger, for the readers that
+    /// need to know whether a session is finished but have no path to the
+    /// supervisor — the changeset recompute, which will not offer an arc for
+    /// joining while the session that built it is still working.
+    pub fn busy_probe(&self) -> BusyProbe {
+        BusyProbe::new(Arc::clone(&self.ledger))
     }
 
     /// The session ledger behind its async facade: calls through it run on
@@ -2606,10 +2639,7 @@ impl AgentSupervisor {
             "receipt_id": receipt_id,
             "summary": summary,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_receipt serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// The card's own session id and supervisor entry for a **segment** id,
@@ -2725,10 +2755,10 @@ impl AgentSupervisor {
         // the supervisor's own entries are keyed by the card's address, so a
         // segment sent here would be a wake nothing could match.
         if quiet {
-            if let Some(tx) = self.turn_complete_tx.get() {
+            if let Some(tx) = self.turn_complete_tx.as_ref() {
                 let _ = tx.try_send(card.as_str().to_string());
             }
-            if let Some(tx) = self.arc_tick_tx.get() {
+            if let Some(tx) = self.arc_tick_tx.as_ref() {
                 let _ = tx.try_send(card.as_str().to_string());
             }
             self.registry.changeset_all_bump().notify_one();
@@ -2783,10 +2813,7 @@ impl AgentSupervisor {
             "note": note,
             "receipt_id": receipt_id,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_note serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// [`Self::record_landing_receipt`] on the blocking pool: the receipt is
@@ -2951,20 +2978,6 @@ impl AgentSupervisor {
     /// Called once in `main.rs` before the supervisor is shared.
     pub fn set_scribe(&mut self, scribe: ScribeContext) {
         self.scribe = Some(scribe);
-    }
-
-    /// Store the aggregate CHANGESET_ALL watch receiver for the on-demand draft
-    /// path (#draft-engine, [P03]). No background loop is spawned — generation
-    /// runs only on an explicit `changeset_draft_request`, off the latest frame
-    /// this receiver holds. `do_changeset_draft_request` reads it back and
-    /// resolves `tug_session_id → claude_session_id` from this supervisor's
-    /// in-memory ledger entries at request time.
-    pub fn start_draft_engine(
-        self: &Arc<Self>,
-        watch_rx: watch::Receiver<Frame>,
-        _cancel: CancellationToken,
-    ) {
-        let _ = self.changeset_watch.set(watch_rx);
     }
 
     /// The session id durable ink for `tug_session_id` is keyed under: its
@@ -3878,10 +3891,10 @@ impl AgentSupervisor {
                         // it. So the work parked behind it is released on the
                         // same channels the turn edge uses.
                         if self.apply_job_edge(&id, &frame.payload).await {
-                            if let Some(tx) = self.turn_complete_tx.get() {
+                            if let Some(tx) = self.turn_complete_tx.as_ref() {
                                 let _ = tx.try_send(id.to_string());
                             }
-                            if let Some(tx) = self.arc_tick_tx.get() {
+                            if let Some(tx) = self.arc_tick_tx.as_ref() {
                                 let _ = tx.try_send(id.to_string());
                             }
                             self.registry.changeset_all_bump().notify_one();
@@ -3904,10 +3917,10 @@ impl AgentSupervisor {
                     if is_tool_result(&frame.payload) {
                         self.close_run(&id, &frame.payload).await;
                         if self.close_failed_launch(&id, &frame.payload).await {
-                            if let Some(tx) = self.turn_complete_tx.get() {
+                            if let Some(tx) = self.turn_complete_tx.as_ref() {
                                 let _ = tx.try_send(id.to_string());
                             }
-                            if let Some(tx) = self.arc_tick_tx.get() {
+                            if let Some(tx) = self.arc_tick_tx.as_ref() {
                                 let _ = tx.try_send(id.to_string());
                             }
                             self.registry.changeset_all_bump().notify_one();
@@ -3980,14 +3993,14 @@ impl AgentSupervisor {
                                 // The session went idle: an arc parked behind it
                                 // because the gate refuses to move a branch
                                 // mid-turn can now be caught up.
-                                if let Some(tx) = self.turn_complete_tx.get() {
+                                if let Some(tx) = self.turn_complete_tx.as_ref() {
                                     let _ = tx.try_send(id.to_string());
                                 }
                                 // The same edge, for the arc runner ([P05]):
                                 // a stage finishes by finishing a turn, and
                                 // that is the moment its documents have just
                                 // changed.
-                                if let Some(tx) = self.arc_tick_tx.get() {
+                                if let Some(tx) = self.arc_tick_tx.as_ref() {
                                     let _ = tx.try_send(id.to_string());
                                 }
                                 // And again for the wheel ([P04]): a
@@ -3995,7 +4008,7 @@ impl AgentSupervisor {
                                 // parked rather than performed, precisely so
                                 // it lands here instead of killing the claude
                                 // that asked for it.
-                                if let Some(tx) = self.wheel_tick_tx.get() {
+                                if let Some(tx) = self.wheel_tick_tx.as_ref() {
                                     let _ = tx.try_send(id.to_string());
                                 }
                             }
@@ -4926,12 +4939,26 @@ pub(crate) fn test_minimal_supervisor_reading_its_ledger() -> (
     Arc<crate::session_ledger::SessionLedger>,
     mpsc::Receiver<MergerRegistration>,
 ) {
+    test_minimal_supervisor_reading_its_ledger_with(SupervisorDeps::default())
+}
+
+/// [`test_minimal_supervisor_reading_its_ledger`] constructed with the
+/// collaborators the caller chose — a wheel, a tick channel — rather than none.
+#[cfg(test)]
+pub(crate) fn test_minimal_supervisor_reading_its_ledger_with(
+    deps: SupervisorDeps,
+) -> (
+    Arc<AgentSupervisor>,
+    Arc<crate::session_ledger::SessionLedger>,
+    mpsc::Receiver<MergerRegistration>,
+) {
     let ledger = Arc::new(
         crate::session_ledger::SessionLedger::open_in_memory().expect("open in-memory ledger"),
     );
     let (sup, rx) = test_minimal_supervisor_with_recorder_reading(
         Arc::new(LedgerSessionsRecorder::new(Arc::clone(&ledger))),
         Some(Arc::clone(&ledger)),
+        deps,
     );
     (sup, ledger, rx)
 }
@@ -4942,7 +4969,17 @@ pub(crate) fn test_minimal_supervisor_reading_its_ledger() -> (
 pub(crate) fn test_minimal_supervisor_with_recorder(
     recorder: Arc<dyn SessionsRecorder>,
 ) -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>) {
-    test_minimal_supervisor_with_recorder_reading(recorder, None)
+    test_minimal_supervisor_with_recorder_and_deps(recorder, SupervisorDeps::default())
+}
+
+/// [`test_minimal_supervisor_with_recorder`] constructed with the
+/// collaborators the caller chose.
+#[cfg(test)]
+pub(crate) fn test_minimal_supervisor_with_recorder_and_deps(
+    recorder: Arc<dyn SessionsRecorder>,
+    deps: SupervisorDeps,
+) -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>) {
+    test_minimal_supervisor_with_recorder_reading(recorder, None, deps)
 }
 
 /// [`test_minimal_supervisor_with_recorder`] with the read handle wired too,
@@ -4951,6 +4988,7 @@ pub(crate) fn test_minimal_supervisor_with_recorder(
 pub(crate) fn test_minimal_supervisor_with_recorder_reading(
     recorder: Arc<dyn SessionsRecorder>,
     session_ledger: Option<Arc<crate::session_ledger::SessionLedger>>,
+    deps: SupervisorDeps,
 ) -> (Arc<AgentSupervisor>, mpsc::Receiver<MergerRegistration>) {
     let (state_tx, _) = broadcast::channel(16);
     let (meta_tx, _) = broadcast::channel(16);
@@ -4993,6 +5031,7 @@ pub(crate) fn test_minimal_supervisor_with_recorder_reading(
         AgentSupervisorConfig::default(),
         registry,
         cancel,
+        deps,
     );
     (Arc::new(sup), register_rx)
 }
@@ -5958,8 +5997,34 @@ mod tests {
         broadcast::Receiver<Frame>,
         broadcast::Receiver<Frame>,
     ) {
+        make_supervisor_with_store_parts(config, SupervisorDeps::default())
+    }
+
+    /// Variant constructed with the collaborators the caller chose — a tick
+    /// channel, a changeset watch — so a test reads what the supervisor sends
+    /// on them.
+    pub(super) fn make_supervisor_with_store_deps(
+        deps: SupervisorDeps,
+    ) -> (
+        AgentSupervisor,
+        broadcast::Receiver<Frame>,
+        broadcast::Receiver<Frame>,
+        broadcast::Receiver<Frame>,
+    ) {
+        make_supervisor_with_store_parts(AgentSupervisorConfig::default(), deps)
+    }
+
+    fn make_supervisor_with_store_parts(
+        config: AgentSupervisorConfig,
+        deps: SupervisorDeps,
+    ) -> (
+        AgentSupervisor,
+        broadcast::Receiver<Frame>,
+        broadcast::Receiver<Frame>,
+        broadcast::Receiver<Frame>,
+    ) {
         let ((sup, state_rx, meta_rx, control_rx), mut register_rx) =
-            make_supervisor_with_spawner_config(stall_spawner_factory(), config);
+            make_supervisor_with_spawner_config(stall_spawner_factory(), config, deps);
         // Drain the merger register channel so `spawn_session_worker`'s
         // `merger_register_tx.send(...).await` succeeds without an actual
         // merger task attached. Dropping the receiver would short-circuit
@@ -5983,13 +6048,18 @@ mod tests {
         ),
         mpsc::Receiver<MergerRegistration>,
     ) {
-        make_supervisor_with_spawner_config(spawner_factory, AgentSupervisorConfig::default())
+        make_supervisor_with_spawner_config(
+            spawner_factory,
+            AgentSupervisorConfig::default(),
+            SupervisorDeps::default(),
+        )
     }
 
     #[allow(clippy::type_complexity)]
     fn make_supervisor_with_spawner_config(
         spawner_factory: SpawnerFactory,
         config: AgentSupervisorConfig,
+        deps: SupervisorDeps,
     ) -> (
         (
             AgentSupervisor,
@@ -6026,6 +6096,7 @@ mod tests {
             config,
             registry,
             cancel,
+            deps,
         );
         ((sup, state_rx, meta_rx, control_rx), register_rx)
     }
@@ -6606,11 +6677,14 @@ mod tests {
     /// same channels a job's own terminal edge would have.
     #[tokio::test]
     async fn a_step_close_with_the_turn_ended_releases_the_quiet_edge() {
-        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
         let (arc_tick_tx, mut arc_tick_rx) = mpsc::channel(4);
         let (turn_complete_tx, mut turn_complete_rx) = mpsc::channel(4);
-        sup.arc_tick_tx.set(arc_tick_tx).unwrap();
-        sup.turn_complete_tx.set(turn_complete_tx).unwrap();
+        let (sup, _state_rx, _meta_rx, _control_rx) =
+            make_supervisor_with_store_deps(SupervisorDeps {
+                arc_tick_tx: Some(arc_tick_tx),
+                turn_complete_tx: Some(turn_complete_tx),
+                ..Default::default()
+            });
         sup.handle_control(
             "spawn_session",
             &spawn_payload("card-esj-q", "sess-esj-q"),
@@ -6641,6 +6715,40 @@ mod tests {
         assert!(entry.lock().await.is_quiet());
         assert_eq!(arc_tick_rx.try_recv(), Ok("sess-esj-q".to_string()));
         assert_eq!(turn_complete_rx.try_recv(), Ok("sess-esj-q".to_string()));
+    }
+
+    /// The probe the supervisor hands out reads that supervisor's own ledger:
+    /// a session mid-turn is busy, the same session quiet is not, and the
+    /// default probe — the harness with no supervisor — reads every session as
+    /// quiet.
+    #[tokio::test]
+    async fn the_busy_probe_reads_its_supervisors_ledger() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload("card-probe", "sess-probe"),
+            10,
+        )
+        .await
+        .expect_handled();
+        let entry = {
+            let ledger = sup.ledger.lock().await;
+            ledger
+                .get(&TugSessionId::new("sess-probe"))
+                .unwrap()
+                .clone()
+        };
+        let probe = sup.busy_probe();
+
+        entry.lock().await.turn_active = true;
+        assert_eq!(
+            probe.busy_session_ids().await,
+            HashSet::from(["sess-probe".to_string()]),
+        );
+        assert!(BusyProbe::default().busy_session_ids().await.is_empty());
+
+        entry.lock().await.turn_active = false;
+        assert!(probe.busy_session_ids().await.is_empty());
     }
 
     /// The job's kind is recorded at the **launch**, which is the only frame
@@ -9759,6 +9867,7 @@ mod tests {
             config,
             registry,
             cancel,
+            SupervisorDeps::default(),
         );
         if let Some(prompts) = prompts {
             sup.set_prompt_ledger(prompts);

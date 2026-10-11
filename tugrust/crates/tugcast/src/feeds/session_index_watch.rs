@@ -33,7 +33,9 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-use tugcast_core::protocol::{FeedId, Frame};
+use tugcast_core::protocol::Frame;
+
+use crate::control::send_control;
 
 /// The file name every index artefact starts with — the database, its
 /// write-ahead log, and its shared-memory file.
@@ -112,10 +114,7 @@ pub async fn run_session_index_watch(
         // burst of index writes costs one frame rather than one per write.
         while wake_rx.try_recv().is_ok() {}
         let body = serde_json::json!({ "action": "session_index_changed" });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("session_index_changed serializes"),
-        ));
+        send_control(&control_tx, body);
     }
 }
 

@@ -19,6 +19,7 @@ use tugcast_core::types::{
     OrphanedFile, SharedOwner, UnattributedFile,
 };
 
+use super::agent_supervisor::BusyProbe;
 use super::attribution::{parse_worktree_states, repo_root_for};
 use super::git::{fetch_git_status, fetch_head_message, git_status_wire};
 use super::workspace_registry::WorkspaceRegistry;
@@ -709,6 +710,7 @@ pub(crate) async fn compose_snapshot(
 pub(crate) async fn attach_arc_composition(
     project_dir: &Path,
     ledger: Option<&SessionLedger>,
+    busy: &BusyProbe,
     snapshot: &mut ChangesetSnapshot,
 ) {
     let Some(repo_root) = repo_root_for(project_dir).await else {
@@ -739,7 +741,7 @@ pub(crate) async fn attach_arc_composition(
         })
         .collect();
 
-    let mut arcs = arc_entries(&repo_root, ledger, &live_dirt).await;
+    let mut arcs = arc_entries(&repo_root, ledger, busy, &live_dirt).await;
 
     // Attach maintained drafts (Spec S10) to arcs with rounds or worktree
     // dirt — the gate keeps a stale draft off an entry that has since gone
@@ -1567,13 +1569,14 @@ pub(crate) async fn live_base_dirt_for(
     project_dir: &Path,
     arc: &str,
     ledger: Option<&SessionLedger>,
+    busy: &BusyProbe,
 ) -> BTreeMap<String, (String, String)> {
     let Some(mut snapshot) = compose_snapshot(project_dir, ledger).await else {
         return BTreeMap::new();
     };
     // The arc rows this verb reads its owner key from ride the per-repo
     // attachment now, not the base compose.
-    attach_arc_composition(project_dir, ledger, &mut snapshot).await;
+    attach_arc_composition(project_dir, ledger, busy, &mut snapshot).await;
     let owner_key = snapshot
         .changesets
         .iter()
@@ -1642,6 +1645,7 @@ fn holder_line_of<'a>(
 async fn arc_entries(
     repo_root: &Path,
     ledger: Option<&crate::session_ledger::SessionLedger>,
+    busy: &BusyProbe,
     live_dirt: &BTreeMap<String, (String, String)>,
 ) -> Vec<ChangesetEntry> {
     if arcs_hidden_for(repo_root) {
@@ -1666,7 +1670,7 @@ async fn arc_entries(
     // Who is still working. Read once for the whole recompute, from the
     // supervisor's in-memory ledger — the only place a session's turn and its
     // open background jobs are known ([P08]).
-    let busy_sessions = crate::feeds::agent_supervisor::busy_session_ids().await;
+    let busy_sessions = busy.busy_session_ids().await;
 
     let root = repo_root.to_path_buf();
     let dirt = live_dirt.clone();
@@ -4086,7 +4090,7 @@ Some context.
 
         // Nobody is bound to it yet, so the pilot leaves it alone — the ask it
         // would be preparing has no card to raise on ([P08]).
-        let entries = arc_entries(&root, None, &BTreeMap::new()).await;
+        let entries = arc_entries(&root, None, &BusyProbe::default(), &BTreeMap::new()).await;
         assert_eq!(entries.len(), 2, "both arcs compose");
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
@@ -4112,7 +4116,13 @@ Some context.
             .set_arc_binding("sess-1", Some((&owner_key, "finished")))
             .unwrap();
 
-        let entries = arc_entries(&root, Some(&ledger), &BTreeMap::new()).await;
+        let entries = arc_entries(
+            &root,
+            Some(&ledger),
+            &BusyProbe::default(),
+            &BTreeMap::new(),
+        )
+        .await;
         assert_eq!(entries.len(), 2, "both arcs compose");
 
         // The dispatch is a spawned task, so give it its scheduling turn. It is
@@ -4139,7 +4149,13 @@ Some context.
         );
 
         // A second recompute over unmoved heads adds nothing: the mark holds.
-        let _ = arc_entries(&root, Some(&ledger), &BTreeMap::new()).await;
+        let _ = arc_entries(
+            &root,
+            Some(&ledger),
+            &BusyProbe::default(),
+            &BTreeMap::new(),
+        )
+        .await;
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert_eq!(
             runs.load(Ordering::SeqCst),
@@ -4175,7 +4191,7 @@ Some context.
         );
         let asked_from = root.join(".tug/worktrees/sidecar");
 
-        let entries = arc_entries(&asked_from, None, &BTreeMap::new()).await;
+        let entries = arc_entries(&asked_from, None, &BusyProbe::default(), &BTreeMap::new()).await;
         let ChangesetEntry::Arc { review, .. } = entries
             .iter()
             .find(
@@ -4210,7 +4226,9 @@ Some context.
 
         // Visible before the gate applies.
         assert!(
-            !arc_entries(&root, None, &BTreeMap::new()).await.is_empty(),
+            !arc_entries(&root, None, &BusyProbe::default(), &BTreeMap::new())
+                .await
+                .is_empty(),
             "the arc composes in an ordinary instance"
         );
 
@@ -4221,7 +4239,9 @@ Some context.
             std::env::set_var(tugtool_core::REPO_UNIVERSE_ENV, &root);
         }
         assert!(
-            arc_entries(&root, None, &BTreeMap::new()).await.is_empty(),
+            arc_entries(&root, None, &BusyProbe::default(), &BTreeMap::new())
+                .await
+                .is_empty(),
             "the universe checkout's arcs are hidden from an app-test instance"
         );
 
@@ -4233,7 +4253,7 @@ Some context.
             &["config", "branch.tugarc/fixture.tugbase", "main"],
         );
         assert!(
-            !arc_entries(&scratch, None, &BTreeMap::new())
+            !arc_entries(&scratch, None, &BusyProbe::default(), &BTreeMap::new())
                 .await
                 .is_empty(),
             "a fixture repo outside the universe is untouched"
@@ -4271,7 +4291,7 @@ Some context.
 
         let mut snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
         // Arc rows ride the per-repo attachment, the aggregate's owner call.
-        attach_arc_composition(&root, Some(&ledger), &mut snapshot).await;
+        attach_arc_composition(&root, Some(&ledger), &BusyProbe::default(), &mut snapshot).await;
         let arc = snapshot
             .changesets
             .iter()
@@ -4348,7 +4368,7 @@ Some context.
 
         let mut snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
         // Arc rows ride the per-repo attachment, the aggregate's owner call.
-        attach_arc_composition(&root, Some(&ledger), &mut snapshot).await;
+        attach_arc_composition(&root, Some(&ledger), &BusyProbe::default(), &mut snapshot).await;
         let ChangesetEntry::Arc {
             owner_id, draft, ..
         } = snapshot

@@ -1082,10 +1082,7 @@ impl AgentSupervisor {
             "arc_id": row_arc_id,
             "arc_name": row_arc_name,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&ack).expect("spawn_session_ok serializes"),
-        ));
+        send_control(&self.control_tx, ack);
 
         // **The swap's second half ([P01]).** A directory change leaves the
         // session it moved away from, and closes it here, after the new one is

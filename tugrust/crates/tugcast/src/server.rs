@@ -23,9 +23,10 @@ use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 use tugbank_core::TugbankClient;
-use tugcast_core::{FeedId, Frame};
+use tugcast_core::FeedId;
 
 use crate::auth::SharedAuthState;
+use crate::control::{control_frame, send_control};
 use crate::dev::SharedDevState;
 use crate::router::FeedRouter;
 
@@ -1558,8 +1559,7 @@ async fn eval_handler(
         "code": code,
     });
     if let Some((broadcast_tx, _)) = router.stream_outputs.get(&FeedId::CONTROL) {
-        let frame = Frame::new(FeedId::CONTROL, serde_json::to_vec(&eval_frame).unwrap());
-        let _ = broadcast_tx.send(frame);
+        send_control(broadcast_tx, eval_frame);
     }
 
     // Await response with timeout
@@ -1822,10 +1822,7 @@ async fn ask_handler(
     // refusal. Answering every blocked caller on every path is the invariant the
     // deck-side store keeps too; this is its other end.
     let delivered = match router.stream_outputs.get(&FeedId::CONTROL) {
-        Some((broadcast_tx, _)) => {
-            let frame = Frame::new(FeedId::CONTROL, serde_json::to_vec(&ask_frame).unwrap());
-            broadcast_tx.send(frame).is_ok()
-        }
+        Some((broadcast_tx, _)) => broadcast_tx.send(control_frame(ask_frame)).is_ok(),
         None => false,
     };
     if !delivered {
@@ -1889,10 +1886,7 @@ async fn ask_handler(
 fn broadcast_ask_rescind(router: &FeedRouter, request_id: &str) {
     if let Some((broadcast_tx, _)) = router.stream_outputs.get(&FeedId::CONTROL) {
         let frame = serde_json::json!({"action": "ask-rescind", "requestId": request_id});
-        let _ = broadcast_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&frame).unwrap(),
-        ));
+        send_control(broadcast_tx, frame);
     }
 }
 
@@ -2144,6 +2138,7 @@ pub async fn run_server(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tugcast_core::Frame;
 
     // ── /api/session `resolve` — the identity chokepoint ──────────────────
 

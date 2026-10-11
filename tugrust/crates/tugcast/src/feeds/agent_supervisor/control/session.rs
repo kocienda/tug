@@ -282,10 +282,7 @@ impl AgentSupervisor {
             "scanning": scanning,
             "sessions": sessions,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_sessions_ok serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     fn send_list_sessions_err(control_tx: &broadcast::Sender<Frame>, project_dir: &str) {
@@ -294,10 +291,7 @@ impl AgentSupervisor {
             "project_dir": project_dir,
             "reason": "ledger_read_failed",
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_sessions_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle a `list_sessions` CONTROL request. Broadcasts a
@@ -439,10 +433,7 @@ impl AgentSupervisor {
                             "parsed": done,
                             "total": total,
                         });
-                        let _ = progress_tx.send(Frame::new(
-                            FeedId::CONTROL,
-                            serde_json::to_vec(&body).expect("list_sessions_progress serializes"),
-                        ));
+                        send_control(&progress_tx, body);
                     },
                 );
                 build_listed_union(rows, &live, Some(scan))
@@ -541,10 +532,7 @@ impl AgentSupervisor {
                         "ids": ids,
                         "reason": "ledger_read_failed",
                     });
-                    let _ = self.control_tx.send(Frame::new(
-                        FeedId::CONTROL,
-                        serde_json::to_vec(&body).expect("resolve_sessions_err serializes"),
-                    ));
+                    send_control(&self.control_tx, body);
                     return;
                 }
             },
@@ -561,10 +549,7 @@ impl AgentSupervisor {
             "elsewhere": elsewhere,
             "unknown": unknown,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("resolve_sessions_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// Ask the finder's machine-wide arms about every spelling the ledger
@@ -635,10 +620,7 @@ impl AgentSupervisor {
                 "action": "list_card_bindings_ok",
                 "bindings": serde_json::Value::Array(Vec::new()),
             });
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&body).expect("list_card_bindings_ok serializes"),
-            ));
+            send_control(&self.control_tx, body);
             return;
         };
         // One row per **line** ([P06]), each seated on the segment a restore
@@ -652,10 +634,7 @@ impl AgentSupervisor {
                     "action": "list_card_bindings_err",
                     "reason": "ledger_read_failed",
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("list_card_bindings_err serializes"),
-                ));
+                send_control(&self.control_tx, body);
                 return;
             }
         };
@@ -770,10 +749,7 @@ impl AgentSupervisor {
             "action": "list_card_bindings_ok",
             "bindings": bindings,
         });
-        let _ = self.control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("list_card_bindings_ok serializes"),
-        ));
+        send_control(&self.control_tx, body);
     }
 
     /// Handle a `request_replay` CONTROL request per [D12]. Forwards

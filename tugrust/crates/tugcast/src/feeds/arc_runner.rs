@@ -1727,7 +1727,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
     ) = {
         let mut entry = entry_arc.lock().await;
         // **The read point is the reap point**, and this is the second of the
-        // two ([B04]). `busy_session_ids` reaps on its way past because it is
+        // two ([B04]). `BusyProbe::busy_session_ids` reaps on its way past because it is
         // the *recompute's* read of busyness; this is the runner's read of the
         // same facts for one entry, and without the calls here the reaper only
         // ever ran on the recompute's clock — so a job stale past the horizon
@@ -4317,6 +4317,17 @@ Some context.
     );
 
     async fn harness(root: &Path) -> Harness {
+        harness_with(root, false).await
+    }
+
+    /// [`harness`] with the supervisor holding the runner's own wheel, as the
+    /// boot stage wires them — for the stoppers that reach the wheel through
+    /// the supervisor.
+    async fn harness_sharing_the_wheel(root: &Path) -> Harness {
+        harness_with(root, true).await
+    }
+
+    async fn harness_with(root: &Path, supervisor_holds_wheel: bool) -> Harness {
         use super::super::agent_bridge::{CrashBudget, SessionMode};
         use super::super::agent_supervisor::LedgerEntry;
         use super::super::workspace_registry::WorkspaceKey;
@@ -4343,10 +4354,17 @@ Some context.
         // alive, which is not the state any of these tests is about.
         // The supervisor records into the very ledger this harness holds, so a
         // test can read back what the arc wrote down.
+        let wheel = Arc::new(wheel::WheelState::default());
         let (supervisor, register_rx) =
-            super::super::agent_supervisor::test_minimal_supervisor_with_recorder(Arc::new(
-                super::super::agent_supervisor::LedgerSessionsRecorder::new(Arc::clone(&ledger)),
-            ));
+            super::super::agent_supervisor::test_minimal_supervisor_with_recorder_and_deps(
+                Arc::new(super::super::agent_supervisor::LedgerSessionsRecorder::new(
+                    Arc::clone(&ledger),
+                )),
+                super::super::agent_supervisor::SupervisorDeps {
+                    wheel: supervisor_holds_wheel.then(|| Arc::clone(&wheel)),
+                    ..Default::default()
+                },
+            );
         let id = TugSessionId::new("claude-1".to_string());
         let mut entry = LedgerEntry::new(
             id.clone(),
@@ -4368,7 +4386,7 @@ Some context.
             ArcContext {
                 supervisor,
                 session_ledger: ledger,
-                wheel: Arc::new(wheel::WheelState::default()),
+                wheel,
                 cancel: CancellationToken::new(),
                 // Dead by default: the harness's arcs are this runner's, and
                 // the two tests that need a live foreign owner say so by
@@ -7241,9 +7259,9 @@ Some context.
         tugarc_core::arc::append_arc_stage(root, "demo", ArcStage::Implement, "claude-1", None)
             .unwrap();
 
-        let (ctx, entry, _register_rx) = harness(root).await;
-        // The supervisor's wheel is the runner's wheel, as `main.rs` wires it.
-        let _ = ctx.supervisor.wheel.set(Arc::clone(&ctx.wheel));
+        // The supervisor's wheel is the runner's wheel, as the boot stage wires
+        // it.
+        let (ctx, entry, _register_rx) = harness_sharing_the_wheel(root).await;
         entry.lock().await.wake_turns_ended = 3;
         ctx.wheel.arc_memory.lock().await.insert(
             demo_key(root),

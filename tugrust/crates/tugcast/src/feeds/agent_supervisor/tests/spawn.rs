@@ -47,6 +47,7 @@ fn make_supervisor_with_real_ledger() -> (
         AgentSupervisorConfig::default(),
         registry,
         cancel,
+        SupervisorDeps::default(),
     );
     tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
     (sup, meta_rx, ledger)

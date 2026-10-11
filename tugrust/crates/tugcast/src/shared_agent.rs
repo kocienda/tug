@@ -37,7 +37,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::time::{Duration, Instant};
 use tracing::{info, warn};
-use tugcast_core::{FeedId, Frame};
+use tugcast_core::Frame;
+
+use crate::control::send_control;
 
 // MARK: - Recycle and growth policy ([P04])
 
@@ -1056,12 +1058,6 @@ async fn worker_failure(stderr: Option<tokio::process::ChildStderr>) -> String {
 /// The pool as the router holds it: absent until `main` builds one, which is
 /// also the shape a build with no agent would have.
 pub type SharedAgentHandle = Option<Arc<SharedAgentPool>>;
-
-fn send_control(cat: &broadcast::Sender<Frame>, body: serde_json::Value) {
-    if let Ok(bytes) = serde_json::to_vec(&body) {
-        let _ = cat.send(Frame::new(FeedId::CONTROL, bytes));
-    }
-}
 
 /// Run one classify job and broadcast the verdict.
 ///

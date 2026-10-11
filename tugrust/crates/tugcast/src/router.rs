@@ -2223,6 +2223,7 @@ mod tests {
             AgentSupervisorConfig::default(),
             registry,
             router_cancel,
+            crate::feeds::agent_supervisor::SupervisorDeps::default(),
         );
         let sup = Arc::new(sup);
         let cancel = CancellationToken::new();

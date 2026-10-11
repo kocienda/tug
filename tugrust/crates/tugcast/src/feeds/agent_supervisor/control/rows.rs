@@ -126,10 +126,7 @@ impl AgentSupervisor {
                 "session_id": session_id,
                 "reason": "no_ledger",
             });
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&body).expect("trash_session_err serializes"),
-            ));
+            send_control(&self.control_tx, body);
             return;
         };
         // Terminal-liveness gate: trashing moves the JSONL out from
@@ -149,10 +146,7 @@ impl AgentSupervisor {
                 "session_id": session_id,
                 "reason": "session_live_in_terminal",
             });
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&body).expect("trash_session_err serializes"),
-            ));
+            send_control(&self.control_tx, body);
             return;
         }
         match ledger.trash(session_id) {
@@ -164,10 +158,7 @@ impl AgentSupervisor {
                     "action": "trash_session_ok",
                     "session_id": session_id,
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("trash_session_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(crate::session_ledger::LedgerError::InvalidState(_)) => {
                 let body = serde_json::json!({
@@ -175,10 +166,7 @@ impl AgentSupervisor {
                     "session_id": session_id,
                     "reason": "session_is_live",
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("trash_session_err serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(crate::session_ledger::LedgerError::NotFound(_)) => {
                 // No ledger row. With a project_dir in the payload this
@@ -201,10 +189,7 @@ impl AgentSupervisor {
                             "action": "trash_session_ok",
                             "session_id": session_id,
                         });
-                        let _ = self.control_tx.send(Frame::new(
-                            FeedId::CONTROL,
-                            serde_json::to_vec(&body).expect("trash_session_ok serializes"),
-                        ));
+                        send_control(&self.control_tx, body);
                         return;
                     }
                 }
@@ -213,10 +198,7 @@ impl AgentSupervisor {
                     "session_id": session_id,
                     "reason": "not_found",
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("trash_session_err serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(err) => {
                 warn!(error = %err, session_id, "trash_session ledger error");
@@ -225,10 +207,7 @@ impl AgentSupervisor {
                     "session_id": session_id,
                     "reason": "ledger_write_failed",
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("trash_session_err serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
         }
     }
@@ -257,10 +236,7 @@ impl AgentSupervisor {
                 "name": name,
                 "reason": reason,
             });
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&body).expect("rename_session_err serializes"),
-            ));
+            send_control(&self.control_tx, body);
         };
         let Some(ledger) = self.session_ledger.as_ref() else {
             refuse("no_ledger");
@@ -356,10 +332,7 @@ impl AgentSupervisor {
                         }))
                         .collect::<Vec<_>>(),
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("rename_session_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(crate::session_ledger::LedgerError::NotFound(_)) => refuse("not_found"),
             Err(err) => {
@@ -390,10 +363,7 @@ impl AgentSupervisor {
             })
         };
         let Some(ledger) = self.session_ledger.as_ref() else {
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&err("no_ledger")).expect("set_session_private_err serializes"),
-            ));
+            send_control(&self.control_tx, err("no_ledger"));
             return;
         };
         match ledger.set_session_private(session_id, private) {
@@ -410,25 +380,14 @@ impl AgentSupervisor {
                     "session_id": session_id,
                     "private": private,
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("set_session_private_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(crate::session_ledger::LedgerError::NotFound(_)) => {
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&err("not_found"))
-                        .expect("set_session_private_err serializes"),
-                ));
+                send_control(&self.control_tx, err("not_found"));
             }
             Err(e) => {
                 warn!(error = %e, session_id, "set_session_private ledger error");
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&err("ledger_write_failed"))
-                        .expect("set_session_private_err serializes"),
-                ));
+                send_control(&self.control_tx, err("ledger_write_failed"));
             }
         }
     }
@@ -445,10 +404,7 @@ impl AgentSupervisor {
                 "project_dir": project_dir,
                 "reason": "no_ledger",
             });
-            let _ = self.control_tx.send(Frame::new(
-                FeedId::CONTROL,
-                serde_json::to_vec(&body).expect("trash_project_dir_sessions_err serializes"),
-            ));
+            send_control(&self.control_tx, body);
             return;
         };
         match ledger.trash_for_project_dir(project_dir) {
@@ -461,10 +417,7 @@ impl AgentSupervisor {
                     "project_dir": project_dir,
                     "count": dropped.len(),
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("trash_project_dir_sessions_ok serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
             Err(err) => {
                 warn!(error = %err, project_dir, "trash_for_project_dir failed");
@@ -473,10 +426,7 @@ impl AgentSupervisor {
                     "project_dir": project_dir,
                     "reason": "ledger_write_failed",
                 });
-                let _ = self.control_tx.send(Frame::new(
-                    FeedId::CONTROL,
-                    serde_json::to_vec(&body).expect("trash_project_dir_sessions_err serializes"),
-                ));
+                send_control(&self.control_tx, body);
             }
         }
     }

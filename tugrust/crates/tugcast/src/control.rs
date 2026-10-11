@@ -423,10 +423,7 @@ async fn relay_progress(
                         serde_json::Value::String("dev_build_progress".to_string());
 
                     // Send as Control frame
-                    if let Ok(bytes) = serde_json::to_vec(&progress) {
-                        let frame = Frame::new(FeedId::CONTROL, bytes);
-                        let _ = client_action_tx.send(frame);
-                    }
+                    send_control(client_action_tx, progress);
 
                     // If status is "quitting", send exit code 45
                     if status.as_deref() == Some("quitting") {
@@ -442,6 +439,25 @@ async fn relay_progress(
     }
 }
 
+/// Build a CONTROL frame from a JSON body.
+///
+/// Every CONTROL frame tugcast sends is built here. Serialising a
+/// `serde_json::Value` cannot fail — its object keys are already strings and
+/// it holds no non-finite floats — so the one `expect` lives here rather than
+/// beside each emitter.
+pub(crate) fn control_frame(body: serde_json::Value) -> Frame {
+    Frame::new(
+        FeedId::CONTROL,
+        serde_json::to_vec(&body).expect("a serde_json::Value always serializes"),
+    )
+}
+
+/// Broadcast a CONTROL frame built from `body`. A send with no receivers is
+/// not an error: nobody listening is the ordinary state of a closed deck.
+pub(crate) fn send_control(tx: &broadcast::Sender<Frame>, body: serde_json::Value) {
+    let _ = tx.send(control_frame(body));
+}
+
 /// Send error message as dev_build_progress frame
 fn send_build_progress_error(client_action_tx: &broadcast::Sender<Frame>, error_msg: &str) {
     let msg = serde_json::json!({
@@ -450,16 +466,20 @@ fn send_build_progress_error(client_action_tx: &broadcast::Sender<Frame>, error_
         "status": "failed",
         "error": error_msg,
     });
-
-    if let Ok(bytes) = serde_json::to_vec(&msg) {
-        let frame = Frame::new(FeedId::CONTROL, bytes);
-        let _ = client_action_tx.send(frame);
-    }
+    send_control(client_action_tx, msg);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_frame_is_the_body_serialized_on_the_control_feed() {
+        let body = serde_json::json!({"action": "probe", "n": 1, "ok": true});
+        let frame = control_frame(body);
+        assert_eq!(frame.feed_id, FeedId::CONTROL);
+        assert_eq!(&frame.payload[..], br#"{"action":"probe","n":1,"ok":true}"#);
+    }
 
     #[test]
     fn test_control_message_tell_deserialization() {

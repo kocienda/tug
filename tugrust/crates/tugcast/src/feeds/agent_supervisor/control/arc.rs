@@ -433,7 +433,7 @@ impl AgentSupervisor {
             );
             return abandon("no_card");
         };
-        let Some(wheel) = self.wheel.get() else {
+        let Some(wheel) = self.wheel.as_ref() else {
             warn!(
                 arc = %arc,
                 "no wheel is attached, so the stop was not performed",
@@ -786,10 +786,7 @@ impl AgentSupervisor {
             "tug_session_id": tug_session_id,
             "arc": arc,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_run_ok serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// The Start press was refused, and `reason` is what the deck speaks
@@ -806,10 +803,7 @@ impl AgentSupervisor {
             "arc": arc,
             "reason": reason,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_run_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// The Stop press was answered, and the stop really landed.
@@ -819,10 +813,7 @@ impl AgentSupervisor {
             "tug_session_id": tug_session_id,
             "arc": arc,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_stop_ok serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// The Stop press was refused — or was decided on and could not be
@@ -839,10 +830,7 @@ impl AgentSupervisor {
             "arc": arc,
             "reason": reason,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_stop_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// Handle an `unbind_arc` CONTROL request (Spec S03): drop the calling
@@ -887,10 +875,7 @@ impl AgentSupervisor {
             "tug_session_id": tug_session_id,
             "arc": arc,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_resume_ok serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     /// The press was refused, and `reason` is what the deck speaks through
@@ -909,10 +894,7 @@ impl AgentSupervisor {
             "arc": arc,
             "reason": reason,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("arc_resume_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 
     fn send_bind_arc_err(
@@ -925,9 +907,6 @@ impl AgentSupervisor {
             "tug_session_id": tug_session_id,
             "reason": reason,
         });
-        let _ = control_tx.send(Frame::new(
-            FeedId::CONTROL,
-            serde_json::to_vec(&body).expect("bind_arc_err serializes"),
-        ));
+        send_control(control_tx, body);
     }
 }
