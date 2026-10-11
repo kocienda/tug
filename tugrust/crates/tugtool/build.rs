@@ -22,10 +22,38 @@ fn main() {
     let rustc_version = get_rustc_version();
     println!("cargo::rustc-env=TUG_RUSTC_VERSION={}", rustc_version);
 
-    // Rerun if git state changes (for accurate commit hash)
-    // These may not exist in non-git builds, which is fine
-    println!("cargo::rerun-if-changed=.git/HEAD");
-    println!("cargo::rerun-if-changed=.git/index");
+    // Rerun when the commit can have moved. The paths come from git itself:
+    // a relative `.git/HEAD` resolves against this crate's directory, where
+    // no such file exists, and cargo treats a missing watched file as
+    // always stale — which relinked tugtool on every build. A commit on a
+    // branch moves the branch ref, not HEAD, so the ref (loose or packed)
+    // and HEAD's reflog are watched too. Only files that exist are named,
+    // for the same reason; with none (a non-git build) the script reruns
+    // only when it changes itself.
+    let mut watched = vec![
+        git_path("HEAD"),
+        git_path("logs/HEAD"),
+        git_path("packed-refs"),
+    ];
+    let head_ref = run_command("git", &["symbolic-ref", "-q", "HEAD"]);
+    if head_ref != "unknown" {
+        watched.push(git_path(&head_ref));
+    }
+    println!("cargo::rerun-if-changed=build.rs");
+    for path in watched.into_iter().flatten() {
+        println!("cargo::rerun-if-changed={}", path);
+    }
+}
+
+/// The absolute path git uses for `name` in this checkout, if that file exists.
+/// `--git-path` resolves per-worktree and common-dir files correctly in a
+/// linked worktree, where `.git` is a file rather than a directory.
+fn git_path(name: &str) -> Option<String> {
+    let path = run_command(
+        "git",
+        &["rev-parse", "--path-format=absolute", "--git-path", name],
+    );
+    (path != "unknown" && std::path::Path::new(&path).exists()).then_some(path)
 }
 
 /// Run a command and return its stdout, or "unknown" on failure

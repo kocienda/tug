@@ -468,8 +468,6 @@ app-debug: build wasm
     # is needed here. The xcodebuild build phase tolerates an empty
     # tugdeck/dist; release builds (`app-release`) run the full vite
     # build before xcodebuild.
-    # Touch Swift sources so xcodebuild detects changes on this mount.
-    find tugapp/Sources -name '*.swift' -exec touch {} +
     # TUG_PRODUCT_NAME gives each variant its own `.app` (Tug-debug.app /
     # Tug-worktree.app) AND `-derivedDataPath` gives it its own build
     # directory, so build outputs are fully isolated — building the
@@ -506,11 +504,18 @@ app-debug: build wasm
 # Build a Release bundle and (re)launch the cwd-derived release
 # instance. Quit-prior runs first for the same reason as app-debug.
 # Build a Release bundle and (re)launch the cwd-derived release instance.
-app-release: build wasm
+#
+# No `build` dependency: the bundle copies its binaries from
+# tugrust/target/release, so the dev binaries `build` compiles would be
+# wasted work here (a full dev tugcast rebuild after any Rust edit). The
+# recipe itself needs only the dev tugbank, built below. `just build` is
+# still what refreshes the ~/.local/bin symlinks.
+app-release: wasm
     #!/usr/bin/env bash
     set -euo pipefail
     # Dev loop = cwd-derived identity; the forced bundle id is app-test-only.
     unset TUG_FORCE_BUNDLE_ID
+    (cd tugrust && cargo build -p tugbank)
     INSTANCE_ID="$(bash tugrust/scripts/instance-id-from-cwd.sh release)"
     BUNDLE_ID="$(bash tugrust/scripts/bundle-id-from-cwd.sh release)"
     export TUG_PRODUCT_NAME="$(bash tugrust/scripts/product-name-from-cwd.sh release)"
@@ -521,8 +526,9 @@ app-release: build wasm
     # assets) — the same script build-app.sh uses, so the developer
     # launch build and the distribution build can't drift on what they compile.
     # The xcodebuild copy phase reads these from tugrust/target/release/.
-    bash tugrust/scripts/build-release-inputs.sh
-    find tugapp/Sources -name '*.swift' -exec touch {} +
+    # --dev makes the Rust build incremental and skips an unchanged tugdeck
+    # build; it changes caching only, never what is built.
+    bash tugrust/scripts/build-release-inputs.sh --dev
     DERIVED="$(bash tugrust/scripts/derived-data-path.sh release)"
     bash tugrust/scripts/xcodebuild-quiet.sh "${PRODUCT_NAME}.app (Release)" \
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Release \
