@@ -31,6 +31,7 @@
  */
 
 import { Subscribable } from "@/lib/subscribable";
+import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -143,17 +144,6 @@ export interface OverviewSnapshot {
    * in flight would give the reader two spinners and one answer.
    */
   pendingRequestId: string | null;
-  /**
-   * The per-turn current line for each session that has one, newest write
-   * wins ([B04]).
-   *
-   * Held rather than persisted, and never cleared from here: the map is one
-   * short line per session the Observer has spoken about, and what decides
-   * whether a line is still true is the turn it was written in.
-   * {@link currentLineForSession} is where that is decided, because the turn
-   * is a fact the digest holds and this store does not.
-   */
-  currents: ReadonlyMap<string, SessionCurrentLineEntry>;
 }
 
 /**
@@ -196,7 +186,7 @@ export function latestPostForSession(
 }
 
 /**
- * The current line standing for `sessionId`'s turn in flight, or null.
+ * The current line standing for a session's turn in flight, or null.
  *
  * The turn is what makes the line true, so the turn is what the selector
  * takes: `turnStartedAtMs` is when the turn in flight began — the ask's own
@@ -208,23 +198,17 @@ export function latestPostForSession(
  * under a session's name is its through-line, and a per-turn line has nothing
  * to say about a session that is not in one.
  */
-export function currentLineForSession(
-  currents: ReadonlyMap<string, SessionCurrentLineEntry>,
-  sessionId: string,
+export function currentLineForTurn(
+  entry: SessionCurrentLineEntry | null,
   turnStartedAtMs: number | null,
 ): string | null {
-  if (sessionId.length === 0) return null;
   if (turnStartedAtMs === null) return null;
-  const entry = currents.get(sessionId);
-  if (entry === undefined) return null;
+  if (entry === null) return null;
   if (entry.atMs < turnStartedAtMs) return null;
   return entry.text;
 }
 
 const EMPTY_POSTS: readonly OverviewPostEntry[] = Object.freeze([]);
-const EMPTY_CURRENTS: ReadonlyMap<string, SessionCurrentLineEntry> = Object.freeze(
-  new Map<string, SessionCurrentLineEntry>(),
-);
 const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({
   status: "idle" as const,
   posts: EMPTY_POSTS,
@@ -232,7 +216,6 @@ const IDLE_SNAPSHOT: OverviewSnapshot = Object.freeze({
   hasMore: false,
   loadingOlder: false,
   pendingRequestId: null,
-  currents: EMPTY_CURRENTS,
 });
 
 // ---------------------------------------------------------------------------
@@ -278,11 +261,23 @@ export class OverviewStore extends Subscribable {
   /** Whether the ledger reported history older than what is held. */
   private hasMore = false;
   /**
-   * The current lines, as they arrive. Kept beside the snapshot rather than
-   * rebuilt from it for the same reason `hasMore` is: `commit` publishes a
-   * frozen view of what the store holds, and what it holds is here.
+   * The per-turn current line for each session that has one, newest write
+   * wins ([B04]).
+   *
+   * Held rather than persisted, and never cleared from here: the map is one
+   * short line per session the Observer has spoken about, and what decides
+   * whether a line is still true is the turn it was written in.
+   * {@link currentLineForTurn} is where that is decided, because the turn is
+   * a fact the digest holds and this store does not.
+   *
+   * Outside the snapshot on purpose. A line is about one session, so a frame
+   * notifies that session's observers ({@link observeCurrentLine}) and
+   * nobody else: the Overview card draws no current line, and the snapshot
+   * every masthead and the card subscribe to does not change on one.
    */
   private currents = new Map<string, SessionCurrentLineEntry>();
+  /** Per-session observers of {@link currents}. */
+  private currentObservers = new Map<string, Set<() => void>>();
 
   constructor(conn: TugConnection) {
     super();
@@ -315,6 +310,7 @@ export class OverviewStore extends Subscribable {
     for (const fn of this.disposers) fn();
     this.disposers.length = 0;
     this.clearListeners();
+    this.currentObservers.clear();
   }
 
   private clearPendingTimer(): void {
@@ -423,11 +419,10 @@ export class OverviewStore extends Subscribable {
         text: current.current,
         atMs: current.at_ms,
       });
-      this.commit(
-        this.snapshot.posts,
-        this.snapshot.status,
-        this.snapshot.pendingRequestId,
-      );
+      const observers = this.currentObservers.get(current.session_id);
+      if (observers !== undefined) {
+        for (const observer of [...observers]) observer();
+      }
       return;
     }
     const post = parseOverviewFrame(payload);
@@ -573,12 +568,27 @@ export class OverviewStore extends Subscribable {
       hasMore: this.hasMore && capped.length < OVERVIEW_MAX_ROWS,
       loadingOlder: this.pendingBefore !== null,
       pendingRequestId,
-      // A fresh view each publish, so a row reading it through
-      // `useSyncExternalStore` sees the change rather than a mutated map it
-      // already held ([L02]).
-      currents: Object.freeze(new Map(this.currents)),
     });
     this.notify();
+  }
+
+  /** `sessionId`'s current line as last written, or null. */
+  getCurrentLine(sessionId: string): SessionCurrentLineEntry | null {
+    return this.currents.get(sessionId) ?? null;
+  }
+
+  /** Call `listener` whenever `sessionId`'s current line is written. */
+  observeCurrentLine(sessionId: string, listener: () => void): () => void {
+    let observers = this.currentObservers.get(sessionId);
+    if (observers === undefined) {
+      observers = new Set();
+      this.currentObservers.set(sessionId, observers);
+    }
+    observers.add(listener);
+    return () => {
+      observers.delete(listener);
+      if (observers.size === 0) this.currentObservers.delete(sessionId);
+    };
   }
 
   /**
@@ -721,13 +731,66 @@ export function _ingestOverviewPageForTest(payload: ListOverviewPostsOk): void {
  * store is attached (gallery / fixtures).
  */
 export function useOverview(): OverviewSnapshot {
-  return useSyncExternalStore(
-    (listener) => {
-      const store = _activeStore;
-      if (store === null) return () => {};
-      return store.subscribe(listener);
-    },
-    () => _activeStore?.getSnapshot() ?? IDLE_SNAPSHOT,
-    () => IDLE_SNAPSHOT,
+  return useSyncExternalStore(subscribeOverview, readOverview, readIdleOverview);
+}
+
+/** Module-level, so a render hands React the same subscribe every time. */
+function subscribeOverview(listener: () => void): () => void {
+  const store = _activeStore;
+  if (store === null) return () => {};
+  return store.subscribe(listener);
+}
+
+function readOverview(): OverviewSnapshot {
+  return _activeStore?.getSnapshot() ?? IDLE_SNAPSHOT;
+}
+
+function readIdleOverview(): OverviewSnapshot {
+  return IDLE_SNAPSHOT;
+}
+
+/**
+ * React hook: the newest Observer post about `sessionId` ({@link
+ * latestPostForSession}), or null. The post is the selection, so a publish
+ * that leaves this session's newest post where it was — another session's
+ * post, a page arriving, a question going out — does not re-render the caller.
+ */
+export function useLatestPostForSession(sessionId: string): OverviewPostEntry | null {
+  const read = useCallback(
+    (): OverviewPostEntry | null => latestPostForSession(readOverview().posts, sessionId),
+    [sessionId],
   );
+  return useSyncExternalStore(subscribeOverview, read, readNoPost);
+}
+
+function readNoPost(): null {
+  return null;
+}
+
+/**
+ * React hook: `sessionId`'s current line as last written, or null. Subscribes
+ * to that one session's line, so a line written about another session does
+ * not re-render the caller, and neither does a post.
+ */
+export function useSessionCurrentLine(
+  sessionId: string,
+): SessionCurrentLineEntry | null {
+  const subscribe = useCallback(
+    (listener: () => void): (() => void) => {
+      const store = _activeStore;
+      if (store === null || sessionId.length === 0) return () => {};
+      return store.observeCurrentLine(sessionId, listener);
+    },
+    [sessionId],
+  );
+  const read = useCallback(
+    (): SessionCurrentLineEntry | null =>
+      sessionId.length === 0 ? null : _activeStore?.getCurrentLine(sessionId) ?? null,
+    [sessionId],
+  );
+  return useSyncExternalStore(subscribe, read, readNoCurrentLine);
+}
+
+function readNoCurrentLine(): null {
+  return null;
 }

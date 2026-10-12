@@ -5229,13 +5229,17 @@ function TugPaneImpl({
   //
   // Only a COLUMN has them. A rail is always divided and its sashes are the
   // hand's ([B01], [B03]), so its badge offers its members and nothing else.
-  // The SLOT, not the placement: a placement is rebuilt on every commit that
-  // moves the flow strip, and a callback keyed on it was a new title bar prop
-  // on every pane at every activation and close.
-  const placementSlot = placement?.slot;
+  // The slot is read at press time through a ref, so the callback is one
+  // identity for the pane's life. Keyed on the placement it was a new title
+  // bar prop on every pane at every activation and close; keyed on the slot it
+  // still was one on every pane a slot move re-seated, and the bar body — its
+  // buttons, tooltips and poppers — re-rendered inside the gesture's set-up to
+  // hand the badge a verb it had not been pressed with.
+  const placementSlotRef = useRef(placement?.slot);
+  placementSlotRef.current = placement?.slot;
   const handleArrangePlace = useCallback(
     (verb: "split" | "stack" | "equalize") => {
-      const slot = placementSlot;
+      const slot = placementSlotRef.current;
       if (slot === undefined) return;
       if (verb === "equalize") {
         dispatchCommand(TUG_ACTIONS.EQUALIZE_COLUMN, { slot });
@@ -5243,7 +5247,7 @@ function TugPaneImpl({
       }
       dispatchCommand(TUG_ACTIONS.SET_COLUMN_MODE, { slot, mode: verb });
     },
-    [placementSlot],
+    [],
   );
 
   const closable = effectiveMeta.closable !== false;
@@ -5713,7 +5717,10 @@ function TugPaneImpl({
                 : {})}
             masthead={activeCardMasthead}
             sidebar={isRail}
-            folded={folded}
+            // The bar draws the fold only for a card that folds through it; a
+            // card that owns its folded form (the Session card) is handed
+            // `false` throughout, so its fold does not re-render the bar.
+            folded={cardFold && folded}
             cardFold={cardFold}
             onClose={handleTitleBarClose}
             onDragStart={handleDragStart}

@@ -37,7 +37,12 @@ import {
 import { setTugbankClient } from "@/lib/tugbank-singleton";
 import type { TugbankClient } from "@/lib/tugbank-client";
 import type { TugConnection } from "@/connection";
-import { FeedId, type FeedIdValue, type OverviewPostWire } from "@/protocol";
+import {
+  FeedId,
+  SESSION_CURRENT_KIND,
+  type FeedIdValue,
+  type OverviewPostWire,
+} from "@/protocol";
 
 type FrameCallback = (payload: Uint8Array) => void;
 
@@ -699,5 +704,44 @@ describe("OverviewStore", () => {
     const before = requests(conn).length;
     store.loadOlder();
     expect(requests(conn).length).toBe(before);
+  });
+});
+
+describe("OverviewStore current lines", () => {
+  function currentLine(sessionId: string, text: string, atMs: number): Record<string, unknown> {
+    return { kind: SESSION_CURRENT_KIND, session_id: sessionId, current: text, at_ms: atMs };
+  }
+
+  // [B04]: the Overview card draws no current line, so a line written about a
+  // session must not publish the snapshot every card and masthead reads.
+  it("a current-line frame leaves the snapshot and its subscribers alone", () => {
+    const { store, conn } = makeStore();
+    stores.push(store);
+    const before = store.getSnapshot();
+    let published = 0;
+    store.subscribe(() => published++);
+    conn.pushOverviewFrame(currentLine("sess-a", "Chase the wedge", 2_000));
+    expect(store.getSnapshot()).toBe(before);
+    expect(published).toBe(0);
+    expect(store.getCurrentLine("sess-a")).toEqual({ text: "Chase the wedge", atMs: 2_000 });
+  });
+
+  it("a line notifies its own session's observers and no other", () => {
+    const { store, conn } = makeStore();
+    stores.push(store);
+    let a = 0;
+    let b = 0;
+    store.observeCurrentLine("sess-a", () => a++);
+    const stopB = store.observeCurrentLine("sess-b", () => b++);
+    conn.pushOverviewFrame(currentLine("sess-a", "First", 1_000));
+    conn.pushOverviewFrame(currentLine("sess-a", "Second", 1_500));
+    expect(a).toBe(2);
+    expect(b).toBe(0);
+    expect(store.getCurrentLine("sess-a")?.text).toBe("Second");
+    expect(store.getCurrentLine("sess-b")).toBeNull();
+    stopB();
+    conn.pushOverviewFrame(currentLine("sess-b", "Third", 2_000));
+    expect(b).toBe(0);
+    expect(store.getCurrentLine("sess-b")?.text).toBe("Third");
   });
 });

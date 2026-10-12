@@ -7,7 +7,9 @@
  *
  * Composition:
  *   1. `useSyncExternalStore` on the `CodeSessionStore` — the [L02]
- *      boundary for external state.
+ *      boundary for external state — with the projection as its
+ *      selector, so a publish that moves no lifecycle signal returns
+ *      the same object and re-renders nobody.
  *   2. `deriveLifecycleSnapshot(storeSnapshot, previous)` — the pure
  *      matrix projection, threaded with the previous result from a
  *      per-card `useRef` so [DT09] reference stability holds per card
@@ -27,7 +29,7 @@
  * @module lib/code-session-store/hooks/use-lifecycle-state
  */
 
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -40,24 +42,26 @@ import {
 /**
  * Subscribe to `store` and return the current matrix-row lifecycle
  * snapshot. The returned reference is stable ([DT09]) across renders
- * that change no matrix-relevant signal — a streaming `assistant_delta`
- * re-runs the hook but yields the same snapshot object, so zones that
- * only consume lifecycle do not re-render.
+ * that change no matrix-relevant signal, and because the projection is
+ * the selector, a publish that changes none — a tool row, a cost tick —
+ * does not re-render the caller at all.
  */
 export function useLifecycleState(
   store: CodeSessionStore,
 ): SessionLifecycleSnapshot {
-  const storeSnapshot = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-  );
   // Per-component (= per-card) memo of the last stable snapshot,
-  // threaded into `deriveLifecycleSnapshot` as `previous`. Writing a
-  // ref during render is sound here: the value is a pure function of
-  // the render's inputs, so a double-invoked render recomputes the
-  // identical result.
+  // threaded into `deriveLifecycleSnapshot` as `previous`. Writing the
+  // ref inside the selector is sound: the result is a pure function of
+  // the store snapshot and the previous result, so repeated reads of
+  // one store snapshot return the identical object.
   const previousRef = useRef<SessionLifecycleSnapshot | undefined>(undefined);
-  const snapshot = deriveLifecycleSnapshot(storeSnapshot, previousRef.current);
-  previousRef.current = snapshot;
-  return snapshot;
+  const select = useCallback((): SessionLifecycleSnapshot => {
+    const snapshot = deriveLifecycleSnapshot(
+      store.getSnapshot(),
+      previousRef.current,
+    );
+    previousRef.current = snapshot;
+    return snapshot;
+  }, [store]);
+  return useSyncExternalStore(store.subscribe, select);
 }

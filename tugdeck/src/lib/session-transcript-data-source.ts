@@ -60,9 +60,12 @@
  * The adapter does *not* hold its own subscription against the
  * `CodeSessionStore`; `subscribe` proxies straight through, and reads
  * always go through `codeSessionStore.getSnapshot()` (memoized between
- * dispatches per [L02], [D11]). `getVersion()` returns the snapshot
- * reference, which is `Object.is`-stable between non-mutating
- * dispatches and changes identity on every reducer tick.
+ * dispatches per [L02], [D11]). `getVersion()` returns a token over
+ * the six snapshot fields the rows are built from, so a publish that
+ * moves none of them — a phase mark, a pending dialog, a cost tick —
+ * does not re-render the list; `rowVersion(index)` returns the row's
+ * descriptor, kept identical while its data is, so a publish that does
+ * move the list reconciles only the rows it changed.
  *
  * Cell renderers downstream call `rowAt(index)` to read the typed row
  * payload without round-tripping through the snapshot themselves.
@@ -850,6 +853,34 @@ export class SessionTranscriptDataSource implements TugListViewDataSource {
   } | null = null;
 
   /**
+   * The list version: the six snapshot fields any method here reads,
+   * held as one object that is replaced only when one of them moves.
+   * See {@link getVersion}.
+   */
+  private _version: {
+    transcript: CodeSessionSnapshot["transcript"];
+    activeTurn: CodeSessionSnapshot["activeTurn"];
+    queuedSends: CodeSessionSnapshot["queuedSends"];
+    jobs: CodeSessionSnapshot["jobs"];
+    sessionInitTokens: CodeSessionSnapshot["sessionInitTokens"];
+    replayWindow: CodeSessionSnapshot["replayWindow"];
+  } | null = null;
+
+  /**
+   * Row versions by row id: the descriptors handed out for the snapshot
+   * last read (`current`) and for the one before it (`previous`). A row
+   * whose new descriptor is {@link sameTranscriptRowData} to its previous
+   * one keeps the previous object, so its version holds across the
+   * publish. Only rows read in the last snapshot are kept, which is the
+   * rendered window: a row that leaves it remounts when it returns.
+   */
+  private _rowVersions: {
+    snapshot: CodeSessionSnapshot | null;
+    current: Map<string, SessionRowDescriptor>;
+    previous: Map<string, SessionRowDescriptor>;
+  } = { snapshot: null, current: new Map(), previous: new Map() };
+
+  /**
    * The per-turn context-window walk for `snap`, computed once per
    * snapshot and reused. See {@link _windowsMemo}.
    */
@@ -1217,22 +1248,71 @@ export class SessionTranscriptDataSource implements TugListViewDataSource {
   /**
    * Proxies straight to the underlying store. The list view's
    * `useSyncExternalStore` consumes this; on every reducer dispatch
-   * the listener fires, the list view re-reads `getVersion()`, and
-   * because that returns a fresh snapshot reference React rerenders.
+   * the listener fires and the list view re-reads `getVersion()`,
+   * re-rendering only when that token moved.
    */
   subscribe(listener: () => void): () => void {
     return this._codeSessionStore.subscribe(listener);
   }
 
   /**
-   * Returns the current `CodeSessionStore` snapshot. The reference is
-   * `Object.is`-stable across non-mutating dispatches (per
-   * `CodeSessionStore.getSnapshot`'s memoization contract) and changes
-   * identity on every state-changing dispatch — exactly the shape
-   * `TugListViewDataSource.getVersion` expects.
+   * The list's version: an object that is `Object.is`-stable while the
+   * six snapshot fields the rows are built from are — `transcript`,
+   * `activeTurn`, `queuedSends`, `jobs`, `sessionInitTokens` and
+   * `replayWindow` — and replaced when any of them moves. A publish
+   * that changes only fields the list does not draw (a pending dialog,
+   * the phase, the cost total) leaves it alone, so the list does not
+   * re-render for it.
    */
-  getVersion(): CodeSessionSnapshot {
-    return this._codeSessionStore.getSnapshot();
+  getVersion(): object {
+    const s = this._codeSessionStore.getSnapshot();
+    const v = this._version;
+    if (
+      v !== null &&
+      v.transcript === s.transcript &&
+      v.activeTurn === s.activeTurn &&
+      v.queuedSends === s.queuedSends &&
+      v.jobs === s.jobs &&
+      v.sessionInitTokens === s.sessionInitTokens &&
+      v.replayWindow === s.replayWindow
+    ) {
+      return v;
+    }
+    this._version = {
+      transcript: s.transcript,
+      activeTurn: s.activeTurn,
+      queuedSends: s.queuedSends,
+      jobs: s.jobs,
+      sessionInitTokens: s.sessionInitTokens,
+      replayWindow: s.replayWindow,
+    };
+    return this._version;
+  }
+
+  /**
+   * Row `index`'s version: its descriptor, kept identical across
+   * publishes for as long as {@link sameTranscriptRowData} holds, so the
+   * list's memoized row wrapper skips every row a publish did not touch.
+   * The in-flight row's `activeTurn` is rebuilt on each structural
+   * publish, so it is the row that moves; committed rows hold.
+   */
+  rowVersion(index: number): SessionRowDescriptor {
+    const snap = this._codeSessionStore.getSnapshot();
+    const memo = this._rowVersions;
+    if (memo.snapshot !== snap) {
+      memo.snapshot = snap;
+      memo.previous = memo.current;
+      memo.current = new Map();
+    }
+    const id = this.idForIndex(index);
+    const hit = memo.current.get(id);
+    if (hit !== undefined) return hit;
+    const next = this.rowAt(index);
+    const prev = memo.previous.get(id);
+    const version =
+      prev !== undefined && sameTranscriptRowData(prev, next) ? prev : next;
+    memo.current.set(id, version);
+    return version;
   }
 }
 

@@ -73,6 +73,7 @@ import { goalIsActive } from "./code-session-store/select-goal";
 import {
   createInitialState,
   deriveActiveTurnSnapshot,
+  isTextOnlyChange,
   reduce,
   interruptSilenceEffect,
   replayBracketEffect,
@@ -575,6 +576,35 @@ export class CodeSessionStore extends Subscribable {
     if (this._disposed) return;
     this._publishAndNotify();
   };
+
+  /**
+   * Streamed text is not a publish ([L22]): a delta that only grew a
+   * Message's text leaves the snapshot pinned and tells nobody through
+   * `subscribe`, because the `PropertyStore` already carries the text to the
+   * blocks that paint it. A reader that genuinely follows the text as a whole
+   * — the open find bar's index — observes this signal instead: a version
+   * that moves once per frame tick while text streams.
+   */
+  private _streamTextVersion = 0;
+  private _streamTextPending = false;
+  private readonly _streamTextListeners = new Set<() => void>();
+  private readonly _streamTextPublish = (): void => {
+    this._streamTextPending = false;
+    if (this._disposed) return;
+    this._streamTextVersion += 1;
+    for (const listener of [...this._streamTextListeners]) listener();
+  };
+
+  /** Subscribe to streamed-text growth, coalesced to the shared frame tick. */
+  observeStreamText = (listener: () => void): (() => void) => {
+    this._streamTextListeners.add(listener);
+    return () => {
+      this._streamTextListeners.delete(listener);
+    };
+  };
+
+  /** The streamed-text version {@link observeStreamText} moves. */
+  getStreamTextVersion = (): number => this._streamTextVersion;
 
   constructor(options: CodeSessionStoreOptions) {
     super();
@@ -1955,6 +1985,10 @@ export class CodeSessionStore extends Subscribable {
     if (this._livePublishPending) {
       this._publishAndNotify();
     }
+    if (this._streamTextPending) {
+      this.publishTick.cancel(this._streamTextPublish);
+      this._streamTextPending = false;
+    }
     this._flushReplayFold();
     this._disposed = true;
     if (this._feedStoreUnsub) {
@@ -2579,15 +2613,22 @@ export class CodeSessionStore extends Subscribable {
         prev.phase === state.phase &&
         (event.type === "assistant_text" || event.type === "thinking_text")
       ) {
-        // Live streaming firehose: same-phase text/thinking deltas
-        // coalesce to one notify on the shared frame tick, so a token
-        // burst costs React one render per frame instead of one per
-        // token. Everything else — phase
+        // Live streaming firehose. A delta that only grew text publishes
+        // nothing: the snapshot stays pinned, and the text reaches the DOM
+        // through the `PropertyStore` the reducer's `write-inflight` effect
+        // already wrote ([L22]) — a token costs React no commit. A delta
+        // that also moved something a reader draws (a cleared stall or
+        // retry, a released held send, a minted Message) coalesces to one
+        // notify on the shared frame tick. Everything else — phase
         // transitions, tool results, errors, control frames — is
         // low-frequency and publishes synchronously below, so
         // side-effectful observers (binding clears, notices) stay
         // prompt.
-        this._publishCoalesced();
+        if (isTextOnlyChange(prev, state)) {
+          this._scheduleStreamText();
+        } else {
+          this._publishCoalesced();
+        }
       } else {
         this._publishAndNotify();
       }
@@ -2642,6 +2683,13 @@ export class CodeSessionStore extends Subscribable {
     if (this._livePublishPending) return;
     this._livePublishPending = true;
     this.publishTick.schedule(this._livePublish);
+  }
+
+  /** Hand ONE streamed-text signal to the shared tick (if none is pending). */
+  private _scheduleStreamText(): void {
+    if (this._streamTextPending) return;
+    this._streamTextPending = true;
+    this.publishTick.schedule(this._streamTextPublish);
   }
 
   /** Threshold / teardown flush of the replay fold. */

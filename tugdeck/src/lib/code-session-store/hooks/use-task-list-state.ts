@@ -43,14 +43,17 @@
  */
 
 import { useMemo } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
+import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import {
   reduceTaskListState,
   type TaskListState,
 } from "@/lib/code-session-store/select-task-list";
 import type { Message, ToolUseMessage, TurnEntry } from "@/lib/code-session-store/types";
+
+/** The session fields the task list folds over. */
+const TASK_LIST_FIELDS = ["transcript", "activeTurn"] as const;
 
 /**
  * Walk every committed turn's `tool_use` Messages in turn-order, then
@@ -90,10 +93,7 @@ export function* iterateAllTaskCalls(
 export function useTaskListState(
   codeSessionStore: CodeSessionStore,
 ): TaskListState {
-  const snapshot = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const snapshot = useSessionFields(codeSessionStore, TASK_LIST_FIELDS);
   const inflightMessages = snapshot.activeTurn?.messages ?? null;
 
   return useMemo<TaskListState>(

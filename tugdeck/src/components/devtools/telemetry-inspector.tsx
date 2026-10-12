@@ -24,6 +24,7 @@ import { Check, Copy } from "lucide-react";
 
 import { cardServicesStore } from "@/lib/card-services-store";
 import { useLifecycleTick } from "@/lib/code-session-store/hooks/use-lifecycle-tick";
+import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 
 import { copyAsJson } from "./copy-as-json";
@@ -37,6 +38,15 @@ import "./telemetry.css";
 export interface TelemetryInspectorProps {
   selectedCardId: string | null;
 }
+
+/** The session fields the inspector shows. */
+const INSPECTOR_FIELDS = [
+  "phase",
+  "transcript",
+  "tugSessionId",
+  "displayLabel",
+  "transportState",
+] as const;
 
 export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
   selectedCardId,
@@ -52,19 +62,10 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
     }, [selectedCardId]),
   );
 
-  // Subscribe to the card's CodeSessionStore. Snapshot rebuilds
-  // already happen whenever the reducer notifies, so we get the
-  // freshest internal state in lockstep with the snapshot.
-  const snapshot = useSyncExternalStore(
-    useCallback(
-      (cb) => services?.codeSessionStore.subscribe(cb) ?? (() => {}),
-      [services],
-    ),
-    useCallback(
-      () => services?.codeSessionStore.getSnapshot() ?? null,
-      [services],
-    ),
-  );
+  // Subscribe to the fields of the card's CodeSessionStore the inspector
+  // shows. The internal state below is read at render, so it refreshes on
+  // each of their changes and on the live tick while a turn is in flight.
+  const snapshot = useSessionFields(services?.codeSessionStore, INSPECTOR_FIELDS);
 
   // Drive the live tick at 1Hz while a turn is in flight. When no
   // services / snapshot is available, fall back to an "idle" phase

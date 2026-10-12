@@ -112,12 +112,93 @@ interface SettleReading {
   readonly streams: { inTurn: number; streaming: number } | null;
 }
 
+/** The fields of a window commit the largest-commit line reads. */
+interface WindowCommitNote {
+  readonly react_ms: number | null;
+  readonly react_or_span_ms: number;
+  readonly performed: number;
+  readonly mounted: number;
+  readonly top: [string, number][];
+  /** Why each pane-chrome component in the commit rendered, as the census names it. */
+  readonly why?: string[];
+}
+
 interface ThreadPhases {
   readonly thread: string;
   readonly samples: number;
   readonly busy: number;
   /** Busy samples by phase, largest first, as `[phase, samples]`. */
   readonly phases: [string, number][];
+}
+
+/** How long the rest census reads React's commits with the streams running, in one-second slices. */
+const REST_CENSUS_SLICES = 4;
+
+/** The census keeps its last 400 commits; a slice that reaches it was truncated. */
+const CENSUS_CAP = 400;
+
+/**
+ * React's time per second at rest, with three sessions streaming: every
+ * commit the census walked over `REST_CENSUS_SLICES` seconds, with the lead recorder armed
+ * so each commit carries the store read its render began at. A commit's React
+ * time is that read to the commit hook — the verb's `react_ms` — and a commit
+ * whose render read no store is counted as untimed rather than guessed at. The
+ * components are the census's own `top` (performed fibers by name), summed
+ * across the window, so the line says whose renders the streams are paying for.
+ * The census keeps only its last 400 commits, and three streams commit about
+ * 100 times a second, so the window is collected a second at a time and a
+ * slice that reaches the cap is reported as capped rather than read short.
+ */
+async function noteRestCensus(app: App, label: string): Promise<void> {
+  const armed = await app.evalJS<boolean>(`(() => {
+    if (!window.__tugLead || !window.__tugCommits) return false;
+    window.__tugLead.arm();
+    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0 };
+    return true;
+  })()`);
+  if (!armed) {
+    note(`${label} rest census: no lead recorder or commit census on this page`);
+    return;
+  }
+  const collect = `(() => {
+    const rest = window.__at0725Rest, now = performance.now();
+    const slice = window.__tugCommits.since(rest.last).filter((c) => c.t <= now);
+    if (slice.length >= ${CENSUS_CAP}) rest.capped += 1;
+    for (const c of slice) {
+      rest.commits.push({ t: c.t, renderStart: c.renderStart, performed: c.performed, top: c.top, origins: c.origins });
+    }
+    rest.last = now;
+    return slice.length;
+  })()`;
+  for (let i = 0; i < REST_CENSUS_SLICES; i += 1) {
+    await Bun.sleep(1_000);
+    await app.evalJS<number>(collect);
+  }
+  const census = await app.evalJS<string>(`(() => {
+    const rest = window.__at0725Rest;
+    window.__tugLead.disarm();
+    const seen = rest.commits, t0 = rest.t0, t1 = rest.last;
+    let reactMs = 0, timed = 0, performed = 0;
+    const byName = new Map(), untimedByOrigin = new Map();
+    for (const c of seen) {
+      if (c.renderStart != null && c.renderStart <= c.t) { reactMs += c.t - c.renderStart; timed += 1; }
+      else for (const [name, n] of c.origins || []) untimedByOrigin.set(name, (untimedByOrigin.get(name) || 0) + n);
+      performed += c.performed;
+      for (const [name, n] of c.top) byName.set(name, (byName.get(name) || 0) + n);
+    }
+    const secs = (t1 - t0) / 1000;
+    return JSON.stringify({
+      seconds: Math.round(secs * 10) / 10,
+      cappedSlices: rest.capped,
+      commitsPerSec: Math.round((seen.length / secs) * 10) / 10,
+      reactMsPerSec: Math.round((reactMs / secs) * 10) / 10,
+      timed, untimed: seen.length - timed,
+      performedPerSec: Math.round(performed / secs),
+      top: Array.from(byName.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12),
+      untimedOrigins: Array.from(untimedByOrigin.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8),
+    });
+  })()`);
+  note(`${label} rest census: ${census}`);
 }
 
 /** One line per reading, and one per sampled process's busiest thread. */
@@ -131,6 +212,17 @@ function noteReading(label: string, data: Record<string, unknown>): void {
         `main thread ${JSON.stringify(r.main_thread)}, streams ${JSON.stringify(r.streams)}`,
     );
     note(`${label} #${i + 1} motion ${JSON.stringify(r.motion)} land ${JSON.stringify(r.land)}`);
+    const largest = (r.commits as WindowCommitNote[]).reduce<WindowCommitNote | null>(
+      (big, c) => (big === null || c.react_or_span_ms > big.react_or_span_ms ? c : big),
+      null,
+    );
+    if (largest !== null) {
+      note(
+        `${label} #${i + 1} largest commit: ${largest.react_or_span_ms} ms (react ${largest.react_ms}), ` +
+          `${largest.performed} performed, ${largest.mounted} mounted, top ${JSON.stringify(largest.top.slice(0, 8))}`,
+      );
+      note(`${label} #${i + 1} largest commit why: ${JSON.stringify(largest.why ?? [])}`);
+    }
   });
   const samples = (data.samples ?? []) as { process: string; threads: ThreadPhases[] }[];
   for (const p of samples) {
@@ -159,12 +251,31 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
         });
         try {
           const stubs = await bindStreamingStubs(app, STREAMERS, stubDir);
-          await startStreams(app, stubs);
           await Bun.sleep(AFTER_LAND_MS);
 
           const port = await portOf(app);
           const enable = deckMotion(port, ["enable"]);
           expect(enable.exit, `deck motion enable: ${enable.stderr}`).toBe(0);
+
+          // The quiet deck's fold, before any stream starts: the planning
+          // commit pane chrome is memoized against is read here, beside the
+          // streaming arm rather than as its verdict.
+          const quiet = deckMotion(port, [
+            "settle",
+            ...GESTURES[0]!.flags,
+            "--count",
+            String(COUNT),
+            "--tasks",
+            "--streaming",
+            "0",
+          ]);
+          expect(quiet.exit, `quiet fold exited ${quiet.exit}: ${quiet.stderr} ${JSON.stringify(quiet.json)}`).toBe(0);
+          noteReading(`at0725 [${arm.size}] quiet fold`, (quiet.json?.data ?? {}) as Record<string, unknown>);
+          await Bun.sleep(AFTER_LAND_MS);
+
+          await startStreams(app, stubs);
+          await Bun.sleep(AFTER_LAND_MS);
+          await noteRestCensus(app, `at0725 [${arm.size}]`);
 
           for (const gesture of GESTURES) {
             const run = deckMotion(port, [

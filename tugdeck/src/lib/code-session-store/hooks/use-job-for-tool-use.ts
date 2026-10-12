@@ -10,13 +10,13 @@
  * gallery / standalone mount) or when no job matches this call.
  *
  * Laws: [L02] external state enters React through `useSyncExternalStore`;
- *       the store's `subscribe` / `getSnapshot` are bound arrow fields,
- *       so they pass straight through with no per-render identity churn.
+ *       the selector reads this call's job row alone, so a publish that
+ *       leaves the row's identity alone re-renders nothing.
  *
  * @module lib/code-session-store/hooks/use-job-for-tool-use
  */
 
-import { useMemo } from "react";
+import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import type { CodeSessionStore } from "@/lib/code-session-store";
@@ -24,20 +24,15 @@ import type { JobItem } from "@/lib/code-session-store/select-jobs";
 
 /** Stable no-op subscribe for the no-session (gallery) mount. */
 const noopSubscribe = (): (() => void) => () => {};
-/** Paired snapshot for the no-session mount — always `null`. */
-const noopSnapshot = (): null => null;
 
 export function useJobForToolUse(
   session: CodeSessionStore | undefined,
   toolUseId: string,
 ): JobItem | undefined {
-  const snapshot = useSyncExternalStore(
-    session?.subscribe ?? noopSubscribe,
-    session?.getSnapshot ?? noopSnapshot,
-    session?.getSnapshot ?? noopSnapshot,
+  const select = useCallback(
+    (): JobItem | undefined =>
+      session?.getSnapshot().jobs.find((j) => j.toolUseId === toolUseId),
+    [session, toolUseId],
   );
-  return useMemo(
-    () => snapshot?.jobs.find((j) => j.toolUseId === toolUseId),
-    [snapshot, toolUseId],
-  );
+  return useSyncExternalStore(session?.subscribe ?? noopSubscribe, select, select);
 }

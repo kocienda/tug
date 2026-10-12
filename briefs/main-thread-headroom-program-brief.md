@@ -100,7 +100,7 @@ This document is the index. Each stage has its own brief with its own evidence, 
 | Stage | Joined | Reading on the user's deck under streaming |
 |---|---|---|
 | 1. streaming-motion-reading | | Baseline, one probe per fix, and the after-reading below, all 2026-10-11. The harness after-reading is taken; on the user's deck nothing was streaming at either reading and the deck runs `main`, so the user's-deck streaming after-reading is owed once the stage joins. |
-| 2. react-off-the-stream-path | | |
+| 2. react-off-the-stream-path | | Baseline and after-reading on the harness, 2026-10-11, below: at rest with three streams, React fell from 125 commits/s and at least 199 ms/s to 24 commits/s and 22 ms/s. The user's-deck streaming reading is owed once the stage joins, as stage 1's is. |
 | 3. ingest-worker | | |
 | 4. population-ceiling | | |
 | 5. tugcast-renders | | |
@@ -206,3 +206,27 @@ Against the baseline, React's time inside the motion fell from 123–170 ms per 
 | slot | 23 updates/s, 113 ms/s busy | 1,094, 1,099 ms | 51, 24 | 179 (75), 182 (63) | 48, 44 | 260 of 1,022; compositing 86, style 60, script 13 |
 
 The user's deck tells the baseline's story again: gaps of 155–199 ms, a land of 33–50, and the time in compositing and style with script at 13–21 samples. The harness and the user's deck still disagree about where the time goes, and this stage's fixes act only on the harness's half of it. Whether they matter on the user's deck turns on the streaming reading there, which needs sessions streaming text on a deck that carries the fixes; it is owed after the join, and `tugtool deck motion gaps` will show the late frames on that deck without anybody having armed a recorder.
+
+#### Stage 2 after-reading — 2026-10-11
+
+`at0725-streaming-settle-reading`, slice arm, on the arc's final tree (`71723dbe6`), read alone. The whale arm skips on a machine without the whale snapshot. The baseline is the same file at the arc's base (`466d95e3d`, stage 1 joined), taken before any of this stage's changes. Both are on the stage-1 harness deck: four cards four-up, three streaming a stubbed turn at one word per 25 ms. The number this stage moves is the rest census: commits React makes over 4 s with the three streams running and no gesture.
+
+| Rest, three streams | Commits/s | React ms/s | Fibers performed/s | Most-performed components |
+|---|---|---|---|---|
+| baseline | 125 | at least 199 (261 of 503 timed) | 33,000 | `ResponderScope`, `Popper`, `Presence`, `TugProgressIndicator2`, `TugPushButton2`, `TugButton2`, about 900/s each |
+| after | 23.7 | 21.7 (83 of 95 timed) | 1,760 | `Popper`, `PopperProvider`, `Presence`, `PopperAnchor` at 288/s; `TugTooltip` at 144/s |
+
+| Reading | Floor before the drives | Lead | Longest gap | React in the window | Commits in the window | Largest commit | WebContent main thread |
+|---|---|---|---|---|---|---|---|
+| quiet fold, before | — | 35, 16 | 35, 39 | 17, 35 | 3, 3 | 454–455 performed | not sampled |
+| quiet fold, after | — | 34, 17 | 34, 31 | 19, 30 | 3, 3 | 336–337 performed | not sampled |
+| fold, three streams, before | 42–56 updates/s, 309–325 ms/s busy | 8, 10 | 32, 35 | 32, 43 | 11, 12 | 454–455 performed | busy 408 of 961; script 212 (52%) |
+| fold, three streams, after | 19 updates/s, 102 ms/s busy | 12, 13 | 32, 57 | 27, 39 | 10, 7 | 336–337 performed | busy 317 of 1,059; script 94 (30%) |
+| slot, three streams, before | 42–56 updates/s, 309–325 ms/s busy | 17, 11 | 49, 40 | 44, 38 | 7, 12 | 882–893 performed | busy 433 of 952; script 201 (46%) |
+| slot, three streams, after | 34 updates/s, 148 ms/s busy | 19, 13 | 42, 49 | 36, 30 | 3, 3 | 766–777 performed | busy 297 of 1,053; script 82 (28%) |
+
+Two drives each; times in ms. The always-recorded `settle-gap` row saw eight late frames across the run, 27–54 ms each against a 17 ms period, four in the set-up and four in the `move` beat, as at the baseline.
+
+**At rest the stage did what it set out to do.** A streamed token costs React no commit: the commits/s fell fivefold, React's time per second about ninefold and the fibers performed per second nearly twentyfold. What remains is card content, not the stream: the tooltip and popper subtrees of controls inside the card body, mostly the telemetry status row, re-rendering on its structural publishes and its 1 Hz tick. The floor before the drives fell with it, from 309–325 ms/s busy to 102–148, and script's share of WebContent's busy samples across the drives fell from 46–52% to 28–30%.
+
+**Inside the motion the gaps did not move.** The longest gaps read 31–57 ms against 32–49 at the baseline. The 57 is one drive, with three 21-fiber `SessionTelemetryStatusRow2` commits inside its motion. Every row still misses the one-period bar. React in the window was 31–51 ms after stage 1 and reads 19–39 now, which is inside the run-to-run spread. The largest commit is a quarter smaller on the fold and an eighth smaller on the slot move, because the title bar no longer re-renders for either, but it lands at the gesture's start rather than inside the motion, so it shortens the lead's work rather than the gaps. What fills the motion's gaps is not React's: stage 1 found the same, and with React's rest work gone, compositing, layout and style (71, 48–49 and 25–29 samples) are now nearly as large as script (82–94). That is stage 3's and stage 4's ground.

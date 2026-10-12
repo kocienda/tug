@@ -18,6 +18,16 @@
  * a setter the same file took from `useState`. A setter wrapped in
  * `afterGesture` is the door's answer for an event that is not a snapshot,
  * and is not one.
+ *
+ * The third shape is a component that takes a session store's whole
+ * snapshot. The snapshot changes on every structural publish, so a whole-
+ * snapshot subscriber re-renders on every one of them whether or not the
+ * fields it draws moved; streamed text no longer publishes at all, so what
+ * is left is the structural churn a selector over the drawn fields would
+ * skip. A bare `getSnapshot` handed to `useSyncExternalStore` for a
+ * `CodeSessionStore` — or a list data source whose `getVersion` returns one
+ * — is read as a breach, and the subscribers that still do it are named
+ * below, each to leave the list as it is converted.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -113,6 +123,75 @@ export function storeTellBreaches(source: string): string[] {
   return breaches;
 }
 
+/** Receivers that are always a session store, whatever the file declares. */
+const SESSION_STORE_NAMES = ["codeSessionStore", "_codeSessionStore"];
+
+/** The names `source` binds to a `CodeSessionStore`: typed declarations, and locals assigned from one. */
+function sessionStoreNames(source: string): Set<string> {
+  const names = new Set(SESSION_STORE_NAMES);
+  for (const m of source.matchAll(/\b(\w+)\??\s*:\s*CodeSessionStore\b/g)) names.add(m[1]);
+  for (const m of source.matchAll(/\b(?:const|let)\s+(\w+)\s*=\s*[^;\n]*\bcodeSessionStore\b/g)) names.add(m[1]);
+  return names;
+}
+
+/** The top-level comma-separated arguments of the call whose `(` ends at `open`. */
+function callArguments(source: string, open: number): string[] {
+  const end = closeParen(source, open) - 1;
+  const args: string[] = [];
+  let depth = 0;
+  let start = open;
+  for (let i = open; i < end; i += 1) {
+    const c = source[i];
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") depth -= 1;
+    else if (c === "," && depth === 0) {
+      args.push(source.slice(start, i));
+      start = i + 1;
+    }
+  }
+  args.push(source.slice(start, end));
+  return args.map((a) => a.trim()).filter((a) => a !== "");
+}
+
+/** The receiver's last name in a `a?.b.c` chain. */
+function lastName(chain: string): string {
+  const parts = chain.replace(/\?/g, "").split(".");
+  return parts[parts.length - 1];
+}
+
+/**
+ * The shapes of a whole-snapshot read: the bare method, the method behind a
+ * `?? fallback` or a null ternary, and an arrow (perhaps in `useCallback`)
+ * that returns nothing but the snapshot.
+ */
+const WHOLE_SNAPSHOT_ARG = [
+  /^([\w.?]+)\.getSnapshot(?:\s*\?\?\s*[\w.]+)?$/,
+  /^\w+\s*!==\s*null\s*\?\s*([\w.?]+)\.getSnapshot\s*:/,
+  /^(?:useCallback\(\s*)?\(\)\s*=>\s*([\w.?]+)\.getSnapshot\(\)(?:\s*\?\?\s*null)?\s*(?:,\s*\[[^\]]*\]\s*,?\s*\)?)?$/,
+];
+
+/** Whole-snapshot subscriptions to a session store in `source`. */
+export function sessionSnapshotBreaches(source: string): string[] {
+  const names = sessionStoreNames(source);
+  const breaches: string[] = [];
+  for (const call of source.matchAll(/\buseSyncExternalStore\s*(?:<[^>()]*>)?\s*\(/g)) {
+    const args = callArguments(source, (call.index ?? 0) + call[0].length);
+    const read = args[1];
+    if (read === undefined) continue;
+    for (const shape of WHOLE_SNAPSHOT_ARG) {
+      const m = shape.exec(read);
+      if (m !== null && names.has(lastName(m[1]))) {
+        breaches.push(`subscribes to ${m[1]}'s whole snapshot`);
+        break;
+      }
+    }
+  }
+  for (const m of source.matchAll(/\bgetVersion\(\)[^{;]*\{\s*return\s+([\w.?]+)\.getSnapshot\(\);/g)) {
+    if (names.has(lastName(m[1]))) breaches.push(`versions a list on ${m[1]}'s whole snapshot`);
+  }
+  return breaches;
+}
+
 describe("the react door", () => {
   test("no source but the door takes useSyncExternalStore or flushSync from React", () => {
     const offenders = sourceFiles(SRC)
@@ -200,5 +279,79 @@ describe("store tells reach the door", () => {
       "onOpenChange?.(next); setOpen(next);",
     ].join("\n");
     expect(storeTellBreaches(source)).toEqual([]);
+  });
+});
+
+describe("session snapshots are selected, not taken whole", () => {
+  test("no file subscribes to a session store's whole snapshot", () => {
+    const counts: Record<string, number> = {};
+    for (const path of sourceFiles(SRC)) {
+      const n = sessionSnapshotBreaches(readFileSync(path, "utf8")).length;
+      if (n > 0) counts[path.slice(SRC.length + 1)] = n;
+    }
+    expect(counts).toEqual({});
+  });
+
+  test("a bare getSnapshot for a session store is read as a breach", () => {
+    const source = [
+      "const snap = useSyncExternalStore(",
+      "  codeSessionStore.subscribe,",
+      "  codeSessionStore.getSnapshot,",
+      ");",
+    ].join("\n");
+    expect(sessionSnapshotBreaches(source)).toEqual([
+      "subscribes to codeSessionStore's whole snapshot",
+    ]);
+  });
+
+  test("a typed store, a fallback, a ternary and an arrow are read as breaches", () => {
+    const source = [
+      "function useX(store: CodeSessionStore, session?: CodeSessionStore) {",
+      "  const a = useSyncExternalStore(store.subscribe, store.getSnapshot);",
+      "  const b = useSyncExternalStore(session?.subscribe ?? noop, session?.getSnapshot ?? noop);",
+      "  const c = useSyncExternalStore(sub, store !== null ? store.getSnapshot : () => null);",
+      "  const d = useSyncExternalStore(sub, useCallback(() => store.getSnapshot() ?? null, [store]));",
+      "}",
+    ].join("\n");
+    expect(sessionSnapshotBreaches(source)).toHaveLength(4);
+  });
+
+  test("a typed call and a multi-line useCallback are read as breaches", () => {
+    const source = [
+      "const a = useSyncExternalStore<CodeSessionSnapshot>(",
+      "  codeSessionStore.subscribe,",
+      "  codeSessionStore.getSnapshot,",
+      ");",
+      "const b = useSyncExternalStore(",
+      "  subscribe,",
+      "  useCallback(",
+      "    () => services?.codeSessionStore.getSnapshot() ?? null,",
+      "    [services],",
+      "  ),",
+      ");",
+    ].join("\n");
+    expect(sessionSnapshotBreaches(source)).toHaveLength(2);
+  });
+
+  test("a selector over the snapshot is not one", () => {
+    const source = [
+      "const phase = useSyncExternalStore(",
+      "  codeSessionStore.subscribe,",
+      "  () => codeSessionStore.getSnapshot().phase,",
+      ");",
+    ].join("\n");
+    expect(sessionSnapshotBreaches(source)).toEqual([]);
+  });
+
+  test("another store's whole snapshot is not one", () => {
+    const source = "const snap = useSyncExternalStore(jotsStore.subscribe, jotsStore.getSnapshot);";
+    expect(sessionSnapshotBreaches(source)).toEqual([]);
+  });
+
+  test("a list version on the session snapshot is read as a breach", () => {
+    const source = "getVersion(): CodeSessionSnapshot {\n  return this._codeSessionStore.getSnapshot();\n}";
+    expect(sessionSnapshotBreaches(source)).toEqual([
+      "versions a list on this._codeSessionStore's whole snapshot",
+    ]);
   });
 });

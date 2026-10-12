@@ -44,6 +44,7 @@ import { TugSheetScaffold } from "@/components/tugways/tug-sheet-scaffold";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { CodeSessionStore } from "@/lib/code-session-store";
+import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import type { Message } from "@/lib/code-session-store/types";
 import {
   type AgentEntry,
@@ -255,6 +256,9 @@ const AGENTS_CELL_RENDERERS: Record<
 // Sheet body — Running + Library sections
 // ---------------------------------------------------------------------------
 
+/** The session fields the Running section walks. */
+const AGENTS_SHEET_FIELDS = ["transcript", "activeTurn"] as const;
+
 interface AgentsSheetBodyProps {
   sessionMetadataStore: SessionMetadataStore;
   codeSessionStore: CodeSessionStore;
@@ -270,10 +274,7 @@ function AgentsSheetBody({
     sessionMetadataStore.subscribe,
     sessionMetadataStore.getSnapshot,
   );
-  const code = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const code = useSessionFields(codeSessionStore, AGENTS_SHEET_FIELDS);
 
   const library = useMemo(
     () => selectLibraryAgents(meta.slashCommands),

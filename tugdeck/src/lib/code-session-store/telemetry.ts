@@ -826,7 +826,7 @@ export function unionPauseMs(
  * Pure: no time source, no DOM, no React. Callers pass `tickAt`.
  */
 export function deriveTimeCellMs(
-  snap: CodeSessionSnapshot,
+  snap: InflightClockSignals,
   tickAt: number,
   postCommitFallbackMs: number,
 ): number {
@@ -886,8 +886,25 @@ export function deriveJobExtendedActiveMs(args: {
   return turnActiveMs + Math.max(0, latestEnd - turnEndedAt);
 }
 
+/** The snapshot fields the in-flight clock reads. */
+export const INFLIGHT_CLOCK_FIELDS = [
+  "activeTurn",
+  "awaitingApprovalIntervals",
+  "awaitingApprovalSegmentStartedAt",
+  "transportDowntimeIntervals",
+  "transportDowntimeSegmentStartedAt",
+  "interruptInFlightIntervals",
+  "interruptInFlightSegmentStartedAt",
+] as const;
+
+/** What {@link deriveInflightActiveMs} reads. */
+export type InflightClockSignals = Pick<
+  CodeSessionSnapshot,
+  (typeof INFLIGHT_CLOCK_FIELDS)[number]
+>;
+
 export function deriveInflightActiveMs(
-  snap: CodeSessionSnapshot,
+  snap: InflightClockSignals,
   nowMs: number,
 ): number | null {
   if (snap.activeTurn === null) {

@@ -919,3 +919,78 @@ describe("superseded arc stop receipts (Spec S04)", () => {
     expect(sameTranscriptRowData(live, demoted)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// List and row versions — what the list view's memoized row wrapper keys on
+// ---------------------------------------------------------------------------
+
+describe("versions: a publish reconciles the rows it changed", () => {
+  function liveSource(initial: CodeSessionSnapshot) {
+    const holder = { snap: initial };
+    const ds = new SessionTranscriptDataSource({
+      getSnapshot: () => holder.snap,
+      subscribe: () => () => {},
+      streamingDocument: { get: () => undefined, observe: () => () => {} },
+    } as unknown as CodeSessionStore);
+    return { holder, ds };
+  }
+
+  function versions(ds: SessionTranscriptDataSource): unknown[] {
+    const out: unknown[] = [];
+    for (let i = 0; i < ds.numberOfItems(); i++) out.push(ds.rowVersion(i));
+    return out;
+  }
+
+  test("a publish that adds one row moves one row version", () => {
+    const transcript = [normalTurn("A", "one", "uno"), normalTurn("B", "two", "dos")];
+    const active = activeTurn({ turnKey: "L", isWake: false, withText: "hi" });
+    const { holder, ds } = liveSource(snapshotWith({ transcript, activeTurn: active }));
+    const before = versions(ds);
+    expect(before).toHaveLength(6);
+
+    // A send queues behind the open turn: one ghost row joins the tail.
+    // The snapshot object is new and the in-flight turn is the same.
+    const queued = { turnKey: "Q", queuedAt: 10 } as unknown as QueuedSend;
+    holder.snap = snapshotWith({ transcript, activeTurn: active, queuedSends: [queued] });
+    const after = versions(ds);
+    expect(after).toHaveLength(7);
+    const moved = after.filter((v, i) => i >= before.length || v !== before[i]);
+    expect(moved).toHaveLength(1);
+    expect(ds.kindForIndex(6)).toBe("ghost");
+  });
+
+  test("a structural in-flight publish moves the in-flight rows and holds every committed row", () => {
+    const transcript = [normalTurn("A", "one", "uno"), normalTurn("B", "two", "dos")];
+    const { holder, ds } = liveSource(
+      snapshotWith({ transcript, activeTurn: activeTurn({ turnKey: "L", isWake: false }) }),
+    );
+    const before = versions(ds);
+    holder.snap = snapshotWith({
+      transcript,
+      activeTurn: activeTurn({ turnKey: "L", isWake: false, withText: "grew" }),
+    });
+    const after = versions(ds);
+    expect(after.slice(0, 4)).toEqual(before.slice(0, 4));
+    for (let i = 0; i < 4; i++) expect(after[i]).toBe(before[i]);
+    expect(after[4]).not.toBe(before[4]);
+    expect(after[5]).not.toBe(before[5]);
+  });
+
+  test("the list version holds across a publish that moves no row field", () => {
+    const transcript = [normalTurn("A", "one", "uno")];
+    const first = snapshotWith({ transcript });
+    const { holder, ds } = liveSource(first);
+    const version = ds.getVersion();
+    // A pending dialog, a phase mark, a cost tick: a new snapshot, no row field moved.
+    holder.snap = { ...first, phase: "awaiting_approval", canSubmit: false };
+    expect(ds.getVersion()).toBe(version);
+    // A turn commits: the transcript moved, so the list version does.
+    holder.snap = snapshotWith({ transcript: [...transcript, normalTurn("B", "two", "dos")] });
+    expect(ds.getVersion()).not.toBe(version);
+  });
+
+  test("reading a row version twice in one snapshot returns the same token", () => {
+    const { ds } = liveSource(snapshotWith({ transcript: [normalTurn("A", "one", "uno")] }));
+    expect(ds.rowVersion(1)).toBe(ds.rowVersion(1));
+  });
+});

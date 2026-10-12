@@ -7208,6 +7208,61 @@ function abandonBracket(
 // ---------------------------------------------------------------------------
 
 /**
+ * State fields a streamed text or thinking delta may move without anything
+ * the snapshot's readers draw having changed: the in-flight turn's scratch
+ * (whose growing text the `PropertyStore` already carries, [L22]) and the
+ * stream clock, which no snapshot field projects.
+ */
+const TEXT_ONLY_FIELDS: ReadonlySet<string> = new Set([
+  "scratch",
+  "lastStreamEventAt",
+  "maxStreamGapMs",
+  "firstAssistantDeltaAt",
+]);
+
+/**
+ * True when `next` differs from `prev` only by text growing inside Messages
+ * that already existed — the change a streamed delta usually makes, and the
+ * one the snapshot does not publish.
+ *
+ * Read by what changed, not by the event's name. A delta that also cleared a
+ * stall or a retry, released a held send, moved the active message, or
+ * minted a Message changed something a reader draws, and is structural. Every
+ * other state field is compared by identity, so a field a later delta handler
+ * starts to move publishes rather than going quietly unseen.
+ */
+export function isTextOnlyChange(
+  prev: CodeSessionState,
+  next: CodeSessionState,
+): boolean {
+  if (prev === next) return true;
+  for (const key of Object.keys(next) as (keyof CodeSessionState)[]) {
+    if (TEXT_ONLY_FIELDS.has(key)) continue;
+    if (prev[key] !== next[key]) return false;
+  }
+  if (Object.keys(prev).length !== Object.keys(next).length) return false;
+  const pending = next.pendingTurn;
+  if (pending === null) return prev.scratch === next.scratch;
+  const before = prev.scratch.get(pending.turnKey);
+  const after = next.scratch.get(pending.turnKey);
+  if (before === undefined || after === undefined) return before === after;
+  if (before.messages.length !== after.messages.length) return false;
+  for (let i = 0; i < after.messages.length; i += 1) {
+    const a = before.messages[i];
+    const b = after.messages[i];
+    if (a === b) continue;
+    if (
+      a.kind !== b.kind ||
+      a.messageKey !== b.messageKey ||
+      (b.kind !== "assistant_text" && b.kind !== "assistant_thinking")
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Derive the public {@link ActiveTurnSnapshot} from reducer state.
  * Returns `null` when no turn is in flight. Used by
  * `CodeSessionStore.getSnapshot` to project `state.pendingTurn` +

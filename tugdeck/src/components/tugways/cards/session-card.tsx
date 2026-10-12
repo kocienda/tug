@@ -2201,9 +2201,18 @@ export function SessionCardBody({
   // already used.
   const layerShownSource = useSpaceLayerShownSource();
 
-  const codeSnap = useSyncExternalStore(
+  // Narrow selectors over the fields the body draws, never the whole
+  // snapshot: each returns a primitive or a state field whose identity moves
+  // only when that field does, so a publish that touches nothing here — a
+  // tool row, a cost tick, a phase the body does not branch on — does not
+  // re-render this whole component ([L02]).
+  const lastError = useSyncExternalStore(
     codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
+    () => codeSessionStore.getSnapshot().lastError,
+  );
+  const canSubmit = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    () => codeSessionStore.getSnapshot().canSubmit,
   );
 
   // An inline dialog is modal for keys ([P06]): while one is pending the prompt
@@ -2217,17 +2226,29 @@ export function SessionCardBody({
   // this dialog is up is its `Continue`. Leaving the entry live would let a
   // Return meant for the composer answer a question the developer was not
   // looking at. Standing the entry down is what keeps Return unambiguous.
-  const inlineDialogPending =
-    Boolean(codeSnap.pendingApproval) ||
-    Boolean(codeSnap.pendingQuestion) ||
-    Boolean(codeSnap.pendingAsk);
+  const inlineDialogPending = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    () => {
+      const s = codeSessionStore.getSnapshot();
+      return (
+        Boolean(s.pendingApproval) ||
+        Boolean(s.pendingQuestion) ||
+        Boolean(s.pendingAsk)
+      );
+    },
+  );
 
   // The resume replay window deactivates the prompt the same way — a
   // session mid-reconstruction can't accept input, so no blinking
   // caret until the transcript settles. Same predicate the transcript
   // host's deferred-content hold reads.
-  const replayHoldActive =
-    codeSnap.phase === "replaying" || deriveColdRestoreActive(codeSnap);
+  const replayHoldActive = useSyncExternalStore(
+    codeSessionStore.subscribe,
+    () => {
+      const s = codeSessionStore.getSnapshot();
+      return s.phase === "replaying" || deriveColdRestoreActive(s);
+    },
+  );
 
   // When the dialog resolves — or the replay window closes — return focus to
   // the prompt: the card's single focus destination, which reactivates the
@@ -2287,7 +2308,7 @@ export function SessionCardBody({
   // `useSessionCardObserver` is about to clear the binding and route that
   // cause through the picker.
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
-  const bannerSpec = deriveSessionCardBannerSpec(codeSnap, { dismissedAt });
+  const bannerSpec = deriveSessionCardBannerSpec({ lastError }, { dismissedAt });
 
   // Once the session hits a non-recoverable error, disable the entry — the
   // underlying session really is gone, and the user recovers by closing and
@@ -2310,11 +2331,11 @@ export function SessionCardBody({
   // Scoped by `at`, exactly as the banner's own dismissal is: this dismissal
   // forgives THIS error, and a fresh one re-raises on its own `at`.
   const sessionErrored =
-    codeSnap.lastError !== null &&
-    codeSnap.lastError.cause !== "resume_failed" &&
+    lastError !== null &&
+    lastError.cause !== "resume_failed" &&
     !(
-      codeSnap.lastError.recoverable === true &&
-      codeSnap.lastError.at === dismissedAt
+      lastError.recoverable === true &&
+      lastError.at === dismissedAt
     );
 
   // Dismiss, both halves. The stamp is what the banner and `sessionErrored`
@@ -2338,11 +2359,11 @@ export function SessionCardBody({
   const landingOwedForRef = useRef<number | null>(null);
   const dismissBanner = useCallback(
     (at: number) => {
-      const recoverable = codeSnap.lastError?.recoverable === true;
+      const recoverable = lastError?.recoverable === true;
       setDismissedAt(at);
       if (recoverable) landingOwedForRef.current = at;
     },
-    [codeSnap.lastError],
+    [lastError],
   );
   useLayoutEffect(() => {
     const owed = landingOwedForRef.current;
@@ -5389,7 +5410,7 @@ export function SessionCardBody({
                         cardId={cardId}
                         sessionMetadataStore={sessionMetadataStore}
                         onOpenSheet={aiConfigSheet.openAiConfigSheet}
-                        disabled={!codeSnap.canSubmit}
+                        disabled={!canSubmit}
                         focusGroup={SESSION_CYCLE_GROUP}
                         focusOrder={SESSION_CYCLE_ORDER_AI}
                       />

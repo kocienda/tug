@@ -395,6 +395,22 @@ export interface TugListViewDataSource {
   getVersion(): unknown;
 
   /**
+   * Optional per-row version, so a tick re-renders only the rows it
+   * changed. Return a token that is `Object.is`-identical across ticks
+   * for as long as row `index`'s content is unchanged, and a new one
+   * when it changes — the same contract as {@link getVersion}, one row
+   * wide. The list's row wrapper is memoized against it, so a publish
+   * that adds one row reconciles one row instead of every row in the
+   * window.
+   *
+   * Omit it and every row takes the list's own version as its row
+   * version, which re-renders every rendered row on every tick — the
+   * correct, unoptimized behaviour for a source that cannot say which
+   * rows moved.
+   */
+  rowVersion?(index: number): unknown;
+
+  /**
    * Optional turn-aware anchor depth, for data sources whose content is
    * windowed in **turns** (the transcript). Given the flat row index of the
    * topmost visible row, return its distance from the end measured in turns
@@ -540,6 +556,131 @@ export interface TugListViewCellProps<
 export type TugListViewCellRenderer<
   DS extends TugListViewDataSource = TugListViewDataSource,
 > = React.ComponentType<TugListViewCellProps<DS>>;
+
+/** The wrapper callbacks for one row index, cached for the list's life. */
+interface TugListCellCallbacks {
+  readonly ref: (el: HTMLDivElement | null) => void;
+  readonly pointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
+  readonly click: (e: React.MouseEvent<HTMLDivElement>) => void;
+  readonly doubleClick: () => void;
+  readonly keyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
+}
+
+interface TugListRowWrapperProps {
+  index: number;
+  id: string;
+  kind: string;
+  parity: TugListViewStripeParity;
+  roleAttr: string | undefined;
+  selected: boolean;
+  enabled: boolean;
+  live: boolean;
+  itemRole: string;
+  tabIndex: number | undefined;
+  callbacks: TugListCellCallbacks;
+  Renderer: TugListViewCellRenderer | undefined;
+  dataSource: TugListViewDataSource;
+  /** The row's focus mode when the focus engine is active, else `null`. */
+  focusMode: string | null;
+  /**
+   * The row's own version ({@link TugListViewDataSource.rowVersion}), or
+   * the list's version for a source with none. It is not read here: it is
+   * what the memo compares, so the row re-renders exactly when its content
+   * or one of its wrapper props moved.
+   */
+  rowVersion: unknown;
+}
+
+/**
+ * One row's wrapper, memoized. Every prop is a primitive or a reference
+ * stable for the row's life, plus the row version, so a tick that changes
+ * nothing about this row skips it entirely — the wrapper and the cell
+ * below it — and a publish that adds one row reconciles one row.
+ */
+const TugListRowWrapper = React.memo(function TugListRowWrapper({
+  index,
+  id,
+  kind,
+  parity,
+  roleAttr,
+  selected,
+  enabled,
+  live,
+  itemRole,
+  tabIndex,
+  callbacks,
+  Renderer,
+  dataSource,
+  focusMode,
+}: TugListRowWrapperProps) {
+  const disabledAttr = enabled ? undefined : "true";
+  const selectedAttr = selected ? "true" : undefined;
+  if (Renderer === undefined) {
+    // Unknown kind — no renderer registered. Render an empty placeholder
+    // so the windowing math still accounts for the slot, and warn in dev.
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        `[TugListView] no cell renderer registered for kind "${kind}" at index ${index}`,
+      );
+    }
+    return (
+      <div
+        className="tug-list-view-cell"
+        data-tug-list-cell-index={index}
+        data-tug-list-cell-kind={kind}
+        data-row-parity={parity}
+        data-list-cell-role={roleAttr}
+        data-selected={selectedAttr}
+        data-disabled={disabledAttr}
+        aria-disabled={enabled ? undefined : true}
+        role="listitem"
+        tabIndex={tabIndex}
+        ref={callbacks.ref}
+        onPointerDown={callbacks.pointerDown}
+        onClick={callbacks.click}
+        onDoubleClick={callbacks.doubleClick}
+        onKeyDown={callbacks.keyDown}
+      />
+    );
+  }
+  const cell = (
+    <Renderer
+      index={index}
+      id={id}
+      kind={kind}
+      dataSource={dataSource}
+      selected={selected}
+    />
+  );
+  return (
+    <div
+      className="tug-list-view-cell"
+      data-tug-list-cell-index={index}
+      data-tug-list-cell-kind={kind}
+      data-row-parity={parity}
+      data-list-cell-role={roleAttr}
+      data-selected={selectedAttr}
+      data-disabled={disabledAttr}
+      data-cv-live={live ? "" : undefined}
+      aria-disabled={enabled ? undefined : true}
+      role={itemRole}
+      tabIndex={tabIndex}
+      ref={callbacks.ref}
+      onPointerDown={callbacks.pointerDown}
+      onClick={callbacks.click}
+      onDoubleClick={callbacks.doubleClick}
+      onKeyDown={callbacks.keyDown}
+    >
+      {focusMode !== null ? (
+        // The row's content joins the row's own focus mode, so its inner
+        // focusables become the walk once Enter descends ([P02]).
+        <FocusModeContext.Provider value={focusMode}>{cell}</FocusModeContext.Provider>
+      ) : (
+        cell
+      )}
+    </div>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Imperative handle — exposed via forwardRef
@@ -2612,10 +2753,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     /** Settles the live reveal `cancelled` when the user has taken the scroller. */
     const rangeRevealCancelCheckRef = React.useRef<() => boolean>(() => false);
 
-    // Subscribe to the data source. The returned `version` token is a
-    // by-product — we don't use it directly. The hook's job is to
-    // re-run this component whenever the data source ticks per its
-    // `getVersion` contract ([L02], [#public-api]).
+    // Subscribe to the data source. The hook's job is to re-run this
+    // component whenever the data source ticks per its `getVersion`
+    // contract ([L02], [#public-api]); the token itself is also every
+    // row's version for a source that keeps no `rowVersion`.
     //
     // Wrap each call so consumers can write `subscribe` / `getVersion`
     // as regular methods (with `this` bindings) rather than arrow
@@ -2630,7 +2771,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       () => dataSource.getVersion(),
       [dataSource],
     );
-    useSyncExternalStore(subscribeWrapper, versionWrapper, versionWrapper);
+    const listVersion = useSyncExternalStore(
+      subscribeWrapper,
+      versionWrapper,
+      versionWrapper,
+    );
 
     // `selectionRequired` — resolve the effective selected index from
     // the owned state + the live data source, then reconcile. The
@@ -7163,14 +7308,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     };
     handleListKeyRef.current = handleListKey;
 
-    interface CellCallbacks {
-      readonly ref: (el: HTMLDivElement | null) => void;
-      readonly pointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-      readonly click: (e: React.MouseEvent<HTMLDivElement>) => void;
-      readonly doubleClick: () => void;
-      readonly keyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
-    }
-    const cellCallbacksRef = React.useRef<Map<number, CellCallbacks>>(
+    const cellCallbacksRef = React.useRef<Map<number, TugListCellCallbacks>>(
       new Map(),
     );
 
@@ -7213,7 +7351,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     };
     commitMultiSelectRef.current = commitMultiSelect;
 
-    function getCellCallbacks(index: number): CellCallbacks {
+    function getCellCallbacks(index: number): TugListCellCallbacks {
       const registry = cellCallbacksRef.current;
       const cached = registry.get(index);
       if (cached !== undefined) return cached;
@@ -7436,7 +7574,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         if (dataSourceRef.current.enabledForIndex?.(index) === false) return;
         delegateRef.current?.onActivate?.(index);
       };
-      const callbacks: CellCallbacks = {
+      const callbacks: TugListCellCallbacks = {
         ref: refCb,
         pointerDown: pointerDownCb,
         click: clickCb,
@@ -7650,7 +7788,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
                   ? 0
                   : -1;
             const wrapperRoleAttr = role === "cell" ? undefined : role;
-            const wrapperDisabledAttr = enabled ? undefined : "true";
             // `selectionRequired` mode — the owned selected row.
             // Surfaced two ways from the one source: `data-selected`
             // on the wrapper (the CSS-cascade hook,
@@ -7667,7 +7804,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
             const cellSelected =
               effectiveSelectedIndex === index ||
               multiSelect?.selectedIds.has(id) === true;
-            const wrapperSelectedAttr = cellSelected ? "true" : undefined;
             // No per-cell height styling FROM RENDER. `inline` mode mounts
             // every cell at its real, measured height — no estimates, no
             // saved-height min-height. The scroll height is the true sum
@@ -7676,79 +7812,34 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
             // cell's EXACT measured height as `contain-intrinsic-size`
             // (a DOM write, [L06]) so far-offscreen cells can skip
             // style/layout/paint at precisely their true size.
-            const Renderer = cellRenderers[kind];
-            if (Renderer === undefined) {
-              // Unknown kind — no renderer registered. Render an
-              // empty placeholder so the windowing math still
-              // accounts for the slot, and warn in dev.
-              if (process.env.NODE_ENV !== "production") {
-                console.warn(
-                  `[TugListView] no cell renderer registered for kind "${kind}" at index ${index}`,
-                );
-              }
-              return (
-                <div
-                  key={id}
-                  className="tug-list-view-cell"
-                  data-tug-list-cell-index={index}
-                  data-tug-list-cell-kind={kind}
-                  data-row-parity={parityForIndex(index)}
-                  data-list-cell-role={wrapperRoleAttr}
-                  data-selected={wrapperSelectedAttr}
-                  data-disabled={wrapperDisabledAttr}
-                  aria-disabled={enabled ? undefined : true}
-                  role="listitem"
-                  tabIndex={wrapperTabIndex}
-                  ref={getCellCallbacks(index).ref}
-                  onPointerDown={getCellCallbacks(index).pointerDown}
-                  onClick={getCellCallbacks(index).click}
-                  onDoubleClick={getCellCallbacks(index).doubleClick}
-                  onKeyDown={getCellCallbacks(index).keyDown}
-                />
-              );
-            }
+            // The wrapper is memoized ({@link TugListRowWrapper}): a row
+            // whose version and wrapper props did not move is skipped, so a
+            // tick reconciles the rows it changed rather than the window.
             return (
-              <div
+              <TugListRowWrapper
                 key={id}
-                className="tug-list-view-cell"
-                data-tug-list-cell-index={index}
-                data-tug-list-cell-kind={kind}
-                data-row-parity={parityForIndex(index)}
-                data-list-cell-role={wrapperRoleAttr}
-                data-selected={wrapperSelectedAttr}
-                data-disabled={wrapperDisabledAttr}
-                data-cv-live={live ? "" : undefined}
-                aria-disabled={enabled ? undefined : true}
-                role={itemRole}
+                index={index}
+                id={id}
+                kind={kind}
+                parity={parityForIndex(index)}
+                roleAttr={wrapperRoleAttr}
+                selected={cellSelected}
+                enabled={enabled}
+                live={live}
+                itemRole={itemRole}
                 tabIndex={wrapperTabIndex}
-                ref={getCellCallbacks(index).ref}
-                onPointerDown={getCellCallbacks(index).pointerDown}
-                onClick={getCellCallbacks(index).click}
-                onDoubleClick={getCellCallbacks(index).doubleClick}
-                onKeyDown={getCellCallbacks(index).keyDown}
-              >
-                {focusEngineActive ? (
-                  // The row's content joins the row's own focus mode, so its
-                  // inner focusables become the walk once Enter descends ([P02]).
-                  <FocusModeContext.Provider value={`${focusableId}-row-${index}`}>
-                    <Renderer
-                      index={index}
-                      id={id}
-                      kind={kind}
-                      dataSource={dataSource}
-                      selected={cellSelected}
-                    />
-                  </FocusModeContext.Provider>
-                ) : (
-                  <Renderer
-                    index={index}
-                    id={id}
-                    kind={kind}
-                    dataSource={dataSource}
-                    selected={cellSelected}
-                  />
-                )}
-              </div>
+                callbacks={getCellCallbacks(index)}
+                Renderer={cellRenderers[kind]}
+                dataSource={dataSource}
+                focusMode={
+                  focusEngineActive ? `${focusableId}-row-${index}` : null
+                }
+                rowVersion={
+                  dataSource.rowVersion !== undefined
+                    ? dataSource.rowVersion(index)
+                    : listVersion
+                }
+              />
             );
           })}
         </div>

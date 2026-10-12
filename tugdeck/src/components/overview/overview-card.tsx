@@ -705,7 +705,10 @@ function OverviewPostZ1B({
  */
 function useOverviewRefRoots(
   posts: readonly OverviewPostEntry[],
-): (projectDir: string | null) => OverviewRefRoot | null {
+): {
+  rootFor: (projectDir: string | null) => OverviewRefRoot | null;
+  version: number;
+} {
   const dirs = useMemo(() => {
     const set = new Set<string>();
     for (const post of posts) {
@@ -766,9 +769,9 @@ function useOverviewRefRoots(
     }
     return sum;
   }, [dirsKey]); // eslint-disable-line react-hooks/exhaustive-deps -- `dirsKey` is `dirs`, serialized for identity
-  useSyncExternalStore(subscribe, getSnapshot);
+  const version = useSyncExternalStore(subscribe, getSnapshot);
 
-  return useCallback(
+  const rootFor = useCallback(
     (projectDir: string | null): OverviewRefRoot | null => {
       if (projectDir === null) return null;
       const ws = getWorkspace(projectDir);
@@ -778,9 +781,24 @@ function useOverviewRefRoots(
     },
     [readyKey], // eslint-disable-line react-hooks/exhaustive-deps -- `readyKey` is the ready list, serialized for identity
   );
+  return { rootFor, version };
 }
 
-function OverviewPostRow({
+/**
+ * One post. Memoized against the post, its root's two fields and the ref
+ * resolution version, so a publish that adds a post renders that post alone:
+ * the root is minted fresh on every lookup and compared by what it holds, and
+ * the version is what a resolver verdict re-renders the rows through.
+ */
+const OverviewPostRow = React.memo(OverviewPostRowBody, (a, b) =>
+  a.post === b.post &&
+  a.formats === b.formats &&
+  a.refVersion === b.refVersion &&
+  a.root?.projectDir === b.root?.projectDir &&
+  a.root?.workspaceKey === b.root?.workspaceKey,
+);
+
+function OverviewPostRowBody({
   post,
   root,
   formats,
@@ -788,6 +806,8 @@ function OverviewPostRow({
   post: OverviewPostEntry;
   root: OverviewRefRoot | null;
   formats: ReturnType<typeof useTimeFormats>;
+  /** The ref resolution version; read by the memo, not by the row. */
+  refVersion: number;
 }): React.ReactElement {
   const at = new Date(post.atMs);
   const authorLabel = AUTHOR_LABEL[post.author];
@@ -916,7 +936,7 @@ export function OverviewContent({
   // of the run instead ([B10]). Measuring one would close the loop the
   // no-measurement rule was written against.
   const formats = useTimeFormats();
-  const rootFor = useOverviewRefRoots(posts);
+  const { rootFor, version: refVersion } = useOverviewRefRoots(posts);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Whether the reader is at the bottom, sampled BEFORE the new post is laid
   // out — reading it afterwards would always say "no", since the arriving row
@@ -1303,6 +1323,7 @@ export function OverviewContent({
                   post={post}
                   root={rootFor(post.projectDir)}
                   formats={formats}
+                  refVersion={refVersion}
                 />
               ))
             )}

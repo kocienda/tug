@@ -38,6 +38,7 @@
  * @module lib/code-session-store/use-session-phase
  */
 
+import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 
@@ -244,14 +245,17 @@ export function useSessionPhase(sessionId: string): SessionPhaseKey {
     cardId === null ? null : cardServicesStore.getServices(cardId),
   );
   const store = services?.codeSessionStore ?? null;
-  const snap = useSyncExternalStore(
-    store?.subscribe ?? NOOP_SUBSCRIBE,
-    store !== null ? store.getSnapshot : () => null,
-    () => null,
-  );
   const join = useCardArcJoin(cardId, services?.changesController ?? null);
   const joinReady = joinOfferStands(join.arcId, join.arcs);
-  return sessionPhaseFromSnapshot(snap, joinReady);
+  // The key is the selection: a publish that leaves it where it was — a tool
+  // row, a cost line — re-renders nobody.
+  const selectPhase = useCallback(
+    (): SessionPhaseKey => sessionPhaseFromSnapshot(store?.getSnapshot() ?? null, joinReady),
+    [store, joinReady],
+  );
+  return useSyncExternalStore(store?.subscribe ?? NOOP_SUBSCRIBE, selectPhase, () =>
+    sessionPhaseFromSnapshot(null, joinReady),
+  );
 }
 
 /**

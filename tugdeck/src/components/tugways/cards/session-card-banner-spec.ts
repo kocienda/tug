@@ -97,7 +97,7 @@ export interface SessionCardBannerCtx {
  * mounted, i.e. after the restore has resolved.
  */
 export function deriveSessionCardBannerSpec(
-  snap: CodeSessionSnapshot,
+  snap: Pick<CodeSessionSnapshot, "lastError">,
   ctx: SessionCardBannerCtx,
 ): SessionCardBannerSpec {
   if (

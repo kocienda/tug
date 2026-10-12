@@ -203,7 +203,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(store.getSnapshot().transcript).toHaveLength(2);
   });
 
-  it("same-phase streaming bursts coalesce to one notify per frame tick", () => {
+  it("same-phase text-only deltas publish nothing; structural ones coalesce to one notify per frame tick", () => {
     // A tick of the store's own over a manual frame, so the coalesced
     // publish is deterministic. The coalescing contract's second half —
     // an immediate publish supersedes the pending one, so no double
@@ -236,7 +236,7 @@ describe("replay fold — one snapshot tick per flush", () => {
 
     store.send("hello", []);
     const afterSend = count;
-    const delta = (seq: number): void =>
+    const delta = (seq: number, blockIndex?: number): void =>
       emit(conn, {
         type: "assistant_text",
         status: "partial",
@@ -245,6 +245,7 @@ describe("replay fold — one snapshot tick per flush", () => {
         is_partial: true,
         rev: 0,
         seq,
+        ...(blockIndex === undefined ? {} : { block_index: blockIndex }),
       });
     // The first two deltas cross phase boundaries (submitting →
     // awaiting_first_token → streaming) — semantic boundaries, each
@@ -252,12 +253,29 @@ describe("replay fold — one snapshot tick per flush", () => {
     delta(0);
     delta(1);
     expect(count).toBe(afterSend + 2);
-    // Same-phase burst: every event still reduces immediately (reads
-    // stay truthful) but the listener notification coalesces into ONE
-    // publish on the next frame.
+    // Same-phase text-only burst: the text reaches the DOM through the
+    // PropertyStore, so the snapshot stays pinned and nobody is told —
+    // not now, and not on the frame. The stream-text signal (what the
+    // open find bar follows) moves once on the frame instead.
+    const pinned = store.getSnapshot();
+    const version = store.getStreamTextVersion();
     delta(2);
     delta(3);
     delta(4);
+    expect(store.getSnapshot()).toBe(pinned);
+    expect(count).toBe(afterSend + 2);
+    expect(frames.length).toBe(1);
+    firePending();
+    expect(count).toBe(afterSend + 2);
+    expect(store.getSnapshot()).toBe(pinned);
+    expect(store.getStreamTextVersion()).toBe(version + 1);
+    // Same-phase burst that mints Messages (blocks with no
+    // `content_block_start`): structural, so every event still reduces
+    // immediately (reads stay truthful) and the listener notification
+    // coalesces into ONE publish on the next frame.
+    delta(5, 1);
+    delta(6, 2);
+    delta(7, 3);
     expect(count).toBe(afterSend + 2);
     expect(tick.size).toBe(1);
     expect(frames.length).toBe(1);
@@ -265,7 +283,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(count).toBe(afterSend + 3);
     // A phase transition before the frame (turn_complete) publishes
     // immediately — end-of-turn paint never waits on the tick.
-    delta(5);
+    delta(8, 4);
     expect(tick.size).toBe(1);
     emit(conn, {
       type: "turn_complete",
@@ -281,6 +299,44 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(frames.length).toBe(0);
     firePending();
     expect(count).toBe(afterSend + 4);
+  });
+
+  it("mid-stream, a tool call and an error still publish at once", () => {
+    const { store, conn, notifies } = makeStore();
+    store.send("hello", []);
+    const text = (seq: number): void =>
+      emit(conn, {
+        type: "assistant_text",
+        status: "partial",
+        msg_id: FIXTURE_IDS.MSG_ID_N(1),
+        text: "x",
+        is_partial: true,
+        rev: 0,
+        seq,
+      });
+    text(0);
+    text(1);
+    expect(store.getSnapshot().phase).toBe("streaming");
+    const streaming = notifies();
+    text(2);
+    expect(notifies()).toBe(streaming);
+    emit(conn, {
+      type: "content_block_start",
+      msg_id: FIXTURE_IDS.MSG_ID_N(1),
+      block_index: 1,
+      kind: "tool_use",
+      tool_use_id: "tu1",
+      tool_name: "Bash",
+    });
+    expect(notifies()).toBe(streaming + 1);
+    expect(store.getSnapshot().activeTurn?.messages.some((m) => m.kind === "tool_use")).toBe(true);
+    conn.dispatchDecoded(FeedId.CONTROL, {
+      type: "error",
+      detail: "session_unknown",
+      tug_session_id: TUG,
+    });
+    expect(notifies()).toBe(streaming + 2);
+    expect(store.getSnapshot().phase).toBe("errored");
   });
 
   it("two streaming stores ride one frame: one frame requested, each notifies once in it", () => {
@@ -309,7 +365,7 @@ describe("replay fold — one snapshot tick per flush", () => {
       store.send("hello", []);
       return { conn, count: () => count };
     });
-    const delta = (conn: TestFrameChannel, seq: number): void =>
+    const delta = (conn: TestFrameChannel, seq: number, blockIndex?: number): void =>
       emit(conn, {
         type: "assistant_text",
         status: "partial",
@@ -318,6 +374,7 @@ describe("replay fold — one snapshot tick per flush", () => {
         is_partial: true,
         rev: 0,
         seq,
+        ...(blockIndex === undefined ? {} : { block_index: blockIndex }),
       });
     // Past the phase boundaries, so every later delta is same-phase.
     for (const { conn } of streams) {
@@ -325,8 +382,10 @@ describe("replay fold — one snapshot tick per flush", () => {
       delta(conn, 1);
     }
     const before = streams.map((s) => s.count());
+    // Each delta mints a Message, so each store has a structural publish to
+    // coalesce; a text-only delta would publish nothing at all.
     for (let seq = 2; seq < 6; seq++) {
-      for (const { conn } of streams) delta(conn, seq);
+      for (const { conn } of streams) delta(conn, seq, seq);
     }
     expect(streams.map((s) => s.count())).toEqual(before);
     expect(frames.length).toBe(1);

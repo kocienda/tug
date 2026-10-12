@@ -225,7 +225,7 @@ import type { ShellSessionStore } from "@/lib/shell-session-store";
 import type { RefsSessionStore } from "@/lib/refs-session-store";
 import type { PendingContextStore } from "@/lib/pending-context-store";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
-import type { CodeSessionStore } from "@/lib/code-session-store";
+import type { CodeSessionStore, Message } from "@/lib/code-session-store";
 import { logSessionLifecycle } from "@/lib/session-lifecycle-log";
 import { openPathInOS } from "@/lib/os-open";
 import {
@@ -334,6 +334,59 @@ function isCompactAcknowledgement(text: string): boolean {
   return COMPACT_ACKNOWLEDGEMENTS.has(text.trim());
 }
 
+/** No acknowledgement anywhere: the answer for a turn with no compact note. */
+const NO_ACKNOWLEDGEMENTS: ReadonlySet<string> = new Set();
+
+/**
+ * The `messageKey`s of a turn's assistant text that reads, live, as a canned
+ * compaction acknowledgement.
+ *
+ * Read off each message's `PropertyStore` path, not off `message.text`:
+ * streamed text never publishes the session snapshot ([L22]), so a Message's
+ * `text` in an in-flight turn holds what it held at the last structural
+ * publish, and the acknowledgement would stay on screen until the turn
+ * committed. Subscribes only when `enabled` — a turn with no compact note,
+ * which is every turn but one, observes nothing. The snapshot is the joined
+ * keys, a primitive, so a delta that leaves the answer alone re-renders
+ * nothing.
+ */
+function useCompactAcknowledgements(
+  streamingStore: PropertyStore,
+  turnKey: string,
+  messages: ReadonlyArray<Message>,
+  enabled: boolean,
+): ReadonlySet<string> {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (!enabled) return () => {};
+      const unsubs = messages
+        .filter((m) => m.kind === "assistant_text")
+        .map((m) =>
+          streamingStore.observe(`turn.${turnKey}.message.${m.messageKey}.text`, onStoreChange),
+        );
+      return () => {
+        for (const unsub of unsubs) unsub();
+      };
+    },
+    [streamingStore, turnKey, messages, enabled],
+  );
+  const getKeys = useCallback(() => {
+    if (!enabled) return "";
+    const keys: string[] = [];
+    for (const m of messages) {
+      if (m.kind !== "assistant_text") continue;
+      const live = streamingStore.get(`turn.${turnKey}.message.${m.messageKey}.text`);
+      if (isCompactAcknowledgement(typeof live === "string" ? live : m.text)) keys.push(m.messageKey);
+    }
+    return keys.join("\n");
+  }, [streamingStore, turnKey, messages, enabled]);
+  const joined = useSyncExternalStore(subscribe, getKeys, getKeys);
+  return useMemo(
+    () => (joined === "" ? NO_ACKNOWLEDGEMENTS : new Set(joined.split("\n"))),
+    [joined],
+  );
+}
+
 /**
  * Stable empty-atoms reference for the ghost-row defensive fallback —
  * a fresh `[]` would defeat the `useMemo` identity gate that derives
@@ -341,6 +394,9 @@ function isCompactAcknowledgement(text: string): boolean {
  */
 const EMPTY_ATOMS: ReadonlyArray<AtomSegment> = [];
 const NO_MESSAGES: ReadonlyArray<never> = [];
+
+/** The find index's subscriptions while find is closed: nothing to follow. */
+const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
 /**
  * An arc's stage boundary — the server rotated this card onto a fresh
@@ -1371,6 +1427,12 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
   const hasCompactNote = messages.some(
     (m) => m.kind === "system_note" && m.source === "compact",
   );
+  const acknowledgements = useCompactAcknowledgements(
+    streamingStore,
+    turnKey,
+    messages,
+    hasCompactNote,
+  );
   for (const message of messages) {
     if (message.kind === "user_message") {
       // Rendered separately by the user row — skip in the assistant body.
@@ -1520,7 +1582,7 @@ const CodeRowBody: React.FC<CodeRowBodyProps> = ({
       continue;
     }
     if (message.kind === "assistant_text") {
-      if (hasCompactNote && isCompactAcknowledgement(message.text)) {
+      if (acknowledgements.has(message.messageKey)) {
         continue;
       }
       const path = `turn.${turnKey}.message.${message.messageKey}.text`;
@@ -1894,13 +1956,19 @@ const AssistantTurnCell = React.memo(function AssistantTurnCell({
   const compactNote = messages.find(
     (m) => m.kind === "system_note" && m.source === "compact",
   );
+  const acknowledgements = useCompactAcknowledgements(
+    streamingStore,
+    turnKey,
+    messages,
+    compactNote !== undefined,
+  );
   const isCompactionOnlyTurn =
     compactNote !== undefined &&
     messages.every(
       (m) =>
         m.kind === "user_message" ||
         (m.kind === "system_note" && m.source === "compact") ||
-        (m.kind === "assistant_text" && isCompactAcknowledgement(m.text)),
+        (m.kind === "assistant_text" && acknowledgements.has(m.messageKey)),
     );
   if (
     isCompactionOnlyTurn &&
@@ -2762,14 +2830,26 @@ export const SessionTranscriptHost = forwardRef<
   // over that finished index on query/options change. Painting resolves DOM
   // Ranges for the mounted matches via the Custom-Highlight painter — all
   // imperative appearance ([L06]), never React state ([L02] only for the
-  // session snapshot that drives it).
+  // session fields that drive it).
   const findSnap = useSyncExternalStore(
     findSession.subscribe,
     findSession.getSnapshot,
   );
-  const codeSnapshot = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
+  // The rows the index reads are the data source's, laid out from three
+  // snapshot fields; each is a selector, subscribed only while find is open,
+  // so with the bar closed a publish costs this host nothing.
+  const findSubscribe = findOpen ? codeSessionStore.subscribe : NOOP_SUBSCRIBE;
+  const transcriptKey = useSyncExternalStore(
+    findSubscribe,
+    () => codeSessionStore.getSnapshot().transcript,
+  );
+  const activeTurnKey = useSyncExternalStore(
+    findSubscribe,
+    () => codeSessionStore.getSnapshot().activeTurn,
+  );
+  const queuedSendsKey = useSyncExternalStore(
+    findSubscribe,
+    () => codeSessionStore.getSnapshot().queuedSends,
   );
   // Expansion changes re-project tool/shell content in and out of the index
   // ([L02]: the expansion state is a subscribable store; its `version` is the
@@ -2778,21 +2858,33 @@ export const SessionTranscriptHost = forwardRef<
     toolBlockExpansion.subscribe,
     () => toolBlockExpansion.version,
   );
+  // Streamed text never publishes the snapshot ([L22]); with find open the
+  // index follows it through the store's stream-text signal instead, one
+  // rebuild per frame tick at most. With find closed the subscription is a
+  // no-op and streaming costs this host nothing.
+  const streamTextVersion = useSyncExternalStore(
+    findOpen ? codeSessionStore.observeStreamText : NOOP_SUBSCRIBE,
+    codeSessionStore.getStreamTextVersion,
+  );
   const searchIndex = useMemo(
     () =>
       findOpen
         ? buildTranscriptSearchSegments(dataSource, streamingStore, toolBlockExpansion)
         : CLOSED_FIND_INDEX,
-    // `codeSnapshot` changes identity on every transcript mutation;
-    // `expansionVersion` bumps on every expand/collapse toggle. Both key the
-    // memo only while find is open, so a closed bar rebuilds nothing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `codeSnapshot` and `expansionVersion` are the invalidation keys named above; the builder reads the live stores
+    // The three row keys change identity on every structural transcript
+    // mutation; `streamTextVersion` moves as text streams; `expansionVersion`
+    // bumps on every expand/collapse toggle. All of them key the memo only
+    // while find is open, so a closed bar rebuilds nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row keys, `streamTextVersion` and `expansionVersion` are the invalidation keys named above; the builder reads the live stores
     [
       dataSource,
       streamingStore,
       toolBlockExpansion,
       findOpen,
-      findOpen ? codeSnapshot : null,
+      findOpen ? transcriptKey : null,
+      findOpen ? activeTurnKey : null,
+      findOpen ? queuedSendsKey : null,
+      findOpen ? streamTextVersion : null,
       findOpen ? expansionVersion : null,
     ],
   );

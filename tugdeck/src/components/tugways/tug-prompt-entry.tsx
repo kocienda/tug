@@ -76,6 +76,7 @@ import type {
   CodeSessionStore,
 } from "@/lib/code-session-store";
 import { useLifecycleState } from "@/lib/code-session-store/hooks/use-lifecycle-state";
+import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import type { SessionMetadataStore } from "@/lib/session-metadata-store";
 import type { PromptHistoryStore } from "@/lib/prompt-history-store";
 
@@ -1114,6 +1115,23 @@ export interface TugPromptEntryDelegate {
   regenerateAtoms(): void;
 }
 
+/** The session snapshot fields the prompt entry draws. */
+const PROMPT_ENTRY_SESSION_FIELDS = [
+  "phase",
+  "canSubmit",
+  "canInterrupt",
+  "interruptInFlight",
+  "lastError",
+  "pendingApproval",
+  "pendingQuestion",
+  "tugSessionId",
+  "pendingDraftRestore",
+  "pendingCommandInsert",
+  "pendingJotInsert",
+  "pendingAtomInsert",
+  "pendingFileInsert",
+] as const;
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -1178,21 +1196,17 @@ export const TugPromptEntry = React.forwardRef<
   } = props;
 
   // [L02] external store state enters React through useSyncExternalStore only.
-  const snap = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  // The entry draws a few fields of the session snapshot, not the whole of
+  // it: a publish that moves none of them must not re-render the composer.
+  // Event-time reads take the live snapshot.
+  const snap = useSessionFields(codeSessionStore, PROMPT_ENTRY_SESSION_FIELDS);
   // The keymap registry too ([L02]): the ⌃⌘M scoped binding and every
   // tooltip shortcut read it at render time, so a live rebind must repaint.
   useSyncExternalStore(keymapRegistry.subscribe, keymapRegistry.getSnapshot, () => 0);
 
-  // Substrate delegate, root, and live snapshot mirror.
+  // Substrate delegate and root.
   const textEditorRef = useRef<TugTextEditorDelegate | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const snapRef = useRef(snap);
-  useLayoutEffect(() => {
-    snapRef.current = snap;
-  }, [snap]);
 
   // Deactivation: when a modal inline dialog takes over the keyboard
   // ([P06]), the editor goes read-only (`disabled` above) *and* blurs so
@@ -1898,7 +1912,7 @@ export const TugPromptEntry = React.forwardRef<
       codeSessionStore.consumePendingCommandInsert();
       return;
     }
-    const live = snapRef.current;
+    const live = codeSessionStore.getSnapshot();
     if (live.canSubmit || live.canInterrupt) void performSubmitRef.current?.();
     else pendingSubmitRef.current = true;
   }, [pendingCommandInsert, codeSessionStore]);
@@ -2689,7 +2703,7 @@ export const TugPromptEntry = React.forwardRef<
     }
     const editor = textEditorRef.current;
     const view = editor?.view() ?? null;
-    const snap = snapRef.current;
+    const snap = codeSessionStore.getSnapshot();
     if (editor === null || view === null) return;
 
     // Landing mode: submit lands the commit or the join instead of sending to
@@ -2776,7 +2790,7 @@ export const TugPromptEntry = React.forwardRef<
           // Record the command in per-session history so ↑ recalls it,
           // exactly like a sent message (the dispatch consumed the draft,
           // but the user still typed and submitted a line).
-          const sessionId = snapRef.current.tugSessionId;
+          const sessionId = codeSessionStore.getSnapshot().tugSessionId;
           historyStore.push({
             id: `${sessionId}-${Date.now()}`,
             sessionId,
@@ -2833,7 +2847,7 @@ export const TugPromptEntry = React.forwardRef<
           // shown — with no responder (e.g. the gallery host), fall through to
           // `send()` so claude still sees it.
           if (hidden || notified) {
-            const sessionId = snapRef.current.tugSessionId;
+            const sessionId = codeSessionStore.getSnapshot().tugSessionId;
             historyStore.push({
               id: `${sessionId}-${Date.now()}`,
               sessionId,
@@ -2948,7 +2962,7 @@ export const TugPromptEntry = React.forwardRef<
       releaseRunSlot();
       // Auto-routed submissions were typed as prompt input, so record the
       // raw line under the prompt route.
-      const sessionId = snapRef.current.tugSessionId;
+      const sessionId = codeSessionStore.getSnapshot().tugSessionId;
       historyStore.push({
         id: `${sessionId}-${Date.now()}`,
         sessionId,
@@ -3125,7 +3139,7 @@ export const TugPromptEntry = React.forwardRef<
     // session's id. The route field pins to Code so the Code provider
     // recalls it ([P11]). Captured before clear so the live state is
     // still the submitted content.
-    const sessionId = snapRef.current.tugSessionId;
+    const sessionId = codeSessionStore.getSnapshot().tugSessionId;
     const historyEntryId = `${sessionId}-${Date.now()}`;
     historyStore.push({
       id: historyEntryId,
@@ -3219,9 +3233,8 @@ export const TugPromptEntry = React.forwardRef<
   // any edits made while waiting are included — and an editor emptied
   // in the meantime no-ops cleanly.
   //
-  // `useLayoutEffect` keyed on `snap.canSubmit` runs after the
-  // `snapRef` mirror above (declared earlier, so it commits first),
-  // so `performSubmit` reads the fresh snapshot. [L03]
+  // `useLayoutEffect` keyed on `snap.canSubmit`; `performSubmit` reads
+  // the live snapshot, so it sees the flip that fired this. [L03]
   useLayoutEffect(() => {
     if (!snap.canSubmit) return;
     if (!pendingSubmitRef.current) return;

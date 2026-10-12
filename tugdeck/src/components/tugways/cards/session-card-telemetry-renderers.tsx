@@ -91,8 +91,10 @@ import {
   deriveJobExtendedActiveMs,
   deriveSessionTotals,
   deriveTimeCellMs,
+  INFLIGHT_CLOCK_FIELDS,
   turnHasTiming,
 } from "@/lib/code-session-store/telemetry";
+import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
 import {
   deriveContextWindows,
   turnWindowTokens,
@@ -261,6 +263,34 @@ export type PlacardKind =
   | "jobs"
   | "btw";
 
+/** The session fields the window-utilization strip draws. */
+const WINDOW_UTILIZATION_FIELDS = ["transcript", "sessionInitTokens"] as const;
+
+/** The session fields the cumulative renderers draw. */
+const TRANSCRIPT_FIELD = ["transcript"] as const;
+
+/**
+ * The session fields the status row draws: its cells' own fields, the
+ * restore gate's, and the in-flight clock's.
+ */
+const STATUS_ROW_FIELDS = [
+  "tugSessionId",
+  "transcript",
+  "phase",
+  "sessionMode",
+  "sessionInitTokens",
+  "lastContextBreakdown",
+  "transportState",
+  "interruptInFlight",
+  "stopStalled",
+  "pendingAsk",
+  "goal",
+  "replayWindow",
+  "replayPreflightActive",
+  "lastError",
+  ...INFLIGHT_CLOCK_FIELDS,
+] as const;
+
 /**
  * The cell a placard anchors under, when that is not the cell its own key
  * names.
@@ -358,10 +388,7 @@ export const SessionTelemetryWindowUtilization: React.FC<SessionTelemetryProps> 
   codeSessionStore,
   sessionMetadataStore,
 }) => {
-  const snap = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const snap = useSessionFields(codeSessionStore, WINDOW_UTILIZATION_FIELDS);
   const max = useModelContextMax(sessionMetadataStore);
   // Resident context after the latest committed turn — the transcript
   // window-walk (carry-forward over any zero-usage turn). `0` for a
@@ -408,10 +435,7 @@ export const SessionTelemetryWindowUtilization: React.FC<SessionTelemetryProps> 
 export const SessionTelemetryCumulativeTokens: React.FC<SessionTelemetryProps> = ({
   codeSessionStore,
 }) => {
-  const snap = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const snap = useSessionFields(codeSessionStore, TRANSCRIPT_FIELD);
   const totals = deriveSessionTotals(snap.transcript);
   const total =
     totals.totalInputTokens +
@@ -439,10 +463,7 @@ export const SessionTelemetryCumulativeTokens: React.FC<SessionTelemetryProps> =
 export const SessionTelemetryCumulativeActiveMs: React.FC<SessionTelemetryProps> = ({
   codeSessionStore,
 }) => {
-  const snap = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const snap = useSessionFields(codeSessionStore, TRANSCRIPT_FIELD);
   // Subscribe to the live tick so the display refreshes even when no
   // store dispatch has fired. The tick value itself is unused — the
   // store snapshot is the source of truth for the committed total.
@@ -1131,10 +1152,7 @@ export const SessionTelemetryStatusRow = React.forwardRef<
   const cellOrder = (offset: number): number | undefined =>
     focusOrderBase === undefined ? undefined : focusOrderBase + offset;
 
-  const snap = useSyncExternalStore(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const snap = useSessionFields(codeSessionStore, STATUS_ROW_FIELDS);
   // Whether a join offer stands for the arc this card is mated to — read
   // through the one derivation `useSessionPhase` folds in, so the STATE cell
   // and the masthead dot cannot disagree about one arc.

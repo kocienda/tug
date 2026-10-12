@@ -74,7 +74,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { TugProgressIndicator } from "@/components/tugways/tug-progress-indicator";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
@@ -96,10 +95,8 @@ import {
   type TugListViewHandle,
 } from "@/components/tugways/tug-list-view";
 import type { CodeSessionStore } from "@/lib/code-session-store";
-import type {
-  CodeSessionSnapshot,
-  RewindTurnPreview,
-} from "@/lib/code-session-store/types";
+import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
+import type { RewindTurnPreview } from "@/lib/code-session-store/types";
 import {
   projectRewindTurns,
   REWIND_MESSAGE_KIND,
@@ -299,6 +296,9 @@ const REWIND_CELL_RENDERERS: Record<
 // Sheet body — message list with the cut line + restore-scope choice + actions
 // ---------------------------------------------------------------------------
 
+/** The session fields the sheet draws: preview cache, applied-ack, and phase. */
+const REWIND_SHEET_FIELDS = ["rewindPreviews", "lastRewindResult", "phase"] as const;
+
 interface RewindSheetBodyProps {
   rows: RewindMessageRow[];
   codeSessionStore: CodeSessionStore;
@@ -311,10 +311,7 @@ function RewindSheetBody({
   onClose,
 }: RewindSheetBodyProps): React.ReactElement {
   // Live store reads ([L02]): preview cache, applied-ack, and idle phase.
-  const snapshot = useSyncExternalStore<CodeSessionSnapshot>(
-    codeSessionStore.subscribe,
-    codeSessionStore.getSnapshot,
-  );
+  const snapshot = useSessionFields(codeSessionStore, REWIND_SHEET_FIELDS);
   const previews = snapshot.rewindPreviews;
   const isIdle = snapshot.phase === "idle";
 

@@ -197,9 +197,9 @@ import {
   useDigest,
 } from "@/lib/digest-store";
 import {
-  currentLineForSession,
-  latestPostForSession,
-  useOverview,
+  currentLineForTurn,
+  useLatestPostForSession,
+  useSessionCurrentLine,
 } from "@/lib/overview-store";
 import {
   sessionActivityBeat,
@@ -1010,10 +1010,11 @@ export function SessionIdentityRow({
     cardCreatedAtMs !== null && cardCreatedAtMs > 0 ? cardCreatedAtMs : null;
 
   const digest = useDigest();
-  // The Observer's channel, for the description's live-turn rungs ([D187]).
-  // The whole snapshot rather than a per-session slice: the store publishes one
-  // list and every selector here filters it, the same shape the beat store has.
-  const overview = useOverview();
+  // The Observer's channel, for the description's live-turn rungs ([D187]):
+  // this session's current line and its newest post, each selected alone, so
+  // a line or a post about another session re-renders nothing here.
+  const currentEntry = useSessionCurrentLine(sessionId);
+  const newestPost = useLatestPostForSession(sessionId);
   // Scoped to THIS card, not the whole runs map: a map snapshot changes
   // identity on every write to any card, so one `/compact` re-rendered every
   // session row in the app. A row with no card subscribes to nothing at all.
@@ -1045,11 +1046,7 @@ export function SessionIdentityRow({
   // still gone: what sits on top now is a written sentence in the same
   // register as the one below it, answered by the same wake.
   const currentLine = currency
-    ? currentLineForSession(
-        overview.currents,
-        sessionId,
-        turnAsk?.atMs ?? null,
-      )
+    ? currentLineForTurn(currentEntry, turnAsk?.atMs ?? null)
     : null;
   // The floor under it ([B08]). The Observer's line takes seconds to arrive
   // and a wake may decline to write one at all — and the switch can turn the
@@ -1132,9 +1129,7 @@ export function SessionIdentityRow({
   // Both derived in render from stores already attached — no state, no
   // effect, nothing to keep in step ([L02]). Read only while a turn is in
   // flight, so a row for a session this app is not running reads no post.
-  const livePost = turnInFlight
-    ? latestPostForSession(overview.posts, sessionId)
-    : null;
+  const livePost = turnInFlight ? newestPost : null;
   const liveAsk =
     turnInFlight && livePost === null
       ? turnAsk
