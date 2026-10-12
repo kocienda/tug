@@ -259,8 +259,14 @@ export class PropertyStore {
 
     const listeners = this._listeners.get(path);
     if (listeners) {
+      // Each listener is isolated, as `notifyCatching` isolates a store's: one
+      // that throws is reported as its own, and the rest still hear the change.
       for (const listener of listeners) {
-        listener(change);
+        try {
+          listener(change);
+        } catch (err) {
+          console.error(`[PropertyStore] listener for "${path}" threw:`, err);
+        }
       }
     }
 

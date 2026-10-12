@@ -357,8 +357,10 @@ export class SessionEngine {
    * has reduced wire events whose structure post has not flushed yet. The
    * fold is post-deferral only: every event still reduces and processes its
    * effects immediately, so the reducer's semantics are byte-identical to
-   * per-frame dispatch — the mirror simply observes one structure patch per
-   * flush ([L02]).
+   * per-frame dispatch. A folded event posts no structure at all; the flush
+   * diffs once against what was last posted, so the mirror receives one
+   * structure patch per flush, sized to what changed across the fold rather
+   * than to the number of events in it ([L02]).
    */
   private _foldPending = 0;
   /** The last `user_message` this session put on the wire, for the test witness. */
@@ -1097,30 +1099,28 @@ export class SessionEngine {
     }
     // A same-phase delta publishes as any other post does; it was never a
     // commit the engine counts, so it does not count here either.
-    if (publish === "tick") this.postStructure("sync", true);
-    else if (publish === "sync" || publish === "fold") this.postStructure(publish, counted);
+    // A folded event posts nothing: the flush that closes the fold diffs
+    // everything it reduced against the posted baseline at once.
+    if (publish === "tick") this.postStructure(true);
+    else if (publish === "sync") this.postStructure(counted);
   }
 
   /**
    * One structure patch: the state fields, transcript splices and meta that
-   * moved. A folded event posts too, so the mirror's unread state is never
-   * behind the engine's; only a `"sync"` post publishes, and it is the one
-   * that closes the fold.
+   * moved since the last post. It publishes, and it closes any open fold.
    */
-  private postStructure(publish: "sync" | "fold", counted = false): void {
+  private postStructure(counted = false): void {
     const state = diffStateFields(this._postedState, this.state);
     const transcript = diffTranscript(this._postedTranscript, this._transcript);
     const meta = this.metaDiff();
     this._postedState = this.state;
     this._postedTranscript = this._transcript;
-    if (publish === "sync") {
-      if (this._foldPending > 0 && this._perfReplay !== null) {
-        this._perfReplay.folds += 1;
-        this._perfDirty = true;
-      }
-      this._foldPending = 0;
-      if (!counted) this._perfOnCommit();
+    if (this._foldPending > 0 && this._perfReplay !== null) {
+      this._perfReplay.folds += 1;
+      this._perfDirty = true;
     }
+    this._foldPending = 0;
+    if (!counted) this._perfOnCommit();
     this.host.emit({
       kind: "structure",
       session: this.handle,
@@ -1128,7 +1128,6 @@ export class SessionEngine {
         ...(state !== null ? { state } : {}),
         ...(transcript !== null ? { transcript } : {}),
         ...(meta !== null ? { meta } : {}),
-        publish,
       },
     });
   }

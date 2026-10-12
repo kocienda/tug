@@ -14,7 +14,8 @@ import type { CardFlushResult } from "./card-state-cache";
 import type { SaveCallbackSource } from "./deck-trace";
 import { flushPromptHistorySync } from "./lib/prompt-history-api";
 import { cardServicesStore } from "./lib/card-services-store";
-import type { CodeSessionStore } from "./lib/code-session-store";
+import { getConnection } from "./lib/connection-singleton";
+import { SETTLE_WAIT_BUDGET_MS, type CodeSessionStore } from "./lib/code-session-store";
 
 /** What one run of the teardown-save core actually persisted. */
 export interface TeardownSaveResult {
@@ -52,7 +53,7 @@ export interface TerminationVerdict {
  * by then is reported unacknowledged and the quit proceeds ([P04]: a quit
  * may be slow, never hung).
  */
-const TERMINATION_INTERRUPT_AWAIT_MS = 5000;
+const TERMINATION_INTERRUPT_AWAIT_MS = SETTLE_WAIT_BUDGET_MS;
 
 /**
  * Total time the pipeline will spend re-attempting card-state writes that
@@ -204,6 +205,10 @@ export async function runTerminationPipeline(deps: TerminationDeps): Promise<Ter
   // just closed.
   deps.lockSaves();
 
+  // The quit proceeds from here, so the connection lets go of its Worker
+  // and the wire ([L27]).
+  getConnection()?.dispose();
+
   return {
     ok: unacknowledged.length === 0 && failedCards.length === 0 && layoutSaved,
     interrupted,
@@ -254,13 +259,7 @@ export async function interruptLiveSessions(): Promise<{
   const stores = cardServicesStore
     .allServices()
     .map((services) => services.codeSessionStore);
-  await new Promise<void>((resolve) => {
-    const timer = window.setTimeout(resolve, TERMINATION_INTERRUPT_AWAIT_MS);
-    void Promise.all(stores.map((store) => store.whenSettled())).then(() => {
-      window.clearTimeout(timer);
-      resolve();
-    });
-  });
+  await Promise.all(stores.map((store) => store.whenSettledWithin(TERMINATION_INTERRUPT_AWAIT_MS)));
   const live = stores.filter((store) => store.getSnapshot().canInterrupt);
 
   if (live.length === 0) {

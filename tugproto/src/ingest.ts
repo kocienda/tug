@@ -114,7 +114,6 @@ export interface IngestInitControl {
   kind: "init";
   wsUrl: string;
   periodMs: number;
-  motionEnabled: boolean;
 }
 
 /** Open the socket (and clear a previous close's intentional latch). */
@@ -225,6 +224,15 @@ export interface IngestFindControl {
   mountedUnits: string[];
 }
 
+/**
+ * The page applied the batch it was last posted. A host that waits on the
+ * page posts its next batch only after this arrives, so a page slower than
+ * the period sees fewer, fuller batches rather than a queue that grows.
+ */
+export interface IngestBatchAppliedControl {
+  kind: "batch-applied";
+}
+
 export type IngestControl<TEvent = unknown> =
   | IngestInitControl
   | IngestConnectControl
@@ -241,7 +249,8 @@ export type IngestControl<TEvent = unknown> =
   | IngestSessionCloseControl
   | IngestSessionActionControl<TEvent>
   | IngestSessionTestFrameControl
-  | IngestFindControl;
+  | IngestFindControl
+  | IngestBatchAppliedControl;
 
 // ---------------------------------------------------------------------------
 // Sender → page: patches
@@ -292,7 +301,12 @@ export interface IngestStreamPatch {
   payload: { writes: IngestStreamWrite[]; textGrew: boolean };
 }
 
-/** A session's structure, as field diffs and transcript splices against what was last posted. */
+/**
+ * A session's structure, as field diffs and transcript splices against what
+ * was last posted. It publishes: the mirror notifies once when the batch
+ * carrying it has been applied. An open replay fold posts none, and the
+ * flush that closes it carries everything the fold reduced.
+ */
 export interface IngestStructurePatch<TState = unknown, TEntry = unknown, TPerf = unknown> {
   kind: "structure";
   session: string;
@@ -300,14 +314,6 @@ export interface IngestStructurePatch<TState = unknown, TEntry = unknown, TPerf 
     state?: Partial<TState>;
     transcript?: TranscriptSplice<TEntry>[];
     meta?: IngestSessionMeta<TPerf>;
-    /**
-     * How the page publishes it. `"sync"` publishes: the mirror notifies once
-     * when the batch carrying it has been applied. `"fold"` — a wire event
-     * inside an open replay fold — is merged with no notify, so a snapshot
-     * already read stays pinned until the fold flushes, and one not yet read
-     * shows the merged state.
-     */
-    publish: "sync" | "fold";
   };
 }
 
@@ -436,6 +442,7 @@ export const INGEST_CONTROL_KINDS = [
   "session-action",
   "session-test-frame",
   "find",
+  "batch-applied",
 ] as const satisfies readonly IngestControl["kind"][];
 
 export type IngestControlKind = (typeof INGEST_CONTROL_KINDS)[number];

@@ -51,7 +51,6 @@ import { sessionCitationStore } from "./session-citation-store";
 import { sessionVerdictAskKey } from "./session-atom";
 import type { SessionRefVerdict } from "./session-ref-block";
 import { putImageBytes, synthesizeUserMessageFromBlocks } from "./synthesize-user-message";
-import { goalIsActive } from "./code-session-store/select-goal";
 import {
   createInitialState,
   deriveActiveTurnSnapshot,
@@ -81,6 +80,7 @@ import { pathResolutionStore } from "./annotator/path-resolution";
 import type {
   CodeSessionEvent,
   RefsResultActionEvent,
+  SendCondition,
 } from "./code-session-store/events";
 import {
   publishLocalSessionStateChange,
@@ -172,6 +172,14 @@ const STREAM_SOURCE_TAG = "code-session-store";
  * the page instead.
  */
 export const FIND_FINISHER_MS = 1500;
+
+/**
+ * The longest any reader waits on the ingest host's acknowledgment of what
+ * this store posted ([L33]). It is the teardown's budget: sized to contain
+ * tugcode's own interrupt ladder with margin, so a live host always answers
+ * inside it, and a host that has stopped answering is waited on no longer.
+ */
+export const SETTLE_WAIT_BUDGET_MS = 5000;
 
 /** The engine's perf records, as of its last post. */
 interface MirrorPerf {
@@ -1350,17 +1358,14 @@ export class CodeSessionStore extends Subscribable {
   cancelScheduledWork(jobId: string): void {
     if (this._disposed) return;
     const job = this.state.jobs.find((j) => j.jobId === jobId);
-    if (
-      job === undefined ||
-      job.status !== "scheduled" ||
-      job.kind !== "cron" ||
-      this.state.phase !== "idle"
-    ) {
-      return;
-    }
+    if (job === undefined) return;
     const label = job.scheduleLabel ?? job.description;
     const suffix = label.length > 0 ? ` (${label})` : "";
-    this.send(`Please cancel the scheduled cron \`${jobId}\`${suffix} using CronDelete.`, []);
+    this.sendWhen(`Please cancel the scheduled cron \`${jobId}\`${suffix} using CronDelete.`, {
+      kind: "scheduled-job",
+      jobId,
+      jobKind: "cron",
+    });
   }
 
   /**
@@ -1376,20 +1381,13 @@ export class CodeSessionStore extends Subscribable {
   stopLoop(jobId: string): void {
     if (this._disposed) return;
     const job = this.state.jobs.find((j) => j.jobId === jobId);
-    if (
-      job === undefined ||
-      job.status !== "scheduled" ||
-      job.kind !== "wakeup" ||
-      this.state.phase !== "idle"
-    ) {
-      return;
-    }
+    if (job === undefined) return;
     const label = job.scheduleLabel ?? job.description;
     const suffix = label.length > 0 ? ` (${label})` : "";
-    this.send(
+    this.sendWhen(
       `Please stop the running loop${suffix}: do not act on its next wakeup, ` +
         `and end it with ScheduleWakeup {stop: true} so no further wakeups are scheduled.`,
-      [],
+      { kind: "scheduled-job", jobId, jobKind: "wakeup" },
     );
   }
 
@@ -1404,9 +1402,34 @@ export class CodeSessionStore extends Subscribable {
    */
   clearGoal(): void {
     if (this._disposed) return;
-    if (!goalIsActive(this.state.goal)) return;
-    if (this.state.phase !== "idle" && this.state.phase !== "errored") return;
-    this.send("/goal clear", []);
+    this.sendWhen("/goal clear", { kind: "goal-clearable" });
+  }
+
+  /**
+   * A programmatic send whose rightness depends on the session's state —
+   * idle, a scheduled job, an active goal. The engine checks `condition`
+   * against its own state and drops the send when it fails, because this
+   * mirror reads that state a hop behind. It is not the user's submission,
+   * so it neither clears the digest strip nor carries staged context: a
+   * dropped one must not have spent either.
+   */
+  private sendWhen(text: string, condition: SendCondition): void {
+    const wire = buildWirePayload(text, [], this.atomBytesStore, {
+      sessionVerdict: sessionAtomVerdict,
+    });
+    const synth = synthesizeUserMessageFromBlocks(wire.content, this.atomBytesStore, {
+      atomIdAt: wire.atomIdAt,
+    });
+    this.dispatch({
+      type: "send",
+      text: synth.text,
+      atoms: synth.atoms,
+      content: wire.content,
+      turnKey: mintTurnKey(),
+      queueOnly: this._sendsHeldForHandOver,
+      pathUnsatisfied: networkPathStore.getSnapshot().status === "unsatisfied",
+      onlyIf: condition,
+    });
   }
 
   /**
@@ -1731,19 +1754,12 @@ export class CodeSessionStore extends Subscribable {
    */
   popInteractive(): void {
     if (this._disposed) return;
-    const queued = this.getSnapshot().queuedSends;
-    if (queued.length > 0) {
-      this.cancelQueuedSend(queued[queued.length - 1].turnKey);
-      return;
-    }
-    // A stop this session already failed to answer is not worth repeating.
-    // Both doors on the unified gesture — the Z5 button and Escape — escalate
-    // instead ([F04]).
-    if (this.state.stopStalled) {
-      this.forceStop();
-      return;
-    }
-    this.interrupt();
+    // The engine decides which of the three it is, against its own state:
+    // this mirror is a hop behind, so an Escape a frame after Enter would
+    // read no queued send and interrupt the turn instead. A stop this session
+    // already failed to answer escalates to Force Stop on both doors — the Z5
+    // button and Escape ([F04]).
+    this.dispatch({ type: "pop_interactive" });
   }
 
   /**
@@ -1921,6 +1937,29 @@ export class CodeSessionStore extends Subscribable {
     });
   }
 
+  /**
+   * {@link whenSettled}, with a horizon: resolves `true` once settled, or
+   * `false` once `budgetMs` passes first, so a reader proceeds on the mirror
+   * as it stands rather than waiting on a host that has stopped answering.
+   */
+  whenSettledWithin(budgetMs: number = SETTLE_WAIT_BUDGET_MS): Promise<boolean> {
+    if (this.isSettled()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const waiter = {
+        seq: this._postedSeq,
+        resolve: () => {
+          clearTimeout(timer);
+          resolve(true);
+        },
+      };
+      const timer = setTimeout(() => {
+        this._settleWaiters = this._settleWaiters.filter((w) => w !== waiter);
+        resolve(false);
+      }, budgetMs);
+      this._settleWaiters.push(waiter);
+    });
+  }
+
   /** Resolve every waiter whose seq the engine has acknowledged. */
   private releaseSettleWaiters(): void {
     if (this._settleWaiters.length === 0) return;
@@ -1944,25 +1983,13 @@ export class CodeSessionStore extends Subscribable {
 
   /**
    * One structure patch: merge the state fields it names, splice the
-   * transcript, take the meta, and mark the batch to publish — or, inside a
-   * replay fold, not.
+   * transcript, take the meta, and mark the batch to publish. An open replay
+   * fold posts none, so a snapshot already read stays pinned until the patch
+   * that flushes it.
    * Everything the patch does not name keeps its identity ([P05]).
    */
   private applyStructure(patch: SessionPatchOf<"structure">): void {
-    const { state, transcript, meta, publish } = patch.payload;
-    if (
-      publish === "fold" &&
-      this._notifyPending &&
-      this._cachedSnapshot === null &&
-      this.listenerCount > 0
-    ) {
-      // A publish earlier in this batch would have told its listeners at
-      // once, and they would have read the state as of that publish: pin it
-      // now, so the fold that follows stays unread until it flushes. With
-      // nobody listening there is no read to stand in for, and a later read
-      // shows the merged state, as an unread snapshot always did.
-      this.getSnapshot();
-    }
+    const { state, transcript, meta } = patch.payload;
     if (this._batchPerf === null) this._batchPerf = this._perf;
     if (state !== undefined) {
       const next = { ...this.state, ...state };
@@ -1977,14 +2004,10 @@ export class CodeSessionStore extends Subscribable {
       this.dropRemovedTurnParses(before, transcript);
     }
     if (meta !== undefined) this.takeMeta(meta);
-    if (publish === "sync") {
-      // Reads stay truthful at once — a `getSnapshot` sees the merged
-      // state. Only the notification waits for the batch's end.
-      this._cachedSnapshot = null;
-      this._notifyPending = true;
-    }
-    // A folded patch publishes nothing: a snapshot already read stays
-    // pinned until the fold flushes, as the replay fold always held it.
+    // Reads stay truthful at once — a `getSnapshot` sees the merged
+    // state. Only the notification waits for the batch's end.
+    this._cachedSnapshot = null;
+    this._notifyPending = true;
   }
 
   /**
@@ -2181,8 +2204,7 @@ export class CodeSessionStore extends Subscribable {
 
   /**
    * Notify listeners once for the batch's publishes. The snapshot was
-   * already invalidated where each publish was applied — and re-pinned if a
-   * fold followed it in the same batch, which this must leave standing.
+   * already invalidated where each publish was applied.
    * `prevPerf` is the perf as it stood before the patch being published, so
    * a post that closed a window counts against it.
    */

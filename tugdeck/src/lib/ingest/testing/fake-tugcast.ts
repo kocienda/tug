@@ -26,7 +26,8 @@ export interface FakeTugcast {
 export function startFakeTugcast(): FakeTugcast {
   const received: Array<string | Uint8Array> = [];
   let client: ServerWebSocket<unknown> | null = null;
-  let handshaken = false;
+  /** Sockets whose handshake was answered; each new client handshakes for itself. */
+  const handshaken = new WeakSet<ServerWebSocket<unknown>>();
 
   const server = Bun.serve({
     port: 0,
@@ -41,17 +42,19 @@ export function startFakeTugcast(): FakeTugcast {
       message(ws, message) {
         if (typeof message === "string") {
           received.push(message);
-          if (!handshaken) {
-            handshaken = true;
+          if (!handshaken.has(ws)) {
+            handshaken.add(ws);
             ws.send(JSON.stringify({ protocol: "tugcast", version: 1, capabilities: [] }));
           }
           return;
         }
         received.push(new Uint8Array(message));
       },
-      close() {
+      close(ws) {
+        // A socket that closes after a newer one opened — a replaced host's,
+        // say — leaves the newer client alone.
+        if (client !== ws) return;
         client = null;
-        handshaken = false;
       },
     },
   });
@@ -59,7 +62,7 @@ export function startFakeTugcast(): FakeTugcast {
   return {
     url: `ws://127.0.0.1:${server.port}/ws`,
     received,
-    handshaken: () => handshaken,
+    handshaken: () => client !== null && handshaken.has(client),
     sendBinary(bytes) {
       if (client === null) throw new Error("fake tugcast: no client connected");
       client.sendBinary(bytes);

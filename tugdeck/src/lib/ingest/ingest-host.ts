@@ -30,17 +30,19 @@
  * narrow per-session store folds (`ROUTED_CODE_OUTPUT_TYPES`) skip the engine
  * and the cache: each goes to its session's mirror as a `routed-frame` patch.
  * A host with no socket —
- * the in-process session host the page runs until the engines move to the
- * Worker — is fed those frames by its owner and writes through its owner's
- * `send`.
+ * the per-session host a test frame source opens on this thread — is fed
+ * those frames by its owner and writes through its owner's `send`.
  *
  * And it holds the wire while a settle's motion gate is closed ([P08]). The
  * page posts each hold with its cap and the gate's release; while held, the
  * engines keep reducing and their patches keep accumulating, but nothing
  * posts — not the period's batch, not an immediate one, not an action's
- * acknowledgment. The release posts everything as one batch, and so does the
- * host's own cap deadline if the release never comes, so a gate that never
- * opens cannot strand the deck's data.
+ * acknowledgment — except the wire's own state, which is page state rather
+ * than pixels and posts at once in a batch of its own, so the banner and the
+ * page's open-socket mirror never lag the socket. The release posts
+ * everything as one batch, and so does the host's own cap deadline if the
+ * release never comes, so a gate that never opens cannot strand the deck's
+ * data.
  *
  * And it carries tugcast's renders. A `RENDERED` frame bundles every
  * session's renders for one tick; the host decodes it once and hands each
@@ -94,6 +96,13 @@ const IMMEDIATE_KINDS: ReadonlySet<IngestPatch["kind"]> = new Set([
   "find-result",
 ]);
 
+/**
+ * Patch kinds a motion hold does not hold. The wire's state is page state,
+ * not pixels: the page's open-socket mirror and the banner read it, so it
+ * posts through a hold in a batch of its own, ahead of what the hold keeps.
+ */
+export const UNHELD_KINDS: ReadonlySet<IngestPatch["kind"]> = new Set(["wire-state", "disconnect-state"]);
+
 /** The shortest cap the host holds the wire under, whatever cap the gate posted. */
 export const MIN_HOLD_CAP_MS = 1000;
 
@@ -134,6 +143,11 @@ function renderBatchSessions(
   return Array.isArray(frame.sessions) ? frame.sessions : null;
 }
 
+/** An error as a line a log can carry across the thread boundary. */
+function errorText(err: unknown): string {
+  return err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+}
+
 function isRoutedType(decoded: unknown): decoded is { type: string } {
   if (typeof decoded !== "object" || decoded === null) return false;
   const type = (decoded as { type?: unknown }).type;
@@ -158,6 +172,12 @@ export interface IngestHostOptions {
   readonly replayOnOpen?: boolean;
   /** The clock the motion hold's cap deadline runs on; the system clock by default. */
   readonly holdClock?: PacerClock;
+  /**
+   * Post a batch only once the page has applied the one before it (its
+   * `batch-applied`). The Worker's host waits; one on the page's own thread
+   * delivers synchronously and has nothing to wait for.
+   */
+  readonly awaitPageAck?: boolean;
 }
 
 export class IngestHost {
@@ -183,6 +203,10 @@ export class IngestHost {
   /** While the motion gate holds the wire: when the cap releases it. */
   private heldUntil: number | null = null;
   private holdCap: unknown = null;
+  /** Batches posted that the page has not yet said it applied; only counted when the host waits on the page. */
+  private unacked = 0;
+  /** A flush the period asked for while the page was still applying; the page's acknowledgement runs it. */
+  private flushOwed = false;
   /** This host's holder id in tugcast's motion hold. */
   private readonly holderId = mintHolderId();
   /** The display period last posted, re-sent to tugcast on every handshake. */
@@ -228,7 +252,7 @@ export class IngestHost {
         this.init(control.wsUrl, control.periodMs);
         return;
       case "connect":
-        this.requireSocket().connect();
+        this.socketFor("connect")?.connect();
         return;
       case "close":
         this.socket?.close();
@@ -242,9 +266,18 @@ export class IngestHost {
       case "subscribe":
         this.subscribe(control.feeds);
         return;
-      case "send":
-        this.requireSocket().send(control.feedId, control.flags, new Uint8Array(control.bytes));
+      case "send": {
+        const socket = this.socketFor("send");
+        if (socket !== null && !socket.send(control.feedId, control.flags, new Uint8Array(control.bytes))) {
+          // The page posted it while its mirror still read the wire open; the
+          // close it had not yet heard of refuses it here, and says so.
+          devLog.warn("connection", "a frame the page sent was refused: the socket closed before it went out", {
+            feedId: control.feedId,
+            bytes: control.bytes.byteLength,
+          });
+        }
         return;
+      }
       case "visibility":
         this.socket?.visibilityChanged(control.visible);
         return;
@@ -280,6 +313,10 @@ export class IngestHost {
       case "find":
         this.forwardFind(control);
         return;
+      case "batch-applied":
+        this.unacked = Math.max(0, this.unacked - 1);
+        if (this.unacked === 0 && this.flushOwed) this.flush();
+        return;
     }
   }
 
@@ -295,7 +332,7 @@ export class IngestHost {
     try {
       if (engine !== undefined) run(engine);
     } catch (err) {
-      console.error(`[ingest] session ${handle} threw for a ${what}:`, err);
+      devLog.error("ingest", `session ${handle} threw on its ${what}`, { session: handle, error: errorText(err) });
     } finally {
       this.emit({ kind: "ack", session: handle, payload: { seq } });
     }
@@ -333,8 +370,15 @@ export class IngestHost {
     );
   }
 
-  private requireSocket(): WireSocket {
-    if (this.socket === null) throw new Error("ingest host: control before init");
+  /**
+   * The socket a control needs, or `null` with the refusal said: a control
+   * that arrives before `init` is a page defect the host reports and
+   * survives, never a throw that would cost the page its Worker.
+   */
+  private socketFor(what: "connect" | "send"): WireSocket | null {
+    if (this.socket === null) {
+      devLog.warn("connection", `a ${what} arrived before the ingest host's init and was refused`);
+    }
     return this.socket;
   }
 
@@ -442,7 +486,12 @@ export class IngestHost {
     if (feedId !== FeedId.CONTROL && feedId !== FeedId.HEARTBEAT && feedId !== FeedId.RENDER_INPUT) {
       this.wantFeeds([feedId]);
     }
-    this.socket?.send(feedId, FrameFlags.DATA, payload);
+    if (this.socket?.send(feedId, FrameFlags.DATA, payload) !== true) {
+      devLog.warn("connection", "a session's frame was refused: the socket is not open", {
+        feedId,
+        bytes: payload.byteLength,
+      });
+    }
   }
 
   /** Forward one session's find to tugcast, or answer it at once with the wire down. */
@@ -493,7 +542,7 @@ export class IngestHost {
     try {
       decoded = JSON.parse(utf8.decode(payload));
     } catch (err) {
-      console.error("[ingest] failed to decode a RENDERED payload:", err);
+      devLog.error("ingest", "failed to decode a RENDERED payload", { error: errorText(err) });
       return;
     }
     const found = decoded as Partial<FindResultFrame> | null;
@@ -514,7 +563,10 @@ export class IngestHost {
         try {
           engine.rendered(session.messages);
         } catch (err) {
-          console.error(`[ingest] session ${engine.handle} threw for a render:`, err);
+          devLog.error("ingest", `session ${engine.handle} threw for a render`, {
+            session: engine.handle,
+            error: errorText(err),
+          });
         }
       }
     }
@@ -533,7 +585,7 @@ export class IngestHost {
     try {
       decoded = JSON.parse(utf8.decode(payload));
     } catch (err) {
-      console.error(`[ingest] failed to decode payload for feed 0x${feedId.toString(16)}:`, err);
+      devLog.error("ingest", `failed to decode payload for feed 0x${feedId.toString(16)}`, { error: errorText(err) });
       return;
     }
     if (feedId === FeedId.CODE_OUTPUT && isRoutedType(decoded)) {
@@ -548,7 +600,10 @@ export class IngestHost {
       try {
         engine.frame(feedId, decoded);
       } catch (err) {
-        console.error(`[ingest] session ${engine.handle} threw for feed 0x${feedId.toString(16)}:`, err);
+        devLog.error("ingest", `session ${engine.handle} threw for feed 0x${feedId.toString(16)}`, {
+          session: engine.handle,
+          error: errorText(err),
+        });
       }
     }
   }
@@ -574,19 +629,9 @@ export class IngestHost {
    * other sessions streamed between them, since one session's patches never
    * read another's. A patch of the same session in between keeps them apart,
    * so a session's own order is never changed, and so does a change of the
-   * wire's state, which the page acts on in order. A session's structure
-   * patch that follows its own folded one merges into it the same way, so a
-   * replay folds to one patch per flush.
-   *
-   * A replayed turn writes its text as well as its structure, so a fold
-   * alternates the two. While a session's folded patch is the last entry,
-   * the session's stream writes merge into its stream patch just before
-   * that one (one is placed there if there is none), and the fold stays
-   * last: the batch's tail is the fold's writes, then the fold. Each
-   * structure change still lands after the writes that preceded it; what
-   * moves is that a write lands before structure changes it once followed,
-   * which nothing reads in between — the fold publishes nothing until it
-   * flushes, and the mirror notifies at the batch's end.
+   * wire's state, which the page acts on in order. An open replay fold posts
+   * no structure, so its writes merge into one stream patch and the flush
+   * that closes it is one structure patch.
    */
   private emit(patch: SessionPatch): void {
     if (patch.kind === "stream") {
@@ -596,35 +641,10 @@ export class IngestHost {
         this.note(false);
         return;
       }
-      const last = this.pending[this.pending.length - 1];
-      if (
-        last !== undefined &&
-        last.kind === "structure" &&
-        last.session === patch.session &&
-        last.payload.publish === "fold"
-      ) {
-        const before = this.pending[this.pending.length - 2];
-        if (before !== undefined && before.kind === "stream" && before.session === patch.session) {
-          mergeStream(before.payload, patch.payload);
-        } else {
-          this.pending.splice(this.pending.length - 1, 0, patch);
-        }
-        this.note(false);
-        return;
-      }
     }
-    if (patch.kind === "structure") {
-      const last = this.pending[this.pending.length - 1];
-      if (
-        last !== undefined &&
-        last.kind === "structure" &&
-        last.session === patch.session &&
-        last.payload.publish === "fold"
-      ) {
-        mergeStructure(last.payload, patch.payload);
-        this.note(false);
-        return;
-      }
+    if (this.heldUntil !== null && UNHELD_KINDS.has(patch.kind)) {
+      this.post([patch], []);
+      return;
     }
     this.pending.push(patch);
     this.note(IMMEDIATE_KINDS.has(patch.kind));
@@ -676,13 +696,31 @@ export class IngestHost {
     this.flush();
   }
 
-  /** Post everything pending as one batch; nothing while the wire is held. */
+  /**
+   * Post everything pending as one batch; nothing while the wire is held,
+   * and — for a host that waits on the page — nothing while the page is still
+   * applying the last one. That flush is owed, and the page's acknowledgement
+   * runs it; a page that keeps up never owes one, so the cadence is the
+   * period's. What waits keeps merging, so a slow page receives fewer, fuller
+   * batches, and the queue between the threads never grows past the one batch
+   * it is applying.
+   */
   private flush(): void {
     if (this.heldUntil !== null || this.pending.length === 0) return;
+    if (this.options.awaitPageAck === true && this.unacked > 0) {
+      this.flushOwed = true;
+      return;
+    }
+    this.flushOwed = false;
     const entries = this.pending;
     const transfer = this.transfer;
     this.pending = [];
     this.transfer = [];
+    this.post(entries, transfer);
+  }
+
+  private post(entries: SessionPatch[], transfer: ArrayBuffer[]): void {
+    if (this.options.awaitPageAck === true) this.unacked += 1;
     this.sink({ kind: "batch", entries }, transfer);
   }
 
@@ -709,15 +747,3 @@ function mergeStream(into: StreamPayload, next: StreamPayload): void {
   into.textGrew ||= next.textGrew;
 }
 
-type StructurePayload = Extract<SessionPatch, { kind: "structure" }>["payload"];
-
-/**
- * Fold `next` into the folded patch before it: later fields win, splices
- * apply in order, and the merged patch publishes as `next` does.
- */
-function mergeStructure(into: StructurePayload, next: StructurePayload): void {
-  if (next.state !== undefined) into.state = { ...into.state, ...next.state };
-  if (next.transcript !== undefined) (into.transcript ??= []).push(...next.transcript);
-  if (next.meta !== undefined) into.meta = { ...into.meta, ...next.meta };
-  into.publish = next.publish;
-}

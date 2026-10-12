@@ -3,11 +3,13 @@
  * the host as a `motion` control, and a batch the host posted before it heard
  * of a hold — one that reaches the page while the gate is closed — is parked
  * and applied when the gate opens, in arrival order, before the tells the
- * gate held. Each applied batch leaves an `ingest-batch` trace row.
+ * gate held. The wire's own state is the exception: the host posts it through
+ * a hold, and the page applies it at once. Each applied batch leaves an
+ * `ingest-batch` trace row.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { TugConnection, type MotionGateSource } from "@/connection";
+import { TugConnection, type DisconnectState, type MotionGateSource } from "@/connection";
 import { deckTrace } from "@/deck-trace";
 import type { MotionGateChange } from "@/lib/gesture-scope";
 import { InProcessIngestChannel } from "@/lib/ingest/ingest-channel";
@@ -110,6 +112,26 @@ describe("TugConnection — the motion gate", () => {
     expect(last?.kind === "ingest-batch" && last.parked).toBe(false);
   });
 
+  test("a close inside a held gate reaches the open-socket mirror and the banner at once", () => {
+    const gate = new HandGate();
+    const conn = new TugConnection("ws://test.invalid/ws", {
+      channel: new InProcessIngestChannel({ timers: QUIET_TIMERS }),
+      motionGate: gate,
+    });
+    const states: DisconnectState[] = [];
+    conn.onDisconnectState((state) => states.push(state));
+    conn.connect();
+    const ws = FakeWebSocket.last!;
+    handshake(ws);
+    expect(conn.trySend(FeedId.DEFAULTS, new Uint8Array([1]))).toBe(true);
+
+    gate.tell({ held: true, capMs: 2000 });
+    ws.fireClose(1006, "gone");
+    // Not parked behind the hold: the page stops sending and the banner is told now.
+    expect(conn.trySend(FeedId.DEFAULTS, new Uint8Array([1]))).toBe(false);
+    expect(states[states.length - 1]?.disconnected).toBe(true);
+  });
+
   test("closing inside a held gate lets the wire go and applies what was parked", () => {
     const gate = new HandGate();
     const channel = new RecordingChannel({ timers: QUIET_TIMERS });
@@ -142,6 +164,7 @@ describe("TugConnection — the host's logs", () => {
     const channel: IngestChannel = {
       post: () => {},
       setBatchListener: (listener) => listener(batch),
+      setFailureListener: () => {},
       dispose: () => {},
     };
     new TugConnection("ws://test.invalid/ws", { channel, motionGate: new HandGate() }).connect();

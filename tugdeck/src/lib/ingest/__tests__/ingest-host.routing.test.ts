@@ -41,7 +41,7 @@ function openWire(): { channel: InProcessIngestChannel; batches: SessionBatch[];
   const channel = new InProcessIngestChannel({ timers: QUIET_TIMERS });
   const batches: SessionBatch[] = [];
   channel.setBatchListener((batch) => batches.push(batch));
-  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16, motionEnabled: false });
+  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16 });
   channel.post({ kind: "connect" });
   const ws = FakeWebSocket.last!;
   handshake(ws);

@@ -207,6 +207,26 @@ describe("PropertyStore – set()", () => {
 // ---------------------------------------------------------------------------
 
 describe("PropertyStore – observe()", () => {
+  it("isolates a listener that throws: the value is set and the next listener still hears it", () => {
+    const store = makeStore();
+    const heard: unknown[] = [];
+    const originalError = console.error;
+    console.error = () => {};
+    try {
+      store.observe("style.backgroundColor", () => {
+        throw new Error("a broken observer");
+      });
+      store.observe("style.backgroundColor", (change) => {
+        heard.push(change.newValue);
+      });
+      store.set("style.backgroundColor", "#123456", "test");
+    } finally {
+      console.error = originalError;
+    }
+    expect(store.get("style.backgroundColor")).toBe("#123456");
+    expect(heard).toEqual(["#123456"]);
+  });
+
   it("returns unsubscribe; after unsubscribe listener does not fire", () => {
     const store = makeStore();
     const calls: PropertyChange[] = [];

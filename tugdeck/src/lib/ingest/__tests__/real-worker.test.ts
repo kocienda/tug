@@ -18,6 +18,11 @@
  * still receives raw. The Worker forwards no CODE_OUTPUT frame to the page,
  * and posts in wire order, so once the marker is applied the frame's session
  * patches are too.
+ *
+ * And the failure half: a Worker whose module throws as it loads, and one
+ * whose host throws out of a control, each observed from the page — the
+ * banner's state naming the failure, the dev log and the session lifecycle
+ * log saying the host moved, and the wire back up on this thread.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -25,8 +30,12 @@ import { WorkerIngestChannel } from "../ingest-channel";
 import type { SessionBatch, SessionPatch } from "../session-patch";
 import { startFakeTugcast, type FakeTugcast } from "../testing/fake-tugcast";
 import { FeedId, decodeFrame, encodeFrame } from "@/protocol";
-import { TugConnection } from "@/connection";
-import { CodeSessionStore } from "@/lib/code-session-store";
+import { INGEST_WORKER_FAILED_REASON, TugConnection, ingestTaskCounter, type DisconnectState } from "@/connection";
+import { deckTrace } from "@/deck-trace";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CodeSessionStore, REPLAY_FOLD_FLUSH_THRESHOLD } from "@/lib/code-session-store";
 import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
@@ -68,7 +77,7 @@ describe("the ingest Worker, on a real thread", () => {
     });
 
     channel.post({ kind: "subscribe", feeds: [FeedId.DEFAULTS, FeedId.JOTS] });
-    channel.post({ kind: "init", wsUrl: fake.url, periodMs: 16, motionEnabled: false });
+    channel.post({ kind: "init", wsUrl: fake.url, periodMs: 16 });
     channel.post({ kind: "connect" });
 
     await until(
@@ -388,13 +397,36 @@ describe("the session engine in the Worker — transcript cap", () => {
   test("does not evict mid-replay, and holds a long replay to the cap when it closes", async () => {
     const page = await workerPage();
     const store = await smallCapped(page);
+    // An open fold posts nothing until a flush, so the mid-replay reading is
+    // taken at the threshold's flush: enough turns to cross it, in one batch.
+    const turns = Math.ceil(REPLAY_FOLD_FLUSH_THRESHOLD / 3);
     await page.wire({ type: "replay_started" });
-    for (let n = 0; n <= 7; n++) await emitTurn(page, n);
-    expect(store.getSnapshot().transcript).toHaveLength(8);
-    await page.wire({ type: "replay_complete", count: 8 });
+    const frames: Record<string, unknown>[] = [];
+    for (let n = 0; n < turns; n++) {
+      frames.push(
+        { type: "add_user_message", content: [{ type: "text", text: `prompt ${n}` }], promptUuid: anchor(n) },
+        {
+          type: "assistant_text",
+          status: "complete",
+          msg_id: FIXTURE_IDS.MSG_ID_N(n),
+          text: `reply ${n}`,
+          is_partial: false,
+          rev: 0,
+          seq: 0,
+        },
+        { type: "turn_complete", seq: 0, msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" },
+      );
+    }
+    await page.wire({ type: "replay_batch", frames });
+    expect(store.getSnapshot().transcript).toHaveLength(Math.floor(REPLAY_FOLD_FLUSH_THRESHOLD / 3));
+    await page.wire({ type: "replay_complete", count: turns });
 
-    expect(msgIds(store)).toEqual(ids(3, 7));
-    expect(store.getSnapshot().replayWindow).toEqual({ firstLoadedTurnIndex: 3, totalTurns: 8, hasOlder: true });
+    expect(msgIds(store)).toEqual(ids(turns - CAP, turns - 1));
+    expect(store.getSnapshot().replayWindow).toEqual({
+      firstLoadedTurnIndex: turns - CAP,
+      totalTurns: turns,
+      hasOlder: true,
+    });
   });
 });
 
@@ -457,4 +489,205 @@ describe("tugcast's renders through the Worker", () => {
     expect(renderInputs().find((c) => c.kind === "motion")).toMatchObject({ held: true, capMs: 1000 });
     store.dispose();
   });
+});
+
+// ---------------------------------------------------------------------------
+// The failure half
+// ---------------------------------------------------------------------------
+
+describe("a failed ingest Worker falls back to a host on the page", () => {
+  const originalError = tugDevLogStore.error;
+  let errors: string[];
+  beforeEach(() => {
+    errors = [];
+    tugDevLogStore.error = (_source, message) => {
+      errors.push(message);
+    };
+  });
+  afterEach(() => {
+    tugDevLogStore.error = originalError;
+  });
+
+  const fallbacks = () =>
+    deckTrace
+      .dump()
+      .filter((e) => e.kind === "session-lifecycle" && e.event === "connection.ingest_fallback");
+
+  /** Every disconnect state the page is told, and the connection, connected to the fake. */
+  function watch(conn: TugConnection): DisconnectState[] {
+    const states: DisconnectState[] = [];
+    conn.onDisconnectState((state) => states.push(state));
+    return states;
+  }
+
+  test("a Worker whose module throws as it loads is named on the banner and the wire comes up on the page", async () => {
+    fake = startFakeTugcast();
+    const dir = mkdtempSync(join(tmpdir(), "ingest-worker-"));
+    const broken = join(dir, "broken-worker.ts");
+    writeFileSync(broken, 'throw new Error("the module would not load");\n');
+    channel = new WorkerIngestChannel(() => new Worker(broken, { type: "module" }));
+    const conn = new TugConnection(fake.url, { channel });
+    const before = fallbacks().length;
+    const states = watch(conn);
+    // Told it stands disconnected the moment it asks, before any host answers.
+    expect(states).toEqual([{ disconnected: true, countdown: 0, reason: null, reconnecting: false }]);
+
+    conn.connect();
+    await until(() => states.some((s) => s.reason === INGEST_WORKER_FAILED_REASON), "the failure on the banner");
+    await until(() => states[states.length - 1]?.disconnected === false, "the wire up on the page");
+
+    expect(ingestTaskCounter.host).toBe("main");
+    expect(errors.some((m) => m.includes("for the rest of this page's life"))).toBe(true);
+    expect(fallbacks().length).toBe(before + 1);
+    conn.close();
+  });
+
+  test("a host that throws out of a control is replaced, and a session open across it keeps reducing", async () => {
+    const page = await workerPage();
+    const store = await openStore(page, { sessionMode: "new" });
+    const states = watch(page.conn);
+    const before = fallbacks().length;
+    expect(ingestTaskCounter.host).toBe("worker");
+
+    // A subscription with no feed list throws inside the host's handler.
+    channel!.post({ kind: "subscribe", feeds: null as unknown as number[] });
+    await until(() => states.some((s) => s.reason === INGEST_WORKER_FAILED_REASON), "the failure on the banner");
+    await until(() => states[states.length - 1]?.disconnected === false && fake!.handshaken(), "the wire up on the page");
+
+    expect(ingestTaskCounter.host).toBe("main");
+    expect(errors.some((m) => m.startsWith("the ingest Worker threw: TypeError"))).toBe(true);
+    expect(fallbacks().length).toBe(before + 1);
+
+    // The session was opened again in the new host: a frame for it still
+    // reaches its mirror.
+    const response = { type: "skills_inventory", request_id: "si-2", skills: [] };
+    await page.wire(response);
+    expect(store.routedFrames("skills_inventory").getSnapshot().get(FeedId.CODE_OUTPUT)).toEqual({
+      ...response,
+      tug_session_id: TUG,
+    });
+    store.dispose();
+    page.conn.close();
+  });
+});
+
+describe("disposing the connection releases its Worker", () => {
+  test("the wire closes, the Worker is let go, and nothing is built or connected after", async () => {
+    const page = await workerPage();
+    expect(fake!.handshaken()).toBe(true);
+
+    page.conn.dispose();
+    await until(() => !fake!.handshaken(), "the socket closed");
+
+    // A disposed connection builds no new host and opens no new socket.
+    page.conn.connect();
+    page.conn.forceReconnect();
+    await Bun.sleep(200);
+    expect(fake!.handshaken()).toBe(false);
+    expect(page.conn.trySendControlFrame("check_auth")).toBe(false);
+  });
+});
+
+describe("the engine in the Worker decides what Escape pops", () => {
+  test("Escape a hop after Enter cancels the send it queued rather than interrupting the turn", async () => {
+    const page = await workerPage();
+    const store = await openStore(page, { sessionMode: "new" });
+    store.send("first", []);
+    await store.whenSettled();
+    for (const seq of [0, 1]) {
+      await page.wire({
+        type: "assistant_text",
+        status: "partial",
+        msg_id: FIXTURE_IDS.MSG_ID_N(1),
+        text: "working",
+        is_partial: true,
+        rev: 0,
+        seq,
+      });
+    }
+    expect(store.getSnapshot().phase).toBe("streaming");
+
+    // Enter queues behind the running turn, and Escape follows before the
+    // mirror has heard the queue: the page still reads it empty.
+    store.send("second", []);
+    expect(store.getSnapshot().queuedSends).toHaveLength(0);
+    store.popInteractive();
+    await store.whenSettled();
+
+    const snap = store.getSnapshot();
+    expect(snap.queuedSends).toHaveLength(0);
+    expect(snap.pendingDraftRestore?.text).toBe("second");
+    expect(snap.phase).toBe("streaming");
+    expect(snap.interruptInFlight).toBe(false);
+  });
+});
+
+describe("the Worker under a page that misbehaves", () => {
+  test("a send before init is refused with a reason, and the Worker lives to connect", async () => {
+    fake = startFakeTugcast();
+    channel = new WorkerIngestChannel(() => new Worker(ENTRY, { type: "module" }));
+    const patches: SessionPatch[] = [];
+    channel.setBatchListener((batch) => patches.push(...batch.entries));
+    const failures: string[] = [];
+    channel.setFailureListener((detail) => failures.push(detail));
+
+    const bytes = new Uint8Array([1]).buffer;
+    channel.post({ kind: "send", feedId: FeedId.CONTROL, flags: 0, bytes }, [bytes]);
+    await until(() => patches.some((p) => p.kind === "log"), "the refusal");
+    const log = patches.find((p) => p.kind === "log");
+    expect(log?.kind === "log" ? log.payload : null).toEqual({
+      level: "warn",
+      source: "connection",
+      message: "a send arrived before the ingest host's init and was refused",
+    });
+
+    channel.post({ kind: "init", wsUrl: fake.url, periodMs: 16 });
+    channel.post({ kind: "connect" });
+    await until(() => fake!.handshaken(), "the handshake");
+    expect(failures).toEqual([]);
+  });
+
+  test("a page slower than the period gets fewer, fuller batches, and no frame waits behind a queue", async () => {
+    // The producer runs in its own process: on this thread a slow page would
+    // slow it too, and no queue could form.
+    const streamer = Bun.spawn(
+      [process.execPath, new URL("../testing/streaming-tugcast.ts", import.meta.url).pathname, "--interval-ms", "2", "--duration-ms", "1500"],
+      { stdout: "pipe" },
+    );
+    try {
+      const first = await streamer.stdout.getReader().read();
+      const port = Number(new TextDecoder().decode(first.value).trim());
+      channel = new WorkerIngestChannel(() => new Worker(ENTRY, { type: "module" }));
+      const PAGE_MS = 40;
+      const lags: number[] = [];
+      let frames = 0;
+      channel.setBatchListener((batch) => {
+        const now = performance.timeOrigin + performance.now();
+        for (const p of batch.entries) {
+          if (p.kind !== "frame") continue;
+          frames += 1;
+          lags.push(now - Number(new TextDecoder().decode(p.payload.bytes)));
+        }
+        if (batch.entries.some((p) => p.kind === "frame")) {
+          // The page's own work, longer than the period.
+          const end = performance.now() + PAGE_MS;
+          while (performance.now() < end) {}
+        }
+      });
+      channel.post({ kind: "subscribe", feeds: [FeedId.DEFAULTS] });
+      channel.post({ kind: "init", wsUrl: `ws://127.0.0.1:${port}/ws`, periodMs: 16 });
+      channel.post({ kind: "connect" });
+      await until(() => frames > 0, "the first frame");
+      await Bun.sleep(2_000);
+
+      // Unbounded, the Worker posts a batch a period whatever the page does,
+      // and the last frames wait seconds behind the queue (3 s, measured, for
+      // a 40 ms page over 2 s of frames). Bounded on the page's
+      // acknowledgement, no frame waits much longer than one page's work.
+      expect(frames).toBeGreaterThan(300);
+      expect(Math.max(...lags)).toBeLessThan(PAGE_MS * 4);
+    } finally {
+      streamer.kill();
+    }
+  }, 10_000);
 });

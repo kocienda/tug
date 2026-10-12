@@ -10,6 +10,7 @@ import { InProcessIngestChannel } from "../ingest-channel";
 import type { SessionBatch } from "../session-patch";
 import { FakeWebSocket, QUIET_TIMERS, handshake, installFakeWebSocket } from "../testing/fake-websocket";
 import { FeedId, decodeFrame, encodeFrame } from "@/protocol";
+import { installDevLogSink } from "@/lib/dev-log-port";
 
 let restoreWebSocket: () => void = () => {};
 
@@ -25,7 +26,7 @@ function openChannel(): { channel: InProcessIngestChannel; batches: SessionBatch
   const channel = new InProcessIngestChannel({ timers: QUIET_TIMERS });
   const batches: SessionBatch[] = [];
   channel.setBatchListener((batch) => batches.push(batch));
-  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16, motionEnabled: false });
+  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16 });
   return { channel, batches };
 }
 
@@ -120,5 +121,28 @@ describe("IngestHost — the wire half", () => {
       action: "subscribe_feeds",
       feeds: [FeedId.JOTS],
     });
+  });
+
+  test("a frame the page sent after the wire closed is refused with a reason, not dropped quietly", () => {
+    const { channel } = openChannel();
+    channel.post({ kind: "connect" });
+    const ws = FakeWebSocket.last!;
+    handshake(ws);
+    ws.fireClose(1006, "gone");
+    const reported: Array<{ level: string; message: string; data: unknown }> = [];
+    const release = installDevLogSink({ log: (level, _source, message, data) => reported.push({ level, message, data }) });
+    try {
+      const bytes = new Uint8Array([7, 8]).buffer;
+      channel.post({ kind: "send", feedId: FeedId.FILETREE_QUERY, flags: 0, bytes }, [bytes]);
+    } finally {
+      release();
+    }
+    expect(reported).toEqual([
+      {
+        level: "warn",
+        message: "a frame the page sent was refused: the socket closed before it went out",
+        data: { feedId: FeedId.FILETREE_QUERY, bytes: 2 },
+      },
+    ]);
   });
 });

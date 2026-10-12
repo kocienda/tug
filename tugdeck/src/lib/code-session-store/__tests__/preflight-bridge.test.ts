@@ -35,6 +35,7 @@ class HeldChannel implements IngestChannel {
   setBatchListener(listener: (batch: SessionBatch) => void): void {
     this.listener = listener;
   }
+  setFailureListener(): void {}
   dispose(): void {
     this.inner.dispose();
   }

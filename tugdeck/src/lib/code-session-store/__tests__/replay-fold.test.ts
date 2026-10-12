@@ -121,6 +121,7 @@ class TappedChannel implements IngestChannel {
   setBatchListener(listener: (batch: SessionBatch) => void): void {
     this.listener = listener;
   }
+  setFailureListener(): void {}
   dispose(): void {
     this.inner.dispose();
   }
@@ -385,7 +386,7 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(store.getSnapshot().phase).toBe("errored");
   });
 
-  it("a 600-frame replay_batch through the paced host crosses as at most three structure patches and the phase exit", () => {
+  it("a 600-frame replay_batch through the paced host crosses as two structure patches and the phase exit", () => {
     // The host as the Worker runs it — its own socket, paced to a period —
     // with the page's facade and mirror on the other side of the channel.
     const restore = installFakeWebSocket();
@@ -427,8 +428,8 @@ describe("replay fold — one snapshot tick per flush", () => {
 
       wire({ type: "replay_batch", frames: Array.from({ length: TURNS }, (_, i) => turnFrames(i + 1)).flat() });
       const folded = structures().slice(opened);
-      expect(folded.length).toBeGreaterThan(0);
-      expect(folded.length).toBeLessThanOrEqual(3);
+      // One structure patch per threshold flush, and none for the frames between.
+      expect(folded).toHaveLength(2);
       // The two threshold flushes publish, in the period's one batch: one
       // notify, and the frames after the second stay unread — the snapshot is
       // pinned where that flush left it, not partway through a turn.
@@ -441,7 +442,6 @@ describe("replay fold — one snapshot tick per flush", () => {
       wire({ type: "replay_complete", count: TURNS });
       const exit = structures().slice(opened + folded.length);
       expect(exit).toHaveLength(1);
-      expect(exit[0]!.payload.publish).toBe("sync");
       expect(exit[0]!.payload.state?.phase).toBe("idle");
       expect(notifies).toBe(notifiesOpen + 2);
 
@@ -469,6 +469,80 @@ describe("replay fold — one snapshot tick per flush", () => {
       expect(rows(store)).toEqual(rows(local.store));
       store.dispose();
       local.store.dispose();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a long replayed turn, a frame per period, crosses once per flush and clones each message once", () => {
+    // The fold's cost is what crosses the thread boundary. A folded event
+    // that posted would carry the growing turn every period it was built
+    // across — quadratic in the turn — where one diff at the flush carries
+    // each message once.
+    const restore = installFakeWebSocket();
+    try {
+      const PERIOD = 1000 / 60;
+      const clock = new ManualClock();
+      const channel = new TappedChannel(clock, PERIOD);
+      const conn = new TugConnection("ws://test.invalid/ws", { channel });
+      conn.connect();
+      const ws = FakeWebSocket.last!;
+      handshake(ws);
+      clock.advance(PERIOD);
+      const store = new CodeSessionStore({
+        conn,
+        lifecycle: new ConnectionLifecycle(),
+        tugSessionId: TUG,
+        sessionMode: "resume",
+      });
+      const wire = (evt: Record<string, unknown>): void => {
+        const payload = new TextEncoder().encode(JSON.stringify({ ...evt, tug_session_id: TUG }));
+        ws.fireMessage(encodeFrame({ feedId: FeedId.CODE_OUTPUT, flags: 0, payload }));
+        clock.advance(PERIOD);
+      };
+      const structures = (): SessionPatchOf<"structure">[] =>
+        channel.batches.flatMap((b) =>
+          b.entries.filter((p): p is SessionPatchOf<"structure"> => p.kind === "structure" && p.session !== null),
+        );
+      /** The Messages a patch carries across the boundary, in its scratch turns and its transcript splices. */
+      const carried = (p: SessionPatchOf<"structure">): number => {
+        let n = 0;
+        for (const entry of p.payload.state?.scratch?.values() ?? []) n += entry.messages.length;
+        for (const splice of p.payload.transcript ?? []) {
+          for (const turn of splice.entries) n += turn.messages.length;
+        }
+        return n;
+      };
+
+      const MESSAGES = 120;
+      wire({ type: "replay_started" });
+      const opened = structures().length;
+      wire({ type: "add_user_message", content: [{ type: "text", text: "prompt" }] });
+      for (let i = 1; i <= MESSAGES; i++) {
+        wire({
+          type: "assistant_text",
+          status: "complete",
+          msg_id: FIXTURE_IDS.MSG_ID_N(i),
+          text: `reply ${i}`,
+          is_partial: false,
+          rev: 0,
+          seq: 0,
+        });
+      }
+      // Every frame reduced in its own period, under the threshold: nothing crossed.
+      expect(structures()).toHaveLength(opened);
+      wire({ type: "turn_complete", seq: 0, msg_id: FIXTURE_IDS.MSG_ID_N(MESSAGES), result: "success" });
+      wire({ type: "replay_complete", count: 1 });
+
+      const flushed = structures().slice(opened);
+      expect(flushed).toHaveLength(1);
+      const turn = store.getSnapshot().transcript;
+      expect(turn).toHaveLength(1);
+      const built = turn[0]!.messages.length;
+      expect(built).toBeGreaterThanOrEqual(MESSAGES);
+      // Linear in the turn: the flush carries the turn's Messages once.
+      expect(flushed.reduce((sum, p) => sum + carried(p), 0)).toBe(built);
+      store.dispose();
     } finally {
       restore();
     }

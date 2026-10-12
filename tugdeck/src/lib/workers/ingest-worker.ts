@@ -13,6 +13,12 @@
  * loading them here would make a second, unread copy — so the dev-log port's
  * sink turns each call into a `log` patch the page replays.
  *
+ * A control the host throws out of leaves its state unknown, so the Worker
+ * does not carry on: it posts one `failed` message, and the page replaces this
+ * thread with a host of its own. A throw the Worker does not catch — its
+ * module failing to load, or one out of a socket or timer callback — reaches
+ * the page as the Worker's `error` event, to the same end.
+ *
  * ## The spike
  *
  * A `spike` message runs the platform proof the Worker rests on, outside the
@@ -28,6 +34,7 @@ import { controlFrame, encodeFrame } from "@/protocol";
 import { installDevLogSink } from "@/lib/dev-log-port";
 import { IngestHost } from "@/lib/ingest/ingest-host";
 import { Pacer } from "@/lib/ingest/pacer";
+import type { IngestWorkerFailure } from "@/lib/ingest/ingest-channel";
 import type { SessionControl } from "@/lib/ingest/session-patch";
 
 /** Asks the Worker to prove it can hold the socket. */
@@ -123,6 +130,7 @@ function runSpike(request: IngestSpikeRequest): void {
 const host = new IngestHost(
   (batch, transfer) => scope.postMessage(batch, transfer),
   (flush, periodMs) => new Pacer(flush, periodMs),
+  { awaitPageAck: true },
 );
 
 installDevLogSink({
@@ -136,5 +144,13 @@ scope.onmessage = (event: MessageEvent<SessionControl | IngestSpikeRequest>) => 
     runSpike(message);
     return;
   }
-  host.handle(message);
+  try {
+    host.handle(message);
+  } catch (err) {
+    const failure: IngestWorkerFailure = {
+      kind: "failed",
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    };
+    scope.postMessage(failure);
+  }
 };

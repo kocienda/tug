@@ -209,7 +209,23 @@ export interface SendActionEvent {
    * words wait in the queue and ride the hand-over to the new store.
    */
   queueOnly?: boolean;
+  /**
+   * A state the session must be in when the send arrives, or the send is
+   * dropped. The page reads a mirror one hop behind the engine, so a
+   * programmatic send that is right only in a given state is decided here,
+   * against the engine's own state, rather than on the page's reading.
+   */
+  onlyIf?: SendCondition;
 }
+
+/**
+ * When a guarded send may go: `scheduled-job` while the session is idle and
+ * the job is a scheduled one of that kind; `goal-clearable` while a goal is
+ * active and the session is idle or errored.
+ */
+export type SendCondition =
+  | { kind: "scheduled-job"; jobId: string; jobKind: "cron" | "wakeup" }
+  | { kind: "goal-clearable" };
 
 /** `session_init` frame — carries Claude's `session_id` (for `--resume`). */
 export type SessionInitEvent = WireEvent<Wire.SessionInit>;
@@ -1419,6 +1435,18 @@ export interface ForceStopActionEvent {
 }
 
 /**
+ * Local action — the unified Stop / Escape gesture. The engine pops the
+ * newest pending interactive against its own state: the newest queued send
+ * is cancelled; with none, a stop that already went unanswered escalates to
+ * Force Stop; otherwise the turn is interrupted. Decided in the reducer, so
+ * an Escape a frame after Enter cancels the send it queued rather than
+ * interrupting a turn the page had not yet seen it join.
+ */
+export interface PopInteractiveActionEvent {
+  type: "pop_interactive";
+}
+
+/**
  * tugcode's answer to `stop_all_work`: the group was swept and the
  * respawn's handshake acked. Sent on its failure paths too, which is why
  * the deck consumes it — `handleStopAllWork` also closes the turn with
@@ -1502,6 +1530,7 @@ export type CodeSessionEvent =
   | TickReplayBracketEvent
   | TickInterruptSilenceEvent
   | ForceStopActionEvent
+  | PopInteractiveActionEvent
   | StopAllWorkDoneEvent
   | PromptAnchorEvent
   | RewindPreviewResultEvent

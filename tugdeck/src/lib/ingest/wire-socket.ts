@@ -412,22 +412,14 @@ export class WireSocket {
 
   /**
    * Put one frame on the wire, reporting whether it went out. A socket that
-   * is not OPEN drops it — there is no outbound queue — and the drop is
-   * logged at `debug` for every feed but HEARTBEAT, whose per-interval drops
-   * during a reconnect are the expected case.
+   * is not OPEN refuses it — there is no outbound queue — and reports
+   * `false`; the caller decides what a refusal means and says so.
    */
   send(feedId: number, flags: number, payload: Uint8Array): boolean {
     const ws = this.ws;
     if (ws !== null && ws.readyState === READY_OPEN) {
       ws.send(encodeFrame({ feedId: feedId as FeedIdLike, flags, payload }));
       return true;
-    }
-    if (feedId !== FeedId.HEARTBEAT) {
-      devLog.debug("connection", "frame dropped; socket not open", {
-        feedId,
-        readyState: ws?.readyState ?? null,
-        bytes: payload.byteLength,
-      });
     }
     return false;
   }

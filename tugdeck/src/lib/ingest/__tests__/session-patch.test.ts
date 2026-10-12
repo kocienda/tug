@@ -7,7 +7,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { applyTranscriptSplices, diffStateFields, diffTranscript } from "../session-patch";
+import {
+  applySessionBatch,
+  applyTranscriptSplices,
+  diffStateFields,
+  diffTranscript,
+  type PatchTarget,
+  type SessionPatch,
+  type SessionPatchTarget,
+} from "../session-patch";
+import { installDevLogSink } from "@/lib/dev-log-port";
 
 interface Turn {
   turnKey: string;
@@ -136,5 +145,58 @@ describe("applyTranscriptSplices", () => {
     const engine2 = [...engine1, turn("c")];
     const splices = [...diffTranscript(engine0, engine1)!, ...diffTranscript(engine1, engine2)!];
     expect(applyTranscriptSplices(engine0, splices).map((t) => t.turnKey)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("applySessionBatch", () => {
+  test("a mirror whose applier throws still gets its acknowledgment, and the rest of the batch applies", () => {
+    // What each mirror and the page end up holding.
+    const acked = new Map<string, number>();
+    const frames: number[] = [];
+    const ended: string[] = [];
+    const mirror = (handle: string, throwsOnStructure: boolean): SessionPatchTarget => ({
+      stream: () => {},
+      structure: () => {
+        if (throwsOnStructure) throw new Error("a broken applier");
+      },
+      progress: () => {},
+      effect: () => {},
+      ack: (patch) => acked.set(handle, patch.payload.seq),
+      routedFrame: () => {},
+      rendered: () => {},
+      findResult: () => {},
+      endOfBatch: () => ended.push(handle),
+    });
+    const mirrors = new Map([
+      ["a", mirror("a", true)],
+      ["b", mirror("b", false)],
+    ]);
+    const target: PatchTarget = {
+      page: {
+        frame: (patch) => frames.push(patch.payload.feedId),
+        wireState: () => {},
+        disconnectState: () => {},
+        log: () => {},
+      },
+      session: (handle) => mirrors.get(handle) ?? null,
+    };
+    const entries: SessionPatch[] = [
+      { kind: "structure", session: "a", payload: {} },
+      { kind: "ack", session: "a", payload: { seq: 7 } },
+      { kind: "frame", session: null, payload: { feedId: 0x50, bytes: new ArrayBuffer(0) } },
+      { kind: "ack", session: "b", payload: { seq: 3 } },
+    ];
+    const reported: string[] = [];
+    const restore = installDevLogSink({ log: (_level, _source, message) => reported.push(message) });
+    try {
+      applySessionBatch(entries, target);
+    } finally {
+      restore();
+    }
+
+    expect(acked).toEqual(new Map([["a", 7], ["b", 3]]));
+    expect(frames).toEqual([0x50]);
+    expect(ended).toEqual(["a", "b"]);
+    expect(reported).toEqual(["a structure patch threw as it applied; the rest of the batch still applies"]);
   });
 });

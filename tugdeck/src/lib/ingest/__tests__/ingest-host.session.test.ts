@@ -13,6 +13,7 @@ import { InProcessIngestChannel } from "../ingest-channel";
 import { Pacer } from "../pacer";
 import { ManualClock } from "../testing/manual-clock";
 import { SessionEngine } from "@/lib/code-session-store/session-engine";
+import { installDevLogSink } from "@/lib/dev-log-port";
 import {
   applyPatch,
   type PatchTarget,
@@ -40,7 +41,7 @@ function openWire(): { channel: InProcessIngestChannel; batches: SessionBatch[];
   const channel = new InProcessIngestChannel({ timers: QUIET_TIMERS });
   const batches: SessionBatch[] = [];
   channel.setBatchListener((batch) => batches.push(batch));
-  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16, motionEnabled: false });
+  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16 });
   channel.post({ kind: "connect" });
   const ws = FakeWebSocket.last!;
   handshake(ws);
@@ -203,20 +204,31 @@ describe("IngestHost — the session half", () => {
     batches.length = 0;
 
     const action = SessionEngine.prototype.action;
-    const quiet = console.error;
+    const reported: Array<{ level: string; source: string; message: string; data: unknown }> = [];
+    const release = installDevLogSink({
+      log: (level, source, message, data) => reported.push({ level, source, message, data }),
+    });
     SessionEngine.prototype.action = () => {
       throw new Error("reducer defect");
     };
-    console.error = () => {};
     try {
       channel.post({ kind: "session-action", handle: `${A}#1`, seq: 3, event: { type: "transport_close" } });
     } finally {
       SessionEngine.prototype.action = action;
-      console.error = quiet;
+      release();
     }
     // A reader awaiting its own action must hear back whatever the engine did.
     const ack = batches.flatMap((b) => b.entries).find((p) => p.kind === "ack");
     expect(ack?.kind === "ack" ? ack.payload.seq : null).toBe(3);
+    // And the throw reaches the page's dev log through the port, not the Worker's console.
+    expect(reported).toEqual([
+      {
+        level: "error",
+        source: "ingest",
+        message: `session ${A}#1 threw on its action`,
+        data: { session: `${A}#1`, error: "Error: reducer defect" },
+      },
+    ]);
   });
 
   test("each session's streamed text crosses once per batch, however the sessions interleave", () => {
@@ -227,7 +239,7 @@ describe("IngestHost — the session half", () => {
     });
     const batches: SessionBatch[] = [];
     channel.setBatchListener((batch) => batches.push(batch));
-    channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16, motionEnabled: false });
+    channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16 });
     channel.post({ kind: "connect" });
     const ws = FakeWebSocket.last!;
     handshake(ws);

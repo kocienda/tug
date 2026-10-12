@@ -294,3 +294,59 @@ describe("scheduled-work wake reconciliation + respawn sweep", () => {
     expect(state.jobs[0].status).toBe("scheduled");
   });
 });
+
+describe("a guarded send is decided against the engine's own state", () => {
+  const cron = (status: "scheduled" | "stopped"): CodeSessionState => ({
+    ...fresh(),
+    jobs: [
+      {
+        jobId: "c1",
+        source: "claude",
+        kind: "cron",
+        toolUseId: "tu1",
+        description: "every hour",
+        status,
+        startedAtMs: 0,
+        endedAtMs: null,
+      },
+    ],
+  });
+  const guarded = (state: CodeSessionState): ReturnType<typeof reduce> =>
+    reduce(state, {
+      ...send("Please cancel the scheduled cron `c1` using CronDelete.", "k1"),
+      onlyIf: { kind: "scheduled-job", jobId: "c1", jobKind: "cron" },
+    } as CodeSessionEvent);
+
+  test("it goes when the session is idle and the job is still scheduled", () => {
+    const out = guarded(cron("scheduled"));
+    expect(out.state.phase).toBe("submitting");
+    expect(out.effects.some((e) => e.kind === "send-frame")).toBe(true);
+  });
+
+  test("it is dropped when the job is no longer scheduled, or the session is busy", () => {
+    const stopped = cron("stopped");
+    expect(guarded(stopped)).toEqual({ state: stopped, effects: [] });
+    const busy = applyAll(cron("scheduled"), [send("hi", "k0")]);
+    expect(guarded(busy)).toEqual({ state: busy, effects: [] });
+  });
+
+  test("a goal clear goes only while a goal is active", () => {
+    const idle = fresh();
+    const out = reduce(idle, { ...send("/goal clear", "k1"), onlyIf: { kind: "goal-clearable" } } as CodeSessionEvent);
+    expect(out).toEqual({ state: idle, effects: [] });
+  });
+});
+
+describe("pop_interactive — the unified Stop / Escape, decided by the engine", () => {
+  test("cancels the newest queued send, then interrupts the turn", () => {
+    const busy = applyAll(fresh(), [send("one", "k1"), send("two", "k2"), send("three", "k3")]);
+    expect(busy.queuedSends.map((q) => q.turnKey)).toEqual(["k2", "k3"]);
+    const popped = reduce(busy, { type: "pop_interactive" }).state;
+    expect(popped.queuedSends.map((q) => q.turnKey)).toEqual(["k2"]);
+    expect(popped.pendingDraftRestore?.text).toBe("three");
+    const drained = reduce(popped, { type: "pop_interactive" }).state;
+    expect(drained.queuedSends).toEqual([]);
+    const stopped = reduce(drained, { type: "pop_interactive" });
+    expect(stopped.effects.some((e) => e.kind === "send-frame" && e.msg.type === "interrupt")).toBe(true);
+  });
+});

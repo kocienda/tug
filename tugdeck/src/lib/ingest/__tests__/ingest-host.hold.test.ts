@@ -3,7 +3,9 @@
  * while a settle's motion gate is closed the host keeps reducing and posts
  * nothing — not the period's batch, not an action's acknowledgment — and the
  * release posts everything as one batch, in order. A gate that never opens is
- * ended by the host's own cap, and a nested hold pushes that cap out.
+ * ended by the host's own cap, and a nested hold pushes that cap out. The
+ * wire's own state is not held: a close and a reconnect inside a hold reach
+ * the page at once, and what the hold keeps still waits for the release.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -36,7 +38,7 @@ function openWire(): { channel: InProcessIngestChannel; batches: SessionBatch[];
   });
   const batches: SessionBatch[] = [];
   channel.setBatchListener((batch) => batches.push(batch));
-  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: PERIOD, motionEnabled: true });
+  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: PERIOD });
   channel.post({ kind: "connect" });
   const ws = FakeWebSocket.last!;
   handshake(ws);
@@ -57,6 +59,15 @@ function frames(batches: SessionBatch[]): string[][] {
       p.kind === "frame" && p.payload.feedId === FeedId.SESSION_SIDEBAND
         ? [new TextDecoder().decode(new Uint8Array(p.payload.bytes))]
         : [],
+    ),
+  );
+}
+
+/** Each wire-state patch as `wire-state:<state>`, and each disconnect-state, in order. */
+function lifecycle(batches: SessionBatch[]): string[] {
+  return batches.flatMap((b) =>
+    b.entries.flatMap((p) =>
+      p.kind === "wire-state" ? [`wire-state:${p.payload.state}`] : p.kind === "disconnect-state" ? ["disconnect-state"] : [],
     ),
   );
 }
@@ -128,6 +139,33 @@ describe("IngestHost — the motion hold", () => {
     expect(batches).toEqual([]);
     clock.advance(1);
     expect(frames(batches)).toEqual([["a"]]);
+  });
+
+  test("a close and a reconnect inside a hold post their wire state at once; the held frames wait", () => {
+    const { channel, batches, ws, clock } = openWire();
+    channel.post({ kind: "motion", held: true, capMs: 2000 });
+    send(ws, "a");
+    ws.fireClose(1006, "gone");
+    // The banner and the page's open-socket mirror hear the close now, not at the cap.
+    expect(lifecycle(batches)).toEqual(["wire-state:closed", "disconnect-state", "wire-state:reconnecting"]);
+    expect(frames(batches).flat()).toEqual([]);
+
+    channel.post({ kind: "force-reconnect" });
+    const next = FakeWebSocket.last!;
+    expect(next).not.toBe(ws);
+    handshake(next);
+    send(next, "b");
+    clock.advance(PERIOD * 3);
+    expect(lifecycle(batches).slice(3)).toEqual(["disconnect-state", "wire-state:will-open", "wire-state:open"]);
+    // Every batch so far carried wire state alone.
+    expect(batches.every((b) => b.entries.every((p) => p.kind === "wire-state" || p.kind === "disconnect-state"))).toBe(
+      true,
+    );
+
+    const before = batches.length;
+    channel.post({ kind: "motion", held: false });
+    expect(batches).toHaveLength(before + 1);
+    expect(frames(batches.slice(before))).toEqual([["a", "b"]]);
   });
 
   test("a nested hold pushes the cap out; one that ends sooner leaves it", () => {

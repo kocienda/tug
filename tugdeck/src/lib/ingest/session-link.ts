@@ -13,9 +13,8 @@
  * rebuilt for the same session id (the reconnect restore) can never receive
  * the patches its predecessor's engine posted.
  *
- * {@link openInProcessSession} is the opener for any frame source — the
- * a test channel, a test's bare `{ onFrame, send }` fake, or a connection
- * asked for something only this thread can hold. It hosts one `IngestHost`
+ * {@link openInProcessSession} is the opener for any other frame source — a
+ * test channel, or a test's bare `{ onFrame, send }` fake. It hosts one `IngestHost`
  * per session on this thread behind the cloning channel, feeds it the
  * source's session-feed frames exactly as the store's own feed subscription
  * used to receive them (replay-on-subscribe included, so the host keeps no
@@ -30,7 +29,12 @@ import type { CodeSessionEvent } from "@/lib/code-session-store/events";
 import type { TimerSource } from "@/lib/code-session-store/session-engine";
 import { InProcessIngestChannel } from "./ingest-channel";
 import { ENGINE_FEEDS, type FlushPolicyFactory } from "./ingest-host";
-import { applySessionBatch, type PatchTarget, type SessionPatchTarget } from "./session-patch";
+import {
+  applySessionBatch,
+  type PatchTarget,
+  type SessionControl,
+  type SessionPatchTarget,
+} from "./session-patch";
 
 /** What a store says about the session it opens. */
 export type SessionOpenOptions = Omit<IngestSessionOpenControl, "kind" | "handle">;
@@ -83,6 +87,39 @@ export function mintSessionHandle(tugSessionId: string): string {
 }
 
 /**
+ * The link every opener returns: each control goes through `post` with the
+ * next sequence number while the link is open, and closing it posts the
+ * engine's close and then runs `release`, the opener's own cleanup. Nothing
+ * posts after the close.
+ */
+export function makeLink(handle: string, post: (control: SessionControl) => void, release: () => void): SessionLink {
+  let live = true;
+  let seq = 0;
+  return {
+    handle,
+    action(event) {
+      seq += 1;
+      if (live) post({ kind: "session-action", handle, seq, event });
+      return seq;
+    },
+    testFrame(feedId, decoded) {
+      seq += 1;
+      if (live) post({ kind: "session-test-frame", handle, seq, feedId, decoded });
+      return seq;
+    },
+    find(request) {
+      if (live) post({ kind: "find", handle, ...request });
+    },
+    close() {
+      if (!live) return;
+      live = false;
+      post({ kind: "session-close", handle });
+      release();
+    },
+  };
+}
+
+/**
  * Open a session on `source` through an in-process host of its own. The
  * open's patches are applied to `target` synchronously, inside whatever call
  * produced them, as the store's own reduction always was.
@@ -95,7 +132,6 @@ export function openInProcessSession(
 ): SessionLink {
   const handle = mintSessionHandle(open.tugSessionId);
   let live = true;
-  let seq = 0;
   const channel = new InProcessIngestChannel({
     send: (feedId, payload) => source.send(feedId as FeedIdValue, payload),
     sessionTimers: () => local.timerSource,
@@ -117,27 +153,15 @@ export function openInProcessSession(
       if (live) channel.ingestFrame(feedId, payload);
     }),
   );
-  return {
+  // The engine's close posts while the target is still live, so what it
+  // flushes as it closes reaches the mirror; then the frames stop.
+  return makeLink(
     handle,
-    action(event) {
-      seq += 1;
-      if (live) channel.post({ kind: "session-action", handle, seq, event });
-      return seq;
-    },
-    testFrame(feedId, decoded) {
-      seq += 1;
-      if (live) channel.post({ kind: "session-test-frame", handle, seq, feedId, decoded });
-      return seq;
-    },
-    find(request) {
-      if (live) channel.post({ kind: "find", handle, ...request });
-    },
-    close() {
-      if (!live) return;
-      for (const unsub of unsubs) unsub();
-      channel.post({ kind: "session-close", handle });
+    (control) => channel.post(control),
+    () => {
       live = false;
+      for (const unsub of unsubs) unsub();
       channel.dispose();
     },
-  };
+  );
 }

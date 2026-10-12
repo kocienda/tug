@@ -23,6 +23,13 @@
  * handle names. A batch is applied whole and then each mirror it touched
  * publishes once, so with the host paced to the display period the page
  * does one task of ingest work per frame however many sessions stream.
+ *
+ * And it outlives a Worker that fails. A Worker that will not load, or whose
+ * host throws, is reported by its channel; the connection closes the wire in
+ * words ("ingest worker failed"), rebuilds the host on this thread, tells it
+ * everything the old one was told — the subscription, the display period,
+ * every open session — and reconnects. The fall-back is for the rest of the
+ * page's life: a Worker that failed once is not trusted with the wire again.
  */
 
 import type { ControlAction } from "@tugproto/control";
@@ -33,16 +40,19 @@ import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import { logSessionLifecycle } from "./lib/session-lifecycle-log";
 import { installDevLogSink } from "./lib/dev-log-port";
 import { InProcessIngestChannel, WorkerIngestChannel, type IngestChannel } from "./lib/ingest/ingest-channel";
+import { UNHELD_KINDS } from "./lib/ingest/ingest-host";
+import { Pacer } from "./lib/ingest/pacer";
 import {
   applySessionBatch,
   type PatchTarget,
   type SessionBatch,
+  type SessionControl,
   type SessionPatchOf,
   type SessionPatchTarget,
 } from "./lib/ingest/session-patch";
 import {
+  makeLink,
   mintSessionHandle,
-  openInProcessSession,
   type SessionLink,
   type SessionLocalOptions,
   type SessionOpenOptions,
@@ -98,6 +108,16 @@ export const ingestTaskCounter: IngestTaskCounter = {
 };
 
 if (typeof window !== "undefined") window.__tugIngest = ingestTaskCounter;
+
+/** The banner's reason when the ingest Worker failed and the host moved to the page. */
+export const INGEST_WORKER_FAILED_REASON = "ingest worker failed";
+
+/**
+ * How long a disposed connection waits for its host to report the wire
+ * closed before it terminates the host anyway. A terminated Worker's socket
+ * is not reliably closed with it, so the close is let land first, bounded.
+ */
+export const DISPOSE_CLOSE_BUDGET_MS = 1000;
 
 // Code that may run in the ingest host logs through the dev-log port. On the
 // page, its entries go to the dev-log store, looked up at call time so a test
@@ -170,8 +190,23 @@ export interface MotionGateSource {
  */
 export class TugConnection {
   private channel: IngestChannel | null = null;
-  private readonly hostKind: IngestHostKind;
+  private hostKind: IngestHostKind;
   private readonly injectedChannel: IngestChannel | null;
+  /**
+   * Set once a channel has failed: every channel from then on is an
+   * in-process host, paced as the Worker's was.
+   */
+  private fellBack = false;
+  /** Whether the wire is wanted: from `connect` until `close`. */
+  private connectWanted = false;
+  /** The display period last posted, which a rebuilt host starts at. */
+  private periodMs: number = FALLBACK_FRAME_PERIOD_MS;
+  /** What each open session's engine was opened with, so a rebuilt host can open it again. */
+  private readonly sessionOpens = new Map<string, SessionOpenOptions>();
+  /** Set by `dispose`: no channel is built after it, and nothing more is posted. */
+  private disposed = false;
+  /** A disposed connection's host, kept until it reports the wire closed or the budget passes. */
+  private draining: { channel: IngestChannel; timer: ReturnType<typeof setTimeout> } | null = null;
   private readonly motionGate: MotionGateSource;
   /**
    * Batches that arrived while the motion gate was closed — posted before the
@@ -337,30 +372,111 @@ export class TugConnection {
    */
   private ensureChannel(): IngestChannel {
     if (this.channel !== null) return this.channel;
-    const channel =
-      this.injectedChannel ??
-      (this.hostKind === "worker" ? new WorkerIngestChannel() : new InProcessIngestChannel());
+    const channel = this.buildChannel();
     this.channel = channel;
-    ingestTaskCounter.host = this.hostKind === "worker" ? "worker" : "main";
+    ingestTaskCounter.host = channel instanceof WorkerIngestChannel ? "worker" : "main";
     channel.setBatchListener((batch) => this.applyBatch(batch));
     channel.post({
       kind: "init",
       wsUrl: this.url,
-      periodMs: FALLBACK_FRAME_PERIOD_MS,
-      motionEnabled: false,
+      periodMs: this.periodMs,
     });
-    return channel;
+    // Last, and read back: a channel that had already failed reports it here,
+    // and its replacement is the channel to use.
+    channel.setFailureListener((detail) => this.hostFailed(channel, detail));
+    return this.channel ?? channel;
+  }
+
+  /**
+   * The channel to post on, built on first use — or `null` once the
+   * connection is disposed, when there is nothing left to post to.
+   */
+  private liveChannel(): IngestChannel | null {
+    return this.disposed ? null : this.ensureChannel();
+  }
+
+  /**
+   * The channel `host` names, or the injected one — and, once a channel has
+   * failed, a host on this thread. A Worker that cannot even be constructed
+   * is a failure too, met the same way before anything was posted to it.
+   */
+  private buildChannel(): IngestChannel {
+    if (this.fellBack) {
+      return new InProcessIngestChannel({ makePolicy: (flush, periodMs) => new Pacer(flush, periodMs) });
+    }
+    if (this.injectedChannel !== null) return this.injectedChannel;
+    if (this.hostKind !== "worker") return new InProcessIngestChannel();
+    try {
+      return new WorkerIngestChannel();
+    } catch (err) {
+      this.fallBack(`the ingest Worker could not be constructed: ${err instanceof Error ? err.message : String(err)}`);
+      return this.buildChannel();
+    }
+  }
+
+  /** From now on, the host runs on this thread; the dev log and the session lifecycle log say why. */
+  private fallBack(detail: string): void {
+    this.fellBack = true;
+    this.hostKind = "in-process";
+    tugDevLogStore.error(
+      "connection",
+      `${detail}; the ingest host now runs on the page for the rest of this page's life`,
+      { detail },
+    );
+    logSessionLifecycle("connection.ingest_fallback", { detail, permanent: true });
+  }
+
+  /**
+   * The channel's host failed. Replace it with one on this thread, told what
+   * the old one was told; close the wire it held in words, so the banner names
+   * the failure; and reconnect if the wire was wanted. Only the live channel's
+   * failure counts: one already replaced has nothing left to report.
+   */
+  private hostFailed(failed: IngestChannel, detail: string): void {
+    if (this.channel !== failed) return;
+    failed.dispose();
+    this.channel = null;
+    this.fallBack(detail);
+    const channel = this.ensureChannel();
+    if (this.subscribedFeeds.size > 0) {
+      channel.post({ kind: "subscribe", feeds: [...this.subscribedFeeds].sort((a, b) => a - b) });
+    }
+    // Open first, so what the stores do about the close below reaches engines
+    // that exist. A reconnect rebuilds every card's store; until then each
+    // mirror is answered by an engine of its own again.
+    for (const [handle, open] of this.sessionOpens) {
+      channel.post({ kind: "session-open", handle, ...open });
+    }
+    if (this.socketOpen) {
+      this.applyWireState({
+        kind: "wire-state",
+        session: null,
+        payload: { state: "closed", closeReason: INGEST_WORKER_FAILED_REASON },
+      });
+    }
+    const failedState: DisconnectState = {
+      disconnected: true,
+      countdown: 0,
+      reason: INGEST_WORKER_FAILED_REASON,
+      reconnecting: this.connectWanted,
+    };
+    this.lastDisconnect = failedState;
+    this.notifyDisconnectState(failedState);
+    if (this.connectWanted) channel.post({ kind: "connect" });
   }
 
   /**
    * The wire is held where it is produced: every hold the gate takes, and
    * its release, go to the host, which posts nothing in between ([P08]).
-   * Observed while the connection is wanted, from `connect` to `close`.
+   * Observed while the connection is wanted, from `connect` to `close`, and
+   * posted to whichever host holds the wire.
    */
-  private observeMotionGate(channel: IngestChannel): void {
+  private observeMotionGate(): void {
     if (this.releaseMotionGate !== null) return;
     this.releaseMotionGate = this.motionGate.observeMotionGate((change) => {
-      channel.post(change.held ? { kind: "motion", held: true, capMs: change.capMs } : { kind: "motion", held: false });
+      this.channel?.post(
+        change.held ? { kind: "motion", held: true, capMs: change.capMs } : { kind: "motion", held: false },
+      );
       if (!change.held) this.applyParked();
     });
   }
@@ -371,8 +487,10 @@ export class TugConnection {
    * The host opens the socket and reports its lifecycle back as patches.
    */
   connect(): void {
-    const channel = this.ensureChannel();
-    this.observeMotionGate(channel);
+    const channel = this.liveChannel();
+    if (channel === null) return;
+    this.connectWanted = true;
+    this.observeMotionGate();
     channel.post({ kind: "connect" });
   }
 
@@ -381,10 +499,23 @@ export class TugConnection {
    * it touched publishes once. A session patch whose handle has no live
    * mirror is dropped. A batch that arrives inside a closed motion gate was
    * posted before the host heard of the hold; it waits for the gate's open.
+   * A batch of the wire's state alone is the host posting through the hold,
+   * and applies at once: the open-socket mirror and the banner never wait on
+   * motion, whatever order that puts them in against the parked frames.
    */
   private applyBatch(batch: SessionBatch): void {
     ingestTaskCounter.tasks += 1;
-    if (this.releaseMotionGate !== null && this.motionGate.isMotionHeld()) {
+    if (this.disposed) {
+      // Nothing reaches the page after a dispose; the host is only watched
+      // for the close that lets it go.
+      if (batch.entries.some((p) => p.kind === "wire-state" && p.payload.state === "closed")) this.releaseDrained();
+      return;
+    }
+    if (
+      this.releaseMotionGate !== null &&
+      this.motionGate.isMotionHeld() &&
+      !batch.entries.every((p) => UNHELD_KINDS.has(p.kind))
+    ) {
       this.parked.push(batch);
       return;
     }
@@ -425,7 +556,7 @@ export class TugConnection {
         this.startVisibilityPulse();
         // The host re-sent the accumulated set after its handshake; fold in
         // anything registered since the last post, which goes out now.
-        this.flushSubscription(false);
+        this.flushSubscription();
         // The lifecycle is the sole event surface for open/close
         // transitions; it internally fires `connectionDidReconnect`
         // after `connectionDidOpen` if a prior close was observed.
@@ -482,9 +613,10 @@ export class TugConnection {
    * depends on — a ledger restore fetch, say — calls this and retries.
    *
    * The answer comes from this page's mirror of the socket state (see
-   * `socketOpen`). The drop is logged at `debug` for every feed but
-   * HEARTBEAT, whose drops during a reconnect are the expected case and
-   * would bury everything else.
+   * `socketOpen`), and a refusal is logged at `warn` for every feed but
+   * HEARTBEAT, whose refusals during a reconnect are the expected case and
+   * would bury everything else. A frame the mirror let through after the
+   * wire closed is refused by the host, which says so the same way.
    */
   trySend(
     feedId: FeedIdValue,
@@ -507,15 +639,15 @@ export class TugConnection {
       // dropped at the gate. Only the first write on a feed pays this; the
       // rest are covered by the set membership above. The host handles
       // controls in order, so the subscription reaches the socket first.
-      this.flushSubscription(false);
+      this.flushSubscription();
     }
     if (this.socketOpen) {
       const bytes = payload.slice().buffer;
-      this.ensureChannel().post({ kind: "send", feedId, flags, bytes }, [bytes]);
+      this.liveChannel()?.post({ kind: "send", feedId, flags, bytes }, [bytes]);
       return true;
     }
     if (feedId !== FeedId.HEARTBEAT) {
-      tugDevLogStore.debug("connection", "frame dropped; socket not open", {
+      tugDevLogStore.warn("connection", "a frame was refused: the socket is not open", {
         feedId,
         bytes: payload.byteLength,
       });
@@ -551,7 +683,7 @@ export class TugConnection {
     this.subscriptionSyncPending = true;
     queueMicrotask(() => {
       this.subscriptionSyncPending = false;
-      this.flushSubscription(false);
+      this.flushSubscription();
     });
   }
 
@@ -560,7 +692,7 @@ export class TugConnection {
    * anything, post it to the host — which sends it now if the wire is live,
    * and on the next handshake otherwise.
    */
-  private flushSubscription(force: boolean): void {
+  private flushSubscription(): void {
     const union = this.computeFeedUnion();
     let grew = false;
     for (const feedId of union) {
@@ -569,11 +701,11 @@ export class TugConnection {
         grew = true;
       }
     }
-    if (!grew && !force) return;
+    if (!grew) return;
     // Sorted so the wire is deterministic and a packet capture reads in
     // feed order.
     const feeds = [...this.subscribedFeeds].sort((a, b) => a - b);
-    this.ensureChannel().post({ kind: "subscribe", feeds });
+    this.liveChannel()?.post({ kind: "subscribe", feeds });
   }
 
   /**
@@ -605,10 +737,16 @@ export class TugConnection {
   /**
    * Register a callback for disconnect state changes.
    * Called when the connection disconnects, the countdown ticks, or reconnection is attempted.
+   * A callback registered while the connection stands disconnected — before
+   * its first open, or with a host that never answered — is told so at once,
+   * so a wire that never comes up is a visible disconnect rather than a quiet one.
    * Returns a cleanup function to unregister.
    */
   onDisconnectState(callback: DisconnectStateCallback): () => void {
     this.disconnectStateCallbacks.push(callback);
+    if (this.lastDisconnect.disconnected) {
+      try { callback(this.lastDisconnect); } catch (e) { console.error("disconnectStateCallback error:", e); }
+    }
     return () => {
       const idx = this.disconnectStateCallbacks.indexOf(callback);
       if (idx >= 0) this.disconnectStateCallbacks.splice(idx, 1);
@@ -674,46 +812,34 @@ export class TugConnection {
    * the batches this class applies. Its patches reach `target` until the
    * link closes; closing the link closes the engine ([L27]).
    *
-   * Local options are functions, which cannot cross to the host, so a store
-   * that passes one (a test's manual replay clock) gets an engine on this
-   * thread instead, fed by this connection's frames as any frame source's.
+   * Local options are test seams — functions, which cannot cross to the
+   * host — and a connection refuses them rather than quietly hosting the
+   * session on this thread: a test that needs them opens on a test frame
+   * source. The page hosts sessions itself only after a Worker failure, and
+   * then through the same host this method addresses.
    */
   openSession(open: SessionOpenOptions, target: SessionPatchTarget, local?: SessionLocalOptions): SessionLink {
     if (local?.timerSource !== undefined || local?.makePolicy !== undefined) {
-      return openInProcessSession(this, open, target, local);
+      throw new Error("TugConnection.openSession: local options are test seams; open on a test frame source");
     }
-    const channel = this.ensureChannel();
     const handle = mintSessionHandle(open.tugSessionId);
-    let live = true;
-    let seq = 0;
     this.sessions.set(handle, target);
-    channel.post({ kind: "session-open", handle, ...open });
-    return {
+    this.sessionOpens.set(handle, open);
+    this.liveChannel()?.post({ kind: "session-open", handle, ...open });
+    // Every control goes to the host that holds the wire now, which after a
+    // Worker failure is not the one the session opened in. The close posts
+    // while the mirror is still registered, so what the engine posts as it
+    // closes — a fold it flushes — reaches the mirror when the host is on
+    // this thread; from the Worker it arrives after the handle is gone and is
+    // dropped, as anything after a close is.
+    return makeLink(
       handle,
-      action: (event) => {
-        seq += 1;
-        if (live) channel.post({ kind: "session-action", handle, seq, event });
-        return seq;
-      },
-      testFrame: (feedId, decoded) => {
-        seq += 1;
-        if (live) channel.post({ kind: "session-test-frame", handle, seq, feedId, decoded });
-        return seq;
-      },
-      find: (request) => {
-        if (live) channel.post({ kind: "find", handle, ...request });
-      },
-      close: () => {
-        if (!live) return;
-        live = false;
-        // Posted while the mirror is still registered, so what the engine
-        // posts as it closes — a fold it flushes — reaches the mirror when
-        // the host is on this thread; from the Worker it arrives after the
-        // handle is gone and is dropped, as anything after a close is.
-        channel.post({ kind: "session-close", handle });
+      (control) => this.channel?.post(control),
+      () => {
         this.sessions.delete(handle);
+        this.sessionOpens.delete(handle);
       },
-    };
+    );
   }
 
   /**
@@ -723,6 +849,7 @@ export class TugConnection {
    * Nothing to tell before the channel exists.
    */
   setDisplayPeriod(periodMs: number): void {
+    this.periodMs = periodMs;
     this.channel?.post({ kind: "display-period", periodMs });
   }
 
@@ -733,7 +860,7 @@ export class TugConnection {
    * ignores it while the wire is live.
    */
   forceReconnect(): void {
-    this.ensureChannel().post({ kind: "force-reconnect" });
+    this.liveChannel()?.post({ kind: "force-reconnect" });
   }
 
   /**
@@ -752,24 +879,77 @@ export class TugConnection {
    * @internal
    */
   _forceCloseForTest(): void {
-    this.ensureChannel().post({ kind: "force-close-for-test" });
+    this.liveChannel()?.post({ kind: "force-close-for-test" });
   }
 
   /**
-   * Close the WebSocket connection. No reconnect follows.
+   * Make the host throw on a control: a subscription with no feed list,
+   * which no page code can post. In the Worker that is the uncaught throw
+   * the failure story answers — reported, fallen back from, reconnected.
+   *
+   * @internal
+   */
+  _failIngestHostForTest(): void {
+    this.channel?.post({ kind: "subscribe", feeds: null } as unknown as SessionControl);
+  }
+
+  /**
+   * Close the WebSocket connection. No reconnect follows. A connection that
+   * never built a channel has no wire to close, and does not build one to
+   * close it.
    */
   close(): void {
+    this.connectWanted = false;
     this.stopVisibilityPulse();
-    const channel = this.ensureChannel();
+    this.releaseGate();
+    this.channel?.post({ kind: "close" });
+  }
+
+  /**
+   * Release everything this connection holds ([L27]): the motion gate's
+   * observation and the visibility listener, the wire, and the ingest host
+   * itself — the Worker is terminated, once it has closed the wire or
+   * {@link DISPOSE_CLOSE_BUDGET_MS} has passed. Nothing reaches the page,
+   * and nothing is posted or built, after it.
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.connectWanted = false;
+    this.stopVisibilityPulse();
+    this.releaseGate();
+    const channel = this.channel;
+    const wasOpen = this.socketOpen;
+    this.channel = null;
+    this.disposed = true;
+    this.socketOpen = false;
+    if (channel === null) return;
+    channel.post({ kind: "close" });
+    if (!wasOpen) {
+      channel.dispose();
+      return;
+    }
+    this.draining = { channel, timer: setTimeout(() => this.releaseDrained(), DISPOSE_CLOSE_BUDGET_MS) };
+  }
+
+  /** Terminate a disposed connection's host. */
+  private releaseDrained(): void {
+    const draining = this.draining;
+    if (draining === null) return;
+    this.draining = null;
+    clearTimeout(draining.timer);
+    draining.channel.dispose();
+  }
+
+  /** Stop observing the motion gate, letting the wire go and applying what it parked. */
+  private releaseGate(): void {
     if (this.releaseMotionGate !== null) {
       // Unobserved, the gate's release would never reach the host or the
       // parked batches, so the wire is let go here instead.
       this.releaseMotionGate();
       this.releaseMotionGate = null;
-      channel.post({ kind: "motion", held: false });
+      this.channel?.post({ kind: "motion", held: false });
       this.applyParked();
     }
-    channel.post({ kind: "close" });
   }
 
   /**
@@ -812,7 +992,7 @@ export class TugConnection {
       return;
     }
     const listener = (): void => {
-      this.ensureChannel().post({ kind: "visibility", visible: document.visibilityState === "visible" });
+      this.channel?.post({ kind: "visibility", visible: document.visibilityState === "visible" });
     };
     this.visibilityListener = listener;
     document.addEventListener("visibilitychange", listener);

@@ -83,24 +83,27 @@ function bannerStateStore(connection: TugConnection | null): {
   };
 }
 
+/**
+ * The banner's words for a disconnect state. The reason rides every form —
+ * a reconnect under way included — so a failure the deck is recovering from
+ * (an ingest Worker that died, say) is named while the banner stands.
+ */
+export function bannerMessage(state: DisconnectState | null): string {
+  const reason = state?.reason ? ` (${state.reason})` : "";
+  if (state?.reconnecting) return `Reconnecting${reason}...`;
+  let message = `Disconnected${reason}`;
+  if (state?.disconnected && state.countdown > 0) {
+    message += ` — reconnecting in ${state.countdown}s...`;
+  }
+  return message;
+}
+
 export function TugBannerProvider({ connection }: TugBannerProviderProps) {
   const store = useMemo(() => bannerStateStore(connection), [connection]);
   const disconnectState = useSyncExternalStore(store.subscribe, store.getSnapshot);
 
   const isVisible = Boolean(disconnectState?.disconnected);
-
-  // Build message text
-  let message = "Disconnected";
-  if (disconnectState?.reconnecting) {
-    message = "Reconnecting...";
-  } else if (disconnectState?.disconnected) {
-    if (disconnectState.reason) {
-      message = `Disconnected (${disconnectState.reason})`;
-    }
-    if (disconnectState.countdown > 0) {
-      message += ` — reconnecting in ${disconnectState.countdown}s...`;
-    }
-  }
+  const message = bannerMessage(disconnectState);
 
   return (
     <TugBanner

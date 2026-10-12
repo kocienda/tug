@@ -35,6 +35,7 @@ class HeldChannel implements IngestChannel {
   setBatchListener(listener: (batch: SessionBatch) => void): void {
     this.listener = listener;
   }
+  setFailureListener(): void {}
   dispose(): void {
     this.inner.dispose();
   }
@@ -118,5 +119,24 @@ describe("CodeSessionStore.whenSettled / isSettled", () => {
     store.dispose();
     expect(await resolved(settled)).toBe(true);
     expect(store.isSettled()).toBe(true);
+  });
+
+  it("bounded: a host that never answers ends the wait at the budget, and the mirror is read as it stands", async () => {
+    const { store, channel } = makeStore();
+    store.send("hello", []);
+    expect(await store.whenSettledWithin(20)).toBe(false);
+    expect(store.getSnapshot().phase).toBe("idle");
+    // The expired wait left nothing behind: a later answer still settles the store.
+    channel.release();
+    expect(store.isSettled()).toBe(true);
+  });
+
+  it("bounded: an answer inside the budget settles the wait as true", async () => {
+    const { store, channel } = makeStore();
+    store.send("hello", []);
+    const settled = store.whenSettledWithin(5_000);
+    channel.release();
+    expect(await settled).toBe(true);
+    expect(store.getSnapshot().phase).toBe("submitting");
   });
 });

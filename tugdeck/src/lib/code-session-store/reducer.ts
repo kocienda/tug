@@ -62,6 +62,7 @@ import type {
   RespondApprovalActionEvent,
   RespondQuestionActionEvent,
   SendActionEvent,
+  SendCondition,
   SessionInitEvent,
   SetPermissionModeActionEvent,
   SessionNotOwnedEvent,
@@ -163,6 +164,7 @@ import {
 } from "./select-scheduled-work";
 import {
   commandLineFromSend,
+  goalIsActive,
   reduceGoalOnFeedback,
   reduceGoalOnSend,
   settleGoalOnCycleCommit,
@@ -1425,6 +1427,9 @@ function handleSend(
   state: CodeSessionState,
   event: SendActionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  if (event.onlyIf !== undefined && !sendConditionHolds(state, event.onlyIf)) {
+    return { state, effects: [] };
+  }
   // Submit is gated to idle/errored. While replaying, submit is
   // refused at the snapshot level (`canSubmit: false`); the reducer
   // drops the action defensively in case a UI race fires `send`
@@ -1973,6 +1978,40 @@ function handleConsumeFileInsert(
     state: { ...state, pendingFileInsert: null },
     effects: [],
   };
+}
+
+/** Whether a guarded send's condition holds in the engine's own state. */
+function sendConditionHolds(state: CodeSessionState, condition: SendCondition): boolean {
+  switch (condition.kind) {
+    case "scheduled-job": {
+      const job = state.jobs.find((j) => j.jobId === condition.jobId);
+      return (
+        job !== undefined &&
+        job.status === "scheduled" &&
+        job.kind === condition.jobKind &&
+        state.phase === "idle"
+      );
+    }
+    case "goal-clearable":
+      return goalIsActive(state.goal) && (state.phase === "idle" || state.phase === "errored");
+  }
+}
+
+/**
+ * The unified Stop / Escape: cancel the newest queued send; with none, a
+ * stop that already went unanswered escalates to Force Stop rather than
+ * repeating ([F04]); otherwise interrupt the turn.
+ */
+function handlePopInteractive(state: CodeSessionState): { state: CodeSessionState; effects: Effect[] } {
+  const queued = state.queuedSends;
+  if (queued.length > 0) {
+    return handleCancelQueuedSend(state, {
+      type: "cancel_queued_send",
+      turnKey: queued[queued.length - 1]!.turnKey,
+    });
+  }
+  if (state.stopStalled) return handleForceStop(state);
+  return handleInterrupt(state);
 }
 
 /**
@@ -2778,16 +2817,12 @@ function handleToolResult(
   const toolUseId = event.tool_use_id;
   const arrayIdx = entry.toolCallIndex.get(toolUseId);
   if (arrayIdx === undefined) {
-    console.warn(
-      `[code-session-store] tool_result for unknown tool_use_id: ${toolUseId}`,
-    );
+    devLog.warn("code-session-store", `tool_result for unknown tool_use_id: ${toolUseId}`);
     return { state, effects: [] };
   }
   const existing = entry.messages[arrayIdx];
   if (existing.kind !== "tool_use") {
-    console.warn(
-      `[code-session-store] tool_result indexed Message of kind ${existing.kind}; dropping`,
-    );
+    devLog.warn("code-session-store", `tool_result indexed Message of kind ${existing.kind}; dropping`);
     return { state, effects: [] };
   }
 
@@ -3130,16 +3165,12 @@ function handleToolUseStructured(
   const toolUseId = event.tool_use_id;
   const arrayIdx = entry.toolCallIndex.get(toolUseId);
   if (arrayIdx === undefined) {
-    console.warn(
-      `[code-session-store] tool_use_structured for unknown tool_use_id: ${toolUseId}`,
-    );
+    devLog.warn("code-session-store", `tool_use_structured for unknown tool_use_id: ${toolUseId}`);
     return { state, effects: [] };
   }
   const existing = entry.messages[arrayIdx];
   if (existing.kind !== "tool_use") {
-    console.warn(
-      `[code-session-store] tool_use_structured indexed Message of kind ${existing.kind}; dropping`,
-    );
+    devLog.warn("code-session-store", `tool_use_structured indexed Message of kind ${existing.kind}; dropping`);
     return { state, effects: [] };
   }
 
@@ -5912,9 +5943,7 @@ function handleReplayStarted(
   _event: ReplayStartedEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   if (state.phase !== "idle" && state.phase !== "errored") {
-    console.warn(
-      `[code-session-store] replay_started in unexpected phase ${state.phase}; dropping`,
-    );
+    devLog.warn("code-session-store", `replay_started in unexpected phase ${state.phase}; dropping`);
     return { state, effects: [] };
   }
   return {
@@ -5969,9 +5998,7 @@ function handleReplayComplete(
   event: ReplayCompleteEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   if (state.phase !== "replaying") {
-    console.warn(
-      `[code-session-store] replay_complete in unexpected phase ${state.phase}; dropping`,
-    );
+    devLog.warn("code-session-store", `replay_complete in unexpected phase ${state.phase}; dropping`);
     return { state, effects: [] };
   }
   // Cancelled load-previous: the bracket was aborted in flight. Discard
@@ -8047,6 +8074,8 @@ export function reduce(
       return handleTickStreamStall(state);
     case "force_stop":
       return handleForceStop(state);
+    case "pop_interactive":
+      return handlePopInteractive(state);
     case "stop_all_work_done":
       return handleStopAllWorkDone(state);
     case "prompt_anchor":

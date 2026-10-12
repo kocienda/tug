@@ -10,6 +10,7 @@ import { describe, it, expect } from "bun:test";
 
 import {
   CodeSessionStore,
+  REPLAY_FOLD_FLUSH_THRESHOLD,
   REWIND_ANCHOR_OUTSIDE_WINDOW,
 } from "@/lib/code-session-store";
 import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
@@ -196,15 +197,19 @@ describe("transcript cap", () => {
 
   it("does not evict mid-replay, and holds a long replay to the cap when it closes", () => {
     const { store, conn } = makeStore();
+    // An open fold posts nothing until a flush, so the mid-replay reading is
+    // taken at the threshold's flush: enough turns to cross it.
+    const turns = Math.ceil(REPLAY_FOLD_FLUSH_THRESHOLD / 3);
+    const flushedTurns = Math.floor(REPLAY_FOLD_FLUSH_THRESHOLD / 3);
     emit(conn, { type: "replay_started" });
-    for (let n = 0; n <= 7; n++) emitTurn(conn, n);
-    expect(store.getSnapshot().transcript).toHaveLength(8);
-    emit(conn, { type: "replay_complete", count: 8 });
+    for (let n = 0; n < turns; n++) emitTurn(conn, n);
+    expect(store.getSnapshot().transcript).toHaveLength(flushedTurns);
+    emit(conn, { type: "replay_complete", count: turns });
 
-    expect(msgIds(store)).toEqual(ids(3, 7));
+    expect(msgIds(store)).toEqual(ids(turns - CAP, turns - 1));
     expect(store.getSnapshot().replayWindow).toEqual({
-      firstLoadedTurnIndex: 3,
-      totalTurns: 8,
+      firstLoadedTurnIndex: turns - CAP,
+      totalTurns: turns,
       hasOlder: true,
     });
   });

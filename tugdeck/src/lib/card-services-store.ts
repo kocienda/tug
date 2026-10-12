@@ -32,7 +32,7 @@
  */
 
 import { createSubscribable } from "./subscribable";
-import { CodeSessionStore } from "./code-session-store";
+import { CodeSessionStore, SETTLE_WAIT_BUDGET_MS } from "./code-session-store";
 import { EditorSettingsStore } from "./editor-settings-store";
 import { TranscriptSettingsStore } from "./transcript-settings-store";
 import { SessionMetadataStore } from "./session-metadata-store";
@@ -429,6 +429,9 @@ class CardServicesStore {
    * the queued sends are read once the shown store has settled ([P09]). The
    * swap is re-checked after the wait, since it may have been dropped or
    * replaced while it waited.
+   * The wait has the settle budget for its horizon ([L33]): a host that has
+   * stopped answering leaves the swap to read the mirror as it stands, and
+   * says so in the session lifecycle log.
    */
   private async _completeHeldSwap(
     cardId: string,
@@ -440,7 +443,14 @@ class CardServicesStore {
     if (held === undefined || held.services !== services) return;
     const shown = this._services.get(cardId);
     if (shown !== undefined && !shown.codeSessionStore.isSettled()) {
-      await shown.codeSessionStore.whenSettled();
+      const inTime = await shown.codeSessionStore.whenSettledWithin(SETTLE_WAIT_BUDGET_MS);
+      if (!inTime) {
+        logSessionLifecycle("services_store.settle_timeout", {
+          card_id: cardId,
+          at: "held_swap",
+          budget_ms: SETTLE_WAIT_BUDGET_MS,
+        });
+      }
       held = this._heldSwaps.get(cardId);
       if (held === undefined || held.services !== services || this._services.get(cardId) !== shown) return;
     }
@@ -859,14 +869,22 @@ class CardServicesStore {
       // A send posted in the task before this one may not have come back
       // from the ingest Worker yet ([P09]). Then the store outlives its bag
       // by that one acknowledgment: it is stashed and disposed once it has
-      // settled. The restore that drains the stash answers a request sent
-      // after this, through the same Worker, which handled the send — and
-      // flushed its acknowledgment — before it could read that reply, so the
-      // stash is always in place first.
+      // settled, or once the settle budget has passed, logged, with the
+      // mirror as it stands ([L33]). The restore that drains the stash
+      // answers a request sent after this, through the same Worker, which
+      // handled the send — and flushed its acknowledgment — before it could
+      // read that reply, so the stash is always in place first.
       if (settled) {
         stashQueuedSends(cardId, store.exportQueuedSends());
       } else {
-        void store.whenSettled().then(() => {
+        void store.whenSettledWithin(SETTLE_WAIT_BUDGET_MS).then((inTime) => {
+          if (!inTime) {
+            logSessionLifecycle("services_store.settle_timeout", {
+              card_id: cardId,
+              at: "stash",
+              budget_ms: SETTLE_WAIT_BUDGET_MS,
+            });
+          }
           stashQueuedSends(cardId, store.exportQueuedSends());
           store.dispose();
         });

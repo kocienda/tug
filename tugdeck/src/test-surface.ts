@@ -471,8 +471,12 @@ import {
  * (block hashes and text). A test compares a row drawn from tugcast's render
  * with the page's parse of the same text through this. Additive; major stays
  * `2`.
+ *
+ * `2.34.0`: adds {@link TugTestSurface.ingestHostFail}, which makes the
+ * ingest Worker's host throw on a control, so a test watches the page fall
+ * back to a host of its own and recover. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.33.0" as const;
+export const SURFACE_VERSION = "2.34.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1414,6 +1418,15 @@ export interface TugTestSurface {
    * Returns `false` when there is no connection to close.
    */
   connectionClose(): boolean;
+
+  /**
+   * Make the ingest host throw on a control (SURFACE_VERSION 2.34.0) — the
+   * uncaught-throw path a defect in the Worker takes, end to end: the Worker
+   * reports it, the page falls back to a host of its own for the rest of the
+   * page's life, and the wire reconnects. Returns `false` when there is no
+   * connection.
+   */
+  ingestHostFail(): boolean;
 
   // ---- Generic control-action dispatch (SURFACE_VERSION 1.5.0) ----
 
@@ -2922,6 +2935,13 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       const connection = getConnection();
       if (!connection) return false;
       connection._forceCloseForTest();
+      return true;
+    },
+
+    ingestHostFail(): boolean {
+      const connection = getConnection();
+      if (!connection) return false;
+      connection._failIngestHostForTest();
       return true;
     },
 

@@ -40,6 +40,7 @@ import type { CodeSessionEvent } from "@/lib/code-session-store/events";
 import type { CodeSessionState } from "@/lib/code-session-store/reducer";
 import type { TurnEntry } from "@/lib/code-session-store/types";
 import type { LiveTurnPerf, ReplayIngestPerf } from "@/lib/code-session-store/session-engine";
+import { devLog } from "@/lib/dev-log-port";
 
 /** The engine's perf records, as they cross the boundary. */
 export type SessionPerfRecord = ReplayIngestPerf | LiveTurnPerf;
@@ -114,19 +115,38 @@ export function applyPatch(patch: SessionPatch, target: PatchTarget): void {
 /**
  * Apply a batch's patches in order, then end the batch on every live mirror
  * a patch reached, each once, in the order they were first touched.
+ *
+ * A patch whose applier throws is reported and skipped, and the rest of the
+ * batch still applies: one row's defect is never another session's lost
+ * frame, nor an acknowledgment stranded behind it.
  */
 export function applySessionBatch(entries: ReadonlyArray<SessionPatch>, target: PatchTarget): void {
   const touched = new Set<SessionPatchTarget>();
   try {
     for (const patch of entries) {
-      applyPatch(patch, target);
+      try {
+        applyPatch(patch, target);
+      } catch (err) {
+        devLog.error("ingest", `a ${patch.kind} patch threw as it applied; the rest of the batch still applies`, {
+          session: patch.session,
+          error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        });
+      }
       if (patch.session !== null) {
         const mirror = target.session(patch.session);
         if (mirror !== null) touched.add(mirror);
       }
     }
   } finally {
-    for (const mirror of touched) mirror.endOfBatch();
+    for (const mirror of touched) {
+      try {
+        mirror.endOfBatch();
+      } catch (err) {
+        devLog.error("ingest", "a mirror threw as its batch ended", {
+          error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        });
+      }
+    }
   }
 }
 

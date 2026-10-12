@@ -252,8 +252,33 @@ describe("Step 5c — handleAddUserMessage replay-path integration", () => {
       ],
     });
 
+    // The replay fold posts at its flush, so close the turn and the bracket
+    // and read the committed turn.
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "assistant_text",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      status: "complete",
+      msg_id: FIXTURE_IDS.MSG_ID_N(1),
+      text: "ok",
+      is_partial: false,
+      rev: 0,
+      seq: 0,
+    });
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "turn_complete",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      seq: 0,
+      msg_id: FIXTURE_IDS.MSG_ID_N(1),
+      result: "success",
+    });
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "replay_complete",
+      tug_session_id: FIXTURE_IDS.TUG_SESSION_ID,
+      count: 1,
+    });
+
     const snap = store.getSnapshot();
-    const userMsg = snap.activeTurn!.messages[0];
+    const userMsg = snap.transcript[0]!.messages[0];
     if (userMsg.kind !== "user_message") throw new Error("expected user_message");
 
     // Same substrate shape as the live path produces — text has the
