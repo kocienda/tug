@@ -38,16 +38,21 @@
  * carrying that kind to `tests/app-test/find-fidelity-fixture.ts`, which is
  * what `at0602` sweeps.
  *
- * **Fidelity via the shared parse cache.** Markdown-rendered kinds (assistant
- * text, thinking, user bodies, scheduled wake notes) are reduced to rendered
- * text by reading through `ensureParsed` — for streamed kinds with the same
- * scope (`codeSessionStore.streamingDocument`) and identity
- * (`turn.${turnKey}.message.${messageKey}.text`) the renderer uses, so the
- * index free-rides on warm parses; for static kinds (user bodies, notes) the
- * cache entry is index-owned (first build parses, repeat builds hit). The
- * block HTML is reduced to text with a scratch DOM element (entities
- * decoded), which is why the fidelity check is an app-test, not a pure unit
- * test.
+ * **Assistant text and expanded thinking are tugcast's.** tugcast renders
+ * those Messages and keeps their rendered text, so they project as remote
+ * units: the find engine asks tugcast for their matches and texts, and this
+ * module projects nothing for them up front. Each carries a `project`
+ * fallback for a unit tugcast cannot answer.
+ *
+ * **Fidelity via the shared parse cache.** The other markdown-rendered kinds
+ * (user bodies, scheduled wake notes), and the remote units' fallback, are
+ * reduced to rendered text by reading through `ensureParsed` — the fallback
+ * with the same scope (`codeSessionStore.streamingDocument`) and identity
+ * (`turn.${turnKey}.message.${messageKey}.text`) the renderer uses; for
+ * static kinds the cache entry is index-owned (first build parses, repeat
+ * builds hit). The block HTML is reduced to text with a scratch DOM element
+ * (entities decoded), which is why the fidelity check is an app-test, not a
+ * pure unit test.
  *
  * The index does **not** depend on the query — only the transcript snapshot
  * and expansion state. Callers rebuild it on those changes and re-run the
@@ -332,8 +337,8 @@ function messageSegments(
       const path = `turn.${turnKey}.message.${message.messageKey}.text`;
       const live = streamingStore.get(path);
       const text = typeof live === "string" ? live : message.text;
-      const projected = markdownToText(streamingStore, path, text);
-      return projected === "" ? [] : [{ kind: "dom", text: projected }];
+      if (text === "") return [];
+      return [remoteSegment(message.messageKey, text, () => markdownToText(streamingStore, path, text))];
     }
     case "assistant_thinking": {
       // `SessionThinkingBlock` — the note variant. Its label is always on
@@ -353,10 +358,12 @@ function messageSegments(
       // the streaming store for both live and replayed rows), so the
       // default is expanded — the same value the component resolves with.
       const collapsed = expansion.resolve(thinkingCollapseKey(path), false);
-      const visible = collapsed
-        ? computePreview(text)
-        : markdownToText(streamingStore, path, text);
-      if (visible !== "") segments.push({ kind: "dom", text: visible });
+      if (!collapsed) {
+        segments.push(remoteSegment(message.messageKey, text, () => markdownToText(streamingStore, path, text)));
+        return segments;
+      }
+      const preview = computePreview(text);
+      if (preview !== "") segments.push({ kind: "dom", text: preview });
       return segments;
     }
     case "system_note": {
@@ -534,6 +541,15 @@ function refsSegments(
     segments.push({ kind: "dom", text: path });
   }
   return segments;
+}
+
+/**
+ * A Message tugcast answers find for. Its text is a placeholder until the
+ * find engine fills it from tugcast's answer, or from `project` when tugcast
+ * has none.
+ */
+function remoteSegment(unit: string, source: string, project: () => string): RowSegment {
+  return { kind: "dom", text: "", remote: { unit, source, project }, pending: true };
 }
 
 /** Wrap plain-text parts as `dom` segments. */

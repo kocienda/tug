@@ -21,6 +21,15 @@
  * log, carry a replayed image's bytes — goes as an `effect` patch, and a
  * running tool's progress as a `progress` patch.
  *
+ * It also owns every fact the display rule for tugcast's renders reads
+ * ([P06]). A live assistant-text or thinking Message is written `pending`
+ * when it mints, so its row draws nothing new until tugcast's first render
+ * arrives; each render tugcast sends for it is forwarded as a record with the
+ * engine's `streaming` fact, flipped false the moment the Message stops being
+ * the pending turn's last; and a finalized record is `current` only when its
+ * text length and hash match the Message's own text. Two finishers bound the
+ * wait for a provable render, each writing `null` ("parse yourself") once.
+ *
  * It is born Worker-safe: the import fence walks this module, so nothing it
  * loads may be a main-thread singleton. It logs through `dev-log-port`.
  */
@@ -45,6 +54,10 @@ import { createAtomBytesStore, type AtomBytesStore } from "@/lib/atom-bytes-stor
 import { synthesizeUserMessageFromBlocks } from "@/lib/synthesize-user-message";
 import { isCompactionSummarizeText, splitCompactionSeed } from "@/lib/compaction-request";
 import { diffStateFields, diffTranscript, type SessionMeta, type SessionPatch } from "@/lib/ingest/session-patch";
+import type { RenderedState } from "@tugproto/ingest";
+import type { RenderedMessageWire } from "@tugproto/rendered";
+import { mergeRenderedMessage } from "@/lib/ingest/rendered-merge";
+import { textHash } from "@/lib/ingest/text-hash";
 import type { CardSessionMode } from "@/lib/card-session-binding-store";
 import { taskStartedEvent, taskUpdatedEvent, taskProgressEvent } from "./select-jobs";
 import {
@@ -115,6 +128,39 @@ export const REWIND_ANCHOR_OUTSIDE_WINDOW =
  * any phase exit) and session close. No timers, no rAF.
  */
 export const REPLAY_FOLD_FLUSH_THRESHOLD = 250;
+
+/**
+ * How long a Message may go without a provable render before its row is
+ * told to parse: a pending Message with no render this long after it minted,
+ * and a finalized one with no current record this long after it stopped
+ * streaming ([P06]).
+ */
+export const RENDER_FINISHER_MS = 250;
+
+/** One entry of a `rendered-blocks` patch. */
+type RenderedEntry = { turnKey: string; messageKey: string; state: RenderedState };
+
+/** What the engine knows about one Message tugcast renders. */
+interface RenderTrack {
+  readonly turnKey: string;
+  /** The Message's text, as the engine last wrote it. */
+  text: string;
+  /** Still the pending turn's last Message. */
+  streaming: boolean;
+  /** The last emission's block list and text facts, without its HTML. */
+  last: RenderedMessageWire | null;
+  /** The block hashes the page holds HTML for. */
+  seen: Set<string>;
+  /** The text's hash, computed once, when the Message finalizes. */
+  finalHash: string | null;
+  current: boolean;
+  /** A resync for a missing hash is in flight. */
+  resyncPosted: boolean;
+  /** The armed finisher. */
+  finisher: unknown;
+  /** The last state written was `null`. */
+  nulled: boolean;
+}
 
 /**
  * Per-replay-window ingest counters (the `perf.replay_ingest`
@@ -347,6 +393,17 @@ export class SessionEngine {
   private _writes: { path: string; value: unknown }[] = [];
   private _publish: Publish = "none";
 
+  /** Messages tugcast renders, by `messageKey` ([P06]). */
+  private readonly _renders = new Map<string, RenderTrack>();
+  /** The keys of `_renders` still streaming. */
+  private readonly _streamingRenders = new Set<string>();
+  /** Renders that arrived before their Message minted, until it does or the turn ends. */
+  private readonly _earlyRenders = new Map<string, RenderedMessageWire>();
+  /** Finalized Messages whose text moved this dispatch, so their `current` is read again. */
+  private readonly _movedRenders = new Set<string>();
+  /** The transcript `_renders` was last pruned against. */
+  private _renderTranscript: ReadonlyArray<TurnEntry> = [];
+
   constructor(options: SessionEngineOptions, host: SessionEngineHost) {
     this.handle = options.handle;
     this.tugSessionId = options.tugSessionId;
@@ -428,6 +485,7 @@ export class SessionEngine {
       this.timerSource.clearTimeout(handle);
     }
     this._replayTimers.clear();
+    for (const track of this._renders.values()) this.clearFinisher(track);
   }
 
   // ---------------------------------------------------------------------
@@ -1004,6 +1062,7 @@ export class SessionEngine {
       this._perfDirty = true;
     }
     this._perfAfterDispatch(event);
+    this.trackRenders();
     this.endDispatch();
   }
 
@@ -1237,6 +1296,25 @@ export class SessionEngine {
           // each new Message of the same turn writes to its own path
           // so streaming subscriptions don't cross-pollinate.
           this.write(`turn.${effect.turnKey}.message.${effect.messageKey}.${effect.channel}`, effect.value);
+          {
+            const track = this._renders.get(effect.messageKey);
+            if (track !== undefined) {
+              if (track.text !== effect.value) {
+                track.text = effect.value;
+                // The hash describes the text it was taken of. A finalized
+                // Message's text can still move (a terminal whole frame
+                // repairing a lost delta), and its record is then no longer
+                // proven current until tugcast renders the new text.
+                track.finalHash = null;
+                if (!track.streaming) this._movedRenders.add(effect.messageKey);
+              }
+              // The pending finisher bounds how long text goes undrawn, so
+              // it starts with the first text, not with an empty mint.
+              if (track.last === null && track.finisher === null && !track.nulled && effect.value !== "") {
+                this.armFinisher(effect.messageKey, track);
+              }
+            }
+          }
           break;
         case "clear-inflight":
           // No-op under the per-turn-paths architecture. Each turn
@@ -1434,6 +1512,239 @@ export class SessionEngine {
         }
       }
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // tugcast's renders ([P06])
+  // ---------------------------------------------------------------------
+
+  /**
+   * After each dispatch: a live assistant-text or thinking Message that just
+   * minted is written `pending` (or gets the render that beat it here), and a
+   * streaming one that is no longer the pending turn's last Message is
+   * finalized. Renders still waiting on a Message are dropped at turn end.
+   */
+  private trackRenders(): void {
+    const state = this.state;
+    const pending = state.pendingTurn;
+    const entry = pending !== null ? state.scratch.get(pending.turnKey) : undefined;
+    const last = entry?.messages[entry.messages.length - 1];
+    const out: RenderedEntry[] = [];
+    for (const key of [...this._streamingRenders]) {
+      const track = this._renders.get(key)!;
+      if (last !== undefined && last.messageKey === key && pending?.turnKey === track.turnKey) continue;
+      this.finalizeRender(key, track, out);
+    }
+    for (const key of this._movedRenders) {
+      const track = this._renders.get(key);
+      if (track === undefined || track.streaming || track.last === null || track.nulled) continue;
+      const current = this.isCurrent(track);
+      if (current === track.current) continue;
+      track.current = current;
+      out.push({
+        turnKey: track.turnKey,
+        messageKey: key,
+        state: { streaming: false, current, message: { ...track.last, html: {} } },
+      });
+      if (current) this.clearFinisher(track);
+      else if (track.finisher === null) this.armFinisher(key, track);
+    }
+    this._movedRenders.clear();
+    if (
+      pending !== null &&
+      last !== undefined &&
+      state.phase !== "replaying" &&
+      (last.kind === "assistant_text" || last.kind === "assistant_thinking") &&
+      !this._renders.has(last.messageKey)
+    ) {
+      const key = last.messageKey;
+      const track: RenderTrack = {
+        turnKey: pending.turnKey,
+        text: last.text,
+        streaming: true,
+        last: null,
+        seen: new Set(),
+        finalHash: null,
+        current: false,
+        resyncPosted: false,
+        finisher: null,
+        nulled: false,
+      };
+      this._renders.set(key, track);
+      this._streamingRenders.add(key);
+      const early = this._earlyRenders.get(key);
+      this._earlyRenders.delete(key);
+      if (early !== undefined) {
+        this.acceptRender(key, track, early, out);
+      } else {
+        out.push({ turnKey: track.turnKey, messageKey: key, state: { pending: true } });
+        if (track.text !== "") this.armFinisher(key, track);
+      }
+    }
+    if (pending === null) this._earlyRenders.clear();
+    this.pruneRenders();
+    this.postRendered(out);
+  }
+
+  /** Forget the renders of turns the transcript no longer holds. */
+  private pruneRenders(): void {
+    if (this._transcript === this._renderTranscript) return;
+    this._renderTranscript = this._transcript;
+    if (this._renders.size === 0) return;
+    const live = new Set(this._transcript.map((t) => t.turnKey));
+    const pending = this.state.pendingTurn;
+    if (pending !== null) live.add(pending.turnKey);
+    for (const [key, track] of this._renders) {
+      if (live.has(track.turnKey)) continue;
+      this.clearFinisher(track);
+      this._renders.delete(key);
+      this._streamingRenders.delete(key);
+    }
+  }
+
+  /**
+   * tugcast's renders for this session. A Message the engine tracks takes
+   * the render at once; a committed one it does not (a reload's resync)
+   * starts a finalized track; one not minted yet waits for its mint.
+   */
+  rendered(messages: ReadonlyArray<RenderedMessageWire>): void {
+    if (this._closed) return;
+    const out: RenderedEntry[] = [];
+    for (const message of messages) {
+      const key = message.messageKey;
+      let track = this._renders.get(key);
+      if (track === undefined) {
+        const found = this.findTextMessage(key);
+        if (found === null) {
+          if (this.state.pendingTurn !== null) {
+            this._earlyRenders.set(key, mergeRenderedMessage(this._earlyRenders.get(key) ?? null, message));
+          }
+          continue;
+        }
+        track = {
+          turnKey: found.turnKey,
+          text: found.text,
+          streaming: false,
+          last: null,
+          seen: new Set(),
+          finalHash: null,
+          current: false,
+          resyncPosted: false,
+          finisher: null,
+          nulled: false,
+        };
+        this._renders.set(key, track);
+      }
+      this.acceptRender(key, track, message, out);
+    }
+    this.postRendered(out);
+  }
+
+  /** A committed or in-flight assistant-text or thinking Message, by key. */
+  private findTextMessage(key: string): { turnKey: string; text: string } | null {
+    const pending = this.state.pendingTurn;
+    const scratch = pending !== null ? this.state.scratch.get(pending.turnKey) : undefined;
+    const turns: ReadonlyArray<{ turnKey: string; messages: ReadonlyArray<TurnEntry["messages"][number]> }> =
+      scratch !== undefined ? [...this._transcript, scratch] : this._transcript;
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      const turn = turns[i]!;
+      for (const m of turn.messages) {
+        if (m.messageKey !== key) continue;
+        if (m.kind !== "assistant_text" && m.kind !== "assistant_thinking") return null;
+        // A Message minting live is the mint scan's to start.
+        if (turn === scratch && this.state.phase !== "replaying") return null;
+        return { turnKey: turn.turnKey, text: m.text };
+      }
+    }
+    return null;
+  }
+
+  /** Take one emission: detect a missing hash, then post the record. */
+  private acceptRender(key: string, track: RenderTrack, message: RenderedMessageWire, out: RenderedEntry[]): void {
+    let missing = false;
+    const seen = new Set<string>();
+    for (const block of message.blocks) {
+      if (block.hash in message.html || track.seen.has(block.hash)) seen.add(block.hash);
+      else missing = true;
+    }
+    track.seen = seen;
+    if (missing) {
+      if (!track.resyncPosted) {
+        track.resyncPosted = true;
+        this.sendRenderControl({ kind: "resync", tugSessionId: this.tugSessionId, messageKey: key });
+      }
+    } else {
+      track.resyncPosted = false;
+    }
+    track.last = { ...message, html: {} };
+    track.current = !track.streaming && this.isCurrent(track);
+    track.nulled = false;
+    out.push({
+      turnKey: track.turnKey,
+      messageKey: key,
+      state: { streaming: track.streaming, current: track.current, message },
+    });
+    if (track.streaming || track.current) {
+      this.clearFinisher(track);
+    } else if (track.finisher === null) {
+      this.armFinisher(key, track);
+    }
+  }
+
+  /**
+   * The Message stopped being the pending turn's last: re-post its last
+   * render as not streaming, with whether it is current. One with no render
+   * keeps the finisher its mint armed.
+   */
+  private finalizeRender(key: string, track: RenderTrack, out: RenderedEntry[]): void {
+    track.streaming = false;
+    this._streamingRenders.delete(key);
+    if (track.last === null) return;
+    track.current = this.isCurrent(track);
+    out.push({
+      turnKey: track.turnKey,
+      messageKey: key,
+      state: { streaming: false, current: track.current, message: { ...track.last, html: {} } },
+    });
+    if (track.current) this.clearFinisher(track);
+    else if (track.finisher === null) this.armFinisher(key, track);
+  }
+
+  /** Whether the last render describes exactly the Message's text. */
+  private isCurrent(track: RenderTrack): boolean {
+    const last = track.last;
+    if (last === null || last.textLength !== track.text.length) return false;
+    track.finalHash ??= textHash(track.text);
+    return last.textHash === track.finalHash;
+  }
+
+  private armFinisher(key: string, track: RenderTrack): void {
+    track.finisher = this.timerSource.setTimeout(() => {
+      track.finisher = null;
+      if (this._closed || this._renders.get(key) !== track || track.nulled) return;
+      const unproven = track.last === null || (!track.streaming && !track.current);
+      if (!unproven) return;
+      track.nulled = true;
+      // The page drops what it held with the record; nothing it saw survives.
+      track.seen = new Set();
+      this.postRendered([{ turnKey: track.turnKey, messageKey: key, state: null }]);
+    }, RENDER_FINISHER_MS);
+  }
+
+  private clearFinisher(track: RenderTrack): void {
+    if (track.finisher === null) return;
+    this.timerSource.clearTimeout(track.finisher);
+    track.finisher = null;
+  }
+
+  private postRendered(entries: RenderedEntry[]): void {
+    if (entries.length === 0) return;
+    this.host.emit({ kind: "rendered-blocks", session: this.handle, payload: { messages: entries } });
+  }
+
+  /** One `RENDER_INPUT` control, on the session's behalf. */
+  private sendRenderControl(control: object): void {
+    this.host.send(FeedId.RENDER_INPUT, new TextEncoder().encode(JSON.stringify(control)));
   }
 
   /**

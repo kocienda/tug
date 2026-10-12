@@ -3,11 +3,10 @@
  *
  * Used by `parseMarkdownToSanitizedBlocks` and `TugMarkdownView` /
  * `TugMarkdownBlock` so a single set of `ALLOWED_TAGS` / `FORBID_TAGS`
- * decisions governs every rendered markdown block in the app. Mirrors
- * the strategy used by `lib/markdown.ts` (the conversation-prose path)
- * — same allowlist / blocklist, same jsdom fallback in Bun/Node test
- * environments so DOMPurify's `ALLOWED_TAGS + FORBID_TAGS` interaction
- * runs against a standards-compliant DOM.
+ * decisions governs every rendered markdown block in the app. In Bun/Node
+ * test environments a jsdom window stands in, so DOMPurify's
+ * `ALLOWED_TAGS + FORBID_TAGS` interaction runs against a
+ * standards-compliant DOM.
  *
  * The instance is cached at module scope and lazily initialized on
  * first `getDOMPurify()` call.
@@ -15,38 +14,56 @@
 
 import DOMPurifyModule from "dompurify";
 
+import SANITIZE_ALLOWLIST from "./sanitize-allowlist.json";
+
 /**
  * DOMPurify configuration shared across the markdown rendering paths.
- * Identical to `lib/markdown.ts`'s config; both lists must move
- * together (a tag added here without a corresponding update there
- * leaves the conversation-prose path stricter than the block path or
- * vice versa).
+ *
+ * The four lists live in `sanitize-allowlist.json`, the one allow-list
+ * file: tugcast's native sanitizer (`tugmark`'s `ammonia` builder) reads
+ * the same file, so the page and tugcast sanitize to one policy by
+ * construction. Edit the lists there, never here.
+ *
+ * What the lists hold, and why:
+ *
+ * - `div` survives so pulldown-cmark's `<div class="footnote-definition"
+ *   id="N">` wrapper can keep its `id` for fragment back-references from
+ *   the matching `<sup class="footnote-reference"><a href="#N">…</a></sup>`.
+ * - `input` survives only as the task-list checkbox pulldown-cmark emits
+ *   (`<input disabled type="checkbox" checked>`); `restrictInputs` below
+ *   drops every other input and pins the survivor disabled, so the item's
+ *   done/undone state is in the DOM without a control that can be typed in.
+ *   tugmark reproduces both rules after ammonia runs.
+ * - `start` survives so an ordered list that begins above one renders — and
+ *   copies — with the ordinal its author gave it.
+ * - `ALLOW_DATA_ATTR` / `ALLOW_ARIA_ATTR` are off, so the attribute list is
+ *   the whole of what survives: a raw `data-tugx-*` attribute from the model
+ *   could otherwise forge the placeholders the enhancers look for.
+ *
+ * Two knobs are not in the file, because they make DOMPurify parse the way
+ * ammonia does rather than state policy:
+ *
+ * - `FORCE_BODY` parses a block as content of `<body>`, which is how it is
+ *   inserted. Without it DOMPurify parses a whole document, so a block that
+ *   opens with `<script>`, `<style>` or a comment is hoisted into `<head>`
+ *   along with its trailing newline, and a stray `</p>` is ignored instead
+ *   of opening an empty paragraph.
+ * - `SANITIZE_DOM` is off. Its only effect under this allow-list is to drop
+ *   an `id` whose value names a `document` or `<form>` property, and none of
+ *   the allowed elements can shadow a `document` property by `id` (only a
+ *   named `img`, `form`, `embed`, `object` or `iframe` can, and `name` is
+ *   not allowed). What it did do was break footnotes labelled like a
+ *   property: `[^title]`'s definition lost `id="title"`.
  */
 export const SANITIZE_CONFIG = {
-  ALLOWED_TAGS: [
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "p", "br", "hr",
-    "strong", "em", "del", "sup", "sub",
-    "a", "code", "pre",
-    "ul", "ol", "li",
-    "blockquote",
-    "table", "thead", "tbody", "tr", "th", "td",
-    "img",
-    // `div` survives so pulldown-cmark's `<div class="footnote-definition"
-    // id="N">` wrapper can keep its `id` for fragment back-references from
-    // the matching `<sup class="footnote-reference"><a href="#N">…</a></sup>`.
-    "div",
-    // `input` survives only as the task-list checkbox pulldown-cmark emits
-    // (`<input disabled type="checkbox" checked>`); `restrictInputs` below
-    // drops every other input and pins the survivor disabled, so the item's
-    // done/undone state is in the DOM without a control that can be typed in.
-    "input",
-  ],
-  // `start` survives so an ordered list that begins above one renders — and
-  // copies — with the ordinal its author gave it.
-  ALLOWED_ATTR: ["href", "src", "alt", "title", "class", "id", "start", "type", "checked", "disabled"],
-  FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "style", "link", "meta", "base", "svg", "math"],
-  FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
+  ALLOWED_TAGS: [...SANITIZE_ALLOWLIST.ALLOWED_TAGS],
+  ALLOWED_ATTR: [...SANITIZE_ALLOWLIST.ALLOWED_ATTR],
+  FORBID_TAGS: [...SANITIZE_ALLOWLIST.FORBID_TAGS],
+  FORBID_ATTR: [...SANITIZE_ALLOWLIST.FORBID_ATTR],
+  ALLOW_DATA_ATTR: SANITIZE_ALLOWLIST.ALLOW_DATA_ATTR,
+  ALLOW_ARIA_ATTR: SANITIZE_ALLOWLIST.ALLOW_ARIA_ATTR,
+  FORCE_BODY: true,
+  SANITIZE_DOM: false,
 };
 
 let _dompurify: ReturnType<typeof DOMPurifyModule> | null = null;
@@ -68,6 +85,29 @@ function restrictInputs(instance: ReturnType<typeof DOMPurifyModule>): void {
   instance.addHook("afterSanitizeAttributes", (node) => {
     if (node.nodeName === "INPUT") {
       (node as Element).setAttribute("disabled", "");
+    }
+  });
+}
+
+/** A URL's scheme as the WHATWG parser finds it, once whitespace it ignores is gone. */
+const URL_SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
+/**
+ * Drop an `href` or `src` that names a scheme but does not parse as a URL
+ * (`http://exa%20mple/`, a port past 65535). Nothing can load or follow
+ * one, and tugcast's sanitizer (ammonia) refuses the same values, so the
+ * two render the same block. A scheme-less value is relative and kept.
+ */
+function restrictUrls(instance: ReturnType<typeof DOMPurifyModule>): void {
+  instance.addHook("uponSanitizeAttribute", (_node, data) => {
+    if (data.attrName !== "href" && data.attrName !== "src") return;
+    // eslint-disable-next-line no-control-regex -- the URL parser strips leading and trailing C0 controls and spaces, and this mirrors it
+    const value = data.attrValue.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, "").replace(/[\t\n\r]/g, "");
+    if (!URL_SCHEME.test(value)) return;
+    try {
+      new URL(value);
+    } catch {
+      data.keepAttr = false;
     }
   });
 }
@@ -96,6 +136,7 @@ export function getDOMPurify(): ReturnType<typeof DOMPurifyModule> {
       const dom = new JSDOM("<!DOCTYPE html>");
       _dompurify = DOMPurifyModule(dom.window as any);
       restrictInputs(_dompurify);
+      restrictUrls(_dompurify);
       if (_dompurify.isSupported) return _dompurify;
     } catch {
       // jsdom not available — fall through to window fallback.
@@ -105,5 +146,6 @@ export function getDOMPurify(): ReturnType<typeof DOMPurifyModule> {
   const win: any = typeof window !== "undefined" ? window : (global as any).window;
   _dompurify = DOMPurifyModule(win);
   restrictInputs(_dompurify);
+  restrictUrls(_dompurify);
   return _dompurify;
 }

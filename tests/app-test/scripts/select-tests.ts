@@ -362,7 +362,11 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // `tug-text-editor/` entry below gives: the delete-then-re-add needs two
     // commits for a key already in `HEAD`. The argument is written here.
     "tugdeck/src/components/tugways/internal/": 37,
-    "tugdeck/src/components/tugways/tug-text-card-editor/": 5,
+    // Raised from 5 by `empty-line-selection.ts`, the File card editor's
+    // blank-line selection paint: a CM6 extension the editor installs, so the
+    // text-card tests that drive the editor drive it too. Raised in place, on
+    // the same terms as `internal/` above.
+    "tugdeck/src/components/tugways/tug-text-card-editor/": 6,
     // Re-added at 32 rather than raised from 31, which is what the ratchet
     // below asks for. Two modules have joined this directory since the
     // figure was last argued: `session-dot-layer.tsx`, the layer that seats a
@@ -432,7 +436,13 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // that component. The declaration keeps exactly the reach it had over
     // that code before the split. Raised in place, as `internal/` above was:
     // the delete-then-re-add needs two commits for a key already in `HEAD`.
-    "tugdeck/src/lib/markdown/": 20,
+    // Raised again, to 22, for two files of the same pipeline:
+    // `rendered-record.ts`, the streaming block's display rule for tugcast's
+    // renders, which every reconcile asks before it parses, and
+    // `sanitize-allowlist.json`, the sanitizer's allow-list lifted out of
+    // `dompurify-instance.ts` as data so tugcast reads the same file. Each is
+    // code the subtree's declarers already drove before it moved.
+    "tugdeck/src/lib/markdown/": 22,
 
     // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
     // ten themes, and its one declaration — `at0109`'s — boots under the base

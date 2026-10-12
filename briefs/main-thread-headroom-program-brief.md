@@ -103,7 +103,7 @@ This document is the index. Each stage has its own brief with its own evidence, 
 | 2. react-off-the-stream-path | | Baseline and after-reading on the harness, 2026-10-11, below: at rest with three streams, React fell from 125 commits/s and at least 199 ms/s to 24 commits/s and 22 ms/s. The user's-deck streaming reading is owed once the stage joins, as stage 1's is. |
 | 3. ingest-worker | | Baseline and after-reading on the harness, 2026-10-12, below: at rest with three streams, main-thread tasks carrying wire data fell from 119/s to 44.9/s, now posted by the ingest Worker, with React's rest census unchanged, and no ingest batch was applied inside any motion. The user's deck was read quiet, since nothing was streaming text, and it runs `main`; the user's-deck streaming after-reading is owed once the stage joins, as stages 1 and 2 recorded. |
 | 4. population-ceiling | | Before and after on the harness, 2026-10-12 (`compositing-walk-readings.md` #aging-reading). Before: fresh 5,422 elements and a 4.97 ms mean walk, aged 15,913 elements (1,424 stacking contexts, all 150 Overview posts mounted) and 5.60 ms. After: fresh 4,209 and 4.27 ms, aged 6,960 elements (538 stacking contexts, 11 of 150 posts mounted at one stacking context each, evicting transcripts peaking at 6 of 16 rows through a fold and a split) and 5.10 ms. The ceiling is the aged mean walk within the fresh one plus 1.33 ms, the fresh reading's own spread, and `at0727` asserts it with the Overview's mounted count, no full transcript mount through a reflowing settle, and every moving settle sealed. The user's deck still runs `main` and was read as found twice, up 1 h 18 min (30,097 elements, 5.58 ms) and up 2 h 22 min (38,056 elements, 147 posts all mounted, 7.23 ms with a spread of 12.57). Owed: the user's-deck reading of this stage's code once it joins, and the fresh-after-relaunch arm at the next relaunch. |
-| 5. tugcast-renders | | |
+| 5. tugcast-renders | | Baseline and after-reading on the harness, 2026-10-12, below: at rest with three streams, the page's live-turn row parses fell from 109.5 per second to 0, since streamed rows now draw from tugcast's renders, and the `RENDERED` feed that replaced them carries 52.6 frames and 105 KB per second. React's rest census, the motion gaps and the sealed wire did not move. The user's deck was read quiet, since only one session was mid-turn and none streaming text, and it runs `main`. The user's-deck streaming after-reading is owed once the stage joins, as stages 1–3 recorded. |
 
 #### Stage 1 baseline — 2026-10-11
 
@@ -263,3 +263,62 @@ Two drives each; times in ms. The `ingest-batch` trace row did not exist at the 
 | slot | 14 updates/s | 1,017, 1,009 ms | 459, 75 | 459 (78), 331 (46) | 78, 46 | 438 of 1,101; style 146, compositing 108, layout 46, script 26 |
 
 The user's deck tells stage 1's story again, larger: the frames are lost before the motion begins (leads of 170 and 459 ms on the first drive of each gesture), and inside it to compositing and style, with script at 21–26 samples. None of that is wire work. Whether this stage matters on the user's deck turns on the streaming reading there, on a deck that carries the Worker, and it is owed once the stage joins.
+
+#### Stage 5 baseline — 2026-10-12
+
+`at0725-streaming-settle-reading`, slice arm, at the arc's base (`c391e67a6`, stages 1–4 joined) with only the row-parse split added to the rest census, read alone. The deck is stage 1's: four cards four-up, three streaming a stubbed turn at one word per 25 ms. The number this stage is sure to move is new in the census: the page's markdown row parses per second, split into rows of a turn in flight at either end of the 4 s window (`turn.${turnKey}.…` identities) and every other row.
+
+| Rest, three streams | Row parses/s, live-turn rows | Row parses/s, other rows | Wire tasks/s on the main thread | Commits/s | React ms/s | Fibers performed/s |
+|---|---|---|---|---|---|---|
+| baseline | 109.5 (3 live turns) | 0 | 55.3 (batches from the Worker) | 21.4 | 22.7 | 1,759 |
+
+| Reading | Floor before the drives | Lead | Longest gap | React in the window | Commits in the window | Ingest batches applied inside the motion | WebContent main thread |
+|---|---|---|---|---|---|---|---|
+| quiet fold | — | 34, 13 | 34, 37 | 18, 32 | 3, 3 | 0, 0 | not sampled |
+| fold, three streams | 14 updates/s, 97 ms/s busy | 18, 13 | 38, 28 | 36, 28 | 11, 8 | 0, 0 | busy 282 of 980; script 61 (22%) |
+| slot, three streams | 36 updates/s, 141 ms/s busy | 25, 10 | 39, 45 | 37, 30 | 6, 6 | 0, 0 | busy 272 of 939; script 60 (22%) |
+
+Two drives each; times in ms. The always-recorded `settle-gap` row saw eight late frames, four in the set-up at 27–38 ms and four in the `move` beat at 38–45 ms, against a 17 ms period.
+
+**Every streamed word costs the page a whole-message parse.** 109.5 parses per second across three streams is about 36 per stream, one per word the stub emits at its 25 ms cadence: each streaming flush re-parses, re-sanitizes and re-hashes its message's whole text, and no restored or static row parsed at all over the window. That rate is what this stage takes to zero. The rest of the reading matches stage 3's after-reading within its spread, so it is the base the stage is read against rather than a finding: the gaps are 28–45 ms, every drive misses the one-period bar, no ingest batch lands inside a motion, and script is 22% of WebContent's busy samples with compositing, layout and style beside it. As stage 3 found, the harness's streams hold one short turn each, so the parse each word pays here is the cheapest it will ever be; a long message streaming on the user's deck pays it over the whole message each word.
+
+#### Stage 5 after-reading — 2026-10-12
+
+`at0725-streaming-settle-reading`, slice arm, on the arc's tree after its find and highlighting rounds (`4afbe6e80` plus the census's new assertion), read alone. The deck is the baseline's: four cards four-up, three streaming a stubbed turn at one word per 25 ms. Now tugcast parses each streaming assistant message, sanitizes and highlights it, and sends the changed blocks on `RENDERED` paced to the display. The page draws those rows from the records and parses none of them. For this one run, a temporary tally in the ingest Worker counted the `RENDERED` frames and their bytes. It was applied with `tugtool file probe` and is not in the tree.
+
+| Rest, three streams | Row parses/s, live-turn rows | Row parses/s, other rows | Wire tasks/s on the main thread | Commits/s | React ms/s | Fibers performed/s |
+|---|---|---|---|---|---|---|
+| baseline | 109.5 (3 live turns) | 0 | 55.3 (batches from the Worker) | 21.4 | 22.7 | 1,759 |
+| after | 0 (3 live turns) | 0 | 56.3 (batches from the Worker) | 22.2 | 21.2 | 1,766 |
+
+| `RENDERED` at rest, three streams | Frames/s | Bytes/s | Bytes per frame | Session renders/s |
+|---|---|---|---|---|
+| after | 52.6 | 105.4 KB | 2,051 | 110.4 |
+
+| Reading | Floor before the drives | Lead | Longest gap | React in the window | Commits in the window | Ingest batches applied inside the motion | WebContent main thread |
+|---|---|---|---|---|---|---|---|
+| quiet fold, before | — | 34, 13 | 34, 37 | 18, 32 | 3, 3 | 0, 0 | not sampled |
+| quiet fold, after | — | 40, 16 | 40, 32 | 18, 30 | 3, 3 | 0, 0 | not sampled |
+| fold, three streams, before | 14 updates/s, 97 ms/s busy | 18, 13 | 38, 28 | 36, 28 | 11, 8 | 0, 0 | busy 282 of 980; script 61 (22%) |
+| fold, three streams, after | 22 updates/s, 71 ms/s busy | 14, 15 | 39, 37 | 31, 36 | 10, 10 | 0, 0 | busy 249 of 930; script 49 (20%) |
+| slot, three streams, before | 36 updates/s, 141 ms/s busy | 25, 10 | 39, 45 | 37, 30 | 6, 6 | 0, 0 | busy 272 of 939; script 60 (22%) |
+| slot, three streams, after | 31 updates/s, 110 ms/s busy | 19, 13 | 49, 43 | 45, 35 | 5, 10 | 0, 0 | busy 242 of 926; script 32 (13%) |
+
+Two drives each; times in ms. The always-recorded `settle-gap` row saw eight late frames, as at the baseline: four in the set-up at 26–39 ms and four in the `move` beat at 40–49 ms, against a 17 ms period.
+
+**The streamed row's parse is gone from the page.** Live-turn row parses fell from 109.5 per second to 0, and `at0725` now asserts the zero. tugcast pays for the parse instead, on a core the page does not use. Measured in release at the render stage, `render_blocks` takes a median of 0.23 ms for a 4 KB message, 2.08 ms at 32 KB and 8.14 ms at 128 KB, re-parsing and re-sanitizing the whole message each tick (find's rendered text is read from every block) and highlighting only the blocks whose hashes are new. Streamed code fences arrive already highlighted in the shared `tug-syn-*` classes, and a fence tugcast stamped never reaches the page's Lezer highlighter. Find over assistant text and expanded thinking is answered by tugcast from the text it keeps. The page projects those units only when tugcast holds nothing for one or does not answer.
+
+**The feed costs about 105 KB a second, uncompressed.** That is 52.6 frames a second, about one per display period, at about 2 KB each, and each frame bundles 2.1 sessions' renders on average. That is the size the plan expected: the streaming tail block is resent on each tick, and only the blocks that changed travel. Over loopback that is no reason to compress.
+
+**The rest census and the motion did not move, and on this deck they were not expected to.** Commits, React time and fibers at rest are within the baseline's spread, since a streamed row's draw was never a React commit. The longest gaps read 32–49 ms against 28–45. Every drive still misses the one-period bar, and no ingest batch lands inside a motion. Script's share of WebContent's busy samples fell, from 22% to 20% on the fold and to 13% on the slot move, and the busy floor before the fold's drives fell from 97 ms/s to 71. Both are in the direction of the parse leaving, but the spread is too wide to claim them. Compositing, layout and style (54–67, 34–39 and 26–31 samples) still carry the busy time inside the motion. As every stage has found, the harness's streams hold one short turn each, so the parse removed here was the cheapest it could be. The case this stage was built for is a long message streaming on the user's deck, where the page re-parsed the whole message on every word.
+
+**What still runs the page parse, and why.** The parse retires only where every path is served, and the restore path is not. A restored (replayed) row is never rendered by tugcast: replay is indexed rather than rendered, so a resumed transcript does not cost a burst of renders on every handshake. Restored rows therefore parse once on the page, through the shared parse cache. That accounts for the 0 "other" row parses at rest, since they parsed at restore and not again. The page parse also serves static `initialText` blocks, `TugMarkdownView`, the beat line, transcript copy HTML, find's projection of user bodies and notes, and any streamed row whose record is missing or stale, which is the fallback branch in `chooseRenderedBlocks`. `tugmark-wasm` and DOMPurify stay for those paths. A later arc can render restored rows in tugcast if a reading of the user's deck shows restore paints costing frames.
+
+**User's release deck, quiet.** 16,360 elements and 1,087 stacking contexts. Only one session was mid-turn, and none was streaming text, so `--streaming 3` refused and the deck was read with `--streaming 0`, as stages 1–3 were. `--tasks` was left off, since it reloads the live deck. The deck runs `main`, which carries none of this stage's changes, so this is a reading of the code this stage replaces. The samplers stop WebContent to read its stacks, so the frame numbers carry their perturbation.
+
+| Gesture | Floor | Settle window | Lead | Longest gap (motion) | Land frame | WebContent main thread: busy, by phase |
+|---|---|---|---|---|---|---|
+| fold | 9 updates/s, 34 ms/s busy | 465, 390 ms | 16, 15 | 150 (150), 88 (29) | 150, 29 | 154 of 1,007; compositing 32, style 29, script 18, layout 13 |
+| slot | 17 updates/s, 74 ms/s busy | 841, 835 ms | 82, 66 | 153 (153), 166 (35) | 53, 35 | 270 of 1,000; style 72, compositing 52, script 39, layout 27 |
+
+Since stage 3's reading the deck has shrunk from 35,932 elements to 16,360. The first drive of each gesture still loses one frame of 150 ms or more, and style and compositing still lead the busy samples, with script third or fourth. Whether this stage matters there turns on the streaming reading, on a deck that carries tugcast's renders, and that reading is owed once the stage joins.

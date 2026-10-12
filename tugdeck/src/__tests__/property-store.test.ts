@@ -364,3 +364,21 @@ describe("PropertyStore – optional callbacks", () => {
     expect(onSetCalls[0]).toEqual({ path: "style.fontSize", value: 24, source: "test" });
   });
 });
+
+describe("PropertyStore – acceptsPath()", () => {
+  it("accepts the schema's paths and refuses others, so a probe never throws", () => {
+    const store = new PropertyStore({
+      schema: [{ path: "turn.t.message.m.text", type: "string", label: "text" }],
+      initialValues: { "turn.t.message.m.text": "x" },
+    });
+    expect(store.acceptsPath("turn.t.message.m.text")).toBe(true);
+    expect(store.acceptsPath("turn.t.message.m.rendered")).toBe(false);
+    expect(() => store.get("turn.t.message.m.rendered")).toThrow();
+  });
+
+  it("accepts any path when paths are dynamic", () => {
+    const store = new PropertyStore({ schema: [], initialValues: {}, dynamicPaths: true });
+    expect(store.acceptsPath("turn.t.message.m.rendered")).toBe(true);
+    expect(store.get("turn.t.message.m.rendered")).toBeUndefined();
+  });
+});

@@ -1,14 +1,8 @@
 /* @ts-self-types="./tugmark_wasm.d.ts" */
 
 /**
- * Compute a per-block FNV-1a 64-bit content hash for every top-level
- * block in `text`. Returns `Vec<u32>` with 2 words per block (low,
- * high). Block ordering matches [`lex_blocks`] — the two functions
- * can be zipped on index without further coordination.
- *
- * Consumed by the streaming markdown reconciler ([Step 18.8]) to
- * detect which blocks changed across renders so DOM mutations stay
- * minimal and the browser's per-element scroll anchors survive.
+ * FNV-1a 64-bit content hash per top-level block, 2 words per block
+ * (low, high), in [`lex_blocks`]'s order.
  * @param {string} text
  * @returns {Uint32Array}
  */
@@ -37,18 +31,8 @@ export function lex_blocks(text) {
 }
 
 /**
- * Parse a whole markdown document in a single pulldown-cmark pass and
- * emit one HTML string per top-level block, preserving cross-block
- * features like footnote ref ↔ definition linking and reference-style
- * links.
- *
- * Block boundaries are computed inline by tracking nesting depth: a
- * `Tag::Start(_)` at `nesting == 0` opens a new block, the matching
- * `Tag::End(_)` at `nesting == 1 → 0` closes it; `Event::Rule` emits a
- * stand-alone block. The block sequence here matches [`lex_blocks`]'s
- * in count and order — both walk the same parser with the same options
- * and bucket events into the same top-level groups — so callers can
- * zip the two outputs together.
+ * Parse a whole markdown document in one pass and emit one HTML string
+ * per top-level block, in [`lex_blocks`]'s order.
  * @param {string} text
  * @returns {any[]}
  */
@@ -62,13 +46,7 @@ export function parse_blocks_to_html(text) {
 }
 
 /**
- * Parse a markdown fragment to HTML.
- *
- * Suitable for re-parsing a single block during incremental updates.
- * Cross-block features (e.g. footnote reference → definition linking,
- * reference-style links spanning blocks) require the whole document
- * to be visible during parsing — for that, prefer
- * [`parse_blocks_to_html`].
+ * Parse a markdown fragment to HTML, with no cross-block linking.
  * @param {string} text
  * @returns {string}
  */

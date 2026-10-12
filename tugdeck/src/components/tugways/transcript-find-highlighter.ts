@@ -204,6 +204,10 @@ function unitListSample(texts: readonly string[], head = 24): string {
  * *nothing* where the DOM has something. A fixture meant to sweep every row
  * must use a query that matches in every row — a one-letter probe — or it
  * quietly narrows the sweep to the rows that happened to hit.
+ *
+ * A `pending` unit — one tugcast answers for, whose text has not arrived —
+ * is not compared: its text is a placeholder, and the engine repaints once
+ * the text comes, which is when the comparison runs.
  */
 export function compareRowUnits(
   rowEl: HTMLElement,
@@ -237,6 +241,7 @@ export function compareRowUnits(
   }
   const out: RowUnitDivergence[] = [];
   for (let u = 0; u < units.length; u++) {
+    if (domSegments[u].kind === "dom" && domSegments[u].pending === true) continue;
     const domText = domTexts[u];
     const indexText = domSegments[u].text;
     if (domText === indexText) continue;

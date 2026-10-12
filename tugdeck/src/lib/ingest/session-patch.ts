@@ -71,6 +71,10 @@ export interface SessionPatchTarget {
   ack(patch: SessionPatchOf<"ack">): void;
   /** A CODE_OUTPUT frame of a type a narrow per-session store folds ([P14]). */
   routedFrame(patch: SessionPatchOf<"routed-frame">): void;
+  /** tugcast's renders, as the engine's states for each Message's `.rendered` path. */
+  rendered(patch: SessionPatchOf<"rendered-blocks">): void;
+  /** tugcast's answer to a find query this mirror sent. */
+  findResult(patch: SessionPatchOf<"find-result">): void;
   /** The batch that carried this mirror's patches has been applied whole. */
   endOfBatch(): void;
 }
@@ -98,6 +102,8 @@ export const PATCH_APPLIERS: PatchApplierTable = {
   effect: (patch, target) => target.session(patch.session)?.effect(patch),
   "routed-frame": (patch, target) => target.session(patch.session)?.routedFrame(patch),
   ack: (patch, target) => target.session(patch.session)?.ack(patch),
+  "rendered-blocks": (patch, target) => target.session(patch.session)?.rendered(patch),
+  "find-result": (patch, target) => target.session(patch.session)?.findResult(patch),
 };
 
 /** Apply one patch through the table. */

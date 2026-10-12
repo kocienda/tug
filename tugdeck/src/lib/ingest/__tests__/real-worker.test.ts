@@ -397,3 +397,64 @@ describe("the session engine in the Worker — transcript cap", () => {
     expect(store.getSnapshot().replayWindow).toEqual({ firstLoadedTurnIndex: 3, totalTurns: 8, hasOlder: true });
   });
 });
+
+describe("tugcast's renders through the Worker", () => {
+  test("a render-batch from tugcast lands in the mirror's record, and a motion hold reaches tugcast", async () => {
+    const page = await workerPage();
+    const store = await openStore(page, { sessionMode: "new" });
+    store.send("hi", []);
+    await store.whenSettled();
+    const msgId = FIXTURE_IDS.MSG_ID_N(1);
+    await page.wire({
+      type: "assistant_text",
+      status: "partial",
+      msg_id: msgId,
+      block_index: 1,
+      text: "Hello",
+      is_partial: true,
+      rev: 0,
+      seq: 0,
+    });
+    const turnKey = store.getSnapshot().activeTurn!.turnKey;
+    const path = `turn.${turnKey}.message.${msgId}-b1.rendered`;
+    expect(store.streamingDocument.get(path)).toEqual({ pending: true });
+
+    const batch = {
+      kind: "render-batch",
+      sessions: [
+        {
+          tugSessionId: TUG,
+          messages: [
+            {
+              messageKey: `${msgId}-b1`,
+              channel: "text",
+              blocks: [{ hash: "42", kind: "paragraph", startChar: 0, endChar: 5, depth: 0, itemCount: 0, rowCount: 0 }],
+              html: { "42": "<p>Hello</p>\n" },
+              textLength: 5,
+              textHash: "1",
+            },
+          ],
+        },
+      ],
+    };
+    const payload = new TextEncoder().encode(JSON.stringify(batch));
+    fake!.sendBinary(new Uint8Array(encodeFrame({ feedId: FeedId.RENDERED, flags: 0, payload })));
+    await until(() => (store.streamingDocument.get(path) as { message?: unknown } | null)?.message !== undefined, "the record");
+    expect(store.streamingDocument.get(path)).toMatchObject({
+      streaming: true,
+      current: false,
+      message: { html: { "42": "<p>Hello</p>\n" } },
+    });
+
+    const renderInputs = (): Record<string, unknown>[] =>
+      fake!.received
+        .filter((m): m is Uint8Array => typeof m !== "string")
+        .map((m) => decodeFrame(m.slice().buffer))
+        .filter((f) => f.feedId === FeedId.RENDER_INPUT)
+        .map((f) => JSON.parse(new TextDecoder().decode(f.payload)) as Record<string, unknown>);
+    channel!.post({ kind: "motion", held: true, capMs: 600 });
+    await until(() => renderInputs().some((c) => c.kind === "motion"), "the motion control");
+    expect(renderInputs().find((c) => c.kind === "motion")).toMatchObject({ held: true, capMs: 1000 });
+    store.dispose();
+  });
+});

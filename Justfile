@@ -156,6 +156,14 @@ test-swift:
 golden:
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
     cd tugrust && TUG_DIGEST_GOLDEN_UPDATE=1 cargo nextest run -p tugcast session_digest
+    just tugmark-golden
+
+# Regenerate the tugmark drift golden (tugdeck/crates/tugmark/corpus/golden.json)
+# from the corpus and the newest stream-json catalog, then hold the page's
+# pipeline to it. A changed golden is a changed rendering: review its diff.
+tugmark-golden:
+    cd tugrust && TUGMARK_GOLDEN_WRITE=1 cargo nextest run -p tugcast --test tugmark_drift
+    cd tugdeck && bun test src/lib/markdown/__tests__/tugmark-drift.test.ts
 
 # Capture Claude Code fixtures + capabilities snapshot (~2-3 min; real-claude)
 capture-capabilities:

@@ -118,9 +118,15 @@ function deltasOf(text: string): string[] {
  * next turn, and each turn is one transcript row, so a reading that needs a
  * transcript of many rows asks for many turns. At the default length one turn
  * streams for several minutes — longer than a reading takes — so the streams
- * are still running when the last drive is made.
+ * are still running when the last drive is made. `text` writes each
+ * message's markdown; a reading that needs particular constructs passes its
+ * own.
  */
-export function streamingTranscript(messages = 40, turns = 1): TugcodeTranscript {
+export function streamingTranscript(
+  messages = 40,
+  turns = 1,
+  text: (index: number) => string = messageText,
+): TugcodeTranscript {
   const replayed: { index: number; description: string; outputs: unknown[] }[] = [];
   let seq = 0;
   for (let t = 0; t < turns; t++) {
@@ -129,7 +135,7 @@ export function streamingTranscript(messages = 40, turns = 1): TugcodeTranscript
     for (let m = 0; m < messages; m++) {
       const k = t * messages + m;
       const msgId = `stub-msg-${k}`;
-      const text = messageText(k);
+      const body = text(k);
       outputs.push({
         type: "content_block_start",
         msg_id: msgId,
@@ -138,7 +144,7 @@ export function streamingTranscript(messages = 40, turns = 1): TugcodeTranscript
         ipc_version: IPC_VERSION,
       });
       let rev = 0;
-      for (const delta of deltasOf(text)) {
+      for (const delta of deltasOf(body)) {
         outputs.push({
           type: "assistant_text",
           msg_id: msgId,
@@ -157,7 +163,7 @@ export function streamingTranscript(messages = 40, turns = 1): TugcodeTranscript
         block_index: 0,
         seq,
         rev,
-        text,
+        text: body,
         is_partial: false,
         status: "complete",
         ipc_version: IPC_VERSION,
@@ -192,7 +198,8 @@ export function streamingTranscript(messages = 40, turns = 1): TugcodeTranscript
  * binding — its picker gone and its transcript mounted. `messages` and
  * `turns` size the transcript: the default is one turn that streams for
  * several minutes, and a reading that waits for every turn to end, or needs
- * many rows, asks for shorter turns and more of them.
+ * many rows, asks for shorter turns and more of them; `text` writes each
+ * message's markdown.
  */
 export async function bindStreamingStubs(
   app: App,
@@ -200,8 +207,9 @@ export async function bindStreamingStubs(
   stubDir: string,
   messages?: number,
   turns?: number,
+  text?: (index: number) => string,
 ): Promise<StubCard[]> {
-  const transcript = JSON.stringify(streamingTranscript(messages, turns));
+  const transcript = JSON.stringify(streamingTranscript(messages, turns, text));
   const cards: StubCard[] = [];
   for (const cardId of cardIds) {
     const tugSessionId = randomUUID();

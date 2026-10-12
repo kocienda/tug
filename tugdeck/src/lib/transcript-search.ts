@@ -112,6 +112,10 @@ export function search(
  *    Read file body), keyed by its owning `toolUseId`; matches are counted
  *    from this store text and painted/navigated by the editor's own search
  *    (CM6 virtualizes its DOM, so a DOM walk cannot reach it).
+ *
+ * A `dom` unit carrying `remote` is one tugcast answers for: an assistant
+ * text or expanded thinking Message, searched as a query over tugcast's
+ * rendered text rather than projected here (`transcript-find-engine.ts`).
  */
 export type RowSegment =
   | {
@@ -124,8 +128,29 @@ export type RowSegment =
        * card's `FindTargetRegistry`.
        */
       key?: string;
+      /** The unit tugcast answers for, when it is one. */
+      remote?: RemoteUnit;
+      /**
+       * Set on a remote unit whose text the page does not hold yet: its
+       * `text` is a placeholder, so the painter does not compare it against
+       * the DOM until the text arrives.
+       */
+      pending?: true;
     }
   | { kind: "editor"; key: string; text: string };
+
+/** A unit tugcast answers find for. */
+export interface RemoteUnit {
+  /** The Message's key, which tugcast's find index is keyed by. */
+  unit: string;
+  /**
+   * The Message's markdown source. A text or a match set is held for the
+   * source it was taken from, and a heal is checked against it.
+   */
+  source: string;
+  /** The page's own projection of the unit, for one tugcast cannot answer. */
+  project: () => string;
+}
 
 /** A {@link FindMatch} tagged with the segment that produced it. */
 export interface SegmentedFindMatch extends FindMatch {

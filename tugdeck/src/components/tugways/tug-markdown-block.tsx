@@ -50,6 +50,14 @@
  *      motion gate closed defers its reconcile to the gate's release
  *      (`lib/markdown/streaming-flush.ts`).
  *
+ *      A Message's text path (`turn.….message.….text`) has a sibling
+ *      `.rendered` path where the ingest engine writes tugcast's render
+ *      of the same text ([P06]). The block observes both, and every
+ *      reconcile — the G1 render included — asks `chooseRenderedBlocks`
+ *      first: a record's blocks are applied as they came, `"keep"`
+ *      leaves the DOM alone until the first render lands, and `null`
+ *      parses on the page, as a restored row always has.
+ *
  * Both modes write sanitized HTML directly to the DOM — there is no
  * React state for the rendered content per [L06]. The only React
  * state is the container element ref.
@@ -105,6 +113,8 @@ import {
   renderIncrementalFromBlocks,
 } from "@/lib/markdown/render-incremental";
 import { createStreamingFlush } from "@/lib/markdown/streaming-flush";
+import { chooseRenderedBlocks, isRenderedStreaming, renderedPathFor } from "@/lib/markdown/rendered-record";
+import { highlightPendingFences, type FenceHighlightOptions } from "@/lib/markdown/enhance-fenced-code";
 
 /**
  * Hand a freshly annotated container to `onAnnotated`, and — unless React is
@@ -320,6 +330,10 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     if (streamingStore === undefined) return;
     const el = containerRef.current;
     if (el === null) return;
+    // Only a store that can hold the sibling path carries renders; a fixed
+    // schema that declares only the text (a fixture, a gallery) has none.
+    const siblingPath = renderedPathFor(streamingPath);
+    const renderedPath = siblingPath !== null && streamingStore.acceptsPath(siblingPath) ? siblingPath : null;
 
     // Every render is an annotation pass — `renderIncremental*` marks the
     // DOM it builds — so every render has to ANNOUNCE itself. The late-arrival
@@ -339,7 +353,30 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
       announceAnnotated(el, onAnnotatedRef.current, inCommit);
     };
 
+    // A row drawn from tugcast's render highlights the fences tugcast did
+    // not (a language it has no grammar for) on idle, and never mid-stream.
+    const fenceFromRecord: FenceHighlightOptions = {
+      fenceHighlight: "idle-unless-streaming",
+      isStreaming: () => renderedPath !== null && isRenderedStreaming(streamingStore.get(renderedPath)),
+    };
+
     const reconcile = (text: string): void => {
+      // tugcast's render, when the engine wrote one for this Message: drawn
+      // as it came, with no parse on this thread.
+      if (renderedPath !== null) {
+        const state = streamingStore.get(renderedPath);
+        const chosen = chooseRenderedBlocks(state);
+        if (chosen === "keep") return;
+        if (chosen !== null) {
+          renderIncrementalFromBlocks(el, chosen, annotationRef.current, fenceFromRecord);
+          // A fence tugcast left unhighlighted waits for the row to settle;
+          // a block whose hash did not change is never rebuilt, so the
+          // settle has to revisit the ones held back.
+          if (!isRenderedStreaming(state)) highlightPendingFences(el, fenceFromRecord.isStreaming);
+          announce();
+          return;
+        }
+      }
       if (text === "") {
         renderIncremental(el, "");
         announce();
@@ -363,6 +400,9 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
       // duplicate-append.
       const blocks = ensureParsed(streamingStore, streamingPath, text);
       renderIncrementalFromBlocks(el, blocks, annotationRef.current);
+      // A row that fell back from tugcast's render to this parse keeps the
+      // blocks it drew whose hash held, and with them any fence held back.
+      if (renderedPath !== null) highlightPendingFences(el, () => false);
       announce();
     };
 
@@ -388,10 +428,15 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
       // the time it runs.
       flush.request();
     });
+    // A render and the text it rendered arrive on different feeds; either
+    // one requests the same flush, which reads both.
+    const unsubscribeRendered =
+      renderedPath === null ? null : streamingStore.observe(renderedPath, () => flush.request());
 
     return () => {
       flush.dispose();
       unsubscribe();
+      unsubscribeRendered?.();
       // Cleanup tears down the subscription and any pending flush but
       // deliberately leaves the container's DOM children in place.
       // React 18 dev strict mode (and Vite Fast Refresh) re-run this

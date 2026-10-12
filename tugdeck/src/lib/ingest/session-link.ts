@@ -25,15 +25,18 @@
  */
 
 import type { FeedIdValue } from "@/protocol";
-import type { IngestSessionOpenControl } from "@tugproto/ingest";
+import type { IngestFindControl, IngestSessionOpenControl } from "@tugproto/ingest";
 import type { CodeSessionEvent } from "@/lib/code-session-store/events";
 import type { TimerSource } from "@/lib/code-session-store/session-engine";
 import { InProcessIngestChannel } from "./ingest-channel";
-import { SESSION_FEEDS, type FlushPolicyFactory } from "./ingest-host";
+import { ENGINE_FEEDS, type FlushPolicyFactory } from "./ingest-host";
 import { applySessionBatch, type PatchTarget, type SessionPatchTarget } from "./session-patch";
 
 /** What a store says about the session it opens. */
 export type SessionOpenOptions = Omit<IngestSessionOpenControl, "kind" | "handle">;
+
+/** A find query, as a link posts it for its session. */
+export type SessionFindRequest = Omit<IngestFindControl, "kind" | "handle">;
 
 /** What only an in-process host can take: functions, which cannot cross a thread. */
 export interface SessionLocalOptions {
@@ -54,6 +57,8 @@ export interface SessionLink {
   action(event: CodeSessionEvent): number;
   /** Post a decoded frame straight to the engine, past the session filter; returns its sequence number. */
   testFrame(feedId: number, decoded: unknown): number;
+  /** Post a find query for the session's rendered text; its answer arrives as a `find-result` patch. */
+  find(request: SessionFindRequest): void;
   /** Close the engine. What it posts while closing still arrives; nothing after. */
   close(): void;
 }
@@ -107,7 +112,7 @@ export function openInProcessSession(
   channel.post({ kind: "session-open", handle, ...open });
   // Subscribed after the engine is open, so a source that replays its last
   // frame on subscribe replays it into the engine.
-  const unsubs = SESSION_FEEDS.map((feedId) =>
+  const unsubs = ENGINE_FEEDS.map((feedId) =>
     source.onFrame(feedId, (payload) => {
       if (live) channel.ingestFrame(feedId, payload);
     }),
@@ -123,6 +128,9 @@ export function openInProcessSession(
       seq += 1;
       if (live) channel.post({ kind: "session-test-frame", handle, seq, feedId, decoded });
       return seq;
+    },
+    find(request) {
+      if (live) channel.post({ kind: "find", handle, ...request });
     },
     close() {
       if (!live) return;

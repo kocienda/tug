@@ -685,12 +685,13 @@ Every third-party library the bundle carries, generated from the lockfiles named
 
 ### Rust crates compiled into tugcast, tugtool, and the other tugrust binaries
 
-From `tugrust/Cargo.lock` — 239 packages.
+From `tugrust/Cargo.lock` — 275 packages.
 
 | Package | Version | License | Repository |
 |---|---|---|---|
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 | https://github.com/oyvindln/adler2 |
 | aho-corasick | 1.1.4 | Unlicense OR MIT | https://github.com/BurntSushi/aho-corasick |
+| ammonia | 4.2.3 | MIT OR Apache-2.0 | https://github.com/rust-ammonia/ammonia |
 | anstream | 1.0.0 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle |
 | anstyle | 1.0.14 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle |
 | anstyle-parse | 1.0.0 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle |
@@ -724,6 +725,7 @@ From `tugrust/Cargo.lock` — 239 packages.
 | crossbeam-epoch | 0.9.18 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
 | crossbeam-utils | 0.8.21 | MIT OR Apache-2.0 | https://github.com/crossbeam-rs/crossbeam |
 | crypto-common | 0.1.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
+| cssparser | 0.38.0 | MPL-2.0 | https://github.com/servo/rust-cssparser |
 | data-encoding | 2.10.0 | MIT | https://github.com/ia0/data-encoding |
 | deranged | 0.5.8 | MIT OR Apache-2.0 | https://github.com/jhpratt/deranged |
 | digest | 0.10.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
@@ -731,6 +733,8 @@ From `tugrust/Cargo.lock` — 239 packages.
 | dirs-sys | 0.4.1 | MIT OR Apache-2.0 | https://github.com/dirs-dev/dirs-sys-rs |
 | displaydoc | 0.2.5 | MIT OR Apache-2.0 | https://github.com/yaahc/displaydoc |
 | document-features | 0.2.12 | MIT OR Apache-2.0 | https://github.com/slint-ui/document-features |
+| dtoa | 1.0.11 | MIT OR Apache-2.0 | https://github.com/dtolnay/dtoa |
+| dtoa-short | 0.3.5 | MPL-2.0 | https://github.com/upsuper/dtoa-short |
 | either | 1.16.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/either |
 | equivalent | 1.0.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/equivalent |
 | errno | 0.3.14 | MIT OR Apache-2.0 | https://github.com/lambda-fairy/rust-errno |
@@ -762,6 +766,7 @@ From `tugrust/Cargo.lock` — 239 packages.
 | hashbrown | 0.16.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | hashlink | 0.10.0 | MIT OR Apache-2.0 | https://github.com/kyren/hashlink |
 | heck | 0.5.0 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck |
+| html5ever | 0.40.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |
 | http | 1.4.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http |
 | http-body | 1.0.1 | MIT | https://github.com/hyperium/http-body |
 | http-body-util | 0.1.3 | MIT | https://github.com/hyperium/http-body |
@@ -795,6 +800,8 @@ From `tugrust/Cargo.lock` — 239 packages.
 | lock_api | 0.4.14 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | log | 0.4.29 | MIT OR Apache-2.0 | https://github.com/rust-lang/log |
 | lru-slab | 0.1.2 | MIT OR Apache-2.0 OR Zlib | https://github.com/Ralith/lru-slab |
+| maplit | 1.0.2 | MIT/Apache-2.0 | https://github.com/bluss/maplit |
+| markup5ever | 0.40.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |
 | matchers | 0.2.0 | MIT | https://github.com/hawkw/matchers |
 | matchit | 0.8.4 | MIT AND BSD-3-Clause | https://github.com/ibraheemdev/matchit |
 | memchr | 2.8.0 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
@@ -802,6 +809,7 @@ From `tugrust/Cargo.lock` — 239 packages.
 | mime_guess | 2.0.5 | MIT | https://github.com/abonander/mime_guess |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 | https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide |
 | mio | 1.2.0 | MIT | https://github.com/tokio-rs/mio |
+| new_debug_unreachable | 1.0.6 | MIT | https://github.com/mbrubeck/rust-debug-unreachable |
 | notify | 8.2.0 | CC0-1.0 | https://github.com/notify-rs/notify |
 | notify-types | 2.1.0 | MIT OR Apache-2.0 | https://github.com/notify-rs/notify |
 | nu-ansi-term | 0.50.3 | MIT | https://github.com/nushell/nu-ansi-term |
@@ -813,12 +821,17 @@ From `tugrust/Cargo.lock` — 239 packages.
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | https://github.com/Amanieu/parking_lot |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | https://github.com/servo/rust-url |
+| phf | 0.14.0 | MIT | https://github.com/rust-phf/rust-phf |
+| phf_shared | 0.14.0 | MIT | https://github.com/rust-phf/rust-phf |
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project-lite |
 | potential_utf | 0.1.4 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | powerfmt | 0.2.0 | MIT OR Apache-2.0 | https://github.com/jhpratt/powerfmt |
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 | https://github.com/cryptocorrosion/cryptocorrosion |
+| precomputed-hash | 0.1.1 | MIT | https://github.com/emilio/precomputed-hash |
 | proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | https://github.com/dtolnay/proc-macro2 |
 | pty-process | 0.5.3 | MIT | https://git.tozt.net/pty-process |
+| pulldown-cmark | 0.12.2 | MIT | https://github.com/raphlinus/pulldown-cmark |
+| pulldown-cmark-escape | 0.11.0 | MIT | https://github.com/raphlinus/pulldown-cmark |
 | quinn | 0.11.11 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
 | quinn-proto | 0.11.15 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
 | quinn-udp | 0.5.15 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
@@ -859,10 +872,13 @@ From `tugrust/Cargo.lock` — 239 packages.
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 | https://github.com/vorner/signal-hook |
 | simd-adler32 | 0.3.9 | MIT | https://github.com/mcountryman/simd-adler32 |
 | similar | 2.7.0 | Apache-2.0 | https://github.com/mitsuhiko/similar |
+| siphasher | 1.0.4 | MIT OR Apache-2.0 | https://github.com/jedisct1/rust-siphash |
 | slab | 0.4.12 | MIT | https://github.com/tokio-rs/slab |
 | smallvec | 1.15.1 | MIT OR Apache-2.0 | https://github.com/servo/rust-smallvec |
 | socket2 | 0.6.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/socket2 |
 | stable_deref_trait | 1.2.1 | MIT OR Apache-2.0 | https://github.com/storyyeller/stable_deref_trait |
+| streaming-iterator | 0.1.9 | MIT OR Apache-2.0 | https://github.com/sfackler/streaming-iterator |
+| string_cache | 0.11.0 | MIT OR Apache-2.0 | https://github.com/servo/string-cache |
 | strsim | 0.11.1 | MIT | https://github.com/rapidfuzz/strsim-rs |
 | subtle | 2.6.1 | BSD-3-Clause | https://github.com/dalek-cryptography/subtle |
 | syn | 2.0.117 | MIT OR Apache-2.0 | https://github.com/dtolnay/syn |
@@ -870,6 +886,7 @@ From `tugrust/Cargo.lock` — 239 packages.
 | synstructure | 0.13.2 | MIT | https://github.com/mystor/synstructure |
 | sysinfo | 0.34.2 | MIT | https://github.com/GuillaumeGomez/sysinfo |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 | https://github.com/Stebalien/tempfile |
+| tendril | 0.5.1 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |
 | thiserror | 2.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror |
 | thiserror-impl | 2.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror |
 | thread_local | 1.1.9 | MIT OR Apache-2.0 | https://github.com/Amanieu/thread_local-rs |
@@ -899,6 +916,24 @@ From `tugrust/Cargo.lock` — 239 packages.
 | tracing-core | 0.1.36 | MIT | https://github.com/tokio-rs/tracing |
 | tracing-log | 0.2.0 | MIT | https://github.com/tokio-rs/tracing |
 | tracing-subscriber | 0.3.23 | MIT | https://github.com/tokio-rs/tracing |
+| tree-sitter | 0.25.10 | MIT | https://github.com/tree-sitter/tree-sitter |
+| tree-sitter-bash | 0.25.1 | MIT | https://github.com/tree-sitter/tree-sitter-bash |
+| tree-sitter-c | 0.24.2 | MIT | https://github.com/tree-sitter/tree-sitter-c |
+| tree-sitter-cpp | 0.23.4 | MIT | https://github.com/tree-sitter/tree-sitter-cpp |
+| tree-sitter-css | 0.25.0 | MIT | https://github.com/tree-sitter/tree-sitter-css |
+| tree-sitter-go | 0.25.0 | MIT | https://github.com/tree-sitter/tree-sitter-go |
+| tree-sitter-highlight | 0.25.10 | MIT | https://github.com/tree-sitter/tree-sitter |
+| tree-sitter-html | 0.23.2 | MIT | https://github.com/tree-sitter/tree-sitter-html |
+| tree-sitter-java | 0.23.5 | MIT | https://github.com/tree-sitter/tree-sitter-java |
+| tree-sitter-javascript | 0.25.0 | MIT | https://github.com/tree-sitter/tree-sitter-javascript |
+| tree-sitter-json | 0.24.8 | MIT | https://github.com/tree-sitter/tree-sitter-json |
+| tree-sitter-language | 0.1.9 | MIT | https://github.com/tree-sitter/tree-sitter |
+| tree-sitter-python | 0.25.0 | MIT | https://github.com/tree-sitter/tree-sitter-python |
+| tree-sitter-rust | 0.24.2 | MIT | https://github.com/tree-sitter/tree-sitter-rust |
+| tree-sitter-swift | 0.7.4 | MIT | https://github.com/alex-pinkus/tree-sitter-swift |
+| tree-sitter-toml-ng | 0.7.0 | MIT | https://github.com/tree-sitter-grammars/tree-sitter-toml |
+| tree-sitter-typescript | 0.23.2 | MIT | https://github.com/tree-sitter/tree-sitter-typescript |
+| tree-sitter-yaml | 0.7.2 | MIT | https://github.com/tree-sitter-grammars/tree-sitter-yaml |
 | try-lock | 0.2.5 | MIT | https://github.com/seanmonstar/try-lock |
 | tungstenite | 0.28.0 | MIT OR Apache-2.0 | https://github.com/snapview/tungstenite-rs |
 | typenum | 1.19.0 | MIT OR Apache-2.0 | https://github.com/paholg/typenum |
@@ -915,6 +950,7 @@ From `tugrust/Cargo.lock` — 239 packages.
 | uuid | 1.23.0 | Apache-2.0 OR MIT | https://github.com/uuid-rs/uuid |
 | walkdir | 2.5.0 | Unlicense/MIT | https://github.com/BurntSushi/walkdir |
 | want | 0.3.1 | MIT | https://github.com/seanmonstar/want |
+| web_atoms | 0.3.0 | MIT OR Apache-2.0 | https://github.com/servo/html5ever |
 | webpki-roots | 1.0.6 | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
 | winnow | 0.7.15 | MIT | https://github.com/winnow-rs/winnow |
 | writeable | 0.6.2 | Unicode-3.0 | https://github.com/unicode-org/icu4x |

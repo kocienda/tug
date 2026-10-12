@@ -41,13 +41,31 @@
  * that derived index, because the painter's comparison has to be against
  * the text the matches were actually counted from.
  *
+ * **Assistant text and thinking are searched by tugcast.** Those units are
+ * remote (`RowSegment.remote`): a search sends tugcast one request naming
+ * them in order, plus the mounted ones whose texts the painter will need,
+ * and merges tugcast's answer with the local search over every other unit
+ * in `(row, segment, start)` order. A literal search's matches come back
+ * whole; a grep search gets the units' texts and runs the page's own
+ * `RegExp` over them, because only the page can compile one. A unit tugcast
+ * holds nothing for, and every remote unit of an answer that never came, is
+ * projected here instead. The last answer's matches and texts are kept per
+ * unit, for the source they answered, so a heal re-searches synchronously
+ * without asking again, and a gesture lands when its answer arrives. A
+ * remote unit whose text is not held yet is published `pending`, so the
+ * painter compares it only once its text has come.
+ *
  * @module lib/transcript-find-engine
  */
 
+import type { FindResultFrame } from "@tugproto/rendered";
 import { Subscribable } from "./subscribable";
 import {
+  compileQuery,
+  DEFAULT_MATCH_LIMIT,
   searchSegments,
   type FindOptions,
+  type RemoteUnit,
   type RowSegment,
   type SegmentedFindMatch,
 } from "./transcript-search";
@@ -60,6 +78,39 @@ import {
 
 /** Debounce for search-on-type over the whole-transcript index. */
 const SEARCH_DEBOUNCE_MS = 100;
+
+/** One find question, as the remote side is asked it. */
+export interface RemoteFindRequest {
+  query: string;
+  options: FindOptions;
+  limit: number;
+  /** The remote units searched, in transcript order. */
+  units: string[];
+  /** The mounted remote units whose texts the answer should carry. */
+  mountedUnits: string[];
+}
+
+/** tugcast's find, as the session's store asks it. */
+export interface RemoteFind {
+  /** The answer, or `null` when none came in time. */
+  request(request: RemoteFindRequest): Promise<FindResultFrame | null>;
+}
+
+/** A match's span within one unit. */
+interface Span {
+  start: number;
+  end: number;
+}
+
+/** What a search asked, as one string: the options and the query. */
+function questionKey(query: string, options: FindOptions): string {
+  return `${options.caseSensitive ? 1 : 0}${options.wholeWord ? 1 : 0}${options.grep ? 1 : 0}:${query}`;
+}
+
+/** The remote unit a segment is, if it is one. */
+function remoteOf(segment: RowSegment): RemoteUnit | undefined {
+  return segment.kind === "dom" ? segment.remote : undefined;
+}
 
 /** What the transcript host paints from ([L02] snapshot). */
 export interface TranscriptFindEngineSnapshot {
@@ -95,7 +146,7 @@ export interface RowHeal {
  * dropped rather than held over text it never saw.
  */
 function projectionSignature(segments: readonly RowSegment[]): string {
-  return segments.map((s) => s.text).join(" ");
+  return segments.map((s) => remoteOf(s)?.source ?? s.text).join(" ");
 }
 
 /**
@@ -166,6 +217,18 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
   private query = "";
   private options: FindOptions = DEFAULT_FIND_OPTIONS;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** tugcast's find, when the host has one. */
+  private remote: RemoteFind | null = null;
+  /** The rows the list has mounted, as the host last reported them. */
+  private mountedRange: { firstIndex: number; lastIndex: number } | null = null;
+  /** Bumped by every request, so an answer to an older one is dropped. */
+  private requestSeq = 0;
+  /** A gesture whose search is waiting on its answer still owes its landing. */
+  private gestureInFlight = false;
+  /** Each remote unit's matches, for the source and question they answered. */
+  private readonly remoteMatches = new Map<string, { source: string; question: string; spans: Span[] }>();
+  /** Each remote unit's rendered text, for the source it was taken from. */
+  private readonly remoteTexts = new Map<string, { source: string; text: string }>();
   private state: TranscriptFindEngineSnapshot = {
     matches: [],
     activeIndex: -1,
@@ -213,10 +276,29 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
   clear(): void {
     this.cancelTimer();
     this.query = "";
+    this.requestSeq += 1;
+    this.gestureInFlight = false;
     this.apply([], -1);
   }
 
   // ── Host surface ─────────────────────────────────────────────────────────
+
+  /**
+   * Search the remote units through tugcast. With none (a test, a host with
+   * no session), every remote unit is projected here, as before.
+   */
+  setRemote(remote: RemoteFind | null): void {
+    this.remote = remote;
+  }
+
+  /**
+   * The rows the list has mounted. A mounted remote unit whose text the
+   * engine does not hold is asked for, so the painter can compare it.
+   */
+  setMountedRange(range: { firstIndex: number; lastIndex: number } | null): void {
+    this.mountedRange = range;
+    this.requestMountedTexts();
+  }
 
   /**
    * Replace the search index (the transcript changed / expansion toggled).
@@ -304,41 +386,211 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
     }
     this.timer = setTimeout(() => {
       this.timer = null;
-      const gesture = this.gesturePending;
+      const gesture = this.gesturePending || this.gestureInFlight;
       this.gesturePending = false;
-      const matches = searchSegments(
-        this.effectiveIndex as RowSegment[][],
-        this.query,
-        this.options,
-      );
-      let activeIndex: number;
-      if (matches.length === 0) {
-        activeIndex = -1;
-      } else if (gesture) {
-        // The user asked a new question; answer it where they are reading.
-        activeIndex = this.landingIndex(matches);
-      } else {
-        // Background: preserve the active match by identity when it survives
-        // the re-search, so a streaming transcript never steals the reader's
-        // place. Only when it does not survive is there a landing to choose,
-        // and then the anchor chooses it.
-        const prev = this.state.matches[this.state.activeIndex];
-        const preserved =
-          prev !== undefined
-            ? matches.findIndex(
-                (m) =>
-                  m.row === prev.row &&
-                  m.segment === prev.segment &&
-                  m.start === prev.start,
-              )
-            : -1;
-        activeIndex = preserved >= 0 ? preserved : this.landingIndex(matches);
+      const query = this.query;
+      const options = this.options;
+      const units = this.remoteUnitsIn(0, this.effectiveIndex.length - 1);
+      const remote = this.remote;
+      if (remote === null || units.length === 0 || compileQuery(query, options) === null) {
+        this.gestureInFlight = false;
+        this.settle(query, options, gesture);
+        return;
       }
-      this.apply(matches, activeIndex);
-      // The debounce settled after the session's synchronous read — tell
-      // it to re-publish the badge from the fresh results.
-      this.session?.refresh();
+      // The answer lands the gesture; a newer search that supersedes this one
+      // inherits it.
+      this.gestureInFlight = gesture;
+      const seq = ++this.requestSeq;
+      const mounted = this.mountedRemoteUnits();
+      void remote
+        .request({
+          query,
+          options,
+          limit: DEFAULT_MATCH_LIMIT,
+          units: units.map((u) => u.unit),
+          mountedUnits: mounted.map((u) => u.unit),
+        })
+        .then((answer) => {
+          if (seq !== this.requestSeq) return;
+          this.gestureInFlight = false;
+          this.takeAnswer(query, options, answer, [...units, ...mounted]);
+          this.recomputeEffectiveIndex();
+          this.settle(query, options, gesture);
+        });
     }, SEARCH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Publish the search of `query` over the effective index: a gesture lands
+   * at the anchor; a background re-search keeps the reader's match.
+   */
+  private settle(query: string, options: FindOptions, gesture: boolean): void {
+    const matches = this.searchAll(query, options);
+    let activeIndex: number;
+    if (matches.length === 0) {
+      activeIndex = -1;
+    } else if (gesture) {
+      // The user asked a new question; answer it where they are reading.
+      activeIndex = this.landingIndex(matches);
+    } else {
+      // Background: preserve the active match by identity when it survives
+      // the re-search, so a streaming transcript never steals the reader's
+      // place. Only when it does not survive is there a landing to choose,
+      // and then the anchor chooses it.
+      const prev = this.state.matches[this.state.activeIndex];
+      const preserved =
+        prev !== undefined
+          ? matches.findIndex(
+              (m) =>
+                m.row === prev.row &&
+                m.segment === prev.segment &&
+                m.start === prev.start,
+            )
+          : -1;
+      activeIndex = preserved >= 0 ? preserved : this.landingIndex(matches);
+    }
+    this.apply(matches, activeIndex, query, options);
+    // The search settled after the session's synchronous read — tell it to
+    // re-publish the badge from the fresh results.
+    this.session?.refresh();
+  }
+
+  /**
+   * Every match of `query`: the local search over every unit tugcast does not
+   * answer for, merged with the held matches of every remote unit, in
+   * `(row, segment, start)` order and capped as one search is. A remote unit
+   * with nothing held for this source and question is answered from its
+   * text, projected here when the engine holds none.
+   */
+  private searchAll(query: string, options: FindOptions): SegmentedFindMatch[] {
+    const rows = this.effectiveIndex;
+    const question = questionKey(query, options);
+    const local = searchSegments(
+      rows.map((segments) =>
+        segments.some((s) => remoteOf(s) !== undefined)
+          ? segments.map((s): RowSegment => (remoteOf(s) !== undefined ? { kind: "dom", text: "" } : s))
+          : segments,
+      ),
+      query,
+      options,
+    );
+    const remote: SegmentedFindMatch[] = [];
+    let projected = false;
+    for (let row = 0; row < rows.length; row++) {
+      const segments = rows[row];
+      for (let segment = 0; segment < segments.length; segment++) {
+        const unit = remoteOf(segments[segment]);
+        if (unit === undefined) continue;
+        let held = this.remoteMatches.get(unit.unit);
+        if (held === undefined || held.source !== unit.source || held.question !== question) {
+          const known = this.remoteTexts.get(unit.unit);
+          let text: string;
+          if (known !== undefined && known.source === unit.source) {
+            text = known.text;
+          } else {
+            text = unit.project();
+            this.remoteTexts.set(unit.unit, { source: unit.source, text });
+            projected = true;
+          }
+          const spans = searchSegments([[{ kind: "dom", text }]], query, options).map((m) => ({
+            start: m.start,
+            end: m.end,
+          }));
+          held = { source: unit.source, question, spans };
+          this.remoteMatches.set(unit.unit, held);
+        }
+        for (const span of held.spans) {
+          remote.push({ row, segment, start: span.start, end: span.end, segmentKind: "dom" });
+        }
+      }
+    }
+    if (projected) this.recomputeEffectiveIndex();
+    if (remote.length === 0) return local;
+    return [...local, ...remote]
+      .sort((a, b) => a.row - b.row || a.segment - b.segment || a.start - b.start)
+      .slice(0, DEFAULT_MATCH_LIMIT);
+  }
+
+  /**
+   * Keep what an answer says: texts for the units it carried, and literal
+   * matches for the units it searched. A unit it reports missing — and
+   * every unit of an answer that never came — keeps nothing, so the next
+   * search projects it here.
+   */
+  private takeAnswer(
+    query: string,
+    options: FindOptions,
+    answer: FindResultFrame | null,
+    asked: readonly RemoteUnit[],
+  ): void {
+    if (answer === null) return;
+    const sourceOf = new Map(asked.map((u) => [u.unit, u.source]));
+    for (const [unit, text] of Object.entries(answer.texts ?? {})) {
+      const source = sourceOf.get(unit);
+      if (source !== undefined) this.remoteTexts.set(unit, { source, text });
+    }
+    if (options.grep || answer.matches === undefined) return;
+    const missing = new Set(answer.missing);
+    const question = questionKey(query, options);
+    const spansOf = new Map<string, Span[]>();
+    for (const match of answer.matches) {
+      const spans = spansOf.get(match.unit) ?? [];
+      spans.push({ start: match.start, end: match.end });
+      spansOf.set(match.unit, spans);
+    }
+    for (const [unit, source] of sourceOf) {
+      if (missing.has(unit)) continue;
+      this.remoteMatches.set(unit, { source, question, spans: spansOf.get(unit) ?? [] });
+    }
+  }
+
+  /** The remote units of rows `first` through `last`, in order. */
+  private remoteUnitsIn(first: number, last: number): RemoteUnit[] {
+    const out: RemoteUnit[] = [];
+    const rows = this.effectiveIndex;
+    for (let row = Math.max(first, 0); row <= Math.min(last, rows.length - 1); row++) {
+      for (const segment of rows[row]) {
+        const unit = remoteOf(segment);
+        if (unit !== undefined) out.push(unit);
+      }
+    }
+    return out;
+  }
+
+  /** The mounted remote units whose text the engine does not hold for their source. */
+  private mountedRemoteUnits(): RemoteUnit[] {
+    const range = this.mountedRange;
+    if (range === null) return [];
+    return this.remoteUnitsIn(range.firstIndex, range.lastIndex).filter((u) => {
+      const known = this.remoteTexts.get(u.unit);
+      return known === undefined || known.source !== u.source;
+    });
+  }
+
+  /**
+   * Ask for the texts of mounted remote units the engine does not hold, so
+   * the painter can compare them. Only under a standing query: the painter
+   * runs only when there are matches to paint.
+   */
+  private requestMountedTexts(): void {
+    const remote = this.remote;
+    const { query, options } = this.state;
+    if (remote === null || query === "") return;
+    const mounted = this.mountedRemoteUnits();
+    if (mounted.length === 0) return;
+    void remote
+      .request({ query, options, limit: 0, units: [], mountedUnits: mounted.map((u) => u.unit) })
+      .then((answer) => {
+        this.takeAnswer(query, options, answer, mounted);
+        // A unit tugcast holds nothing for is projected here.
+        for (const unit of mounted) {
+          const known = this.remoteTexts.get(unit.unit);
+          if (known !== undefined && known.source === unit.source) continue;
+          this.remoteTexts.set(unit.unit, { source: unit.source, text: unit.project() });
+        }
+        this.recomputeEffectiveIndex();
+        this.apply(this.state.matches, this.state.activeIndex, this.state.query, this.state.options);
+      });
   }
 
   /**
@@ -398,14 +650,24 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
 
   /** Rebuild {@link effectiveIndex} from the raw index and the overlay. */
   private recomputeEffectiveIndex(): void {
-    if (this.overlay.size === 0) {
-      this.effectiveIndex = this.index;
-      return;
-    }
     const next: RowSegment[][] = this.index.slice();
     for (let row = 0; row < next.length; row++) {
-      const entry = this.overlay.get(this.rowIdOf(row));
-      if (entry !== undefined) next[row] = entry.healed;
+      const entry = this.overlay.size === 0 ? undefined : this.overlay.get(this.rowIdOf(row));
+      if (entry !== undefined) {
+        next[row] = entry.healed;
+        continue;
+      }
+      // A remote unit carries its text once the engine holds it for its
+      // source; until then it stays pending, a placeholder the painter skips.
+      const segments = next[row];
+      if (!segments.some((s) => remoteOf(s) !== undefined)) continue;
+      next[row] = segments.map((s) => {
+        const unit = remoteOf(s);
+        if (unit === undefined) return s;
+        const known = this.remoteTexts.get(unit.unit);
+        if (known === undefined || known.source !== unit.source) return s;
+        return { kind: "dom", text: known.text, remote: unit };
+      });
     }
     this.effectiveIndex = next;
   }
@@ -427,11 +689,7 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
   private researchNow(): void {
     const { query, options } = this.state;
     if (query === "") return;
-    const matches = searchSegments(
-      this.effectiveIndex as RowSegment[][],
-      query,
-      options,
-    );
+    const matches = this.searchAll(query, options);
     let activeIndex: number;
     if (matches.length === 0) {
       activeIndex = -1;

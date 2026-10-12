@@ -109,7 +109,12 @@ describe("IngestHost — the wire half", () => {
     channel.post({ kind: "connect" });
     const ws = FakeWebSocket.last!;
     handshake(ws);
-    const sent = ws.sent.filter((d): d is ArrayBuffer => typeof d !== "string").map((d) => decodeFrame(d));
+    // The handshake also tells tugcast's render bridge the period and asks
+    // for a resync on RENDER_INPUT; the subscription is the CONTROL frame.
+    const sent = ws.sent
+      .filter((d): d is ArrayBuffer => typeof d !== "string")
+      .map((d) => decodeFrame(d))
+      .filter((f) => f.feedId === FeedId.CONTROL);
     expect(sent.length).toBe(1);
     expect(JSON.parse(new TextDecoder().decode(sent[0]!.payload))).toEqual({
       action: "subscribe_feeds",

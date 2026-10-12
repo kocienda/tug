@@ -88,6 +88,8 @@ function routedMirror(): { target: SessionPatchTarget; stores: Map<string, Route
     effect: () => {},
     ack: () => {},
     routedFrame: (patch) => store(patch.payload.type).accept(patch.payload.feedId, patch.payload.decoded),
+    rendered: () => {},
+    findResult: () => {},
     endOfBatch: () => {},
   };
   return { target, stores };

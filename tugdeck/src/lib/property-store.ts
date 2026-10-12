@@ -310,6 +310,16 @@ export class PropertyStore {
   }
 
   /**
+   * Whether `path` can be read, written and observed: a path the schema
+   * declares, or any path at all when paths are dynamic. A reader that
+   * probes an optional sibling path asks this first, because every other
+   * method throws on a path the store does not know.
+   */
+  acceptsPath(path: string): boolean {
+    return this._dynamicPaths || this._descriptorByPath.has(path);
+  }
+
+  /**
    * Return the PropertySchema describing all available paths and their
    * types and constraints.
    *

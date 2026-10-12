@@ -20,7 +20,8 @@
 # one directory below `tugdeck/crates/`. Adding a new WASM crate
 # (e.g. for a future ANSI parser) requires zero edits here — drop
 # the crate next to its peers, ensure it's a member of
-# `tugdeck/crates/Cargo.toml`, and the next `just wasm` picks it up.
+# `tugdeck/crates/Cargo.toml` with `crate-type = ["cdylib", …]`, and the
+# next `just wasm` picks it up.
 #
 # ## Failure modes
 #
@@ -40,9 +41,16 @@ if [[ ! -x "$WASM_PACK" ]]; then
     exit 1
 fi
 
-# Discover every crate (a directory containing a Cargo.toml).
+# Discover every WASM crate: a directory whose Cargo.toml declares a
+# `cdylib`. A plain library member (`tugmark`, the core `tugmark-wasm`
+# wraps and tugcast links natively) has no `pkg/` to build.
 shopt -s nullglob
-crate_manifests=("$CRATES_DIR"/*/Cargo.toml)
+crate_manifests=()
+for manifest in "$CRATES_DIR"/*/Cargo.toml; do
+    if grep -q '"cdylib"' "$manifest"; then
+        crate_manifests+=("$manifest")
+    fi
+done
 shopt -u nullglob
 
 if (( ${#crate_manifests[@]} == 0 )); then

@@ -116,9 +116,12 @@ import type {
 } from "./lib/code-session-store";
 import { clearMarks } from "./lib/perf-marks";
 import {
+  snapshotParsesByIdentity,
   snapshotRowParseCounters,
   type RowParseCountersSnapshot,
 } from "./lib/markdown/parse-counters";
+import { renderIncremental } from "./lib/markdown/render-incremental";
+import { isRenderedPending, isRenderedRecord } from "./lib/ingest/rendered-merge";
 import {
   annotateCounters,
   type AnnotateCountersSnapshot,
@@ -451,19 +454,48 @@ import {
  * card's store one message hop later; the harness's `driveSession` waits on
  * this after every drive, so no test sees the hop. Additive; major stays `2`.
  *
+ * `2.32.0`: adds {@link TugTestSurface.rowParsesByIdentity}, the per-row
+ * parse counts beside every bound session's in-flight `turnKey`, so a reading
+ * can split the parses a window paid into live-turn rows and the rest.
+ * Additive; major stays `2`.
+ *
  * `2.31.0`: adds {@link TugTestSurface.overviewPosts}. The Overview column is
  * windowed, so the posts in its DOM are the ones near the scrollport, not the
  * ones it holds; a test that means "the column holds N posts" or "the column
  * leads with this post" reads the store through this. Additive; major stays
  * `2`.
+ *
+ * `2.33.0`: adds {@link TugTestSurface.renderedRows}: each committed
+ * assistant-text Message of a card, with its source text, the state its
+ * `.rendered` path holds, and what the page's own parse makes of that text
+ * (block hashes and text). A test compares a row drawn from tugcast's render
+ * with the page's parse of the same text through this. Additive; major stays
+ * `2`.
  */
-export const SURFACE_VERSION = "2.31.0" as const;
+export const SURFACE_VERSION = "2.33.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
  * {@link TugTestSurface.takeListRevealOutcome}.
  */
 const listRevealOutcomes: string[] = [];
+
+/** One committed assistant-text Message, as {@link TugTestSurface.renderedRows} reports it. */
+export interface RenderedRowFacts {
+  turnKey: string;
+  messageKey: string;
+  /** The Message's source text. */
+  text: string;
+  /** The state its `.rendered` path holds. */
+  rendered: "absent" | "pending" | "null" | "record";
+  /** A record's facts; `null` for any other state. */
+  streaming: boolean | null;
+  current: boolean | null;
+  /** The page's own parse of `text`: each block's `data-content-hash`. */
+  pageHashes: string[];
+  /** The page's own parse of `text`: its rendered text. */
+  pageText: string;
+}
 
 /**
  * A {@link TugTestSurface.dictionaryLookupProbe} reading: the payload Look Up
@@ -1177,6 +1209,27 @@ export interface TugTestSurface {
    * is active.
    */
   overviewPosts(): Array<{ key: string; body: string }> | null;
+
+  /**
+   * The app-global row-parse count per identity since the last reset, and
+   * the `turnKey` of every bound session's in-flight turn (SURFACE_VERSION
+   * 2.32.0). An identity is a live-turn row when it starts with
+   * `turn.${turnKey}.` for one of those keys; a reading takes this at both
+   * ends of a window and diffs the counts.
+   */
+  rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] };
+
+  /**
+   * Each committed assistant-text Message of `cardId`'s session, in
+   * transcript order (SURFACE_VERSION 2.33.0): its keys, its source text,
+   * the state of its `.rendered` path (`absent`, `pending`, `null` or
+   * `record`, with the record's `streaming` and `current`), and the page's
+   * own parse of the same text rendered into a detached element — its
+   * blocks' `data-content-hash` values and its text, read after the async
+   * enhancers (math) have had a moment to run. `null` for a card with no
+   * bound session. The parse is not counted as a row parse.
+   */
+  renderedRows(cardId: string): Promise<RenderedRowFacts[] | null>;
 
   /**
    * Deliver a `session_updated` ledger row as if it had arrived over the wire
@@ -2644,6 +2697,53 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       const store = getOverviewStore();
       if (store === null) return null;
       return store.getSnapshot().posts.map((p) => ({ key: p.key, body: p.body }));
+    },
+
+    rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] } {
+      const liveTurnKeys: string[] = [];
+      cardServicesStore.forEachCodeSessionStore((store) => {
+        const turnKey = store.getSnapshot().activeTurn?.turnKey;
+        if (turnKey !== undefined) liveTurnKeys.push(turnKey);
+      });
+      return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
+    },
+
+    async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const store = services.codeSessionStore;
+      const doc = store.streamingDocument;
+      const rows: (RenderedRowFacts & { el: HTMLElement })[] = [];
+      for (const turn of store.getSnapshot().transcript) {
+        for (const m of turn.messages) {
+          if (m.kind !== "assistant_text") continue;
+          const base = `turn.${turn.turnKey}.message.${m.messageKey}`;
+          const written = doc.get(`${base}.text`);
+          const text = typeof written === "string" ? written : m.text;
+          const state = doc.get(`${base}.rendered`);
+          const el = document.createElement("div");
+          renderIncremental(el, text);
+          rows.push({
+            turnKey: turn.turnKey,
+            messageKey: m.messageKey,
+            text,
+            rendered:
+              state === undefined ? "absent" : state === null ? "null" : isRenderedPending(state) ? "pending" : "record",
+            streaming: isRenderedRecord(state) ? state.streaming : null,
+            current: isRenderedRecord(state) ? state.current : null,
+            pageHashes: [],
+            pageText: "",
+            el,
+          });
+        }
+      }
+      // Math typesets asynchronously, in the live row and here alike.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return rows.map(({ el, ...row }) => ({
+        ...row,
+        pageHashes: Array.from(el.children).map((c) => c.getAttribute("data-content-hash") ?? ""),
+        pageText: el.textContent ?? "",
+      }));
     },
 
     copySessionAtom(sessionId: string): boolean {

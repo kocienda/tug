@@ -56,8 +56,14 @@ function readLanguage(codeEl: HTMLElement): string | null {
  * Walk `container` for `<pre>` elements emitted by pulldown-cmark and
  * wrap each one with the shared block chrome (sticky header with the
  * language label + a Copy button + a fold cue). Idempotent.
+ *
+ * A `<code>` tugcast already highlighted (stamped `data-tug-highlighted`)
+ * keeps its spans. Any other fence in a known language is highlighted here:
+ * at once by default, or, with `options.fenceHighlight` set to
+ * `"idle-unless-streaming"` (a row drawn from tugcast's render), from an idle
+ * callback and only once the row has stopped streaming.
  */
-export function enhanceFencedCode(container: HTMLElement): void {
+export function enhanceFencedCode(container: HTMLElement, options?: FenceHighlightOptions): void {
   const preEls = container.querySelectorAll("pre");
   for (const pre of preEls) {
     // Already enhanced — skip. The wrapper `.tugx-md-fenced-code` is
@@ -100,12 +106,69 @@ export function enhanceFencedCode(container: HTMLElement): void {
     wrapper.appendChild(header);
     wrapper.appendChild(pre);
 
-    // Lezer syntax coloring — the same grammar + `--tug-syntax-*`
-    // classes the Text card editor uses. Fire-and-forget: the grammar
-    // chunk lazy-loads, so we patch the `<code>` on resolve (see
-    // `highlightFencedCode` for the prune/re-render guard).
-    if (lang !== null && codeEl !== null) highlightFencedCode(codeEl, lang);
+    // Lezer syntax coloring — the same grammar the Text card editor uses,
+    // in the `tug-syn-*` classes tugcast's highlighter shares. Fire-and-
+    // forget: the grammar chunk lazy-loads, so we patch the `<code>` on
+    // resolve (see `highlightFencedCode` for the prune/re-render guard).
+    if (lang !== null && codeEl !== null) highlightFence(codeEl, lang, options);
   }
+}
+
+/** How {@link enhanceFencedCode} highlights a fence tugcast did not. */
+export interface FenceHighlightOptions {
+  /** `"now"`: highlight at once. `"idle-unless-streaming"`: from an idle
+   *  callback, and not while `isStreaming()` says the row is live. */
+  fenceHighlight: "now" | "idle-unless-streaming";
+  /** Whether the fence's row is still streaming, read when the idle
+   *  callback runs. */
+  isStreaming: () => boolean;
+}
+
+/** Marks a fence an idle pass held back because its row was streaming. */
+const PENDING_ATTR = "data-tug-highlight-pending";
+
+function highlightFence(codeEl: HTMLElement, lang: string, options: FenceHighlightOptions | undefined): void {
+  if (codeEl.hasAttribute("data-tug-highlighted")) return;
+  if (options === undefined || options.fenceHighlight === "now") {
+    highlightFencedCode(codeEl, lang);
+    return;
+  }
+  codeEl.setAttribute(PENDING_ATTR, "");
+  scheduleHighlightWhenSettled(codeEl, lang, options.isStreaming);
+}
+
+/**
+ * Schedule, for an idle moment, every fence in `container` an idle pass held
+ * back because its row was streaming. A row drawn from tugcast's render calls
+ * this when its record settles: a block whose hash did not change is never
+ * rebuilt, so nothing else would revisit its fence.
+ */
+export function highlightPendingFences(container: HTMLElement, isStreaming: () => boolean): void {
+  for (const codeEl of container.querySelectorAll<HTMLElement>(`code[${PENDING_ATTR}]`)) {
+    const lang = readLanguage(codeEl);
+    if (lang !== null) scheduleHighlightWhenSettled(codeEl, lang, isStreaming);
+  }
+}
+
+function scheduleHighlightWhenSettled(codeEl: HTMLElement, lang: string, isStreaming: () => boolean): void {
+  const source = codeEl.textContent ?? "";
+  whenIdle(() => {
+    if (!codeEl.hasAttribute(PENDING_ATTR)) return;
+    if (!codeEl.isConnected || codeEl.textContent !== source) return;
+    // Still live: stay pending; the row's settle schedules it again.
+    if (isStreaming()) return;
+    codeEl.removeAttribute(PENDING_ATTR);
+    highlightFencedCode(codeEl, lang);
+  });
+}
+
+/** `requestIdleCallback` where the engine has it, else the next macrotask. */
+function whenIdle(run: () => void): void {
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(() => run());
+    return;
+  }
+  setTimeout(run, 0);
 }
 
 /**

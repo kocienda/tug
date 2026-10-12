@@ -64,6 +64,15 @@ export function parsesForIdentity(identity: string): number {
   return parsesByIdentity.get(identity) ?? 0;
 }
 
+/**
+ * Every identity's parse count since the last reset, as a plain record —
+ * what a reading diffs across a window to split the parses by whose row
+ * they were (a live turn's `turn.${turnKey}.…` path, or anything else).
+ */
+export function snapshotParsesByIdentity(): Record<string, number> {
+  return Object.fromEntries(parsesByIdentity);
+}
+
 /** Point-in-time snapshot of all counters. */
 export function snapshotRowParseCounters(): RowParseCountersSnapshot {
   let max = 0;

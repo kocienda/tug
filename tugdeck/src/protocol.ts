@@ -72,6 +72,10 @@ export const FeedId = {
   USAGE_QUERY: 0x91,
   // Jots (reusable prompt fragments: whole-document push)
   JOTS: 0xa0,
+  // Rendered markdown (tugcast's native render of streamed text and find
+  // answers down; motion hold, display period, resync and find queries up)
+  RENDERED: 0xb0,
+  RENDER_INPUT: 0xb1,
   // Router-internal
   CONTROL: 0xc0,
   HEARTBEAT: 0xff,

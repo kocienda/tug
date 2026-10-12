@@ -1,0 +1,55 @@
+{
+  "frames": [
+    {
+      "kind": "render-batch",
+      "sessions": [
+        {
+          "tugSessionId": "s1",
+          "messages": [
+            {
+              "messageKey": "m1:0",
+              "channel": "text",
+              "blocks": [
+                { "hash": "12638187200555641996", "kind": "heading", "startChar": 0, "endChar": 9, "depth": 2, "itemCount": 0, "rowCount": 0 },
+                { "hash": "9113197264227342466", "kind": "paragraph", "startChar": 9, "endChar": 21, "depth": 0, "itemCount": 0, "rowCount": 0 }
+              ],
+              "html": { "9113197264227342466": "<p>Body text.</p>\n" },
+              "textLength": 21,
+              "textHash": "18446744073709551557"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "find-result",
+      "requestId": "r1",
+      "tugSessionId": "s1",
+      "matches": [{ "unit": "u1", "start": 3, "end": 7 }],
+      "texts": { "u1": "the text" },
+      "missing": ["u2"]
+    },
+    {
+      "kind": "find-result",
+      "requestId": "r2",
+      "tugSessionId": "s1",
+      "invalid": true,
+      "missing": []
+    }
+  ],
+  "inputs": [
+    { "kind": "motion", "holder": "h1", "held": true, "capMs": 600 },
+    { "kind": "display-period", "periodMs": 8.33 },
+    { "kind": "resync", "tugSessionId": "s1" },
+    {
+      "kind": "find",
+      "requestId": "r1",
+      "tugSessionId": "s1",
+      "query": "text",
+      "options": { "caseSensitive": false, "wholeWord": true, "grep": false },
+      "limit": 500,
+      "units": ["u1", "u2"],
+      "mountedUnits": ["u1"]
+    }
+  ]
+}

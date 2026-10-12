@@ -462,6 +462,20 @@ pub(crate) async fn supervisor(
     // from this deque, so the supervisor holds the same handle the bridge fills.
     supervisor.set_digester(digester.clone());
 
+    // RENDERED — tugcast's native markdown renders. The bridge taps the same
+    // CODE_OUTPUT frames for assistant text and thinking prose, renders what
+    // changed off the async workers, paces the flush to the deck's display
+    // period and holds it while the deck's motion is open. It taps
+    // SESSION_STATE so a closed session's text is dropped, and reads the
+    // deck's controls from RENDER_INPUT, whose sink is registered below.
+    let (render_input_tx, render_input_rx) = mpsc::channel::<Frame>(64);
+    let render_bridge =
+        feeds::render_bridge::RenderBridge::new(feeds::render_bridge::RenderBridgeConfig {
+            code_tx: code_output_feed.sender(),
+            session_state_tx: session_state_feed.sender(),
+            input_rx: render_input_rx,
+        });
+
     let supervisor = Arc::new(supervisor);
 
     // Rebind persisted ledger rows. Per [F15] this only populates the
@@ -563,6 +577,9 @@ pub(crate) async fn supervisor(
     // a reconnecting deck needs comes from the `list_digest_lines`
     // CONTROL read, not feed replay ([P09]).
     feed_router.register_stream_feed(Box::new(digest_bridge), cancel.clone());
+    // RENDERED batches fan out to every connected deck; a reconnecting deck
+    // asks for the HTML it lacks with a `resync` control, not feed replay.
+    feed_router.register_stream_feed(Box::new(render_bridge), cancel.clone());
     // OVERVIEW posts fan out to every connected deck; the tail a reconnecting
     // deck needs comes from the `list_overview_posts` CONTROL read. This call's
     // return value is the only source of the OVERVIEW sender, so the Operator
@@ -681,6 +698,7 @@ pub(crate) async fn supervisor(
     feed_router.register_input(FeedId::GIT_COMMIT_FILES_QUERY, gcf_input_tx);
     feed_router.register_input(FeedId::USAGE_QUERY, usage_input_tx);
     feed_router.register_input(FeedId::OVERVIEW_INPUT, gz_input_tx);
+    feed_router.register_input(FeedId::RENDER_INPUT, render_input_tx);
 
     // Attach the supervisor to the router so `handle_client` can intercept
     // session-lifecycle CONTROL frames and cross-check CODE_INPUT P5

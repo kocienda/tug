@@ -64,7 +64,7 @@
 import { annotateContent } from "@/lib/annotator/annotate-content";
 import type { AnnotationContext } from "@/lib/annotator/types";
 import { DEFAULT_BLOCK_TRANSFORMERS } from "./block-transformers";
-import { enhanceFencedCode } from "./enhance-fenced-code";
+import { enhanceFencedCode, type FenceHighlightOptions } from "./enhance-fenced-code";
 import { enhanceImg } from "./enhance-img";
 import { enhanceMath } from "./enhance-math";
 import { enhanceMermaid } from "./enhance-mermaid";
@@ -200,13 +200,14 @@ const BLOCK_CLASS = "tugx-md-block";
 function buildBlockElement(
   block: SanitizedMarkdownBlock,
   annotation?: AnnotationContext,
+  fence?: FenceHighlightOptions,
 ): HTMLDivElement {
   const el = document.createElement("div");
   el.className = BLOCK_CLASS;
   el.dataset.blockType = block.type;
   el.dataset.contentHash = block.contentHash.toString();
   el.innerHTML = block.html;
-  enhanceFencedCode(el);
+  enhanceFencedCode(el, fence);
   enhanceImg(el);
   annotateContent(el, annotation);
   enhanceTable(el);
@@ -219,11 +220,12 @@ function updateBlockElement(
   el: HTMLElement,
   block: SanitizedMarkdownBlock,
   annotation?: AnnotationContext,
+  fence?: FenceHighlightOptions,
 ): void {
   el.dataset.blockType = block.type;
   el.dataset.contentHash = block.contentHash.toString();
   el.innerHTML = block.html;
-  enhanceFencedCode(el);
+  enhanceFencedCode(el, fence);
   enhanceImg(el);
   annotateContent(el, annotation);
   enhanceTable(el);
@@ -320,11 +322,15 @@ export function renderIncremental(
  * An empty `blocks` array clears the container (the parse of
  * non-empty text never yields zero blocks, but a defensive caller
  * gets the same semantics `renderIncremental` gives empty text).
+ *
+ * `fence` says how a fence tugcast did not highlight is highlighted; a
+ * row drawn from tugcast's render passes `"idle-unless-streaming"`.
  */
 export function renderIncrementalFromBlocks(
   container: HTMLElement,
   blocks: ReadonlyArray<SanitizedMarkdownBlock>,
   annotation?: AnnotationContext,
+  fence?: FenceHighlightOptions,
 ): RenderResult {
   // Snapshot existing children once. The reconciler's contract is
   // that it owns every child of `container` (no foreign nodes); the
@@ -360,10 +366,10 @@ export function renderIncrementalFromBlocks(
     if (child === undefined) {
       // Defensive: state and DOM disagreed (unexpected). Treat the
       // missing slot as an append so the new content still lands.
-      container.appendChild(buildBlockElement(blocks[i], annotation));
+      container.appendChild(buildBlockElement(blocks[i], annotation, fence));
       continue;
     }
-    updateBlockElement(child, blocks[i], annotation);
+    updateBlockElement(child, blocks[i], annotation, fence);
   }
 
   // Phase 2 — append new wrappers beyond the previous length.
@@ -372,7 +378,7 @@ export function renderIncrementalFromBlocks(
     i < prevHashes.length + plan.appendCount;
     i += 1
   ) {
-    container.appendChild(buildBlockElement(blocks[i], annotation));
+    container.appendChild(buildBlockElement(blocks[i], annotation, fence));
   }
 
   // Phase 3 — remove trailing wrappers past the new length. Walked

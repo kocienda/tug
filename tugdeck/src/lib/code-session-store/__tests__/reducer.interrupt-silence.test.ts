@@ -36,6 +36,7 @@ import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-sto
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 import { FeedId } from "@/protocol";
 import { interruptSilenceEffect } from "@/lib/code-session-store/reducer";
+import { RENDER_FINISHER_MS } from "@/lib/code-session-store/session-engine";
 import { deriveInflightActiveMs } from "@/lib/code-session-store/telemetry";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
@@ -96,10 +97,16 @@ class FakeTimers {
    * is what this reads: `pendingDue(INTERRUPT_SILENCE_DEADLINE_MS)` is the
    * interrupt deadline and nothing else, because every other timer this
    * store arms is an order of magnitude further out.
+   *
+   * The one exception is nearer, not further: the engine's render finisher
+   * ({@link RENDER_FINISHER_MS}), armed when a live text Message mints. It
+   * is excluded by its own bound, so the count is still the interrupt
+   * deadline alone.
    */
   pendingDue(ms: number): number {
-    return this.entries.filter((e) => !e.cleared && e.fireAt <= this.now + ms)
-      .length;
+    return this.entries.filter(
+      (e) => !e.cleared && e.fireAt > this.now + RENDER_FINISHER_MS && e.fireAt <= this.now + ms,
+    ).length;
   }
 }
 

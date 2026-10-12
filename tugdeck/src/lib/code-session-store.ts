@@ -74,6 +74,7 @@ import {
   clearCachedParses,
   invalidateCachedParsesByPrefix,
 } from "./markdown/parse-cache";
+import { isRenderedRecord, mergeRenderedMessage } from "./ingest/rendered-merge";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { installDevLogSink } from "./dev-log-port";
 import { pathResolutionStore } from "./annotator/path-resolution";
@@ -87,9 +88,11 @@ import {
 } from "./session-state-changes-local-events";
 import {
   openInProcessSession,
+  type SessionFindRequest,
   type SessionLink,
   type SessionOpener,
 } from "./ingest/session-link";
+import type { FindResultFrame } from "@tugproto/rendered";
 import type { FlushPolicyFactory } from "./ingest/ingest-host";
 import {
   applyTranscriptSplices,
@@ -163,6 +166,12 @@ installDevLogSink({
 });
 
 const STREAM_SOURCE_TAG = "code-session-store";
+
+/**
+ * How long a find waits on tugcast's answer before its units are projected on
+ * the page instead.
+ */
+export const FIND_FINISHER_MS = 1500;
 
 /** The engine's perf records, as of its last post. */
 interface MirrorPerf {
@@ -319,6 +328,8 @@ export class CodeSessionStore extends Subscribable {
     effect: (patch) => this.applyEffect(patch),
     ack: (patch) => this.applyAck(patch),
     routedFrame: (patch) => this.routedFrames(patch.payload.type).accept(patch.payload.feedId, patch.payload.decoded),
+    rendered: (patch) => this.applyRendered(patch),
+    findResult: (patch) => this.applyFindResult(patch),
     endOfBatch: () => this.endOfBatch(),
   };
 
@@ -360,6 +371,13 @@ export class CodeSessionStore extends Subscribable {
    */
   private _lastSentUserMessage: unknown = null;
   private _disposed = false;
+  /** The last find request's number, for minting the next id. */
+  private _findSeq = 0;
+  /** Each find waiting on tugcast, by request id. */
+  private readonly _pendingFinds = new Map<
+    string,
+    { resolve: (answer: FindResultFrame | null) => void; timer: ReturnType<typeof setTimeout> }
+  >();
   /** Set by {@link holdSendsForHandOver}; every later send queues. */
   private _sendsHeldForHandOver = false;
   /** Set by `bindEditorView`; outside `state`, so it notifies nobody. */
@@ -383,6 +401,12 @@ export class CodeSessionStore extends Subscribable {
   private _ackedSeq = 0;
   /** The highest sequence number this store has posted. */
   private _postedSeq = 0;
+  /**
+   * The seq of a `bind_resume_acknowledged` the engine has not acknowledged
+   * yet, while the page holds the preflight beat it opens; 0 when none is
+   * outstanding. See {@link notifyResumeBindingLanded}.
+   */
+  private _preflightBridgeSeq = 0;
   /** Readers waiting on an acknowledgment, each with the seq it waits for. */
   private _settleWaiters: Array<{ seq: number; resolve: () => void }> = [];
   /**
@@ -791,7 +815,7 @@ export class CodeSessionStore extends Subscribable {
       loadingPreviousLoaded: this.state.replayPrependActive
         ? this._prependStagingCount
         : 0,
-      replayPreflightActive: this.state.replayPreflightActive,
+      replayPreflightActive: this.state.replayPreflightActive || this._preflightBridgeSeq !== 0,
       replaySoftBudgetElapsed: this.state.replaySoftBudgetElapsed,
       replayTimeoutDwellActive: this.state.replayTimeoutDwellActive,
       // Per-turn pause-axis projections for the live-clock
@@ -1071,6 +1095,22 @@ export class CodeSessionStore extends Subscribable {
   notifyResumeBindingLanded(): void {
     if (this._disposed) return;
     this.dispatch({ type: "bind_resume_acknowledged" });
+    // The engine reduces this on its own thread, and its beat comes back a
+    // batch later, after the card body has already mounted an empty list
+    // with nothing saying it is restoring. So the page raises the beat now,
+    // under the reducer's own guard, and holds it until the engine
+    // acknowledges the action, by when the engine's snapshot carries the
+    // beat or its end. An engine on this thread has already answered.
+    if (
+      this._ackedSeq < this._postedSeq &&
+      !this.state.replayPreflightActive &&
+      this.state.phase === "idle" &&
+      this.state.transportState === "online"
+    ) {
+      this._preflightBridgeSeq = this._postedSeq;
+      this._cachedSnapshot = null;
+      this.notify();
+    }
   }
 
   /**
@@ -1811,6 +1851,11 @@ export class CodeSessionStore extends Subscribable {
     // Nobody waits on an engine that is gone.
     this._ackedSeq = this._postedSeq;
     this.releaseSettleWaiters();
+    for (const { resolve, timer } of this._pendingFinds.values()) {
+      clearTimeout(timer);
+      resolve(null);
+    }
+    this._pendingFinds.clear();
     for (const unsub of this._lifecycleUnsubs) {
       unsub();
     }
@@ -1975,6 +2020,7 @@ export class CodeSessionStore extends Subscribable {
    * Drop the render-once parse entries of every turn the splices removed —
    * an eviction by the transcript cap, or a rewind's truncation. A turn
    * replaced by a newer version of itself keeps its key, and its entries.
+   * The same turns' rendered records are released with them.
    */
   private dropRemovedTurnParses(
     before: ReadonlyArray<TurnEntry>,
@@ -1985,6 +2031,13 @@ export class CodeSessionStore extends Subscribable {
     for (const turn of before) {
       if (!surviving.has(turn.turnKey)) {
         invalidateCachedParsesByPrefix(this.streamingDocument, `turn.${turn.turnKey}.`);
+        // The `PropertyStore` has no delete; a record's HTML is released by
+        // writing `null` over it, as the parse entry is released above.
+        for (const message of turn.messages) {
+          if (message.kind !== "assistant_text" && message.kind !== "assistant_thinking") continue;
+          const path = `turn.${turn.turnKey}.message.${message.messageKey}.rendered`;
+          if (this.streamingDocument.get(path) != null) this.streamingDocument.set(path, null, STREAM_SOURCE_TAG);
+        }
       }
     }
   }
@@ -2066,7 +2119,64 @@ export class CodeSessionStore extends Subscribable {
 
   private applyAck(patch: SessionPatchOf<"ack">): void {
     this._ackedSeq = Math.max(this._ackedSeq, patch.payload.seq);
+    if (this._preflightBridgeSeq !== 0 && this._ackedSeq >= this._preflightBridgeSeq) {
+      this._preflightBridgeSeq = 0;
+      this._cachedSnapshot = null;
+      this._notifyPending = true;
+    }
     this.releaseSettleWaiters();
+  }
+
+  /**
+   * Ask tugcast to answer a find over this session's rendered text: the
+   * assistant-text and thinking units it names, in order. Resolves with the
+   * answer, or with `null` when none arrives within
+   * {@link FIND_FINISHER_MS} or the store is gone, in which case the caller
+   * projects those units itself.
+   */
+  requestFind(request: Omit<SessionFindRequest, "requestId">): Promise<FindResultFrame | null> {
+    if (this._disposed) return Promise.resolve(null);
+    this._findSeq += 1;
+    const requestId = `${this._link.handle}:find:${this._findSeq}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this._pendingFinds.delete(requestId);
+        resolve(null);
+      }, FIND_FINISHER_MS);
+      this._pendingFinds.set(requestId, { resolve, timer });
+      this._link.find({ ...request, requestId });
+    });
+  }
+
+  /** tugcast's answer to a find this store asked; a late or unknown one is dropped. */
+  private applyFindResult(patch: SessionPatchOf<"find-result">): void {
+    const pending = this._pendingFinds.get(patch.payload.requestId);
+    if (pending === undefined) return;
+    this._pendingFinds.delete(patch.payload.requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(patch.payload);
+  }
+
+  /**
+   * tugcast's renders: each Message's `.rendered` path, beside its `.text`.
+   * A record merges into the record the path holds, so only new HTML crossed
+   * from the Worker; a pending or `null` state replaces it ([P06]).
+   */
+  private applyRendered(patch: SessionPatchOf<"rendered-blocks">): void {
+    for (const { turnKey, messageKey, state } of patch.payload.messages) {
+      const path = `turn.${turnKey}.message.${messageKey}.rendered`;
+      if (isRenderedRecord(state)) {
+        const held = this.streamingDocument.get(path);
+        const earlier = isRenderedRecord(held) ? held.message : null;
+        this.streamingDocument.set(
+          path,
+          { ...state, message: mergeRenderedMessage(earlier, state.message) },
+          STREAM_SOURCE_TAG,
+        );
+      } else {
+        this.streamingDocument.set(path, state, STREAM_SOURCE_TAG);
+      }
+    }
   }
 
   /**

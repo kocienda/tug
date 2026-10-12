@@ -184,6 +184,15 @@ impl FeedId {
     /// document plus its content hash, republished on every file change.
     pub const JOTS: Self = Self(0xA0);
 
+    // -- Rendered markdown (tugcast's native render of streamed text) --
+    /// Rendered blocks (tugcast → tugdeck): one JSON frame per tick bundling
+    /// every session's changed messages, and the answers to find queries.
+    /// Not session-scoped.
+    pub const RENDERED: Self = Self(0xB0);
+    /// Render controls (tugdeck → tugcast): the motion hold, the display
+    /// period, resync requests and find queries.
+    pub const RENDER_INPUT: Self = Self(0xB1);
+
     // -- Router-internal --
     /// Control commands (tugdeck → tugcast, tugcast → tugdeck)
     pub const CONTROL: Self = Self(0xC0);
@@ -230,6 +239,8 @@ impl FeedId {
             Self::USAGE => Some("Usage"),
             Self::USAGE_QUERY => Some("UsageQuery"),
             Self::JOTS => Some("Jots"),
+            Self::RENDERED => Some("Rendered"),
+            Self::RENDER_INPUT => Some("RenderInput"),
             Self::SHELL_OUTPUT => Some("ShellOutput"),
             Self::SHELL_INPUT => Some("ShellInput"),
             Self::REFS_OUTPUT => Some("RefsOutput"),
@@ -550,6 +561,10 @@ mod tests {
         assert_eq!(FeedId::OVERVIEW_INPUT.as_byte(), 0x71);
         assert_eq!(FeedId::OVERVIEW.name(), Some("Overview"));
         assert_eq!(FeedId::OVERVIEW_INPUT.name(), Some("OverviewInput"));
+        assert_eq!(FeedId::RENDERED.as_byte(), 0xB0);
+        assert_eq!(FeedId::RENDER_INPUT.as_byte(), 0xB1);
+        assert_eq!(FeedId::RENDERED.name(), Some("Rendered"));
+        assert_eq!(FeedId::RENDER_INPUT.name(), Some("RenderInput"));
         assert_eq!(FeedId::CONTROL.as_byte(), 0xC0);
         assert_eq!(FeedId::HEARTBEAT.as_byte(), 0xFF);
     }
@@ -569,7 +584,7 @@ mod tests {
 
     /// The size both tables must agree on, so a scanner that silently matches
     /// nothing cannot pass vacuously.
-    const FEED_TABLE_LEN: usize = 40;
+    const FEED_TABLE_LEN: usize = 42;
 
     /// A screaming-snake identifier, and nothing else.
     fn is_feed_constant_name(name: &str) -> bool {

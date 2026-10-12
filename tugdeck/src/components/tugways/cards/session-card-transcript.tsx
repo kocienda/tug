@@ -2901,6 +2901,12 @@ export const SessionTranscriptHost = forwardRef<
       findEngine.dispose();
     };
   }, [findSession, findEngine]);
+  // Assistant text and thinking are searched by tugcast, through this
+  // session's store; every other unit the engine searches itself.
+  useLayoutEffect(() => {
+    findEngine.setRemote({ request: (request) => codeSessionStore.requestFind(request) });
+    return () => findEngine.setRemote(null);
+  }, [findEngine, codeSessionStore]);
   // A layout effect, so the index the opening render built is the engine's
   // before the query the bar replays on mount can be searched: the search
   // runs on a timer, which a passive effect is not ordered ahead of.
@@ -3280,6 +3286,9 @@ export const SessionTranscriptHost = forwardRef<
     // comparison sweeps exactly the mounted rows, and the effect above
     // paints from a range it never receives itself.
     findRenderedRangeRef.current = range;
+    // A mounted unit tugcast answers for needs its text before the painter
+    // can compare it; the engine asks for any it does not hold.
+    findEngine.setMountedRange(range);
     const highlighter = findHighlighterRef.current;
     if (highlighter === null) return;
     const { query } = findSession.getSnapshot();

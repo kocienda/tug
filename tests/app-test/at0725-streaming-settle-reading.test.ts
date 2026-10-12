@@ -27,10 +27,10 @@
  *
  * What it asserts is that the arm runs end to end: every reading taken, each
  * under three streams, with the samplers' phases beside them, and the wire
- * sealed inside every motion. The other numbers are noted, not barred — this
- * is the baseline the arc's fixes are read against, and its record is the
- * program brief's
- * (`briefs/main-thread-headroom-program-brief.md`).
+ * sealed inside every motion, and no row of a turn in flight parsed at rest:
+ * the streamed rows draw from tugcast's renders. The other numbers are noted,
+ * not barred — this is the baseline the arc's fixes are read against, and its
+ * record is the program brief's (`briefs/main-thread-headroom-program-brief.md`).
  *
  * The verb is the bundle's own `tugtool`, built from this tree with the app.
  *
@@ -43,6 +43,7 @@
  * @covers tugdeck/src/lib/ingest/session-link.ts
  * @covers tugdeck/src/lib/ingest/session-patch.ts
  * @covers tugdeck/src/lib/ingest/ingest-host.ts
+ * @covers tugdeck/src/lib/markdown/parse-counters.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -158,18 +159,23 @@ const CENSUS_CAP = 400;
  * slice that reaches the cap is reported as capped rather than read short.
  * Over the same window it reads `window.__tugIngest`, the page's always-on
  * count of main-thread tasks carrying wire data, as `ingest` tasks per
- * second with the thread that holds the socket.
+ * second with the thread that holds the socket, and the page's markdown row
+ * parses per second split by whose row paid them: `liveTurn` for a row of a
+ * turn in flight at either end of the window (its identity is
+ * `turn.${turnKey}.…`), `other` for everything else (restored rows, static
+ * blocks). The live-turn rate is the one a streamed row's parse moves, and
+ * it is returned: a row drawn from tugcast's render parses nothing here.
  */
-async function noteRestCensus(app: App, label: string): Promise<void> {
+async function noteRestCensus(app: App, label: string): Promise<number | null> {
   const armed = await app.evalJS<boolean>(`(() => {
     if (!window.__tugLead || !window.__tugCommits) return false;
     window.__tugLead.arm();
-    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0, ingest0: window.__tugIngest ? window.__tugIngest.tasks : null };
+    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0, ingest0: window.__tugIngest ? window.__tugIngest.tasks : null, parses0: window.__tug.rowParsesByIdentity() };
     return true;
   })()`);
   if (!armed) {
     note(`${label} rest census: no lead recorder or commit census on this page`);
-    return;
+    return null;
   }
   const collect = `(() => {
     const rest = window.__at0725Rest, now = performance.now();
@@ -201,9 +207,17 @@ async function noteRestCensus(app: App, label: string): Promise<void> {
     const ingest = window.__tugIngest && rest.ingest0 !== null
       ? { host: window.__tugIngest.host, tasksPerSec: Math.round((window.__tugIngest.since(rest.ingest0) / secs) * 10) / 10 }
       : null;
+    const parses1 = window.__tug.rowParsesByIdentity(), parses0 = rest.parses0;
+    const live = new Set([...parses0.liveTurnKeys, ...parses1.liveTurnKeys].map((k) => "turn." + k + "."));
+    let liveParses = 0, otherParses = 0;
+    for (const [id, n] of Object.entries(parses1.byIdentity)) {
+      const d = n - (parses0.byIdentity[id] || 0);
+      if ([...live].some((p) => id.startsWith(p))) liveParses += d; else otherParses += d;
+    }
     return JSON.stringify({
       seconds: Math.round(secs * 10) / 10,
       ingest,
+      rowParsesPerSec: { liveTurn: Math.round((liveParses / secs) * 10) / 10, other: Math.round((otherParses / secs) * 10) / 10, liveTurns: live.size },
       cappedSlices: rest.capped,
       commitsPerSec: Math.round((seen.length / secs) * 10) / 10,
       reactMsPerSec: Math.round((reactMs / secs) * 10) / 10,
@@ -214,6 +228,7 @@ async function noteRestCensus(app: App, label: string): Promise<void> {
     });
   })()`);
   note(`${label} rest census: ${census}`);
+  return (JSON.parse(census) as { rowParsesPerSec: { liveTurn: number } }).rowParsesPerSec.liveTurn;
 }
 
 /** One line per reading, and one per sampled process's busiest thread. */
@@ -290,7 +305,9 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
 
           await startStreams(app, stubs);
           await Bun.sleep(AFTER_LAND_MS);
-          await noteRestCensus(app, `at0725 [${arm.size}]`);
+          const liveTurnParses = await noteRestCensus(app, `at0725 [${arm.size}]`);
+          expect(liveTurnParses, "the census read the rest").not.toBeNull();
+          expect(liveTurnParses, "live-turn row parses per second at rest").toBe(0);
 
           for (const gesture of GESTURES) {
             const run = deckMotion(port, [

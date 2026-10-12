@@ -18,6 +18,7 @@
 @import "./components/tugways/tug-dialog.css";
 @import "./components/tugways/tug-data.css";
 @import "./components/tugways/tug-code.css";
+@import "./components/tugways/tug-syntax-classes.css";
 
 /* Global resets (moved from inline <style> in index.html) */
 html,

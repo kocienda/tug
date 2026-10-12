@@ -51,7 +51,7 @@ import { javascript as javascriptLang } from "@codemirror/lang-javascript";
 import { css as cssLang } from "@codemirror/lang-css";
 import { html as htmlLang } from "@codemirror/lang-html";
 import { markdown as markdownLang } from "@codemirror/lang-markdown";
-import { highlightTree, tags, Tag } from "@lezer/highlight";
+import { highlightTree, tagHighlighter, tags, Tag, type Highlighter } from "@lezer/highlight";
 import type { Tree } from "@lezer/common";
 import { StyleModule } from "style-mod";
 
@@ -72,8 +72,6 @@ import { StyleModule } from "style-mod";
  * punctuation, constants, tags, and attributes each land in their own
  * slot — so diffs and read/write snippets read as richly as the editor.
  */
-// Every rule but the link/url pair, which the two variants below style
-// differently (default underline vs none) while sharing this base.
 /**
  * A Tug-owned tag for markdown's `HardBreak` node — the two trailing spaces
  * that end a line with a line break.
@@ -86,30 +84,60 @@ import { StyleModule } from "style-mod";
  */
 export const tugHardBreakTag = Tag.define();
 
-const tugHighlightSpecsBase = [
-  { tag: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.self], color: "var(--tug-syntax-keyword)" },
-  { tag: [tags.string, tags.special(tags.string), tags.regexp, tags.character], color: "var(--tug-syntax-string)" },
-  { tag: tags.escape, color: "var(--tug-syntax-string-expression)" },
-  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--tug-syntax-number)" },
-  { tag: [tags.comment, tags.blockComment, tags.lineComment, tags.docComment], color: "var(--tugx-syntax-comment)", fontStyle: "italic" },
-  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "var(--tug-syntax-function)" },
-  { tag: [tags.typeName, tags.className, tags.namespace], color: "var(--tug-syntax-type)" },
-  { tag: tags.propertyName, color: "var(--tug-syntax-property)" },
-  { tag: [tags.definition(tags.variableName), tags.local(tags.variableName)], color: "var(--tug-syntax-variable)" },
-  { tag: [tags.constant(tags.variableName), tags.standard(tags.name), tags.labelName], color: "var(--tug-syntax-constant)" },
-  { tag: [tags.meta, tags.processingInstruction, tags.annotation], color: "var(--tug-syntax-decorator)" },
-  { tag: tags.tagName, color: "var(--tug-syntax-tag)" },
-  { tag: tags.attributeName, color: "var(--tug-syntax-attribute)" },
-  { tag: [tags.operator, tags.compareOperator, tags.logicOperator, tags.arithmeticOperator, tags.bitwiseOperator, tags.updateOperator, tags.definitionOperator, tags.typeOperator, tags.derefOperator], color: "var(--tugx-syntax-operator)" },
-  { tag: [tags.punctuation, tags.separator, tags.bracket, tags.angleBracket, tags.squareBracket, tags.paren, tags.brace], color: "var(--tugx-syntax-punctuation)" },
-  { tag: tags.heading, color: "var(--tug-syntax-keyword)", fontWeight: "bold" },
-  { tag: tags.emphasis, fontStyle: "italic" },
-  { tag: tags.strong, fontWeight: "bold" },
+/** The style properties a syntax slot may set. */
+export interface TugSyntaxStyle {
+  color?: string;
+  fontStyle?: string;
+  fontWeight?: string;
+  fontFamily?: string;
+  textDecoration?: string;
+  backgroundColor?: string;
+}
+
+/** One syntax slot: its stable name, the Lezer tags it covers, its style. */
+export interface TugSyntaxSlot {
+  /** The class suffix: a run in this slot wears `tug-syn-<slot>`. */
+  slot: string;
+  tags: Tag | Tag[];
+  style: TugSyntaxStyle;
+}
+
+/**
+ * Every syntax slot, with every style property its spec sets. The one table
+ * the editor's `HighlightStyle`s, the fence class highlighter and
+ * `tug-syntax-classes.css` are all read from.
+ *
+ * The slot names are a contract with tugcast, which highlights fenced code
+ * natively (tugmark's `highlight.rs`) into the code slots — `keyword` through
+ * `punctuation` — and stamps the `<code>` `data-tug-highlighted`. The
+ * markdown slots after them are the page's alone: a `md` fence goes through
+ * {@link highlightFragmentToHtml}, and dropping them would leave its
+ * headings, emphasis and links plain.
+ */
+export const TUG_SYNTAX_SLOTS: readonly TugSyntaxSlot[] = [
+  { slot: "keyword", tags: [tags.keyword, tags.modifier, tags.operatorKeyword, tags.controlKeyword, tags.definitionKeyword, tags.moduleKeyword, tags.self], style: { color: "var(--tug-syntax-keyword)" } },
+  { slot: "string", tags: [tags.string, tags.special(tags.string), tags.regexp, tags.character], style: { color: "var(--tug-syntax-string)" } },
+  { slot: "string-expression", tags: tags.escape, style: { color: "var(--tug-syntax-string-expression)" } },
+  { slot: "number", tags: [tags.number, tags.bool, tags.null, tags.atom], style: { color: "var(--tug-syntax-number)" } },
+  { slot: "comment", tags: [tags.comment, tags.blockComment, tags.lineComment, tags.docComment], style: { color: "var(--tugx-syntax-comment)", fontStyle: "italic" } },
+  { slot: "function", tags: [tags.function(tags.variableName), tags.function(tags.propertyName)], style: { color: "var(--tug-syntax-function)" } },
+  { slot: "type", tags: [tags.typeName, tags.className, tags.namespace], style: { color: "var(--tug-syntax-type)" } },
+  { slot: "property", tags: tags.propertyName, style: { color: "var(--tug-syntax-property)" } },
+  { slot: "variable", tags: [tags.definition(tags.variableName), tags.local(tags.variableName)], style: { color: "var(--tug-syntax-variable)" } },
+  { slot: "constant", tags: [tags.constant(tags.variableName), tags.standard(tags.name), tags.labelName], style: { color: "var(--tug-syntax-constant)" } },
+  { slot: "decorator", tags: [tags.meta, tags.processingInstruction, tags.annotation], style: { color: "var(--tug-syntax-decorator)" } },
+  { slot: "tag", tags: tags.tagName, style: { color: "var(--tug-syntax-tag)" } },
+  { slot: "attribute", tags: tags.attributeName, style: { color: "var(--tug-syntax-attribute)" } },
+  { slot: "operator", tags: [tags.operator, tags.compareOperator, tags.logicOperator, tags.arithmeticOperator, tags.bitwiseOperator, tags.updateOperator, tags.definitionOperator, tags.typeOperator, tags.derefOperator], style: { color: "var(--tugx-syntax-operator)" } },
+  { slot: "punctuation", tags: [tags.punctuation, tags.separator, tags.bracket, tags.angleBracket, tags.squareBracket, tags.paren, tags.brace], style: { color: "var(--tugx-syntax-punctuation)" } },
+  { slot: "heading", tags: tags.heading, style: { color: "var(--tug-syntax-keyword)", fontWeight: "bold" } },
+  { slot: "emphasis", tags: tags.emphasis, style: { fontStyle: "italic" } },
+  { slot: "strong", tags: tags.strong, style: { fontWeight: "bold" } },
   // Code takes a code face as well as a code tone: on a proportional host —
   // a prompt entry under a sans face, a commit body at the host's prose face
   // — a color alone leaves `foo` reading as prose. Family only, never size:
   // a uniform line box is what makes these surfaces read as text.
-  { tag: tags.monospace, color: "var(--tug-syntax-code)", fontFamily: "var(--tug-font-family-mono)" },
+  { slot: "monospace", tags: tags.monospace, style: { color: "var(--tug-syntax-code)", fontFamily: "var(--tug-font-family-mono)" } },
   // Markdown block constructs. A blockquote body takes a muted tone so the
   // one block element whose purpose is "set apart" reads as set apart; a
   // horizontal rule takes the marker tone every other markup character has,
@@ -117,20 +145,38 @@ const tugHighlightSpecsBase = [
   // rare construct where the styling IS the meaning, so it takes the
   // decoration and no color. None of these remove a character: the `>`, the
   // `---`, and the `~~` all stay on screen.
-  { tag: tags.quote, color: "var(--tugx-syntax-quote)" },
-  { tag: tags.contentSeparator, color: "var(--tug-syntax-decorator)" },
-  { tag: tags.strikethrough, textDecoration: "line-through" },
+  { slot: "quote", tags: tags.quote, style: { color: "var(--tugx-syntax-quote)" } },
+  { slot: "content-separator", tags: tags.contentSeparator, style: { color: "var(--tug-syntax-decorator)" } },
+  { slot: "strikethrough", tags: tags.strikethrough, style: { textDecoration: "line-through" } },
   // A hard break has no glyphs to color, so it takes a background tint —
   // making visible something already in the buffer rather than adding or
   // hiding a character. The override replaces the node's marker tag, so this
   // spec is the whole treatment; there is no foreground to set.
-  { tag: tugHardBreakTag, backgroundColor: "var(--tug-syntax-hard-break-bg)" },
+  { slot: "hard-break", tags: tugHardBreakTag, style: { backgroundColor: "var(--tug-syntax-hard-break-bg)" } },
+  // The read-only link style; the editing variant below drops the underline.
+  { slot: "link", tags: [tags.link, tags.url], style: { color: "var(--tug-syntax-string)", textDecoration: "underline" } },
 ];
 
-export const tugHighlightStyleInner = HighlightStyle.define([
-  ...tugHighlightSpecsBase,
-  { tag: [tags.link, tags.url], color: "var(--tug-syntax-string)", textDecoration: "underline" },
-]);
+/** A slot as a `HighlightStyle` spec. */
+function slotSpec(slot: TugSyntaxSlot): { tag: Tag | Tag[] } & TugSyntaxStyle {
+  return { tag: slot.tags, ...slot.style };
+}
+
+// Every rule but the link/url pair, which the two variants below style
+// differently (default underline vs none) while sharing this base.
+const tugHighlightSpecsBase = TUG_SYNTAX_SLOTS.filter((s) => s.slot !== "link").map(slotSpec);
+
+export const tugHighlightStyleInner = HighlightStyle.define(TUG_SYNTAX_SLOTS.map(slotSpec));
+
+/**
+ * The fence highlighter: the same tags as {@link tugHighlightStyleInner},
+ * emitting the stable `tug-syn-<slot>` classes `tug-syntax-classes.css`
+ * styles, which tugcast's native highlighter emits too. A fence the page
+ * highlights and a fence tugcast highlighted therefore read alike.
+ */
+export const tugClassHighlighter: Highlighter = tagHighlighter(
+  TUG_SYNTAX_SLOTS.map((s) => ({ tag: s.tags, class: `tug-syn-${s.slot}` })),
+);
 
 /** Editor-extension form of {@link tugHighlightStyleInner}. */
 export const tugHighlightStyle: Extension = syntaxHighlighting(tugHighlightStyleInner);
@@ -458,7 +504,8 @@ export interface FragmentToken {
   start: number;
   /** End column in the line (exclusive). */
   end: number;
-  /** Generated highlight class(es) from {@link tugHighlightStyleInner}. */
+  /** The highlighter's class(es) for the run: {@link tugHighlightStyleInner}'s
+   *  generated names, or {@link tugClassHighlighter}'s `tug-syn-<slot>`. */
   className: string;
 }
 
@@ -519,34 +566,37 @@ export function lineIndexAt(starts: number[], pos: number): number {
 async function tokenizeWithExtension(
   text: string,
   languageExt: Extension | null,
+  highlighter: Highlighter,
 ): Promise<FragmentToken[][]> {
   if (languageExt === null || text.length === 0) {
     return lineStartOffsets(text).map(() => []);
   }
   const state = EditorState.create({ doc: text, extensions: [languageExt] });
   const tree = ensureSyntaxTree(state, text.length, PARSE_TIMEOUT_MS) ?? syntaxTree(state);
-  return highlightRunsByLine(tree, text, tugHighlightStyleInner);
+  return highlightRunsByLine(tree, text, highlighter);
 }
 
 /**
- * Walk `tree` with `style` and return the emitted highlight runs split at
+ * Walk `tree` with `highlighter` and return the emitted highlight runs split at
  * line boundaries — line N of `text` maps to result[N], with runs stated in
  * line-relative columns. A styled run that spans a line break (a block
  * comment, a fenced code block) contributes one run per line it covers.
  *
- * Mounts `style`'s generated CSS as a side effect, so a caller rendering the
- * runs into ordinary DOM gets the same colors a live editor would paint.
+ * When `highlighter` is a `HighlightStyle`, mounts its generated CSS as a side
+ * effect, so a caller rendering the runs into ordinary DOM gets the same
+ * colors a live editor would paint. {@link tugClassHighlighter}'s classes are
+ * styled by the static `tug-syntax-classes.css` instead.
  */
 export function highlightRunsByLine(
   tree: Tree,
   text: string,
-  style: HighlightStyle,
+  highlighter: Highlighter,
 ): FragmentToken[][] {
   const starts = lineStartOffsets(text);
   const perLine: FragmentToken[][] = starts.map(() => []);
   if (text.length === 0) return perLine;
-  mountHighlightStyle(style);
-  highlightTree(tree, style, (from, to, className) => {
+  if (highlighter instanceof HighlightStyle) mountHighlightStyle(highlighter);
+  highlightTree(tree, highlighter, (from, to, className) => {
     const first = lineIndexAt(starts, from);
     for (let line = first; line < starts.length && starts[line] < to; line++) {
       // Line content excludes its trailing newline.
@@ -570,15 +620,20 @@ export async function tokenizeFragment(
   text: string,
   ext: string | null,
 ): Promise<FragmentToken[][]> {
-  return tokenizeWithExtension(text, await languageForExtension(ext));
+  return tokenizeWithExtension(text, await languageForExtension(ext), tugHighlightStyleInner);
 }
 
-/** Per-line syntax runs for `text`, keyed by a language id/alias. */
+/**
+ * Per-line syntax runs for `text`, keyed by a language id/alias. Runs carry
+ * `highlighter`'s classes: {@link tugHighlightStyleInner}'s generated ones
+ * by default.
+ */
 export async function tokenizeFragmentByLangId(
   text: string,
   langId: string,
+  highlighter: Highlighter = tugHighlightStyleInner,
 ): Promise<FragmentToken[][]> {
-  return tokenizeWithExtension(text, await languageForExtension(extForLangId(langId)));
+  return tokenizeWithExtension(text, await languageForExtension(extForLangId(langId)), highlighter);
 }
 
 /** Escape the five HTML-significant characters for safe innerHTML. */
@@ -596,12 +651,15 @@ function escapeHtml(s: string): string {
  * only — no inline styles), suitable for a `<code>` element's innerHTML.
  * Lines are joined with `\n`; unstyled gaps are emitted as escaped text.
  * Unknown languages return the whole text escaped and uncolored.
+ *
+ * The fence path: the classes are {@link tugClassHighlighter}'s stable
+ * `tug-syn-<slot>` names, the ones tugcast's native highlighter emits.
  */
 export async function highlightFragmentToHtml(
   text: string,
   langId: string,
 ): Promise<string> {
-  const perLine = await tokenizeFragmentByLangId(text, langId);
+  const perLine = await tokenizeFragmentByLangId(text, langId, tugClassHighlighter);
   const lines = text.split("\n");
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {

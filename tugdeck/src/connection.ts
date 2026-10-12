@@ -700,6 +700,9 @@ export class TugConnection {
         if (live) channel.post({ kind: "session-test-frame", handle, seq, feedId, decoded });
         return seq;
       },
+      find: (request) => {
+        if (live) channel.post({ kind: "find", handle, ...request });
+      },
       close: () => {
         if (!live) return;
         live = false;

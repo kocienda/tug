@@ -1,0 +1,62 @@
+/**
+ * Static syntax classes — one rule per `TUG_SYNTAX_SLOTS` entry
+ * (`src/lib/language-registry.ts`), carrying every property the slot's
+ * spec sets.
+ *
+ * Fenced code in the transcript wears these `tug-syn-<slot>` classes from
+ * either highlighter: tugcast's native one (tugmark's `highlight.rs`, for a
+ * `<code>` stamped `data-tug-highlighted`) or the page's
+ * `tugClassHighlighter`. A `HighlightStyle`'s generated class names cannot
+ * be reproduced outside the page, so the two share these instead; the
+ * palette variables are the ones `tug-code.css` declares, so a theme switch
+ * recolors both live. `language-registry.test.ts` holds this file to the
+ * table.
+ *
+ * The syntax tokens' pairings against the code block surface are declared
+ * in `tug-code.css`.
+ */
+
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-keyword { color: var(--tug-syntax-keyword); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-string { color: var(--tug-syntax-string); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-string-expression { color: var(--tug-syntax-string-expression); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-number { color: var(--tug-syntax-number); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-comment { color: var(--tugx-syntax-comment); font-style: italic; }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-function { color: var(--tug-syntax-function); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-type { color: var(--tug-syntax-type); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-property { color: var(--tug-syntax-property); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-variable { color: var(--tug-syntax-variable); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-constant { color: var(--tug-syntax-constant); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-decorator { color: var(--tug-syntax-decorator); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-tag { color: var(--tug-syntax-tag); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-attribute { color: var(--tug-syntax-attribute); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-operator { color: var(--tugx-syntax-operator); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-punctuation { color: var(--tugx-syntax-punctuation); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-heading { color: var(--tug-syntax-keyword); font-weight: bold; }
+.tug-syn-emphasis { font-style: italic; }
+.tug-syn-strong { font-weight: bold; }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-monospace { color: var(--tug-syntax-code); font-family: var(--tug-font-family-mono); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-quote { color: var(--tugx-syntax-quote); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-content-separator { color: var(--tug-syntax-decorator); }
+.tug-syn-strikethrough { text-decoration: line-through; }
+.tug-syn-hard-break { background-color: var(--tug-syntax-hard-break-bg); }
+/* @tug-renders-on: --tugx-codeBlock-bg */
+.tug-syn-link { color: var(--tug-syntax-string); text-decoration: underline; }

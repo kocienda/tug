@@ -168,6 +168,8 @@ describe("IngestHost — the session half", () => {
       effect: () => applied.push(`${name}:effect`),
       ack: () => applied.push(`${name}:ack`),
       routedFrame: () => applied.push(`${name}:routed-frame`),
+      rendered: () => applied.push(`${name}:rendered`),
+      findResult: () => applied.push(`${name}:find-result`),
       endOfBatch: () => {},
     });
     const live = new Map<string, SessionPatchTarget>([[`${A}#2`, mirror("new")]]);

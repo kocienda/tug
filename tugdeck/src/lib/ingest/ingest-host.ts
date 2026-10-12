@@ -41,9 +41,28 @@
  * acknowledgment. The release posts everything as one batch, and so does the
  * host's own cap deadline if the release never comes, so a gate that never
  * opens cannot strand the deck's data.
+ *
+ * And it carries tugcast's renders. A `RENDERED` frame bundles every
+ * session's renders for one tick; the host decodes it once and hands each
+ * session's entries to that session's engines, and the page never sees the
+ * raw frame. The host subscribes the feed itself once an engine opens, but
+ * keeps it out of {@link SESSION_FEEDS}: a render batch is neither one
+ * session's frame nor one to replay into an engine that opens later. The
+ * controls tugcast paces and holds those renders by go back on
+ * `RENDER_INPUT`: each motion hold and release, under a holder id this host
+ * mints once, the display period, and — after every handshake, beside the
+ * period — a resync of every message, because a fresh socket may belong to a
+ * page that holds none of the HTML tugcast believes it sent.
+ *
+ * A session's find goes the same way: the host forwards the query on
+ * `RENDER_INPUT` under the session's id and routes tugcast's `find-result`
+ * back to the engine that asked, as a `find-result` patch. With the wire
+ * down it answers at once with every unit missing, so the page projects
+ * them itself rather than waiting out its finisher.
  */
 
 import type { IngestPatch } from "@tugproto/ingest";
+import type { FindResultFrame, RenderInput, RenderedFrame, RenderedMessageWire } from "@tugproto/rendered";
 import { FeedId, FrameFlags } from "@/protocol";
 import { devLog } from "@/lib/dev-log-port";
 import { FALLBACK_FRAME_PERIOD_MS } from "@/lib/frame-period";
@@ -64,8 +83,16 @@ export type BatchSink = (batch: SessionBatch, transfer: ArrayBuffer[]) => void;
 /** Builds the host's flush policy around the host's own flush. */
 export type FlushPolicyFactory = (flush: () => void, periodMs: number) => FlushPolicy;
 
-/** Patch kinds that post at once rather than waiting for the period. */
-const IMMEDIATE_KINDS: ReadonlySet<IngestPatch["kind"]> = new Set(["wire-state", "disconnect-state", "ack"]);
+/**
+ * Patch kinds that post at once rather than waiting for the period. An `ack`
+ * and a `find-result` are both replies somebody is waiting on.
+ */
+const IMMEDIATE_KINDS: ReadonlySet<IngestPatch["kind"]> = new Set([
+  "wire-state",
+  "disconnect-state",
+  "ack",
+  "find-result",
+]);
 
 /** The shortest cap the host holds the wire under, whatever cap the gate posted. */
 export const MIN_HOLD_CAP_MS = 1000;
@@ -74,6 +101,9 @@ export const MIN_HOLD_CAP_MS = 1000;
 export const SESSION_FEEDS: readonly number[] = [FeedId.CODE_OUTPUT, FeedId.SESSION_STATE, FeedId.CONTROL];
 
 const SESSION_FEED_SET: ReadonlySet<number> = new Set(SESSION_FEEDS);
+
+/** The feeds the host subscribes for its engines: the session feeds and tugcast's renders. */
+export const ENGINE_FEEDS: readonly number[] = [...SESSION_FEEDS, FeedId.RENDERED];
 
 /**
  * CODE_OUTPUT types that no reducer reads and a narrow per-session store
@@ -87,6 +117,22 @@ export const ROUTED_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 const utf8 = new TextDecoder();
+const utf8Encode = new TextEncoder();
+
+/** A holder id for tugcast's motion hold, one per host. */
+function mintHolderId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `holder-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
+/** The sessions of one `render-batch`, or `null` for any other frame. */
+function renderBatchSessions(
+  decoded: unknown,
+): ReadonlyArray<{ tugSessionId: string; messages: RenderedMessageWire[] }> | null {
+  const frame = decoded as Partial<RenderedFrame> | null;
+  if (frame === null || typeof frame !== "object" || frame.kind !== "render-batch") return null;
+  return Array.isArray(frame.sessions) ? frame.sessions : null;
+}
 
 function isRoutedType(decoded: unknown): decoded is { type: string } {
   if (typeof decoded !== "object" || decoded === null) return false;
@@ -130,11 +176,17 @@ export class IngestHost {
   private readonly ownFeeds = new Set<number>();
   /** Open session engines, by handle. */
   private readonly engines = new Map<string, SessionEngine>();
+  /** Each outstanding find, by request id, to the handle that asked. */
+  private readonly pendingFinds = new Map<string, string>();
   /** The last decoded frame of each session feed, until the wire closes. */
   private readonly sessionCache = new Map<number, unknown>();
   /** While the motion gate holds the wire: when the cap releases it. */
   private heldUntil: number | null = null;
   private holdCap: unknown = null;
+  /** This host's holder id in tugcast's motion hold. */
+  private readonly holderId = mintHolderId();
+  /** The display period last posted, re-sent to tugcast on every handshake. */
+  private periodMs: number = FALLBACK_FRAME_PERIOD_MS;
 
   constructor(
     private readonly sink: BatchSink,
@@ -163,7 +215,8 @@ export class IngestHost {
    */
   ingestFrame(feedId: number, payload: Uint8Array): void {
     try {
-      this.routeSessionFrame(feedId, payload);
+      if (feedId === FeedId.RENDERED) this.routeRendered(payload);
+      else this.routeSessionFrame(feedId, payload);
     } finally {
       this.policy.endOfMessage();
     }
@@ -197,6 +250,8 @@ export class IngestHost {
         return;
       case "display-period":
         this.policy.setPeriod(control.periodMs);
+        this.periodMs = control.periodMs;
+        this.sendRenderControl({ kind: "display-period", periodMs: control.periodMs });
         return;
       case "motion":
         if (control.held) this.hold(control.capMs);
@@ -208,6 +263,9 @@ export class IngestHost {
       case "session-close": {
         const engine = this.engines.get(control.handle);
         this.engines.delete(control.handle);
+        for (const [requestId, handle] of this.pendingFinds) {
+          if (handle === control.handle) this.pendingFinds.delete(requestId);
+        }
         engine?.close();
         return;
       }
@@ -218,6 +276,9 @@ export class IngestHost {
         this.forEngine(control.handle, control.seq, "test frame", (engine) =>
           engine.frame(control.feedId, control.decoded),
         );
+        return;
+      case "find":
+        this.forwardFind(control);
         return;
     }
   }
@@ -243,6 +304,7 @@ export class IngestHost {
   private init(wsUrl: string, periodMs: number): void {
     if (this.socket !== null) return;
     this.policy.setPeriod(periodMs);
+    this.periodMs = periodMs;
     this.socket = new WireSocket(
       wsUrl,
       {
@@ -260,6 +322,10 @@ export class IngestHost {
         handshakeComplete: () => {
           // Unconditional: a fresh socket knows nothing, whatever the last one carried.
           this.socket?.sendSubscription(this.wireSubscription());
+          // tugcast's render bridge paces to the deck's period, and re-sends
+          // every block's HTML, since this page may hold none of it.
+          this.sendRenderControl({ kind: "display-period", periodMs: this.periodMs });
+          this.sendRenderControl({ kind: "resync" });
         },
         endOfEvent: () => this.policy.endOfMessage(),
       },
@@ -300,6 +366,11 @@ export class IngestHost {
 
   private absorb(chunk: Uint8Array): void {
     for (const frame of this.peeler.push(chunk)) {
+      // tugcast's renders reach the engines only, as CODE_OUTPUT does.
+      if (frame.feedId === FeedId.RENDERED) {
+        this.routeRendered(new Uint8Array(frame.payload));
+        continue;
+      }
       // A session feed's frame is kept even with no engine open, so the
       // first engine to open gets it.
       this.routeSessionFrame(frame.feedId, new Uint8Array(frame.payload));
@@ -329,7 +400,7 @@ export class IngestHost {
     this.engines.set(control.handle, engine);
     // A host that holds the socket subscribes its engines' feeds itself; the
     // page no longer registers for them on the engines' behalf.
-    if (this.socket !== null) this.wantFeeds(SESSION_FEEDS);
+    if (this.socket !== null) this.wantFeeds(ENGINE_FEEDS);
     if (this.options.replayOnOpen === false) return;
     for (const feedId of SESSION_FEEDS) {
       const cached = this.sessionCache.get(feedId);
@@ -368,8 +439,85 @@ export class IngestHost {
       this.options.send(feedId, payload);
       return;
     }
-    if (feedId !== FeedId.CONTROL && feedId !== FeedId.HEARTBEAT) this.wantFeeds([feedId]);
+    if (feedId !== FeedId.CONTROL && feedId !== FeedId.HEARTBEAT && feedId !== FeedId.RENDER_INPUT) {
+      this.wantFeeds([feedId]);
+    }
     this.socket?.send(feedId, FrameFlags.DATA, payload);
+  }
+
+  /** Forward one session's find to tugcast, or answer it at once with the wire down. */
+  private forwardFind(control: Extract<SessionControl, { kind: "find" }>): void {
+    const engine = this.engines.get(control.handle);
+    if (engine === undefined) return;
+    const { requestId, query, options, limit, units, mountedUnits } = control;
+    if (this.options.send === undefined && this.socket?.connected !== true) {
+      this.emit({
+        kind: "find-result",
+        session: control.handle,
+        payload: {
+          kind: "find-result",
+          requestId,
+          tugSessionId: engine.tugSessionId,
+          missing: [...new Set([...units, ...mountedUnits])],
+        },
+      });
+      return;
+    }
+    this.pendingFinds.set(requestId, control.handle);
+    this.sendRenderControl({
+      kind: "find",
+      requestId,
+      tugSessionId: engine.tugSessionId,
+      query,
+      options,
+      limit,
+      units,
+      mountedUnits,
+    });
+  }
+
+  /** One control to tugcast's render bridge, on the path the engines write on. */
+  private sendRenderControl(control: RenderInput): void {
+    if (this.options.send === undefined && this.socket?.connected !== true) return;
+    this.sendForEngine(FeedId.RENDER_INPUT, utf8Encode.encode(JSON.stringify(control)));
+  }
+
+  /**
+   * Decode a `RENDERED` frame once and hand each session's renders to every
+   * open engine of that session. Nothing is kept: a render an engine missed
+   * is answered by its resync, not by a replay. A `find-result` goes to the
+   * one engine whose query it answers.
+   */
+  private routeRendered(payload: Uint8Array): void {
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(utf8.decode(payload));
+    } catch (err) {
+      console.error("[ingest] failed to decode a RENDERED payload:", err);
+      return;
+    }
+    const found = decoded as Partial<FindResultFrame> | null;
+    if (found !== null && typeof found === "object" && found.kind === "find-result") {
+      const handle = typeof found.requestId === "string" ? this.pendingFinds.get(found.requestId) : undefined;
+      if (handle === undefined) return;
+      this.pendingFinds.delete(found.requestId as string);
+      if (this.engines.has(handle)) {
+        this.emit({ kind: "find-result", session: handle, payload: found as FindResultFrame });
+      }
+      return;
+    }
+    const sessions = renderBatchSessions(decoded);
+    if (sessions === null) return;
+    for (const session of sessions) {
+      for (const engine of this.engines.values()) {
+        if (engine.tugSessionId !== session.tugSessionId) continue;
+        try {
+          engine.rendered(session.messages);
+        } catch (err) {
+          console.error(`[ingest] session ${engine.handle} threw for a render:`, err);
+        }
+      }
+    }
   }
 
   /**
@@ -509,6 +657,8 @@ export class IngestHost {
     const until = clock.now() + Math.max(capMs, MIN_HOLD_CAP_MS);
     if (this.heldUntil !== null && this.heldUntil >= until) return;
     this.heldUntil = until;
+    // tugcast holds its renders under the same cap.
+    this.sendRenderControl({ kind: "motion", holder: this.holderId, held: true, capMs: Math.max(capMs, MIN_HOLD_CAP_MS) });
     if (this.holdCap !== null) clock.clearTimeout(this.holdCap);
     this.holdCap = clock.setTimeout(() => {
       this.holdCap = null;
@@ -520,6 +670,7 @@ export class IngestHost {
   private releaseHold(): void {
     if (this.heldUntil === null) return;
     this.heldUntil = null;
+    this.sendRenderControl({ kind: "motion", holder: this.holderId, held: false });
     if (this.holdCap !== null) (this.options.holdClock ?? SYSTEM_CLOCK).clearTimeout(this.holdCap);
     this.holdCap = null;
     this.flush();

@@ -1,0 +1,87 @@
+[
+  {
+    "lang": "js",
+    "source": "// note\nconst a = \"hi\";\nlet n = 42;\n",
+    "salient": [["const", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "jsx",
+    "source": "// note\nconst el = <div className=\"x\">{7}</div>;\n",
+    "salient": [["const", "keyword"], ["// note", "comment"], ["div", "tag"], ["className", "attribute"]]
+  },
+  {
+    "lang": "ts",
+    "source": "// note\nconst a: number = 42;\nconst s = \"hi\";\n",
+    "salient": [["const", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "tsx",
+    "source": "// note\nconst el = <span title=\"t\">{1}</span>;\n",
+    "salient": [["const", "keyword"], ["// note", "comment"], ["span", "tag"], ["title", "attribute"]]
+  },
+  {
+    "lang": "rust",
+    "source": "// note\nfn main() { let s = \"hi\"; let n = 42; }\n",
+    "salient": [["fn", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "py",
+    "source": "# note\ndef f():\n    return \"hi\", 42\n",
+    "salient": [["def", "keyword"], ["\"hi\"", "string"], ["# note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "json",
+    "source": "{\"k\": \"v\", \"n\": 42, \"b\": true}\n",
+    "salient": [["\"v\"", "string"], ["42", "number"], ["true", "number"]]
+  },
+  {
+    "lang": "css",
+    "source": "/* note */\n.a { color: red; width: 42px; }\n",
+    "salient": [["/* note */", "comment"], ["color", "property"]]
+  },
+  {
+    "lang": "html",
+    "source": "<!-- note -->\n<div class=\"x\">hi</div>\n",
+    "salient": [["<!-- note -->", "comment"], ["div", "tag"], ["class", "attribute"]]
+  },
+  {
+    "lang": "go",
+    "source": "// note\nfunc main() { s := \"hi\"; n := 42 }\n",
+    "salient": [["func", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "java",
+    "source": "// note\nclass A { String s = \"hi\"; int n = 42; }\n",
+    "salient": [["class", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "swift",
+    "source": "// note\nlet s = \"hi\"\nvar n = 42\n",
+    "salient": [["let", "keyword"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "sh",
+    "source": "# note\nif true; then echo \"hi\"; fi\n",
+    "salient": [["if", "keyword"], ["\"hi\"", "string"], ["# note", "comment"]]
+  },
+  {
+    "lang": "toml",
+    "source": "# note\nname = \"hi\"\nn = 42\n",
+    "salient": [["\"hi\"", "string"], ["# note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "yaml",
+    "source": "# note\nname: \"hi\"\nn: 42\n",
+    "salient": [["\"hi\"", "string"], ["# note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "c",
+    "source": "// note\nint main() { char *s = \"hi\"; return 42; }\n",
+    "salient": [["return", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  },
+  {
+    "lang": "cpp",
+    "source": "// note\nclass A { int n = 42; const char *s = \"hi\"; };\n",
+    "salient": [["class", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+  }
+]

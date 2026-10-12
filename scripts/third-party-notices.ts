@@ -407,7 +407,7 @@ function cargoTree(dir: string, targets: string[], title: string): Tree {
     throw new Error(`cargo metadata failed in ${dir}:\n${proc.stderr.toString()}`);
   }
   const meta = JSON.parse(proc.stdout.toString()) as {
-    packages: { id: string; name: string; version: string; license: string | null; repository: string | null; source: string | null }[];
+    packages: { id: string; name: string; version: string; license: string | null; repository: string | null; source: string | null; manifest_path: string }[];
     workspace_members: string[];
     resolve: { nodes: { id: string; deps: { pkg: string; dep_kinds: { kind: string | null }[] }[] }[] };
   };
@@ -429,7 +429,11 @@ function cargoTree(dir: string, targets: string[], title: string): Tree {
     if (members.has(id)) continue;
     const p = byId.get(id)!;
     if (p.source === null) {
-      problems.push(`${dir}: ${p.name} is a path dependency outside the workspace; it has no lockfile identity to list`);
+      // A crate of this repository reached by path (tugcast's `tugmark`, a
+      // member of `tugdeck/crates`) is first-party: it is not listed, and the
+      // walk above still lists every registry crate it pulls in.
+      if (p.manifest_path.startsWith(`${ROOT}/`)) continue;
+      problems.push(`${dir}: ${p.name} is a path dependency outside the repository; it has no lockfile identity to list`);
       continue;
     }
     entries.push({ name: p.name, version: p.version, license: p.license ?? "", repository: cleanRepo(p.repository) });

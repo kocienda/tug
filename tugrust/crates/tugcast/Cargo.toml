@@ -44,6 +44,10 @@ tuggram = { workspace = true }
 tugarc-core = { workspace = true }
 tugchanges-core = { workspace = true }
 tugbank-core = { workspace = true }
+# The markdown core the page's WASM build shares; `native` adds the
+# sanitizer and the block renderer. It lives under `tugdeck/crates` beside
+# the allow-list file it compiles in.
+tugmark = { path = "../../../tugdeck/crates/tugmark", features = ["native"] }
 uuid = { workspace = true }
 base64 = { workspace = true }
 dirs = { workspace = true }

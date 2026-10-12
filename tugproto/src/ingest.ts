@@ -27,6 +27,8 @@
  * @module tugproto/ingest
  */
 
+import type { FindResultFrame, RenderedMessageWire, RenderFindControl } from "./rendered";
+
 // ---------------------------------------------------------------------------
 // Shared shapes
 // ---------------------------------------------------------------------------
@@ -208,6 +210,21 @@ export interface IngestSessionTestFrameControl {
   decoded: unknown;
 }
 
+/**
+ * A find query for one session's rendered text, which the host forwards to
+ * tugcast and whose answer it routes back to `handle` as a `find-result`.
+ */
+export interface IngestFindControl {
+  kind: "find";
+  handle: string;
+  requestId: string;
+  query: string;
+  options: RenderFindControl["options"];
+  limit: number;
+  units: string[];
+  mountedUnits: string[];
+}
+
 export type IngestControl<TEvent = unknown> =
   | IngestInitControl
   | IngestConnectControl
@@ -223,7 +240,8 @@ export type IngestControl<TEvent = unknown> =
   | IngestSessionOpenControl
   | IngestSessionCloseControl
   | IngestSessionActionControl<TEvent>
-  | IngestSessionTestFrameControl;
+  | IngestSessionTestFrameControl
+  | IngestFindControl;
 
 // ---------------------------------------------------------------------------
 // Sender → page: patches
@@ -328,6 +346,37 @@ export interface IngestAckPatch {
   payload: { seq: number };
 }
 
+/**
+ * What a Message's `.rendered` path holds once the engine has written it:
+ * `{ pending: true }` before tugcast's first render arrives, a record of
+ * tugcast's emission with the engine's `streaming` and `current` facts, or
+ * `null` for "parse yourself". A Message never written is the page's to
+ * parse, as before.
+ */
+export type RenderedState =
+  | { pending: true }
+  | { streaming: boolean; current: boolean; message: RenderedMessageWire }
+  | null;
+
+/**
+ * tugcast's renders for one session's Messages. Each `message` is the
+ * emission as it came — the whole block list, HTML only for new hashes —
+ * and the page merges it into the record it holds; a `pending` or `null`
+ * state replaces the record.
+ */
+export interface IngestRenderedBlocksPatch {
+  kind: "rendered-blocks";
+  session: string;
+  payload: { messages: { turnKey: string; messageKey: string; state: RenderedState }[] };
+}
+
+/** tugcast's answer to a find query, for the session that asked. */
+export interface IngestFindResultPatch {
+  kind: "find-result";
+  session: string;
+  payload: FindResultFrame;
+}
+
 export type IngestPatch<TState = unknown, TEntry = unknown, TPerf = unknown> =
   | IngestFramePatch
   | IngestWireStatePatch
@@ -338,7 +387,9 @@ export type IngestPatch<TState = unknown, TEntry = unknown, TPerf = unknown> =
   | IngestProgressPatch
   | IngestEffectPatch
   | IngestRoutedFramePatch
-  | IngestAckPatch;
+  | IngestAckPatch
+  | IngestRenderedBlocksPatch
+  | IngestFindResultPatch;
 
 /** One posted batch; its entries apply in order, in one task. */
 export interface IngestBatch<TState = unknown, TEntry = unknown, TPerf = unknown> {
@@ -362,6 +413,8 @@ export const INGEST_PATCH_KINDS = [
   "effect",
   "routed-frame",
   "ack",
+  "rendered-blocks",
+  "find-result",
 ] as const satisfies readonly IngestPatch["kind"][];
 
 export type IngestPatchKind = (typeof INGEST_PATCH_KINDS)[number];
@@ -382,6 +435,7 @@ export const INGEST_CONTROL_KINDS = [
   "session-close",
   "session-action",
   "session-test-frame",
+  "find",
 ] as const satisfies readonly IngestControl["kind"][];
 
 export type IngestControlKind = (typeof INGEST_CONTROL_KINDS)[number];
