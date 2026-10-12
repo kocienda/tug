@@ -4943,6 +4943,7 @@ export function SessionCardBody({
                     sessionMetadataStore={sessionMetadataStore}
                     transcriptStore={transcriptStore}
                     findSession={findSession}
+                    findOpen={findBarOpen}
                     renderTurnTrailing={renderTurnTrailing}
                     // The landing arc narrates at the live edge, beneath every
                     // row and above the composer — ink in motion, never

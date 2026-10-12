@@ -83,6 +83,7 @@ import { getDeckStore } from "./lib/deck-store-registry";
 import type { BeatKind } from "./lib/pane-flip";
 import type { BeatRow } from "./components/tugways/tug-animator";
 import type { LandReading, MotionEvents } from "./lib/land-frame-record";
+import type { SettleGapRow } from "./lib/settle-gap-sampler";
 import { isFocusDestination } from "./deck-store-selectors";
 
 // ---------------------------------------------------------------------------
@@ -841,6 +842,18 @@ export type DeckTraceEvent = {
       paneId: string;
       property: string;
     }
+  | ({
+      // A frame that arrived more than one display period after the one
+      // before it, inside a settle's motion window (`lib/settle-gap-sampler.ts`).
+      // The `settle-frames` record above says the same and far more, but it is
+      // armed by name and runs on no deck nobody is measuring; this is the one
+      // frame record every deck keeps, a subtraction per frame while the
+      // settling mark is on.
+      //
+      // Always recorded, for the family's reason: "it sometimes drops frames"
+      // is a report about a session nobody was watching.
+      kind: "settle-gap";
+    } & SettleGapRow)
   | {
       // Fired when a member's FIRST live reservation report disagrees with
       // the opening bid the reveal commit wrote for it ([P04]). The bid is
@@ -1029,6 +1042,7 @@ export type DeckTraceEventInput =
       Extract<DeckTraceEvent, { kind: "settle-motion-violation" }>,
       StampedFields
     >
+  | Omit<Extract<DeckTraceEvent, { kind: "settle-gap" }>, StampedFields>
   | Omit<
       Extract<DeckTraceEvent, { kind: "opening-bid-mismatch" }>,
       StampedFields
@@ -1256,6 +1270,7 @@ const ALWAYS_RECORDED_KINDS: ReadonlySet<DeckTraceEvent["kind"]> = new Set([
   "session-lifecycle",
   "opening-bid-mismatch",
   "focus-claim-hidden",
+  "settle-gap",
 ]);
 
 function appendEvent(

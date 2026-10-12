@@ -40,11 +40,16 @@
  * good; the engine's release is what normally ends it.
  *
  * Two bypasses. The wrapped `flushSync` is how code says "I need the DOM now":
- * it drains the held set and the queued `afterGesture` work inside react-dom's
- * flush and runs its body unheld — whether or not the drain threw — but leaves
- * the scope pending, so a `flushSync` early in a gesture does not end the hold
- * for the rest of it. `tellReactNow` runs its body unheld without a flush, for
- * the deck store's own deliberate inline tells.
+ * it drains what a pending scope holds — the held set and the queued
+ * `afterGesture` work — inside react-dom's flush and runs its body unheld,
+ * whether or not the drain threw, but leaves the scope pending, so a
+ * `flushSync` early in a gesture does not end the hold for the rest of it.
+ * Inside a closed motion gate the drain runs nothing and only the body is
+ * flushed: the gate's held tells wait for its release. A streaming block
+ * flushes on every frame, so a drain that reached the gate's tells would
+ * unseal the motion once per streaming block per frame. `tellReactNow` runs
+ * its body unheld without a flush, for the deck store's own deliberate inline
+ * tells.
  *
  * Why not a transition: react-dom enqueues every `useSyncExternalStore` change
  * at SyncLane whatever the transition context, and a transition-lane render
@@ -246,9 +251,13 @@ export class GestureScope {
     this.queue.push(fn);
   }
 
-  /** Run every held callback, then every queued fn, once; the scope stays pending. */
+  /**
+   * Run every held callback, then every queued fn, once; the scope stays
+   * pending. Inside a closed motion gate it runs nothing: what the gate holds
+   * waits for the gate's release, as it does at the end of a scope.
+   */
   drain(): void {
-    this.runHeldAndQueued();
+    if (this.motionHolds === 0) this.runHeldAndQueued();
   }
 
   /**
@@ -517,8 +526,9 @@ export function useSyncExternalStore<T>(
 
 /**
  * Drop-in for react-dom's: drains the held set and the queued work (the scope
- * stays pending), then runs `fn` unheld. `fn` runs even if the drain threw; the
- * drain's error is rethrown after it, and `fn`'s own error wins over it.
+ * stays pending; a closed motion gate keeps both), then runs `fn` unheld. `fn`
+ * runs even if the drain threw; the drain's error is rethrown after it, and
+ * `fn`'s own error wins over it.
  */
 export function flushSync<R>(fn: () => R): R {
   LEAD?.tell("flushSync", "");

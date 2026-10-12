@@ -152,7 +152,7 @@ import {
 } from "@/components/tugways/blocks/expansion-state";
 import type { FindSession } from "@/lib/find-session";
 import { TranscriptFindEngine } from "@/lib/transcript-find-engine";
-import type { SegmentedFindMatch } from "@/lib/transcript-search";
+import type { RowSegment, SegmentedFindMatch } from "@/lib/transcript-search";
 import { buildTranscriptSearchSegments } from "./transcript-search-index";
 import { TranscriptFindHighlighter } from "@/components/tugways/transcript-find-highlighter";
 import {
@@ -2117,6 +2117,13 @@ export interface SessionTranscriptHostProps {
    */
   findSession: FindSession;
   /**
+   * Whether the card's find bar is open. The whole-transcript find index is
+   * built only while it is: a closed bar has no query to search, and the
+   * index's rebuild walks every row on every store publish, which under
+   * streaming is every frame.
+   */
+  findOpen: boolean;
+  /**
    * Z1 — per-turn trailing slot renderer. Invoked once per row half:
    *   - on the user row at the trailing edge (next to the copy button)
    *   - on the assistant row at the trailing edge (next to the copy button)
@@ -2219,6 +2226,9 @@ export interface SessionTranscriptHandle {
   captureFindAnchor(source: "viewport" | "selection"): void;
 }
 
+/** The find index while find is closed: nothing to search, built once. */
+const CLOSED_FIND_INDEX: RowSegment[][] = [];
+
 export const SessionTranscriptHost = forwardRef<
   SessionTranscriptHandle,
   SessionTranscriptHostProps
@@ -2232,6 +2242,7 @@ export const SessionTranscriptHost = forwardRef<
     sessionMetadataStore,
     transcriptStore,
     findSession,
+    findOpen,
     renderTurnTrailing,
     liveEdgeContent,
   },
@@ -2743,9 +2754,11 @@ export const SessionTranscriptHost = forwardRef<
   );
 
   // ── Find route: whole-transcript index → search → paint ([P02]/[P03]) ────
-  // The row→text index is query-independent: it rebuilds only when the
-  // transcript changes (a new `codeSessionStore` snapshot), reading through the
-  // shared parse cache so it costs cache hits, not re-parses. The search runs
+  // The row→text index is query-independent: while find is open it rebuilds
+  // when the transcript changes (a new `codeSessionStore` snapshot), reading
+  // through the shared parse cache. While find is closed it is not built at
+  // all — the engine holds an empty index, and opening find builds the whole
+  // loaded window in the render that opens it. The search runs
   // over that finished index on query/options change. Painting resolves DOM
   // Ranges for the mounted matches via the Custom-Highlight painter — all
   // imperative appearance ([L06]), never React state ([L02] only for the
@@ -2766,11 +2779,22 @@ export const SessionTranscriptHost = forwardRef<
     () => toolBlockExpansion.version,
   );
   const searchIndex = useMemo(
-    () => buildTranscriptSearchSegments(dataSource, streamingStore, toolBlockExpansion),
+    () =>
+      findOpen
+        ? buildTranscriptSearchSegments(dataSource, streamingStore, toolBlockExpansion)
+        : CLOSED_FIND_INDEX,
     // `codeSnapshot` changes identity on every transcript mutation;
-    // `expansionVersion` bumps on every expand/collapse toggle.
+    // `expansionVersion` bumps on every expand/collapse toggle. Both key the
+    // memo only while find is open, so a closed bar rebuilds nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `codeSnapshot` and `expansionVersion` are the invalidation keys named above; the builder reads the live stores
-    [dataSource, streamingStore, toolBlockExpansion, codeSnapshot, expansionVersion],
+    [
+      dataSource,
+      streamingStore,
+      toolBlockExpansion,
+      findOpen,
+      findOpen ? codeSnapshot : null,
+      findOpen ? expansionVersion : null,
+    ],
   );
   // The transcript's find ENGINE — the session's delegate: the session owns
   // query/options/wrap semantics; this engine owns the index search, the
@@ -2788,7 +2812,10 @@ export const SessionTranscriptHost = forwardRef<
       findEngine.dispose();
     };
   }, [findSession, findEngine]);
-  useEffect(() => {
+  // A layout effect, so the index the opening render built is the engine's
+  // before the query the bar replays on mount can be searched: the search
+  // runs on a timer, which a passive effect is not ordered ahead of.
+  useLayoutEffect(() => {
     findEngine.setIndex(searchIndex, (row: number): string =>
       dataSource.idForIndex(row),
     );

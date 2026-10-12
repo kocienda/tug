@@ -46,7 +46,9 @@
  *      strict-mode remount that would wipe a module-level cache
  *      cannot make the reconciler duplicate (or blank) blocks that
  *      are already on screen. Bursts are coalesced via
- *      `requestAnimationFrame`.
+ *      `requestAnimationFrame`, and a frame that finds the settle's
+ *      motion gate closed defers its reconcile to the gate's release
+ *      (`lib/markdown/streaming-flush.ts`).
  *
  * Both modes write sanitized HTML directly to the DOM — there is no
  * React state for the rendered content per [L06]. The only React
@@ -102,6 +104,7 @@ import {
   renderIncremental,
   renderIncrementalFromBlocks,
 } from "@/lib/markdown/render-incremental";
+import { createStreamingFlush } from "@/lib/markdown/streaming-flush";
 
 /**
  * Hand a freshly annotated container to `onAnnotated`, and — unless React is
@@ -310,7 +313,9 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
   // initial pre-paint render here is essential when a streaming cell
   // mounts while the store already holds content (e.g.
   // scroll-out-and-back). Updates are rAF-coalesced so a burst of
-  // deltas produces at most one render per paint frame.
+  // deltas produces at most one render per paint frame, and none while
+  // a settle's motion gate is closed: the gate's release reconciles
+  // once with the text as it stands then.
   React.useLayoutEffect(() => {
     if (streamingStore === undefined) return;
     const el = containerRef.current;
@@ -369,31 +374,25 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
     reconcile(initial);
     inCommit = false;
 
-    let pendingRaf: number | null = null;
-    const flush = () => {
-      pendingRaf = null;
+    const flush = createStreamingFlush(() => {
       const target = containerRef.current;
       if (target === null) return;
       const text = (streamingStore.get(streamingPath) as string | undefined) ?? "";
       reconcile(text);
-    };
+    });
 
     const unsubscribe = streamingStore.observe(streamingPath, () => {
       // First emission in a burst schedules the flush; subsequent
-      // emissions see the queued id and skip the schedule. The rAF
-      // clears the id and reconciles, picking up the cumulative
-      // store value at the time it fires.
-      if (pendingRaf !== null) return;
-      pendingRaf = requestAnimationFrame(flush);
+      // emissions find it scheduled (or deferred to the motion gate) and
+      // add nothing. The reconcile picks up the cumulative store value at
+      // the time it runs.
+      flush.request();
     });
 
     return () => {
-      if (pendingRaf !== null) {
-        cancelAnimationFrame(pendingRaf);
-        pendingRaf = null;
-      }
+      flush.dispose();
       unsubscribe();
-      // Cleanup tears down the subscription and any pending rAF but
+      // Cleanup tears down the subscription and any pending flush but
       // deliberately leaves the container's DOM children in place.
       // React 18 dev strict mode (and Vite Fast Refresh) re-run this
       // effect as `cleanup → setup` against the SAME container; on the

@@ -273,14 +273,16 @@ describe("GestureScope", () => {
     expect(calls).toEqual(["tell"]);
   });
 
-  it("flushSync's drain still reaches what the motion gate holds", () => {
+  it("drain leaves what the motion gate holds for the gate's release", () => {
     const { scope } = harness();
     const calls: string[] = [];
     const release = scope.holdMotion(10_000);
     scope.tell(() => calls.push("tell"));
-    flushThrough(scope, () => calls.push("body"));
-    expect(calls).toEqual(["tell", "body"]);
+    scope.enqueue(() => calls.push("queued"));
+    scope.drain();
+    expect(calls).toEqual([]);
     release();
+    expect(calls).toEqual(["tell", "queued"]);
   });
 
   it("the motion gate does not close with motion off", () => {
@@ -339,6 +341,54 @@ describe("flushThrough", () => {
     } finally {
       console.error = original;
     }
+  });
+
+  it("inside a closed motion gate flushes its body and leaves the held tells and queue for the release", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    const release = scope.holdMotion(10_000);
+    scope.tell(() => calls.push("tell"));
+    scope.enqueue(() => calls.push("queued"));
+    const result = flushThrough(scope, () => {
+      calls.push("body");
+      return 7;
+    });
+    expect(result).toBe(7);
+    expect(calls).toEqual(["body"]);
+    // A second flush — the next streaming frame — reaches nothing held either.
+    flushThrough(scope, () => calls.push("body"));
+    expect(calls).toEqual(["body", "body"]);
+    scope.release();
+    expect(calls).toEqual(["body", "body"]);
+    release();
+    expect(calls).toEqual(["body", "body", "tell", "queued"]);
+  });
+
+  it("inside a closed motion gate still delivers the body's own tells, so a focus transfer flushes its mutation", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    const release = scope.holdMotion(10_000);
+    scope.tell(() => calls.push("earlier"));
+    flushThrough(scope, () => {
+      // The mutation's store write tells React inside the flush.
+      scope.tell(() => calls.push("mutation"));
+    });
+    expect(calls).toEqual(["mutation"]);
+    release();
+    expect(calls).toEqual(["mutation", "earlier"]);
+  });
+
+  it("with the gate open again, the next flush drains what a pending scope still holds", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    scope.open("pointer");
+    const release = scope.holdMotion(10_000);
+    release();
+    scope.tell(() => calls.push("tell"));
+    flushThrough(scope, () => calls.push("body"));
+    expect(calls).toEqual(["tell", "body"]);
+    expect(scope.isPending()).toBe(true);
   });
 });
 

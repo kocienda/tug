@@ -39,6 +39,11 @@
 // }
 // ```
 //
+// `paceMs`, when present, is the delay between one output and the
+// next within a turn — a token cadence, so a turn streams rather than
+// arriving as one burst. Absent or zero, a turn's outputs are emitted in
+// one loop, as they always were.
+//
 // Schema version mismatch produces a hard error at load time. The
 // `tugcodeVersion` field is informational at this Pass 7B scope —
 // runtime version-handshake / mismatch handling is deferred to a
@@ -60,7 +65,8 @@
 // shut down. Underrun (fewer user_messages than turns) is fine
 // — extra turns are simply not played.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AssistantText,
   ErrorEvent,
@@ -83,6 +89,7 @@ import type {
   ApiRetry,
   ControlRequestCancel,
   ResumeFailed,
+  ContentBlockStart,
 } from "./types.ts";
 import { IPC_VERSION } from "./types.ts";
 import { errorFrame } from "./ipc.ts";
@@ -131,7 +138,8 @@ export type TranscriptOutboundMessage =
   | ApiRetry
   | ToolUseStructured
   | ControlRequestCancel
-  | ResumeFailed;
+  | ResumeFailed
+  | ContentBlockStart;
 
 /**
  * The transcript document loaded from `--stub-transcript=<path>`.
@@ -139,7 +147,37 @@ export type TranscriptOutboundMessage =
 export interface TugcodeTranscript {
   schemaVersion: number;
   tugcodeVersion: string;
+  /**
+   * Milliseconds between one output and the next within a turn. Absent
+   * or zero emits a turn's outputs at once.
+   */
+  paceMs?: number;
   turns: TugcodeTurn[];
+}
+
+/**
+ * The environment variable naming a directory of per-session stub
+ * transcripts. tugcast spawns every session's tugcode itself, so a test
+ * that wants one card's session replayed — rather than run against
+ * claude — cannot pass `--stub-transcript`. It sets this variable on the
+ * app instead, and writes `<dir>/<session id>.json` for each session it
+ * wants stubbed; every other session runs live.
+ */
+export const STUB_TRANSCRIPT_DIR_ENV = "TUGCODE_STUB_TRANSCRIPT_DIR";
+
+/**
+ * The stub transcript this session replays under
+ * {@link STUB_TRANSCRIPT_DIR_ENV}, or `undefined` when the variable is
+ * unset or holds no transcript for `sessionId`.
+ */
+export function stubTranscriptForSession(
+  env: Record<string, string | undefined>,
+  sessionId: string,
+): string | undefined {
+  const dir = env[STUB_TRANSCRIPT_DIR_ENV];
+  if (dir === undefined || dir === "") return undefined;
+  const path = join(dir, `${sessionId}.json`);
+  return existsSync(path) ? path : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,9 +256,16 @@ export function loadTranscript(path: string): TugcodeTranscript {
       outputs: turn.outputs as TranscriptOutboundMessage[],
     });
   }
+  const pace = obj.paceMs;
+  if (pace !== undefined && (typeof pace !== "number" || !(pace >= 0))) {
+    throw new Error(
+      `stub-replay: transcript at ${path} has paceMs=${String(pace)} (must be a number >= 0)`,
+    );
+  }
   return {
     schemaVersion: sv,
     tugcodeVersion: obj.tugcodeVersion,
+    paceMs: pace,
     turns,
   };
 }
@@ -240,6 +285,8 @@ export class StubReplayEngine {
   private readonly emit: (msg: OutboundMessage) => void;
   private readonly sessionId: string;
   private nextTurnIndex = 0;
+  /** The paced turns, chained so a second turn never interleaves the first. */
+  private pacing: Promise<void> = Promise.resolve();
 
   constructor(args: {
     transcript: TugcodeTranscript;
@@ -289,15 +336,36 @@ export class StubReplayEngine {
         `stub-replay: user_message ${this.nextTurnIndex} exceeds transcript length ${this.transcript.turns.length}`,
         false,
       );
-      this.emit(err);
+      // A paced turn may still be streaming: the error follows its last
+      // output rather than landing in the middle of it.
+      if ((this.transcript.paceMs ?? 0) > 0) {
+        this.pacing = this.pacing.then(() => this.emit(err));
+      } else {
+        this.emit(err);
+      }
       return false;
     }
     const turn = this.transcript.turns[this.nextTurnIndex];
     this.nextTurnIndex++;
-    for (const output of turn.outputs) {
-      this.emit(output);
+    const paceMs = this.transcript.paceMs ?? 0;
+    if (paceMs <= 0) {
+      for (const output of turn.outputs) {
+        this.emit(output);
+      }
+      return true;
     }
+    this.pacing = this.pacing.then(async () => {
+      for (let i = 0; i < turn.outputs.length; i++) {
+        if (i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
+        this.emit(turn.outputs[i]);
+      }
+    });
     return true;
+  }
+
+  /** Resolves when every paced turn dispatched so far has emitted its last output. */
+  get paced(): Promise<void> {
+    return this.pacing;
   }
 
   /**

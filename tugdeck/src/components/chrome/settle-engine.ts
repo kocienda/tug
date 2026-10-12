@@ -133,6 +133,7 @@ import {
   SPACE_SWITCHING_ATTRIBUTE,
 } from "./space-layer";
 import { mark as perfMark } from "@/lib/perf-marks";
+import { SettleGapSampler } from "@/lib/settle-gap-sampler";
 import {
   isSidebarSide,
   type ColumnMode,
@@ -262,8 +263,25 @@ function putSettlingMarkOn(el: HTMLElement): void {
   }
 }
 
+/**
+ * The frame-gap row every deck keeps ([B07] of streaming-motion-reading): one
+ * subtraction per frame while the settling mark is on, and a `settle-gap` row
+ * when a frame is late. Started where the mark goes on and stopped in
+ * {@link takeSettlingMarkOff}, which every path that ends a settle goes
+ * through, so nothing samples at rest.
+ */
+const settleGapSampler = new SettleGapSampler({
+  // A page with no frames (a unit test's DOM) has none to sample, and a
+  // settle must still arm there.
+  requestFrame: (cb) =>
+    typeof requestAnimationFrame === "function" ? requestAnimationFrame(cb) : null,
+  cancelFrame: (id) => cancelAnimationFrame(id),
+  record: (row) => deckTrace.record({ kind: "settle-gap", ...row }),
+});
+
 /** {@link putSettlingMarkOn}'s inverse: the container's mark and every frame's. */
 function takeSettlingMarkOff(el: HTMLElement): void {
+  settleGapSampler.stop();
   el.removeAttribute("data-imposer-settling");
   for (const frame of el.querySelectorAll<HTMLElement>(
     ".tug-pane[data-imposer-settling]",
@@ -2188,6 +2206,7 @@ export function useSettleEngine({
         `${IMPOSITION_SETTLE_MS}ms`,
       );
       putSettlingMarkOn(el);
+      settleGapSampler.start(() => settleBeatRef.current?.kind ?? "set-up");
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
       if (prelaunch) {

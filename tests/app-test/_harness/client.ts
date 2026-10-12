@@ -908,6 +908,25 @@ export function spawnSessionResume(
 }
 
 /**
+ * Fire a REAL `spawn_session(mode=new)` CONTROL frame via
+ * `window.__tug.spawnSessionNew` — tugcast spawns a genuine tugcode for a
+ * fresh session in `projectDir`. Paired with a stub transcript written under
+ * the app's `TUGCODE_STUB_TRANSCRIPT_DIR` for `tugSessionId`, the session's
+ * turns replay that transcript through tugcast's real feed.
+ */
+export function spawnSessionNew(
+  caller: HarnessCaller,
+  cardId: string,
+  opts: { tugSessionId: string; projectDir: string },
+  evalOpts?: EvalJsOptions,
+): Promise<void> {
+  const script = callSurface(
+    `(window.__tug.spawnSessionNew(${lit(cardId)}, ${lit(opts)}), null)`,
+  );
+  return caller.evalJS<null>(script, evalOpts).then(() => undefined);
+}
+
+/**
  * One step in driving a bound session card's `CodeSessionStore` through
  * the lifecycle matrix — mirrors `SessionDriveAction` on the
  * `test-surface.ts` side (the two graphs are kept structurally
@@ -1593,6 +1612,12 @@ export interface TugcodeTranscriptTurn {
 export interface TugcodeTranscript {
   schemaVersion: typeof TUGCODE_TRANSCRIPT_SCHEMA_VERSION;
   tugcodeVersion: string;
+  /**
+   * Milliseconds between one output and the next within a turn, so a turn
+   * streams at a cadence rather than arriving as one burst. Absent or zero
+   * emits a turn's outputs at once.
+   */
+  paceMs?: number;
   turns: TugcodeTranscriptTurn[];
 }
 

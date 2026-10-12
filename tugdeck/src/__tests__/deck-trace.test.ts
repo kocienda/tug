@@ -170,6 +170,22 @@ describe("deckTrace.enable(false) gates recording", () => {
     ).toBe(100);
   });
 
+  test("settle-gap records through a closed gate", () => {
+    // A late frame inside a settle is the evidence behind "it sometimes drops
+    // frames", which is a report about a session nobody was recording.
+    deckTrace.enable(false);
+    deckTrace.record({
+      kind: "settle-gap",
+      beat: "move",
+      gapMs: 50,
+      periodMs: 16.7,
+      offsetMs: 120,
+    });
+    const events = deckTrace.dump();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.kind).toBe("settle-gap");
+  });
+
   test("scroll-displacement and follow-bottom record through a closed gate", () => {
     // These two kinds are records of a defect that arrives
     // unannounced, so they ignore the gate: a session found stranded

@@ -46,7 +46,7 @@
  *  - INPUT: a keystroke's synchronous work fits in one display frame
  *    (≤16ms) even while other cards stream.
  *  - STREAMING: React notification cadence per store is bounded by
- *    LIVE_NOTIFY_MIN_MS (~one frame), never per-token.
+ *    the shared frame tick (`live-publish-tick.ts`), never per-token.
  *  - MOTION: every long-running animation is compositor-resident —
  *    see {@link animationCensus}, which is that contract in executable
  *    form.

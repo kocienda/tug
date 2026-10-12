@@ -564,6 +564,13 @@ const EVENT_FIXTURES: Record<
     paneId: "p1",
     property: "height",
   },
+  "settle-gap": {
+    kind: "settle-gap",
+    beat: "move",
+    gapMs: 50,
+    periodMs: 16.7,
+    offsetMs: 120,
+  },
   "session-lifecycle": {
     kind: "session-lifecycle",
     event: "perf.replay_ingest",

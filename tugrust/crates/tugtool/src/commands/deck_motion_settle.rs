@@ -45,6 +45,17 @@
 //! longest chain (with `--chains`) whose paying read fell outside every
 //! commit's span. That is the set-up's cost a gesture's frames wait behind,
 //! read on the deck the user runs rather than barred in an app-test.
+//!
+//! **The streaming arm.** A gesture is read at rest by default, and a deck
+//! that is not at rest is refused. The judder users report happens with
+//! sessions streaming, so `--streaming <n>` reads that condition instead: it
+//! requires at least `n` session cards mid-turn before the first drive and
+//! before each one after, reads the busy floor rather than refusing it, and
+//! stops the run when a stream ends, because every reading after that would
+//! be a quieter deck's. Each reading carries the stream count it was driven
+//! under. `--sample` runs the native samplers (`deck_motion_sample.rs`)
+//! across the drives, so a streaming reading says how much of its cost was
+//! script and how much engine.
 
 use crate::commands::deck_motion::eval_gated;
 use crate::commands::deck_motion_slide::{
@@ -91,6 +102,14 @@ pub fn gesture_window(gesture: &str, marks: &[(f64, bool)]) -> Option<(f64, f64)
 
 /// Quiet time between one drive and the next.
 const REST_BETWEEN_MS: u64 = 400;
+
+/// What a drive costs the samplers beyond its rest: the settle window, its
+/// tail and the round trip, generously, so the samplers outlast the drives.
+const SAMPLED_DRIVE_MS: u64 = 1600;
+
+/// How long the samplers take to attach before the first drive is worth
+/// recording.
+const SAMPLER_ATTACH_MS: u64 = 1500;
 
 /// How many `why` entries a commit reports.
 const WHY_SHOWN: usize = 12;
@@ -774,6 +793,47 @@ pub fn rest_verdict(updates: f64, budget: Option<f64>) -> (String, bool) {
     }
 }
 
+/// The page's `streams` op: how many session cards are mid-turn, and how
+/// many of those are streaming text, off each prompt entry's phase.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamCount {
+    pub in_turn: u32,
+    pub streaming: u32,
+}
+
+/// Whether a streaming reading may go on: at least `required` sessions
+/// mid-turn. The line names both counts, so a refusal says what was seen.
+pub fn stream_verdict(required: u32, count: &StreamCount) -> (String, bool) {
+    (
+        format!(
+            "streaming: {} session(s) mid-turn, {} streaming text, against --streaming {required}",
+            count.in_turn, count.streaming
+        ),
+        count.in_turn >= required,
+    )
+}
+
+/// The rest line under `--streaming`: the deck's busy floor, read and
+/// reported, with the budget it is not held to.
+pub fn streaming_floor_line(updates: f64, budget: Option<f64>) -> String {
+    let budget = match budget {
+        Some(b) => format!("the at-rest budget of {} is not applied", b as i64),
+        None => "this deck reports no rest budget".to_string(),
+    };
+    format!(
+        "streaming floor: {} update(s)/s; {budget} under --streaming",
+        updates as i64
+    )
+}
+
+/// How long the samplers run to cover `drives` drives.
+pub fn sample_seconds(drives: usize) -> u32 {
+    let per_drive = SAMPLED_DRIVE_MS + REST_BETWEEN_MS;
+    let total = drives as u64 * per_drive + SAMPLER_ATTACH_MS + 1000;
+    total.div_ceil(1000) as u32
+}
+
 /// One drive's reading.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Reading {
@@ -810,6 +870,8 @@ pub struct Reading {
     /// (`deck_motion_verdict.rs`); `None` when the record switch was off and
     /// the page wrote none.
     pub verdict: Option<crate::commands::deck_motion_verdict::Verdict>,
+    /// The sessions mid-turn when the drive was made, with `--streaming`.
+    pub streams: Option<StreamCount>,
 }
 
 /// Reduce one `record` op's raw result to a reading.
@@ -879,6 +941,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         motion: motion_reading,
         pane_id: str_of(raw, "paneId"),
         verdict: crate::commands::deck_motion_verdict::verdict_of(raw.get("engine")),
+        streams: None,
     }
 }
 
@@ -891,6 +954,21 @@ fn str_of(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(|v| v.as_str()).map(str::to_string)
 }
 
+/// Ask the page how many sessions are mid-turn. `None` when the eval door is
+/// shut.
+fn streams(port: u16) -> Result<Option<StreamCount>, String> {
+    let Some(raw) = page(port, json!({"op": "streams"}))? else {
+        return Ok(None);
+    };
+    if let Some(error) = raw.get("error").and_then(|e| e.as_str()) {
+        return Err(error.to_string());
+    }
+    serde_json::from_value(raw)
+        .map(Some)
+        .map_err(|e| format!("the page's stream count did not parse: {e}"))
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_settle(
     port: u16,
     gesture: &str,
@@ -898,6 +976,8 @@ pub fn run_settle(
     count: u32,
     tasks: bool,
     chains: bool,
+    sample: bool,
+    streaming: Option<u32>,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || Ok(eval_gated("deck motion settle", json_output));
@@ -942,10 +1022,31 @@ pub fn run_settle(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
     let budget = rest.get("budgetPerSecond").and_then(|v| v.as_f64());
-    let (rest_line, at_rest) = rest_verdict(updates, budget);
+    let streams_at_start = match streaming {
+        Some(required) => {
+            let Some(count) = streams(port)? else {
+                return gated();
+            };
+            let (line, enough) = stream_verdict(required, &count);
+            if !enough {
+                return Err(format!(
+                    "{line}; a streaming reading needs its sessions mid-turn before the first drive"
+                ));
+            }
+            Some((line, count))
+        }
+        None => None,
+    };
+    let (rest_line, at_rest) = match streaming {
+        Some(_) => (streaming_floor_line(updates, budget), true),
+        None => rest_verdict(updates, budget),
+    };
     if !json_output {
         print_census(&census);
         println!("{rest_line}");
+        if let Some((line, _)) = &streams_at_start {
+            println!("{line}");
+        }
     }
     if !at_rest {
         return Err(format!(
@@ -963,6 +1064,11 @@ pub fn run_settle(
                 "note: the lead recorder takes a stack at every queueing and walks every React commit, so react_ms is perturbed upward"
             );
         }
+        if sample {
+            println!(
+                "note: the samplers stop WebContent to read its stacks, so the frame numbers below are perturbed — take frames from a run without --sample"
+            );
+        }
         println!(
             "settle --gesture {gesture}, {} drive(s), commits within {MARGIN_MS:.0} ms of the settle mark",
             plan.iter().filter(|d| d.read).count()
@@ -973,9 +1079,39 @@ pub fn run_settle(
     let mut readings = Vec::new();
     let mut chains_census: Option<Value> = None;
     let mut last_pane: Option<String> = None;
+    let samplers = if sample {
+        let targets = crate::commands::deck_motion_sample::targets(port)?;
+        let seconds = sample_seconds(plan.len());
+        let samplers = crate::commands::deck_motion_sample::start(&targets, seconds)?;
+        if !json_output {
+            let names: Vec<String> = targets.iter().map(|(l, p)| format!("{l} {p}")).collect();
+            eprintln!("sampling {} for {seconds} s", names.join(", "));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(SAMPLER_ATTACH_MS));
+        Some(samplers)
+    } else {
+        None
+    };
     for (index, drive) in plan.iter().enumerate() {
         let is_census = census_index == Some(index);
         let drive_args = close_target(drive, last_pane.as_deref())?;
+        let streams_at_drive = match streaming {
+            Some(required) if drive.read => {
+                let Some(count) = streams(port)? else {
+                    return gated();
+                };
+                let (line, enough) = stream_verdict(required, &count);
+                if !enough {
+                    return Err(format!(
+                        "the streams ended before drive {} of {}: {line}; lengthen the streams or lower --count",
+                        index + 1,
+                        plan.len()
+                    ));
+                }
+                Some(count)
+            }
+            _ => None,
+        };
         let raw = page(
             port,
             json!({
@@ -1004,7 +1140,8 @@ pub fn run_settle(
             }
         }
         if drive.read && (!is_census || census_read) {
-            let reading = reduce(drive, &raw);
+            let mut reading = reduce(drive, &raw);
+            reading.streams = streams_at_drive;
             if !json_output {
                 print_reading(readings.len() + 1, &reading);
             }
@@ -1013,19 +1150,37 @@ pub fn run_settle(
         std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
     }
 
+    let processes = match samplers {
+        Some(samplers) => {
+            if !json_output {
+                eprintln!("waiting for the samplers to finish");
+            }
+            Some(samplers.finish()?)
+        }
+        None => None,
+    };
     if json_output {
         crate::output::print_ok(
             "deck motion settle",
             json!({
                 "census": census,
                 "rest": rest,
+                "streaming": streaming.map(|required| json!({
+                    "required": required,
+                    "atStart": streams_at_start.as_ref().map(|(_, c)| c),
+                })),
                 "gesture": gesture,
                 "marginMs": MARGIN_MS,
                 "framesPerturbedByTasks": tasks,
+                "framesPerturbedBySampling": sample,
                 "chainsCensus": chains_census,
                 "readings": readings,
+                "samples": processes,
             }),
         );
+    } else if let Some(processes) = &processes {
+        println!();
+        crate::commands::deck_motion_sample::print(processes, readings.len());
     }
     Ok(0)
 }
@@ -1094,6 +1249,13 @@ pub fn reading_extras(r: &Reading) -> String {
         ms(r.lead_ms),
         ms(r.longest_gap_ms)
     );
+    if let Some(s) = &r.streams {
+        let _ = writeln!(
+            out,
+            "   driven with {} session(s) mid-turn, {} streaming text",
+            s.in_turn, s.streaming
+        );
+    }
     if let Some(m) = &r.main_thread {
         let untimed = if m.untimed == 0 {
             String::new()
@@ -1977,5 +2139,67 @@ mod tests {
         assert!(r.settle_beats.is_empty());
         assert_eq!((r.lead_ms, r.longest_gap_ms), (None, None));
         assert!(reading_extras(&r).contains("lead — ms, longest gap — ms"));
+    }
+
+    #[test]
+    fn the_page_stream_count_parses_and_ignores_the_phase_census() {
+        let count: StreamCount = serde_json::from_value(json!({
+            "inTurn": 3,
+            "streaming": 2,
+            "phases": {"streaming": 2, "tool_work": 1, "idle": 4},
+        }))
+        .unwrap();
+        assert_eq!(
+            count,
+            StreamCount {
+                in_turn: 3,
+                streaming: 2
+            }
+        );
+    }
+
+    #[test]
+    fn a_streaming_reading_needs_its_sessions_mid_turn() {
+        let three = StreamCount {
+            in_turn: 3,
+            streaming: 2,
+        };
+        let (line, enough) = stream_verdict(3, &three);
+        assert!(enough);
+        assert!(line.contains("3 session(s) mid-turn, 2 streaming text"));
+        assert!(line.contains("--streaming 3"));
+        assert!(!stream_verdict(4, &three).1);
+        assert!(!stream_verdict(1, &StreamCount::default()).1);
+    }
+
+    #[test]
+    fn the_streaming_floor_is_read_and_never_held_to_the_rest_budget() {
+        let line = streaming_floor_line(41.6, Some(10.0));
+        assert!(line.starts_with("streaming floor: 41 update(s)/s"));
+        assert!(line.contains("budget of 10 is not applied"));
+        assert!(streaming_floor_line(41.0, None).contains("reports no rest budget"));
+    }
+
+    #[test]
+    fn the_samplers_outlast_every_drive() {
+        // Four drives: 4 × (1600 + 400) + 1500 attach + 1000 slack = 10.5 s.
+        assert_eq!(sample_seconds(4), 11);
+        assert!(u64::from(sample_seconds(7)) * 1000 >= 7 * (SAMPLED_DRIVE_MS + REST_BETWEEN_MS));
+    }
+
+    #[test]
+    fn a_reading_names_the_streams_it_was_driven_under() {
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let mut r = reduce(&drive, &json!({}));
+        assert!(!reading_extras(&r).contains("mid-turn"));
+        r.streams = Some(StreamCount {
+            in_turn: 3,
+            streaming: 3,
+        });
+        assert!(reading_extras(&r).contains("driven with 3 session(s) mid-turn, 3 streaming text"));
     }
 }

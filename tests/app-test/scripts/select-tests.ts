@@ -413,7 +413,14 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugdeck/src/lib/annotator/": 21,
 
     "tugdeck/src/lib/code-session-store/": 30,
-    "tugdeck/src/lib/markdown/": 19,
+    // Raised from 19 for `streaming-flush.ts`, which is not new reach: it is
+    // the streaming block's frame coalescer, lifted out of
+    // `tug-markdown-block.tsx` when its reconcile learned to wait for the
+    // motion gate, and `at0225` — this subtree's one declarer — already names
+    // that component. The declaration keeps exactly the reach it had over
+    // that code before the split. Raised in place, as `internal/` above was:
+    // the delete-then-re-add needs two commits for a key already in `HEAD`.
+    "tugdeck/src/lib/markdown/": 20,
 
     // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
     // ten themes, and its one declaration — `at0109`'s — boots under the base

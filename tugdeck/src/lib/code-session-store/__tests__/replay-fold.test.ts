@@ -24,6 +24,7 @@ import {
   REPLAY_FOLD_FLUSH_THRESHOLD,
 } from "@/lib/code-session-store";
 import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
+import { LivePublishTick } from "@/lib/live-publish-tick";
 import type { TugConnection } from "@/connection";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
@@ -202,46 +203,31 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(store.getSnapshot().transcript).toHaveLength(2);
   });
 
-  it("same-phase streaming bursts coalesce to one trailing notify per window", () => {
-    // Manual timer source so the trailing flush is deterministic. It is
-    // HONEST about cancellation: the coalescing contract's second half —
-    // an immediate publish supersedes the armed trailing flush, so no
-    // double notify — rests entirely on `clearTimeout` (the trailing
-    // callback itself publishes unconditionally), so the fake must track
-    // cleared handles for that half to be testable.
-    //
-    // It also filters by DURATION. The store arms more than one named
-    // timer over a live turn — the stream-stall deadline is re-armed by
-    // every stream event — and a `TimerSource` sees no names. The
-    // coalescing window is one display frame (16 ms) and every other timer
-    // this store arms is seconds out, so "a timer due inside 100 ms" is the
-    // coalescing flush and nothing else.
-    const WINDOW_MAX_MS = 100;
-    const pending = new Map<number, () => void>();
-    let armed = 0;
-    let clearedCount = 0;
+  it("same-phase streaming bursts coalesce to one notify per frame tick", () => {
+    // A tick of the store's own over a manual frame, so the coalesced
+    // publish is deterministic. The coalescing contract's second half —
+    // an immediate publish supersedes the pending one, so no double
+    // notify — rests on the store taking its entry back out of the tick,
+    // which `tick.size` shows.
+    const frames: Array<() => void> = [];
+    const tick = new LivePublishTick({
+      requestFrame: (cb) => frames.push(cb),
+      cancelFrame: () => {
+        frames.length = 0;
+      },
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+    });
     const conn = new TestFrameChannel();
     const store = new CodeSessionStore({
       conn: conn as unknown as TugConnection,
       lifecycle: new ConnectionLifecycle(),
       tugSessionId: TUG,
       sessionMode: "new",
-      timerSource: {
-        setTimeout: (cb: () => void, ms: number) => {
-          armed += 1;
-          if (ms <= WINDOW_MAX_MS) pending.set(armed, cb);
-          return armed;
-        },
-        clearTimeout: (handle: unknown) => {
-          if (pending.delete(handle as number)) clearedCount += 1;
-        },
-      },
+      publishTick: tick,
     });
     const firePending = (): void => {
-      for (const [id, cb] of [...pending]) {
-        pending.delete(id);
-        cb();
-      }
+      for (const cb of frames.splice(0)) cb();
     };
     let count = 0;
     store.subscribe(() => {
@@ -268,19 +254,19 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(count).toBe(afterSend + 2);
     // Same-phase burst: every event still reduces immediately (reads
     // stay truthful) but the listener notification coalesces into ONE
-    // trailing flush at the window edge.
+    // publish on the next frame.
     delta(2);
     delta(3);
     delta(4);
     expect(count).toBe(afterSend + 2);
-    expect(pending.size).toBe(1);
+    expect(tick.size).toBe(1);
+    expect(frames.length).toBe(1);
     firePending();
     expect(count).toBe(afterSend + 3);
-    // A phase transition mid-window (turn_complete) publishes
-    // immediately — end-of-turn paint never waits on the window.
+    // A phase transition before the frame (turn_complete) publishes
+    // immediately — end-of-turn paint never waits on the tick.
     delta(5);
-    expect(pending.size).toBe(1);
-    const clearedBefore = clearedCount;
+    expect(tick.size).toBe(1);
     emit(conn, {
       type: "turn_complete",
       seq: 0,
@@ -288,13 +274,66 @@ describe("replay fold — one snapshot tick per flush", () => {
       result: "success",
     });
     expect(count).toBe(afterSend + 4);
-    // The immediate publish CANCELED the armed trailing flush — the
-    // window edge arrives with nothing pending, so the burst that
-    // preceded turn_complete can never notify a second time.
-    expect(clearedCount).toBe(clearedBefore + 1);
-    expect(pending.size).toBe(0);
+    // The immediate publish took the pending entry back out of the tick,
+    // which disarmed — the frame arrives with nothing pending, so the
+    // burst that preceded turn_complete can never notify a second time.
+    expect(tick.size).toBe(0);
+    expect(frames.length).toBe(0);
     firePending();
     expect(count).toBe(afterSend + 4);
+  });
+
+  it("two streaming stores ride one frame: one frame requested, each notifies once in it", () => {
+    const frames: Array<() => void> = [];
+    const tick = new LivePublishTick({
+      requestFrame: (cb) => frames.push(cb),
+      cancelFrame: () => {
+        frames.length = 0;
+      },
+      setTimeout: () => 0,
+      clearTimeout: () => {},
+    });
+    const streams = [0, 1].map(() => {
+      const conn = new TestFrameChannel();
+      const store = new CodeSessionStore({
+        conn: conn as unknown as TugConnection,
+        lifecycle: new ConnectionLifecycle(),
+        tugSessionId: TUG,
+        sessionMode: "new",
+        publishTick: tick,
+      });
+      let count = 0;
+      store.subscribe(() => {
+        count += 1;
+      });
+      store.send("hello", []);
+      return { conn, count: () => count };
+    });
+    const delta = (conn: TestFrameChannel, seq: number): void =>
+      emit(conn, {
+        type: "assistant_text",
+        status: "partial",
+        msg_id: FIXTURE_IDS.MSG_ID_N(1),
+        text: "x",
+        is_partial: true,
+        rev: 0,
+        seq,
+      });
+    // Past the phase boundaries, so every later delta is same-phase.
+    for (const { conn } of streams) {
+      delta(conn, 0);
+      delta(conn, 1);
+    }
+    const before = streams.map((s) => s.count());
+    for (let seq = 2; seq < 6; seq++) {
+      for (const { conn } of streams) delta(conn, seq);
+    }
+    expect(streams.map((s) => s.count())).toEqual(before);
+    expect(frames.length).toBe(1);
+    expect(tick.size).toBe(2);
+    for (const cb of frames.splice(0)) cb();
+    expect(streams.map((s) => s.count())).toEqual(before.map((n) => n + 1));
+    expect(tick.size).toBe(0);
   });
 
   it("golden: folded ingest produces a final state deep-equal to a second identical run", () => {

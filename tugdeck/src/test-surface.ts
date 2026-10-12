@@ -81,7 +81,11 @@ import { publishListCardBindingsOk } from "./lib/session-ledger-events";
 import type { CardBinding } from "./protocol";
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
-import { sendSpawnSession } from "./lib/session-lifecycle";
+import {
+  provisionSpawnLine,
+  provisionSpawnTag,
+  sendSpawnSession,
+} from "./lib/session-lifecycle";
 import { sessionLineStore } from "./lib/session-line-store";
 import { applyRestoredShellExchanges } from "./lib/shell-session-store";
 import type { AtomSegment } from "./lib/tug-atom-img";
@@ -432,8 +436,12 @@ import {
  * `2.27.0`: adds {@link TugTestSurface.tearDownSettle}, the door onto the
  * settle's `"unmount"` exit with the frames still mounted. Additive; major
  * stays `2`.
+ *
+ * `2.28.0`: adds {@link TugTestSurface.spawnSessionNew}, the real
+ * `spawn_session(mode=new)` frame — how a card binds to a session whose
+ * tugcode the test has stubbed. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.27.0" as const;
+export const SURFACE_VERSION = "2.28.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1462,6 +1470,25 @@ export interface TugTestSurface {
    * Throws if the shared connection is unavailable.
    */
   spawnSessionResume(
+    cardId: string,
+    opts: { tugSessionId: string; projectDir: string },
+  ): void;
+
+  /**
+   * Fire a REAL `spawn_session(mode=new)` CONTROL frame — the production
+   * `sendSpawnSession` path a picker's New takes — so tugcast spawns a
+   * genuine tugcode for a fresh session in `projectDir`. The binding lands
+   * on the server's `spawn_session_ok` ack.
+   *
+   * What it is for: a test that has written a stub transcript for
+   * `tugSessionId` under the app's `TUGCODE_STUB_TRANSCRIPT_DIR`
+   * (`tugcode/src/stub-replay.ts`) binds the card to a session whose turns
+   * replay that transcript through tugcast's real `CODE_OUTPUT` feed —
+   * streaming into a card without a `claude` turn (SURFACE_VERSION 2.28.0).
+   *
+   * Throws if the shared connection is unavailable.
+   */
+  spawnSessionNew(
     cardId: string,
     opts: { tugSessionId: string; projectDir: string },
   ): void;
@@ -2848,6 +2875,32 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         opts.tugSessionId,
         opts.projectDir,
         "resume",
+      );
+    },
+
+    spawnSessionNew(
+      cardId: string,
+      opts: { tugSessionId: string; projectDir: string },
+    ): void {
+      const connection = getConnection();
+      if (connection === null) {
+        throw new Error(
+          "spawnSessionNew: shared connection unavailable — the app must " +
+            "be connected before a real spawn_session can be driven",
+        );
+      }
+      // A fresh spawn births a line, and tugcast refuses a `new` spawn that
+      // names none — so the line and its tag are provisioned exactly as the
+      // picker's New provisions them.
+      const lineId = provisionSpawnLine(opts.tugSessionId);
+      sendSpawnSession(
+        connection,
+        cardId,
+        opts.tugSessionId,
+        opts.projectDir,
+        "new",
+        provisionSpawnTag(lineId),
+        lineId,
       );
     },
 

@@ -311,6 +311,15 @@ export type DeckTraceEventShape = {
       property: string;
     }
   | {
+      /** A frame more than one display period late inside a settle's
+       *  motion window. Always recorded. */
+      kind: "settle-gap";
+      beat: string;
+      gapMs: number;
+      periodMs: number;
+      offsetMs: number;
+    }
+  | {
       kind: "opening-bid-mismatch";
       memberId: string;
       /** The height the arrival commit bid, and the panel's own first reading. */
@@ -402,6 +411,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-beat",
   "settle-motion-violation",
   "opening-bid-mismatch",
+  "settle-gap",
   "session-lifecycle",
   "space-switch-timing",
   "space-epoch",
@@ -687,6 +697,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       );
     case "settle-motion-violation":
       return `settle-motion-violation ${e.paneId}:${e.property}`;
+    case "settle-gap":
+      return `settle-gap ${e.beat} gap=${e.gapMs.toFixed(1)}ms period=${e.periodMs.toFixed(1)}ms +${e.offsetMs.toFixed(0)}ms`;
     case "opening-bid-mismatch":
       return `opening-bid-mismatch ${fmt(e.memberId)} bid=${e.bid} report=${e.report} (${e.report - e.bid >= 0 ? "+" : ""}${e.report - e.bid})`;
     case "session-lifecycle":

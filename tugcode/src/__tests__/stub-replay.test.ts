@@ -12,7 +12,9 @@ import { join } from "node:path";
 import {
   loadTranscript,
   StubReplayEngine,
+  STUB_TRANSCRIPT_DIR_ENV,
   TRANSCRIPT_SCHEMA_VERSION,
+  stubTranscriptForSession,
   type TugcodeTranscript,
 } from "../stub-replay.ts";
 import type { OutboundMessage } from "../types.ts";
@@ -225,5 +227,103 @@ describe("StubReplayEngine", () => {
     if (captured[1].type === "assistant_text") {
       expect(captured[1].text).toBe("second");
     }
+  });
+});
+
+describe("paced turns", () => {
+  test("loadTranscript carries paceMs, and refuses a negative one", () => {
+    const paced = writeTranscriptFile({ ...makeMinimalTranscript(), paceMs: 25 });
+    expect(loadTranscript(paced).paceMs).toBe(25);
+    expect(loadTranscript(writeTranscriptFile(makeMinimalTranscript())).paceMs).toBeUndefined();
+    const bad = writeTranscriptFile({ ...makeMinimalTranscript(), paceMs: -1 });
+    expect(() => loadTranscript(bad)).toThrow(/paceMs=-1/);
+  });
+
+  test("a paced turn returns before it finishes, and emits at the cadence", async () => {
+    const captured: { type: string; at: number }[] = [];
+    const engine = new StubReplayEngine({
+      transcript: { ...makeMinimalTranscript(), paceMs: 30 },
+      sessionId: "sess-1",
+      emit: (m) => captured.push({ type: m.type, at: performance.now() }),
+    });
+    const start = performance.now();
+    expect(engine.dispatchTurn()).toBe(true);
+    // The dispatch returns before the turn has finished, so the IPC loop
+    // keeps reading stdin while the turn streams.
+    expect(captured.length).toBeLessThan(2);
+    await engine.paced;
+    expect(captured.map((c) => c.type)).toEqual(["assistant_text", "turn_complete"]);
+    expect(captured[0].at - start).toBeLessThan(30);
+    expect(captured[1].at - captured[0].at).toBeGreaterThanOrEqual(25);
+  });
+
+  test("a second paced turn waits for the first to finish", async () => {
+    const turn = (index: number, msgId: string) => ({
+      index,
+      outputs: [
+        {
+          type: "assistant_text" as const,
+          msg_id: msgId,
+          block_index: 0,
+          seq: 0,
+          rev: 0,
+          text: msgId,
+          is_partial: false,
+          status: "complete",
+          ipc_version: 2,
+        },
+        {
+          type: "turn_complete" as const,
+          msg_id: msgId,
+          seq: 1,
+          result: "success",
+          ipc_version: 2,
+        },
+      ],
+    });
+    const captured: string[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "0.8.0",
+        paceMs: 10,
+        turns: [turn(0, "a"), turn(1, "b")],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(`${m.type}:${(m as { msg_id?: string }).msg_id}`),
+    });
+    engine.dispatchTurn();
+    engine.dispatchTurn();
+    await engine.paced;
+    expect(captured).toEqual([
+      "assistant_text:a",
+      "turn_complete:a",
+      "assistant_text:b",
+      "turn_complete:b",
+    ]);
+  });
+
+  test("an exhausted dispatch during a paced turn errors after the turn's last output", async () => {
+    const captured: string[] = [];
+    const engine = new StubReplayEngine({
+      transcript: { ...makeMinimalTranscript(), paceMs: 10 },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m.type),
+    });
+    expect(engine.dispatchTurn()).toBe(true);
+    expect(engine.dispatchTurn()).toBe(false);
+    await engine.paced;
+    expect(captured).toEqual(["assistant_text", "turn_complete", "error"]);
+  });
+});
+
+describe("stubTranscriptForSession", () => {
+  test("finds the session's transcript in the named directory, and nothing else", () => {
+    writeFileSync(join(workdir, "sess-stub.json"), JSON.stringify(makeMinimalTranscript()));
+    const env = { [STUB_TRANSCRIPT_DIR_ENV]: workdir };
+    expect(stubTranscriptForSession(env, "sess-stub")).toBe(join(workdir, "sess-stub.json"));
+    expect(stubTranscriptForSession(env, "sess-live")).toBeUndefined();
+    expect(stubTranscriptForSession({}, "sess-stub")).toBeUndefined();
+    expect(stubTranscriptForSession({ [STUB_TRANSCRIPT_DIR_ENV]: "" }, "sess-stub")).toBeUndefined();
   });
 });

@@ -107,6 +107,7 @@ import type {
 } from "./code-session-store/events";
 import type { Effect } from "./code-session-store/effects";
 import { publishLocalSessionStateChange } from "./session-state-changes-local-events";
+import { type LivePublishTick, livePublishTick } from "./live-publish-tick";
 import type {
   CardSessionMode,
   CodeSessionSnapshot,
@@ -181,14 +182,6 @@ const STREAM_SOURCE_TAG = "code-session-store";
  * transcript list. Cleared at `activeTurn` boundaries by `dispatch`.
  */
 const LIVE_USAGE_PATH = "telemetry.liveTurnUsage";
-
-/**
- * Trailing-flush delay for live wire-origin snapshot notifications —
- * one display frame. Same-phase streaming bursts coalesce to this
- * cadence; the ≤16 ms added notify latency is under one frame and
- * invisible (streamed text paints imperatively, off this path).
- */
-const LIVE_NOTIFY_MIN_MS = 16;
 
 /**
  * The refusal a conversation rewind gets when its anchor is not in the loaded
@@ -425,6 +418,12 @@ export interface CodeSessionStoreOptions {
    * timer source so they can advance time deterministically.
    */
   timerSource?: TimerSource;
+  /**
+   * Test seam — the frame-aligned tick coalesced live publishes ride.
+   * Production callers omit this and share `livePublishTick`; tests
+   * inject their own over a manual source.
+   */
+  publishTick?: LivePublishTick;
 }
 
 /**
@@ -450,6 +449,7 @@ export class CodeSessionStore extends Subscribable {
   private readonly feedStore: FeedStore;
   private readonly pendingContextStore: PendingContextStore | undefined;
   private readonly timerSource: TimerSource;
+  private readonly publishTick: LivePublishTick;
   /**
    * Active replay-clock timers keyed by their effect `name`
    * (`"preflight"`, `"soft_budget"`, `"timeout_dwell"`). Populated by
@@ -557,17 +557,24 @@ export class CodeSessionStore extends Subscribable {
 
   /**
    * Live-notify coalescing: same-phase wire dispatches ride ONE
-   * trailing flush per {@link LIVE_NOTIFY_MIN_MS} window, so a
-   * streaming burst costs React one render per ~frame instead of one
-   * per token. Local dispatches (user actions) and phase transitions
-   * always publish immediately, flushing anything pending. Time-based
-   * rather than rAF-based on purpose: rAF stalls in occluded /
-   * background WebViews, which would freeze background-card
-   * transcripts; a timer coalesces identically (~60 Hz) everywhere —
-   * and rides the injectable {@link TimerSource} for deterministic
-   * tests.
+   * publish on the next tick of the shared frame-aligned
+   * {@link LivePublishTick}, so a streaming burst costs React one
+   * render per frame instead of one per token, and every streaming
+   * store's render lands in the same frame instead of on its own
+   * timer. Local dispatches (user actions) and phase transitions
+   * always publish immediately, cancelling anything pending. The
+   * tick's deadline timer keeps an occluded window's background-card
+   * transcripts moving, which is why this was a timer before it was a
+   * frame.
    */
-  private _trailingNotify: unknown | null = null;
+  private _livePublishPending = false;
+
+  /** The entry this store hands the tick: identity-stable, so the tick can drop it. */
+  private readonly _livePublish = (): void => {
+    this._livePublishPending = false;
+    if (this._disposed) return;
+    this._publishAndNotify();
+  };
 
   constructor(options: CodeSessionStoreOptions) {
     super();
@@ -586,6 +593,7 @@ export class CodeSessionStore extends Subscribable {
     this.sessionMode = options.sessionMode;
     this.pendingContextStore = options.pendingContextStore;
     this.timerSource = options.timerSource ?? DEFAULT_TIMER_SOURCE;
+    this.publishTick = options.publishTick ?? livePublishTick;
 
     // Per-card bytes side-table — populated at drop / paste, drained
     // at `clear()` on dispose. Snapshot rides
@@ -1942,11 +1950,9 @@ export class CodeSessionStore extends Subscribable {
     // Teardown flush of an open replay fold — nothing is ever
     // stranded: listeners still attached observe the final reduced
     // state in one last snapshot tick before they're cleared.
-    // A pending coalesced live notify flushes with the fold below (or
-    // is dropped by the `_disposed` guard if the timer outlives us).
-    if (this._trailingNotify !== null) {
-      this.timerSource.clearTimeout(this._trailingNotify);
-      this._trailingNotify = null;
+    // A pending coalesced live notify is published here and dropped
+    // from the shared tick.
+    if (this._livePublishPending) {
       this._publishAndNotify();
     }
     this._flushReplayFold();
@@ -2574,9 +2580,9 @@ export class CodeSessionStore extends Subscribable {
         (event.type === "assistant_text" || event.type === "thinking_text")
       ) {
         // Live streaming firehose: same-phase text/thinking deltas
-        // coalesce to one notify per LIVE_NOTIFY_MIN_MS window
-        // (trailing flush), so a token burst costs React one render
-        // per ~frame instead of one per token. Everything else — phase
+        // coalesce to one notify on the shared frame tick, so a token
+        // burst costs React one render per frame instead of one per
+        // token. Everything else — phase
         // transitions, tool results, errors, control frames — is
         // low-frequency and publishes synchronously below, so
         // side-effectful observers (binding clears, notices) stay
@@ -2600,11 +2606,11 @@ export class CodeSessionStore extends Subscribable {
    * publication.
    */
   private _publishAndNotify(): void {
-    // A pending trailing flush is superseded — this publish carries
+    // A pending tick publish is superseded — this publish carries
     // everything reduced so far.
-    if (this._trailingNotify !== null) {
-      this.timerSource.clearTimeout(this._trailingNotify);
-      this._trailingNotify = null;
+    if (this._livePublishPending) {
+      this.publishTick.cancel(this._livePublish);
+      this._livePublishPending = false;
     }
     const hadFold = this._foldPending > 0;
     this._foldPending = 0;
@@ -2617,14 +2623,14 @@ export class CodeSessionStore extends Subscribable {
   }
 
   /**
-   * Arm ONE trailing flush a frame from now (if none is pending):
-   * every same-phase wire event inside the window rides that single
+   * Hand ONE publish to the shared tick (if none is pending): every
+   * same-phase wire event before the next frame rides that single
    * notify. State/effects are already applied by the time this runs —
    * only the React notification defers, exactly like the replay fold's
-   * pinned snapshot, just on a ~frame cadence instead of a count
-   * threshold. The ≤16 ms notify latency is under one display frame,
-   * and the streamed text itself paints imperatively (the [L22]
-   * PropertyStore path) with no deferral at all.
+   * pinned snapshot, just on a frame cadence instead of a count
+   * threshold. The notify latency is under one display frame, and the
+   * streamed text itself paints imperatively (the [L22] PropertyStore
+   * path) with no deferral at all.
    */
   private _publishCoalesced(): void {
     // Reads stay truthful immediately — a synchronous `getSnapshot`
@@ -2633,12 +2639,9 @@ export class CodeSessionStore extends Subscribable {
     // notification defers, so React renders once per window instead of
     // once per token.
     this._cachedSnapshot = null;
-    if (this._trailingNotify !== null) return;
-    this._trailingNotify = this.timerSource.setTimeout(() => {
-      this._trailingNotify = null;
-      if (this._disposed) return;
-      this._publishAndNotify();
-    }, LIVE_NOTIFY_MIN_MS);
+    if (this._livePublishPending) return;
+    this._livePublishPending = true;
+    this.publishTick.schedule(this._livePublish);
   }
 
   /** Threshold / teardown flush of the replay fold. */

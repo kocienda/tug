@@ -1,13 +1,15 @@
 // The page half of `tugtool deck motion settle`, posted through `/api/eval`.
 //
 // One function over one argument object, like `deck_motion_slide.js`, whose
-// `census`, `recorder` and `install` ops the shell end reuses. Three ops here:
+// `census`, `recorder` and `install` ops the shell end reuses. Four ops here:
 //
 //   where  — the active workspace and the focused card, so a repeated
 //            `switch` or `flip` can go back where it came from, and with
 //            `args.card` the slot of the pane holding it, so a repeated
 //            `slot` can send the card home
 //   rest   — the deck's at-rest reading beside the budget it is read against
+//   streams — how many session cards are mid-turn, and how many of those are
+//            streaming text, read off each prompt entry's `data-phase`
 //   record — one gesture, driven through `window.tugdeck.lab.drive`, recorded
 //            from just before it until the settle mark has gone off and
 //            `tailMs` more, or `capMs` if it never does
@@ -60,6 +62,32 @@
     return motion.rest().then(function (rest) {
       return { rest: rest, budgetPerSecond: typeof budget === "number" ? budget : null };
     });
+  }
+
+  if (args.op === "streams") {
+    // The prompt entry's phase is the session's (`CodeSessionPhase`). A turn
+    // is running in exactly these; `waking` and `replaying` are a session's
+    // history coming back, which is not the condition this reads, and `idle`
+    // and `errored` are between turns. Parked workspaces keep their cards
+    // mounted, so a session streaming off screen counts too.
+    var IN_TURN = {
+      submitting: true,
+      awaiting_first_token: true,
+      streaming: true,
+      tool_work: true,
+      awaiting_approval: true,
+    };
+    var entries = document.querySelectorAll('[data-slot="tug-prompt-entry"]');
+    var phases = {};
+    var inTurn = 0;
+    var streaming = 0;
+    for (var e = 0; e < entries.length; e++) {
+      var phase = entries[e].getAttribute("data-phase") || "unknown";
+      phases[phase] = (phases[phase] || 0) + 1;
+      if (IN_TURN[phase] === true) inTurn++;
+      if (phase === "streaming") streaming++;
+    }
+    return { inTurn: inTurn, streaming: streaming, phases: phases };
   }
 
   if (args.op !== "record") return { error: "unknown op " + args.op };

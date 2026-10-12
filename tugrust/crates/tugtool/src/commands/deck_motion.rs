@@ -65,6 +65,7 @@ pub fn command_name(cmd: &DeckMotionCommands) -> &'static str {
         DeckMotionCommands::Bisect { .. } => "deck motion bisect",
         DeckMotionCommands::Input { .. } => "deck motion input",
         DeckMotionCommands::Probe { .. } => "deck motion probe",
+        DeckMotionCommands::Gaps { .. } => "deck motion gaps",
         DeckMotionCommands::Demote { .. } => "deck motion demote",
         DeckMotionCommands::Record { .. } => "deck motion record",
         DeckMotionCommands::Chains { .. } => "deck motion chains",
@@ -136,6 +137,7 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         }
         DeckMotionCommands::Input { .. } => "window.__tugMotion.input()".to_string(),
         DeckMotionCommands::Probe { .. } => "window.__tugMotion.probe()".to_string(),
+        DeckMotionCommands::Gaps { .. } => "window.__tugMotion.gaps()".to_string(),
         DeckMotionCommands::Demote { state, .. } => {
             format!("window.__tugMotion.demote({})", state == "on")
         }
@@ -184,6 +186,7 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Bisect { target, .. }
         | DeckMotionCommands::Input { target }
         | DeckMotionCommands::Probe { target }
+        | DeckMotionCommands::Gaps { target }
         | DeckMotionCommands::Demote { target, .. }
         | DeckMotionCommands::Record { target, .. }
         | DeckMotionCommands::Chains { target, .. }
@@ -239,6 +242,8 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             count,
             tasks,
             chains,
+            sample,
+            streaming,
             ..
         } => crate::commands::deck_motion_settle::run_settle(
             port,
@@ -254,6 +259,8 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             count,
             tasks,
             chains,
+            sample,
+            streaming,
             json_output,
         ),
         DeckMotionCommands::Walk { restore: true, .. } => {
@@ -498,6 +505,10 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Bisect { .. } => render_bisect(value),
         DeckMotionCommands::Input { .. } => render_input(value),
         DeckMotionCommands::Probe { .. } => render_probe(value),
+        DeckMotionCommands::Gaps { .. } => match gaps_text(value) {
+            Some(text) => print!("{text}"),
+            None => fallback(value),
+        },
         DeckMotionCommands::Demote { .. } => fallback(value),
         DeckMotionCommands::Record { .. } => println!("{}", record_summary(value)),
         DeckMotionCommands::Chains { mode, .. } => render_chains(mode, value),
@@ -939,6 +950,31 @@ fn render_probe(value: &serde_json::Value) {
     }
 }
 
+/// The text `gaps` prints, or `None` for a value it cannot read: a count, then
+/// one line per late frame, newest first, with how long ago it was.
+pub(crate) fn gaps_text(value: &serde_json::Value) -> Option<String> {
+    let rows = value.get("rows")?.as_array()?;
+    let now = value.get("now")?.as_f64()?;
+    if rows.is_empty() {
+        return Some("no late frames recorded inside a settle\n".to_string());
+    }
+    let mut text = format!("{} late frame(s) recorded inside a settle\n", rows.len());
+    for row in rows.iter().rev() {
+        let gap = num_at(row, "gapMs");
+        let period = num_at(row, "periodMs");
+        let frames = if period > 0.0 { gap / period } else { 0.0 };
+        text.push_str(&format!(
+            "  {:>7.1} s ago  {:>6.1} ms ({:.1} frames)  {:<8} +{:.0} ms into the window\n",
+            (now - num_at(row, "at")) / 1000.0,
+            gap,
+            frames,
+            str_at(row, "beat"),
+            num_at(row, "offsetMs"),
+        ));
+    }
+    Some(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1020,6 +1056,37 @@ mod tests {
             eval_code_for(&DeckMotionCommands::Probe { target: target() }).as_deref(),
             Some("window.__tugMotion.probe()")
         );
+        assert_eq!(
+            eval_code_for(&DeckMotionCommands::Gaps { target: target() }).as_deref(),
+            Some("window.__tugMotion.gaps()")
+        );
+    }
+
+    /// Newest first, each with its age, its gap in ms and in frames, and the
+    /// beat it fell in; an empty ring says so rather than printing nothing.
+    #[test]
+    fn gaps_prints_each_late_frame_newest_first() {
+        let value = serde_json::json!({
+            "now": 10_000.0,
+            "rows": [
+                {"at": 4_000.0, "beat": "move", "gapMs": 50.0, "periodMs": 16.0, "offsetMs": 120.0},
+                {"at": 8_000.0, "beat": "set-up", "gapMs": 32.0, "periodMs": 16.0, "offsetMs": 16.0},
+            ],
+        });
+        let text = gaps_text(&value).expect("a gaps value renders");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "2 late frame(s) recorded inside a settle");
+        assert!(lines[1].contains("2.0 s ago"), "{text}");
+        assert!(lines[1].contains("32.0 ms (2.0 frames)  set-up"), "{text}");
+        assert!(lines[2].contains("6.0 s ago"), "{text}");
+        assert!(lines[2].contains("50.0 ms (3.1 frames)  move"), "{text}");
+        assert!(lines[2].ends_with("+120 ms into the window"), "{text}");
+        let empty = serde_json::json!({"now": 1.0, "rows": []});
+        assert_eq!(
+            gaps_text(&empty).as_deref(),
+            Some("no late frames recorded inside a settle\n")
+        );
+        assert!(gaps_text(&serde_json::json!({"x": 1})).is_none());
     }
 
     /// One case per mode, because the mode is the whole of what `chains`

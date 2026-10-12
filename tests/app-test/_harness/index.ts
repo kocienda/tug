@@ -1026,6 +1026,20 @@ export class App {
   }
 
   /**
+   * Fire a REAL `spawn_session(mode=new)` CONTROL frame via
+   * `window.__tug.spawnSessionNew` — tugcast spawns a genuine tugcode for a
+   * fresh session. With a stub transcript written for `tugSessionId` under
+   * the app's `TUGCODE_STUB_TRANSCRIPT_DIR`, that tugcode replays it, so the
+   * card streams through the real feed without a `claude` turn.
+   */
+  spawnSessionNew(
+    cardId: string,
+    opts: { tugSessionId: string; projectDir: string },
+  ): Promise<void> {
+    return client.spawnSessionNew(this as HarnessCaller, cardId, opts);
+  }
+
+  /**
    * Drive a bound session card's `CodeSessionStore` one step through the
    * lifecycle matrix — `send` a user message, `ingestFrame` a decoded
    * wire frame, `interrupt`, or drive the transport overlay. The card

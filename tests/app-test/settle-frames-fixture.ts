@@ -695,6 +695,14 @@ export interface LaunchOptions {
    * so it goes first: a binding must never depend on a reload's restore.
    */
   readonly leadRecorder?: boolean;
+  /**
+   * The session cards resumed onto real transcripts; every session card on
+   * the active workspace unless named. A card left out is the leg's to bind
+   * — the streaming arm binds its own to stubbed sessions.
+   */
+  readonly resumeCards?: readonly string[];
+  /** Environment beside the tugbank path, for the app and everything it spawns. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** The whale arm's default subjects: the first column's two members. */
@@ -729,7 +737,7 @@ export async function launch(
   );
   const app = await launchTugApp({
     testName,
-    env: { TUGBANK_PATH: tugbankPath },
+    env: { ...opts.env, TUGBANK_PATH: tugbankPath },
     skipAccessibilityPreflight: true,
     persistInTestMode: true,
     restoreInTestMode: true,
@@ -744,7 +752,7 @@ export async function launch(
   );
   if (opts.leadRecorder === true) await installLeadRecorder(app);
   const standing = await deckStanding(app);
-  await bindAndSettle(app, sessionCardsOf(blob), {
+  await bindAndSettle(app, opts.resumeCards ?? sessionCardsOf(blob), {
     size: opts.transcripts ?? "slice",
     whaleCards: opts.whaleCards ?? DEFAULT_WHALE_CARDS,
     label: testName,

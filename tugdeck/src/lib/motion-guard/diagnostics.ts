@@ -68,6 +68,8 @@ import { motionBreaker } from "./breaker";
 import { adoptRecordFlagAtLoad, recordSwitch, type RecordReading } from "./record-switch";
 import { settleVerdictOfDrive, type SettleEngineRows, type SettleVerdict } from "./settle-bar";
 import { SHOWN_PANE_FRAMES } from "@/lib/pane-frame-selectors";
+import { deckTrace } from "@/deck-trace";
+import type { SettleGapRow } from "@/lib/settle-gap-sampler";
 import {
   burst,
   renderCostProbe,
@@ -190,6 +192,16 @@ export interface OffscreenReading {
   paused: number;
 }
 
+/**
+ * The late frames the ring holds, from the always-recorded `settle-gap` row
+ * (`lib/settle-gap-sampler.ts`). `at` and `now` are on one clock, so a reader
+ * can say how long ago each one was.
+ */
+export interface SettleGapReading {
+  now: number;
+  rows: Array<SettleGapRow & { at: number }>;
+}
+
 export interface TugMotionDiagnostics {
   /** Every long-running animation, with its target, properties and violations. */
   list(options?: { within?: string }): AnimationCensus;
@@ -278,6 +290,8 @@ export interface TugMotionDiagnostics {
    * the arrived exemption.
    */
   settleBand(): string;
+  /** The late frames every settle has recorded, oldest first ([B07]). */
+  gaps(): SettleGapReading;
   /** Clear the probe's samples and the input ring, and throw the switch back. */
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
@@ -675,6 +689,21 @@ export const tugMotion: TugMotionDiagnostics = {
         `+${Math.round(r.width)}x${Math.round(r.height)}`
       );
     }).join(" ");
+  },
+
+  gaps() {
+    const rows: SettleGapReading["rows"] = [];
+    for (const e of deckTrace.dump()) {
+      if (e.kind !== "settle-gap") continue;
+      rows.push({
+        at: e.timestamp,
+        beat: e.beat,
+        gapMs: e.gapMs,
+        periodMs: e.periodMs,
+        offsetMs: e.offsetMs,
+      });
+    }
+    return { now: performance.now(), rows };
   },
 
   reset() {

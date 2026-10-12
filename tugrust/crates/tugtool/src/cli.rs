@@ -1214,6 +1214,14 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckTarget,
     },
+    /// The late frames every settle has recorded: each frame that arrived
+    /// more than one display period after the one before it while the
+    /// settling mark was on, with the beat it fell in and how long ago.
+    /// Always recorded, so it answers on a deck nobody armed.
+    Gaps {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Still every long-running loop, or let them run again.
     Demote {
         /// `on` or `off`.
@@ -1392,6 +1400,19 @@ pub enum DeckMotionCommands {
         /// drive with stacks instead.
         #[arg(long)]
         chains: bool,
+        /// Also run `/usr/bin/sample` on the Tug host and its WebKit
+        /// WebContent and GPU processes across the drives, and report each
+        /// busy thread's phases — script, style, layout, paint — so a
+        /// reading says how much of a judder is script and how much engine.
+        #[arg(long)]
+        sample: bool,
+        /// Read the gesture with sessions streaming: require at least this
+        /// many session cards mid-turn before the first drive and before
+        /// every one after, and read the deck's busy floor rather than
+        /// refusing it. A stream that ends mid-run stops the run, since the
+        /// readings after it would be a quieter deck's.
+        #[arg(long, value_name = "SESSIONS")]
+        streaming: Option<u32>,
         #[command(flatten)]
         target: DeckTarget,
     },

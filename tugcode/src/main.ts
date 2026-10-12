@@ -13,7 +13,11 @@ import { IPC_VERSION, isProtocolInit, isUserMessage } from "./types.ts";
 import { dispatchInbound } from "./inbound-dispatch.ts";
 import { SessionManager, resolvePluginDir } from "./session.ts";
 import { isPermissionMode, type PermissionMode } from "./permissions.ts";
-import { loadTranscript, StubReplayEngine } from "./stub-replay.ts";
+import {
+  loadTranscript,
+  StubReplayEngine,
+  stubTranscriptForSession,
+} from "./stub-replay.ts";
 import { readClaudeCodeSettings } from "./claude-code-settings.ts";
 import { ContextBreakdownEmitter } from "./context-breakdown.ts";
 import { initTokenizer } from "./tokenizer.ts";
@@ -224,6 +228,10 @@ try {
 } catch {
   // Unresolvable (deleted dir, test fixture) — keep the raw path.
 }
+
+// A session tugcast spawned can be stubbed only through the environment,
+// since tugcast passes no `--stub-transcript`; see `STUB_TRANSCRIPT_DIR_ENV`.
+stubTranscriptPath ??= stubTranscriptForSession(process.env, sessionId);
 
 let relocation: { parentClaudeId: string; parentProjectDir: string } | undefined;
 if (relocateFrom !== undefined || relocateFromDir !== undefined) {
@@ -540,8 +548,10 @@ async function main() {
       if (stubReplay !== null) {
         const ok = stubReplay.dispatchTurn();
         if (!ok) {
-          // The engine emitted its own error event; quiesce drains it
-          // onto the pipe instead of racing a bare exit against it.
+          // The engine emitted its own error event — after any paced turn
+          // still streaming — and quiesce drains it onto the pipe instead
+          // of racing a bare exit against it.
+          await stubReplay.paced;
           await quiesce("stub replay exhausted", 1);
         }
         continue;
