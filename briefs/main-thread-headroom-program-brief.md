@@ -28,6 +28,14 @@ This document is the index. Each stage has its own brief with its own evidence, 
 4. `briefs/population-ceiling-brief.md` — the document is bounded by the viewport, not by history.
 5. `briefs/tugcast-renders-brief.md` — markdown, highlighting and search leave the page for tugcast.
 
+The 2026-10-12 audit of the five landed stages found the architecture sound and the asks unmet, and spawned five more briefs. Four are fixups to the stages above and one is the stage the readings now point at:
+
+- `briefs/ingest-worker-failure-story-brief.md` — stage 3's failure story: a dead Worker named and recovered, batches that always acknowledge, bounded waits, the Worker released.
+- `briefs/rendered-html-second-barrier-brief.md` — stage 5's depth: a page-side barrier on rendered HTML, a tighter CSP, a wider corpus, a bounded render stage.
+- `briefs/population-ceiling-cold-paths-brief.md` — stage 4's cold paths: no full mount at open, reveal or mid-settle; a ceiling bar that can fail.
+- `briefs/motion-record-honesty-brief.md` — unperturbed readings, a two-beat gap row, and the laws that name the Worker, the patch protocol and the render feed.
+- `briefs/engine-time-in-the-motion-brief.md` — stage 6: the first frame after the commit and the height crossing, the two engine costs left inside the motion.
+
 ---
 
 ## Evidence {#evidence}
