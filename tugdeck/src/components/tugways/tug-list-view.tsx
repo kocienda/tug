@@ -130,7 +130,10 @@ import { computePageNavigation } from "./internal/list-view-page-navigation";
 import {
   classifyWidthSettle,
   computeWindow,
-  resolveEvictWindow,
+  EVICT_MOUNT_MARGIN_VIEWPORTS,
+  EVICT_RETAIN_MARGIN_VIEWPORTS,
+  resolveEvictSegments,
+  type RowRun,
 } from "./internal/list-view-window";
 import { OuterScrollportProvider } from "./internal/outer-scrollport-context";
 import {
@@ -1197,13 +1200,18 @@ export interface TugListViewProps<
    *
    * The no-estimates contract is stronger here than anywhere else,
    * because spacer geometry SUMS the heights of rows that are not in
-   * the DOM. Eviction therefore activates only when every row outside
-   * the window has a real measured height in the `HeightIndex`
-   * (`coversRange`); if any is missing — mid-batch-load, after a width
-   * change wipes the ledger, or via any future path that adds rows out
-   * of view — the mode SUSPENDS for that commit and renders every row,
-   * exactly as plain `inline` does. The failure mode is "temporarily
-   * mounts everything", never "wrong scroll geometry".
+   * the DOM. So a row with no measured height in the `HeightIndex` is
+   * never in a spacer: rows appended or prepended out of view mount as
+   * their own *measure segment* in the commit they appear, beside the
+   * window, and are released once measured. Only a cold ledger — no
+   * height at all outside the window — SUSPENDS the mode for a commit
+   * and renders every row, exactly as plain `inline` does.
+   *
+   * A width change that re-wraps the rows keeps every height as stale
+   * rather than wiping it, and drains the stale rows through measure
+   * segments a capped run per commit (`resolveEvictSegments`), while the
+   * reader's place is held by a restore target. A reflow never mounts the
+   * whole list, and the geometry is exact again once the drain ends.
    *
    * Rows leave the window at a wider margin than they enter it, so a
    * row hovering at the boundary cannot churn; rows holding the user's
@@ -1712,21 +1720,6 @@ const DEFAULT_ESTIMATED_HEIGHT = 60;
  * primitive-internal constant.
  */
 const OVERSCAN_COUNT = 3;
-
-/**
- * Eviction margins, in viewport heights (see the `evictOffscreen`
- * prop). A row mounts once it is within one viewport of the scrollport
- * and is not released until it is two viewports away — the gap is the
- * hysteresis band, and it is also the budget for a fast flick: at a
- * viewport of scroll per frame, a row is already mounted a frame
- * before it could be seen.
- *
- * Cell counts cannot express this: transcript rows range from one line
- * to thousands, so "three cells" is a screenful in one place and a
- * sliver in another.
- */
-const EVICT_MOUNT_MARGIN_VIEWPORTS = 1;
-const EVICT_RETAIN_MARGIN_VIEWPORTS = 2;
 
 /** Top-edge tolerance (CSS px) for the `onAtTopChange` signal — a few
  *  pixels of slop so a sub-pixel resting `scrollTop` still reads "at top." */
@@ -2432,6 +2425,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     const prevWindowRangeRef = React.useRef<{ first: number; last: number } | null>(
       null,
     );
+    // The previous commit's measure segment, kept beside the window so a
+    // commit under a closed motion gate can re-render exactly what the last
+    // one mounted.
+    const prevSegmentRef = React.useRef<RowRun | null>(null);
+    // A stale drain's hold on the reader's place: when set, the restore
+    // target in force is released at drain end (plus the settle tail)
+    // rather than by the resize episode's own timer. Written by the reflow
+    // and by `onPreserveEnd`, read by the eviction bookkeeping effect.
+    const releaseAtDrainEndRef = React.useRef(false);
+    // Installs the drain's restore target when no episode did. Built inside
+    // the SmartScroll effect, where the anchor resolvers live, and called
+    // from the width settle, which runs before that effect is declared.
+    const installDrainHoldRef = React.useRef<
+      (anchor: { index: number; rowOffset: number } | null) => void
+    >(() => {});
     // Diagnostics ([P08] of the eviction plan): how many commits fell
     // back to rendering everything because the ledger was incomplete,
     // and whether the current commit is actually evicting. Published as
@@ -3100,17 +3108,34 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // eviction mode then keeps only the rows near the scrollport,
     // standing the exact measured heights of the rest in the spacers.
     //
-    // The activation predicate is the whole safety argument: the
-    // spacers sum the heights of rows that are NOT in the DOM, so a
-    // single unmeasured row out there would put an estimate into the
-    // scroll geometry — the precise failure `inline` was introduced to
-    // eliminate. `coversRange` asks whether that can happen; when the
-    // answer is "maybe", this commit renders everything (the plain
-    // inline output) and the suspension is counted.
+    // The spacers sum the heights of rows that are NOT in the DOM, so a
+    // row with no height must never be inside one: that would put an
+    // estimate into the scroll geometry, the precise failure `inline`
+    // was introduced to eliminate. `resolveEvictSegments` keeps that
+    // true. A row with no height mounts in a *measure segment* beside
+    // the window — or inside the window, when it touches it — in the
+    // commit it appears; a stale height (one measured before a reflow)
+    // stands in until a capped segment re-measures it. Only a cold
+    // ledger renders everything, and that commit is counted.
     //
     // A batch load is not a suspension: it is the loading state, during
     // which the rows are being placed and measured in the first place.
+    //
+    // Spacer geometry for rows `[a, b)` is one quantity everywhere: the
+    // ledger's prefix sums, which read the Fenwick cache when it is
+    // prepared and walk otherwise. Ledger entries are outer extents
+    // (height plus row gap).
+    const spacerHeight = (a: number, b: number): number => {
+      if (b <= a) return 0;
+      const ledger = heightIndexRef.current;
+      return Math.max(
+        0,
+        ledger.offsetForIndex(b, estimatedHeightForKindOnly) -
+          ledger.offsetForIndex(a, estimatedHeightForKindOnly),
+      );
+    };
     let windowResult = fullRangeResult;
+    let segment: RowRun | null = null;
     let evictingThisCommit = false;
     let evictSuspendedThisCommit = false;
     if (inline !== true) {
@@ -3128,57 +3153,84 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       itemCount > 0 &&
       viewportHeight > 0
     ) {
-      const candidate = computeWindow({
-        itemCount,
-        scrollTop,
-        viewportHeight,
-        overscanCount: OVERSCAN_COUNT,
-        estimatedHeightForIndex: heightForIndex,
-        pinnedRange: pinnedRangeRef.current,
-        mountMarginPx: viewportHeight * EVICT_MOUNT_MARGIN_VIEWPORTS,
-        retainMarginPx: viewportHeight * EVICT_RETAIN_MARGIN_VIEWPORTS,
-        prevRange: prevWindowRangeRef.current,
-      });
       const ledger = heightIndexRef.current;
-      const resolution = resolveEvictWindow(candidate, ledger, itemCount);
-      if (resolution.kind === "evict") {
-        windowResult = candidate;
-        evictingThisCommit = true;
+      const prev = prevWindowRangeRef.current;
+      // The mounted set holds still while a settle's motion gate is closed:
+      // a row mounting mid-motion is a layer transaction under the beats.
+      // `scrollTick` already waits for the gate, but any other commit that
+      // reaches the list mid-motion would re-window from live geometry, so
+      // the commit re-renders exactly what the last one mounted. A row with
+      // no height is the exception — correctness beats the hold — and takes
+      // the resolver's path, which mounts it.
+      const frozen =
+        prev !== null &&
+        gestureScope.isMotionHeld() &&
+        ledger.coversRange(0, Math.min(prev.first, itemCount)) &&
+        ledger.coversRange(Math.min(prev.last, itemCount), itemCount);
+      let resolution: ReturnType<typeof resolveEvictSegments>;
+      let totalHeight = 0;
+      if (frozen) {
+        const first = Math.min(prev.first, itemCount);
+        const last = Math.max(first, Math.min(prev.last, itemCount));
+        const held = prevSegmentRef.current;
+        const heldSegment =
+          held === null
+            ? null
+            : {
+                firstIndex: Math.min(held.firstIndex, itemCount),
+                lastIndex: Math.min(held.lastIndex, itemCount),
+              };
+        resolution = {
+          kind: "evict",
+          firstIndex: first,
+          lastIndex: last,
+          segment:
+            heldSegment !== null &&
+            heldSegment.lastIndex > heldSegment.firstIndex &&
+            (heldSegment.lastIndex < first || heldSegment.firstIndex > last)
+              ? heldSegment
+              : null,
+        };
       } else {
-        // Surgical widening before wholesale suspension. The common way
-        // coverage fails in steady state is a row APPENDED outside the
-        // window — a streaming turn landing while the user reads older
-        // content. Suspending for that mounts the entire transcript for
-        // one commit, per appended row: a mass mount/unmount cycle that
-        // the user feels as a hitch mid-scroll. Instead, widen the
-        // window just far enough to mount every unmeasured row (they
-        // measure this commit; the next window releases them), keeping
-        // the spacers over measured rows only — the no-estimates
-        // invariant holds by construction. Only when widening degenerates
-        // to the full range (a cold or wiped ledger) is the commit a
-        // true suspension, and counted as one.
-        if (resolution.kind === "suspended") {
-          evictSuspendedThisCommit = true;
-        } else {
-          const widenedFirst = resolution.firstIndex;
-          const widenedLast = resolution.lastIndex;
-          let topSpacerHeight = 0;
-          for (let i = 0; i < widenedFirst; i += 1) {
-            topSpacerHeight += Math.max(0, heightForIndex(i));
-          }
-          let bottomSpacerHeight = 0;
-          for (let i = widenedLast; i < itemCount; i += 1) {
-            bottomSpacerHeight += Math.max(0, heightForIndex(i));
-          }
-          windowResult = {
-            firstIndex: widenedFirst,
-            lastIndex: widenedLast,
-            topSpacerHeight,
-            bottomSpacerHeight,
-            totalHeight: candidate.totalHeight,
-          };
-          evictingThisCommit = true;
-        }
+        const candidate = computeWindow({
+          itemCount,
+          scrollTop,
+          viewportHeight,
+          overscanCount: OVERSCAN_COUNT,
+          estimatedHeightForIndex: heightForIndex,
+          pinnedRange: pinnedRangeRef.current,
+          mountMarginPx: viewportHeight * EVICT_MOUNT_MARGIN_VIEWPORTS,
+          retainMarginPx: viewportHeight * EVICT_RETAIN_MARGIN_VIEWPORTS,
+          prevRange: prev,
+        });
+        totalHeight = candidate.totalHeight;
+        resolution = resolveEvictSegments(
+          candidate,
+          ledger,
+          itemCount,
+          viewportHeight,
+          heightForIndex,
+        );
+      }
+      if (resolution.kind === "suspended") {
+        evictSuspendedThisCommit = true;
+      } else {
+        segment = resolution.segment;
+        const above = segment !== null && segment.lastIndex <= resolution.firstIndex;
+        windowResult = {
+          firstIndex: resolution.firstIndex,
+          lastIndex: resolution.lastIndex,
+          topSpacerHeight: spacerHeight(
+            0,
+            above && segment !== null ? segment.firstIndex : resolution.firstIndex,
+          ),
+          bottomSpacerHeight: spacerHeight(
+            !above && segment !== null ? segment.lastIndex : resolution.lastIndex,
+            itemCount,
+          ),
+          totalHeight,
+        };
+        evictingThisCommit = true;
       }
     } else if (
       evictModeEnabled &&
@@ -3197,30 +3249,54 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // scroll-container ResizeObserver's tick re-windows against real
       // geometry the moment the card is shown again. Rows appended while
       // hidden accumulate outside the held range unmeasured; the reveal
-      // commit's coverage check then suspends once, measures them, and
-      // re-arms — the suspension path doing its job.
+      // commit mounts them as a measure segment and releases them once
+      // they have heights.
       const prev = prevWindowRangeRef.current;
       const heldFirst = Math.max(0, Math.min(prev.first, itemCount));
       const heldLast = Math.max(heldFirst, Math.min(prev.last, itemCount));
       if (heldLast > heldFirst) {
-        let topSpacerHeight = 0;
-        for (let i = 0; i < heldFirst; i += 1) {
-          topSpacerHeight += Math.max(0, heightForIndex(i));
-        }
-        let bottomSpacerHeight = 0;
-        for (let i = heldLast; i < itemCount; i += 1) {
-          bottomSpacerHeight += Math.max(0, heightForIndex(i));
-        }
         windowResult = {
           firstIndex: heldFirst,
           lastIndex: heldLast,
-          topSpacerHeight,
-          bottomSpacerHeight,
+          topSpacerHeight: spacerHeight(0, heldFirst),
+          bottomSpacerHeight: spacerHeight(heldLast, itemCount),
           totalHeight: 0,
         };
         evictingThisCommit = true;
       }
     }
+    // The spacer between the measure segment and the window. It sits inside
+    // the window element, between rows, so the flex row gap lands on both
+    // of its sides: the rows it stands for owe one gap fewer than their
+    // ledger sum.
+    const middleSpacer: { beforeIndex: number; height: number } | null =
+      segment === null
+        ? null
+        : segment.lastIndex <= windowResult.firstIndex
+          ? segment.lastIndex < windowResult.firstIndex
+            ? {
+                beforeIndex: windowResult.firstIndex,
+                height: Math.max(
+                  0,
+                  spacerHeight(segment.lastIndex, windowResult.firstIndex) -
+                    (rowGapPxRef.current ?? 0),
+                ),
+              }
+            : null
+          : windowResult.lastIndex < segment.firstIndex
+            ? {
+                beforeIndex: segment.firstIndex,
+                height: Math.max(
+                  0,
+                  spacerHeight(windowResult.lastIndex, segment.firstIndex) -
+                    (rowGapPxRef.current ?? 0),
+                ),
+              }
+            : null;
+    /** Whether `index` is mounted this commit: in the window or the segment. */
+    const isMountedIndex = (index: number): boolean =>
+      (index >= windowResult.firstIndex && index < windowResult.lastIndex) ||
+      (segment !== null && index >= segment.firstIndex && index < segment.lastIndex);
 
     // Mount-tick: after the first commit attaches the scroll-container
     // ref, force a rerender so the window math reads a real
@@ -3312,10 +3388,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // new width while unmounted rows keep old-width entries, so the
     // spacer sums — and `scrollHeight` — move continuously under the
     // user for the whole drag. Frozen, the geometry is uniformly
-    // old-width and motionless until the settle wipe re-measures
-    // everything; nothing is lost, because that wipe discards those
-    // writes anyway.
+    // old-width and motionless until the settle marks it stale and
+    // drains it; nothing is lost, because the settle re-observes the
+    // mounted cells and the drain re-measures the rest.
     const widthSettlePendingRef = React.useRef(false);
+    // Where the reader was when a width burst began: the row under the
+    // scrollport top and the offset into it, as the last commit before the
+    // width moved sampled them (`lastVisibleScrollRef`). No commit lands
+    // between the reflow's layout and the width observer's delivery, and
+    // the cell observer may already have written new-width heights by
+    // then, so the sample is the one pre-reflow reading there is. A reflow
+    // that arrives with no resize episode open holds the reader here
+    // through its drain — by the time the settle runs, the mounted rows
+    // have re-wrapped, so an anchor taken then would hold the place the
+    // reflow moved them to.
+    const reflowAnchorRef = React.useRef<{ index: number; rowOffset: number } | null>(null);
 
     React.useLayoutEffect(() => {
       if (
@@ -3444,8 +3531,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           }
 
           // Skip no-op updates — sub-pixel ResizeObserver noise
-          // shouldn't force a re-window.
-          if (!heightChanged) {
+          // shouldn't force a re-window. A stale row is the exception: a
+          // delivery is the re-measure its drain was waiting for, so it
+          // always writes and always counts as a change, whatever the
+          // delta. A row whose height survived the reflow would otherwise
+          // stay stale, the measure segment would never move past it, and
+          // with nothing changed no tick would advance the drain.
+          if (!heightChanged && heightIndex.isFresh(index)) {
             continue;
           }
           heightIndex.set(index, newOuterHeight);
@@ -3552,17 +3644,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // measured-height ledger, for the same reason and with more at
     // stake: those heights are standing in for rows that are not in the
     // DOM, so a stale one is a wrong scroll position rather than a
-    // wrong skip size. Clearing the ledger makes the coverage predicate
-    // fail on the next commit, which renders every row (plain inline),
-    // re-measures at the new width, and re-arms eviction once the
-    // ledger is whole again — the suspension path doing exactly the job
-    // it exists for. A font-scale change reaches here the same way.
+    // wrong skip size. The ledger is not wiped, though: wiping it left
+    // nothing outside the window measured, so the next commit mounted
+    // every row, and a whale transcript fully mounted is a stall of
+    // seconds. Instead every height is marked stale and stands in for
+    // its row while the drain re-measures the stale rows a capped
+    // measure segment per commit (`resolveEvictSegments`); the geometry
+    // is exact again when the drain ends. A font-scale change reaches
+    // here the same way.
     //
     // A View › Zoom step does not (`classifyWidthSettle`). The deck root
     // is resized to the window ÷ the factor, so a viewport-sized card's
-    // layout width moves with every step, and a wipe on that suspended
-    // eviction on every transcript on the deck at once, mounting each one
-    // whole: the multi-second freeze a zoom step used to cost. A settle
+    // layout width moves with every step, and treating that as a reflow
+    // would drain every transcript on the deck at once (and, before the
+    // drain, mounted each one whole: the multi-second freeze a zoom step
+    // used to cost). A settle
     // whose width moved together with the zoom factor keeps the ledger
     // and the stamps; the mounted cells are re-observed so they re-deliver
     // the heights the freeze dropped, and an offscreen row's height
@@ -3570,14 +3666,17 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // place if it moved. The key is the store's factor, never
     // `devicePixelRatio`, which a transform leaves where it was.
     //
-    // The reader's place is held across all of that by the resize
-    // episode's restore target (`onPreserveBegin`), which is a resolver
+    // The reader's place is held across all of that by a restore target
+    // — WebKit has no scroll anchoring to do it — which is a resolver
     // rather than a pixel for exactly this reason: it re-reads the height
-    // index every heartbeat, so it waits while the wipe leaves rows
-    // unresolvable and then tracks the anchor row as fresh measurements
-    // land. The two are halves of one gesture — this effect makes the
-    // geometry right, that one keeps the user where they were while it
-    // happens.
+    // index every heartbeat, so it tracks the anchor as the drain's
+    // measurements land above it. A resize episode installs one
+    // (`onPreserveBegin`); a reflow with no episode open (a fold or split
+    // settle, a rail, a sidebar fit, a direct width write) has the settle
+    // install the same resolver itself. Either way the target is released
+    // at drain end plus the settle tail, not before. The two are halves of
+    // one gesture — this effect makes the geometry right, the target keeps
+    // the user where they were while it happens.
     React.useLayoutEffect(() => {
       if (!(inline === true && (offscreenSkip || evictModeEnabled))) return;
       const scroller = scrollContainerRef.current;
@@ -3589,11 +3688,9 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // fire. During the pending window the cell observer is frozen
       // (see `widthSettlePendingRef`), so the ledger holds uniformly
       // old-width geometry throughout a drag, coverage stays true,
-      // eviction keeps running, and the one wipe here restores
-      // exactness: coverage fails on the next commit, every row
-      // renders, re-measures at the settled width, and eviction
-      // re-arms — one suspension per resize gesture instead of one
-      // per tick.
+      // eviction keeps running, and the one invalidation here starts
+      // the drain that restores exactness — one drain per resize
+      // gesture instead of one per tick.
       const runInvalidation = (): void => {
         settleTimer = null;
         widthSettlePendingRef.current = false;
@@ -3645,8 +3742,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           }
         }
         if (evictModeEnabled) {
-          heightIndexRef.current.clear();
+          // A reflow drains rather than wipes. Every height stays as a
+          // stale stand-in, the mounted cells are re-observed so they
+          // re-deliver at the new width (the freeze dropped their
+          // deliveries), and each commit after this one mounts one capped
+          // measure segment of stale rows until none is left.
+          heightIndexRef.current.markAllStale();
           liveExtentsRef.current.clear();
+          const cellObserver = observerRef.current;
+          if (cellObserver !== null) {
+            for (const el of cellElementMapRef.current.values()) {
+              cellObserver.unobserve(el);
+              cellObserver.observe(el);
+            }
+          }
+          installDrainHoldRef.current(reflowAnchorRef.current);
           scrollTick();
         }
       };
@@ -3680,6 +3790,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // fire — intermediate widths keep restarting the timer until
         // the gesture rests.
         if (Math.abs(width - lastWidth) < 0.5) return;
+        if (!widthSettlePendingRef.current) {
+          const sample = lastVisibleScrollRef.current;
+          reflowAnchorRef.current =
+            sample === null
+              ? null
+              : { index: sample.anchorIndex, rowOffset: sample.anchorRowOffset };
+        }
         widthSettlePendingRef.current = true;
         if (settleTimer !== null) clearTimeout(settleTimer);
         settleTimer = setTimeout(
@@ -4130,8 +4247,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       //     offset into re-wrapping content — the very quantity the reflow
       //     invalidates. Measured against the box the reader is actually
       //     looking at, the anchor survives the re-wrap.
-      //  2. **The row, when that element goes.** The width settle wipes the
-      //     measured-height ledger and re-renders every row, so the anchored
+      //  2. **The row, when that element goes.** The width settle re-windows
+      //     against heights the drain is still re-measuring, so the anchored
       //     node can leave the document mid-gesture. Falling back to the row
       //     keeps the reader within a turn of their place instead of losing
       //     it entirely.
@@ -4149,6 +4266,20 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // The target waives the drift supersede, because the reflow it
       // exists to absorb is itself what moves `scrollTop` — see
       // `restoreSupersede`. A real gesture still supersedes.
+      //
+      // The resolver is built in one place for both of its installers: the
+      // episode here, and a reflow that arrives with no episode open, which
+      // installs it through `installDrainHoldRef`.
+      const buildPreserveResolver = (): (() => number | null) | null => {
+        const byElement = trackElementAnchor(el);
+        const anchor = deriveLiveAnchor();
+        const byRow =
+          anchor === null
+            ? null
+            : makeAnchorResolver(anchor.index, anchor.rowOffset, undefined, undefined);
+        if (byElement === null && byRow === null) return null;
+        return () => byElement?.() ?? byRow?.() ?? null;
+      };
       const onPreserveBegin = (event: Event): void => {
         event.preventDefault();
         const ss = smartScrollRef.current;
@@ -4157,17 +4288,37 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           clearTimeout(preserveReleaseRef.current);
           preserveReleaseRef.current = null;
         }
-        const byElement = trackElementAnchor(el);
-        const anchor = deriveLiveAnchor();
-        const byRow =
-          anchor === null
-            ? null
-            : makeAnchorResolver(anchor.index, anchor.rowOffset, undefined, undefined);
-        if (byElement === null && byRow === null) return;
-        ss.setRestoreTarget(
-          () => byElement?.() ?? byRow?.() ?? null,
-          { suspendDriftSupersede: true },
-        );
+        releaseAtDrainEndRef.current = false;
+        const resolver = buildPreserveResolver();
+        if (resolver === null) return;
+        ss.setRestoreTarget(resolver, { suspendDriftSupersede: true });
+      };
+      // A reflow's drain holds the reader too. With an episode's target
+      // already riding its release tail, the drain takes the release over;
+      // with an episode still open, `onPreserveEnd` does. With no target at
+      // all, the drain installs one itself, on the row anchor the width
+      // burst recorded before the rows re-wrapped (`reflowAnchorRef`), or
+      // on the episode's resolver when there is none. A target somebody
+      // else installed (a cold-boot restore) is left alone.
+      installDrainHoldRef.current = (anchor) => {
+        const ss = smartScrollRef.current;
+        if (ss === null || heightIndexRef.current.staleCount() === 0) return;
+        if (ss.hasRestoreTarget) {
+          if (preserveReleaseRef.current !== null) {
+            clearTimeout(preserveReleaseRef.current);
+            preserveReleaseRef.current = null;
+            releaseAtDrainEndRef.current = true;
+          }
+          return;
+        }
+        if (ss.isFollowingBottom) return;
+        const resolver =
+          anchor !== null
+            ? makeAnchorResolver(anchor.index, anchor.rowOffset, undefined, undefined)
+            : buildPreserveResolver();
+        if (resolver === null) return;
+        ss.setRestoreTarget(resolver, { suspendDriftSupersede: true });
+        releaseAtDrainEndRef.current = true;
       };
       const onPreserveEnd = (): void => {
         const ss = smartScrollRef.current;
@@ -4183,9 +4334,20 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // the per-commit heartbeat keeps re-landing it. Then it lets go: a
         // restore that never releases would fight the next thing to move the
         // scroller.
+        //
+        // A drain still under way holds it longer: stale heights are still
+        // being re-measured above and below the reader, so the target is
+        // released at drain end plus the tail instead (the eviction
+        // bookkeeping effect), not by this timer.
         if (preserveReleaseRef.current !== null) {
           clearTimeout(preserveReleaseRef.current);
+          preserveReleaseRef.current = null;
         }
+        if (heightIndexRef.current.staleCount() > 0) {
+          releaseAtDrainEndRef.current = true;
+          return;
+        }
+        releaseAtDrainEndRef.current = false;
         preserveReleaseRef.current = setTimeout(() => {
           preserveReleaseRef.current = null;
           smartScrollRef.current?.clearRestoreTarget();
@@ -4277,6 +4439,8 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           clearTimeout(preserveReleaseRef.current);
           preserveReleaseRef.current = null;
         }
+        releaseAtDrainEndRef.current = false;
+        installDrainHoldRef.current = () => {};
         detachScroller();
         el.removeEventListener("tug-region-scroll-set", onRegionScrollSet);
         el.removeEventListener(RESIZE_PRESERVE_BEGIN, onPreserveBegin);
@@ -4613,7 +4777,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           let sumLive = 0;
           const rows: ConservationRowDiff[] = [];
           for (const [index, entry] of prevLive) {
-            if (index >= first && index < last) continue;
+            if (isMountedIndex(index)) continue;
             const ledgerVal = heightIndexRef.current.get(index);
             if (ledgerVal === undefined) continue;
             departed += 1;
@@ -4943,6 +5107,10 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     //      commits have had to fall back to rendering everything. A
     //      non-zero fallback count on a settled deck means the ledger is
     //      not covering what the mode assumes it covers.
+    //   3. Track a reflow's drain: `data-evict-stale` carries the count of
+    //      stale heights while one is under way and is removed when it
+    //      ends, and the commit that ends it lets go of the restore target
+    //      that held the reader through it, after the settle tail.
     //
     // These attributes are instrumentation, not styling hooks — nothing
     // in CSS may key off them.
@@ -4950,9 +5118,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       prevWindowRangeRef.current = evictingThisCommit
         ? { first: windowResult.firstIndex, last: windowResult.lastIndex }
         : null;
+      prevSegmentRef.current = evictingThisCommit ? segment : null;
       evictActiveRef.current = evictingThisCommit;
       if (evictSuspendedThisCommit) {
         evictFallbackCountRef.current += 1;
+      }
+      const staleCount = evictModeEnabled ? heightIndexRef.current.staleCount() : 0;
+      if (staleCount === 0 && releaseAtDrainEndRef.current) {
+        releaseAtDrainEndRef.current = false;
+        if (preserveReleaseRef.current !== null) {
+          clearTimeout(preserveReleaseRef.current);
+        }
+        preserveReleaseRef.current = setTimeout(() => {
+          preserveReleaseRef.current = null;
+          smartScrollRef.current?.clearRestoreTarget();
+        }, RESIZE_SETTLE_TAIL_MS);
       }
       const el = scrollContainerRef.current;
       if (el === null) return;
@@ -4960,6 +5140,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         queueDomWrite(() => {
           el.removeAttribute("data-evict-active");
           el.removeAttribute("data-evict-fallbacks");
+          el.removeAttribute("data-evict-stale");
         });
         return;
       }
@@ -4972,6 +5153,11 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           el.removeAttribute("data-evict-active");
         }
         el.setAttribute("data-evict-fallbacks", fallbacks);
+        if (staleCount > 0) {
+          el.setAttribute("data-evict-stale", String(staleCount));
+        } else {
+          el.removeAttribute("data-evict-stale");
+        }
       });
     });
 
@@ -5318,6 +5504,12 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       for (let i = windowResult.firstIndex; i < windowResult.lastIndex; i += 1) {
         if (i >= itemCount) break;
         currentSet.add(i);
+      }
+      // A measure segment's rows are mounted rows like any other.
+      if (segment !== null) {
+        for (let i = segment.firstIndex; i < segment.lastIndex && i < itemCount; i += 1) {
+          currentSet.add(i);
+        }
       }
 
       const prev = prevRenderedIndicesRef.current;
@@ -5971,7 +6163,21 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // Defensive against a data-source shrink mid-render: if itemCount
     // dropped below the previously-computed window, skip indices that
     // are out of range now.
+    //
+    // A measure segment's rows are rendered in index order with the
+    // window's, inside the window element, so the row array is the
+    // segment above, the window, or the segment below.
+    const renderedIndices: number[] = [];
+    if (segment !== null && segment.lastIndex <= windowResult.firstIndex) {
+      for (let i = segment.firstIndex; i < segment.lastIndex; i += 1) renderedIndices.push(i);
+    }
     for (let i = windowResult.firstIndex; i < windowResult.lastIndex; i += 1) {
+      renderedIndices.push(i);
+    }
+    if (segment !== null && segment.firstIndex >= windowResult.lastIndex) {
+      for (let i = segment.firstIndex; i < segment.lastIndex; i += 1) renderedIndices.push(i);
+    }
+    for (const i of renderedIndices) {
       if (i >= itemCount) break;
       renderedRange.push({
         index: i,
@@ -5983,19 +6189,38 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       });
     }
 
+    // The rendered rows with the middle spacer stood between the measure
+    // segment and the window. Spliced into the keyed row array rather than
+    // wrapping a row in a fragment, so a row never changes parent shape and
+    // never remounts for it.
+    const withMiddleSpacer = (rows: React.ReactElement[]): React.ReactNode[] => {
+      if (middleSpacer === null) return rows;
+      const at = renderedRange.findIndex((r) => r.index === middleSpacer.beforeIndex);
+      if (at === -1) return rows;
+      return [
+        ...rows.slice(0, at),
+        <div
+          key="tug-list-view-spacer--middle"
+          className="tug-list-view-spacer tug-list-view-spacer--middle"
+          style={{ height: `${middleSpacer.height}px` }}
+          aria-hidden="true"
+        />,
+        ...rows.slice(at),
+      ];
+    };
+
     // Rendered-window notification ([L03] / `onRenderedRangeChange`). The
-    // mounted rows are the contiguous `renderedRange`; report its inclusive
-    // bounds. The layout effect fires post-commit — after the cell ref
+    // reported rows are the contiguous window, never a measure segment,
+    // whose rows are off-screen and released as soon as they are measured;
+    // report its inclusive bounds. The layout effect fires post-commit — after the cell ref
     // callbacks have populated `cellElementMapRef` — so a consumer's
     // `getElementForIndex` resolves for the whole reported range and it can
     // decorate synchronously before the browser paints. Deduped against the
     // last reported range so a re-render with an unchanged window is silent.
+    const windowLastRendered = Math.min(windowResult.lastIndex, itemCount) - 1;
     const renderedFirstIndex =
-      renderedRange.length > 0 ? renderedRange[0].index : -1;
-    const renderedLastIndex =
-      renderedRange.length > 0
-        ? renderedRange[renderedRange.length - 1].index
-        : -1;
+      windowLastRendered >= windowResult.firstIndex ? windowResult.firstIndex : -1;
+    const renderedLastIndex = renderedFirstIndex === -1 ? -1 : windowLastRendered;
     const lastReportedRangeRef = React.useRef<TugListRenderedRange | null>(null);
     React.useLayoutEffect(() => {
       if (onRenderedRangeChange === undefined) return;
@@ -7754,7 +7979,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         <ScrollerProvider scroller={scrollerFacadeRef.current}>
         <TugListRowLayoutProvider value={rowLayoutValue}>
         <div className="tug-list-view-window" ref={listWindowElRef}>
-          {renderedRange.map(({ index, id, kind, role, enabled, live }) => {
+          {withMiddleSpacer(renderedRange.map(({ index, id, kind, role, enabled, live }) => {
             // Role-aware wrapper attributes:
             //  - `tabIndex` is `0` for cells (focusable, in tab order)
             //    and `-1` for headers/footers (not focusable). See
@@ -7841,7 +8066,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
                 }
               />
             );
-          })}
+          }))}
         </div>
         {/* Trailing content — a permanent, un-indexed element after the last
             row, inside the scroll façade providers so a hosted dialog reads

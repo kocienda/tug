@@ -516,3 +516,71 @@ describe("HeightIndex — adjustAll patches the prepared cache in place", () => 
     expectParity(idx, freshTwin(idx, 3), 3);
   });
 });
+
+describe("HeightIndex — the stale tier", () => {
+  const est = () => 50;
+
+  test("markAllStale keeps every height and the total", () => {
+    const idx = new HeightIndex();
+    idx.set(0, 30);
+    idx.set(1, 40);
+    idx.prepare(3, est);
+    idx.markAllStale();
+    expect(idx.get(0)).toBe(30);
+    expect(idx.get(1)).toBe(40);
+    expect(idx.has(0)).toBe(true);
+    expect(idx.coversRange(0, 2)).toBe(true);
+    expect(idx.isFresh(0)).toBe(false);
+    expect(idx.totalHeight(3, est)).toBe(30 + 40 + 50);
+  });
+
+  test("set refreshes the row it measures, and staleCount counts down", () => {
+    const idx = new HeightIndex();
+    idx.set(0, 30);
+    idx.set(1, 40);
+    idx.set(2, 50);
+    idx.markAllStale();
+    expect(idx.staleCount()).toBe(3);
+    idx.set(1, 44);
+    expect(idx.isFresh(1)).toBe(true);
+    expect(idx.isFresh(0)).toBe(false);
+    expect(idx.staleCount()).toBe(2);
+    idx.set(0, 30); // the same height still refreshes
+    idx.set(2, 52);
+    expect(idx.staleCount()).toBe(0);
+  });
+
+  test("an unmeasured row is neither fresh nor stale", () => {
+    const idx = new HeightIndex();
+    idx.markAllStale();
+    expect(idx.isFresh(4)).toBe(false);
+    expect(idx.staleCount()).toBe(0);
+  });
+
+  test("shift carries the stale bits with their heights", () => {
+    const idx = new HeightIndex();
+    idx.set(0, 30);
+    idx.set(1, 40);
+    idx.markAllStale();
+    idx.set(1, 41);
+    idx.shift(2);
+    expect(idx.isFresh(2)).toBe(false);
+    expect(idx.get(2)).toBe(30);
+    expect(idx.isFresh(3)).toBe(true);
+    expect(idx.has(0)).toBe(false);
+    expect(idx.staleCount()).toBe(1);
+  });
+
+  test("delete and clear drop the stale bits", () => {
+    const idx = new HeightIndex();
+    idx.set(0, 30);
+    idx.set(1, 40);
+    idx.markAllStale();
+    idx.delete(0);
+    expect(idx.staleCount()).toBe(1);
+    idx.clear();
+    expect(idx.staleCount()).toBe(0);
+    idx.set(1, 40);
+    expect(idx.isFresh(1)).toBe(true);
+  });
+});

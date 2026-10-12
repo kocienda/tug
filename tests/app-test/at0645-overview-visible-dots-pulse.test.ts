@@ -122,29 +122,38 @@ function resolveSessions(): string {
 
 interface Marks {
   chips: number;
-  /** Indices of the chips whose box meets the scroller's box. */
+  /** How many posts the column holds — the store's count. The column is
+   *  windowed, so the mounted chips are the posts near the scrollport, not
+   *  all of them. */
+  posts: number;
+  /** Post numbers (the `N` of "Post N") whose chip's box meets the
+   *  scroller's box. By post rather than by mounted position, because the
+   *  window moves which posts are mounted. */
   visible: number[];
-  /** Indices of the chips with a running loop. */
+  /** Post numbers whose chip has a running loop. */
   breathing: number[];
-  /** How many chips carry the off-screen mark. */
+  /** How many mounted chips carry the off-screen mark. */
   offscreen: number;
   spreads: number[];
 }
 
-/** Every citation in the column: which are in the scroller's box, which breathe. */
+/** Every mounted citation in the column: which are in the scroller's box,
+ *  which breathe. A post the window left out has no chip, and so no loop. */
 const MARKS_JS = `(function(){
   var chips = document.querySelectorAll(${JSON.stringify(CHIPS)});
   var box = document.querySelector(${JSON.stringify(SCROLLER)}).getBoundingClientRect();
   var visible = [], breathing = [], offscreen = 0, spreads = [];
   for (var i = 0; i < chips.length; i++) {
     var chip = chips[i];
+    var body = chip.closest(".overview-cell").querySelector(".overview-post-body");
+    var n = Number(/Post (\\d+) /.exec(body === null ? "" : body.textContent || "")[1]);
     var r = chip.getBoundingClientRect();
-    if (r.bottom > box.top && r.top < box.bottom) visible.push(i);
+    if (r.bottom > box.top && r.top < box.bottom) visible.push(n);
     if (chip.querySelector("[data-tug-offscreen]") !== null) offscreen++;
     var loops = chip.getAnimations({ subtree: true })
       .filter(function (a) { return a instanceof CSSAnimation && a.playState === "running"; });
     if (loops.length > 0) {
-      breathing.push(i);
+      breathing.push(n);
       var st = loops.map(function (a) { return a.startTime; })
         .filter(function (t) { return t !== null; });
       if (st.length > 1) {
@@ -154,6 +163,7 @@ const MARKS_JS = `(function(){
   }
   return {
     chips: chips.length,
+    posts: (window.__tug.overviewPosts() || []).length,
     visible: visible,
     breathing: breathing,
     offscreen: offscreen,
@@ -221,8 +231,16 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
           return n;
         })()`);
         expect(published).toBe(POST_COUNT);
+        // Held, and rendered at the live edge: the column follows its newest
+        // post, so post ${POST_COUNT - 1}'s chip is mounted once the commit
+        // that holds them all has landed.
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(CHIPS)}).length === ${POST_COUNT}`,
+          `(function(){
+             var m = ${MARKS_JS};
+             return m.posts === ${POST_COUNT}
+               && Array.from(document.querySelectorAll(${JSON.stringify(`${CARD} .overview-post-body`)}))
+                 .some(function (b) { return (b.textContent || "").indexOf("Post ${POST_COUNT - 1} ") === 0; });
+           })()`,
           { timeoutMs: 30_000 },
         );
         // The off-screen marks land on the observer's first delivery; wait
@@ -235,14 +253,17 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
         await app.waitForCondition<boolean>(breathesInView, { timeoutMs: 15_000 });
         const pinned = await app.evalJS<Marks>(MARKS_JS);
         note("at0645 pinned to the newest post", pinned);
-        expect(pinned.chips).toBe(POST_COUNT);
+        expect(pinned.posts).toBe(POST_COUNT);
         // Every citation on screen breathes — not one of them, all of them —
         // and the newest post's is among them.
         expect(pinned.visible.length).toBeGreaterThan(1);
         expect(pinned.breathing).toEqual(pinned.visible);
         expect(pinned.breathing).toContain(POST_COUNT - 1);
-        // Most of the column is under the fold, marked so, and still.
-        expect(pinned.offscreen).toBeGreaterThan(POST_COUNT / 2);
+        // Most of the column is under the fold, and still: every mounted
+        // chip out of view carries the off-screen mark, and a post the window
+        // left out has no chip to breathe.
+        expect(pinned.posts - pinned.visible.length).toBeGreaterThan(POST_COUNT / 2);
+        expect(pinned.offscreen).toBe(pinned.chips - pinned.visible.length);
         expect(pinned.breathing).not.toContain(0);
         // Each breathing dot is one figure: its three loops on one clock.
         expect(pinned.spreads).toEqual([0]);

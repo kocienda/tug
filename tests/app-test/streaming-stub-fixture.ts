@@ -113,79 +113,95 @@ function deltasOf(text: string): string[] {
 }
 
 /**
- * A transcript of one long turn, `messages` assistant messages long, paced at
- * {@link STREAM_PACE_MS}. At the default length a turn streams for several
- * minutes — longer than a reading takes — so the streams are still running
- * when the last drive is made.
+ * A transcript of `turns` turns, each `messages` assistant messages long,
+ * paced at {@link STREAM_PACE_MS}. Each prompt sent into the card replays the
+ * next turn, and each turn is one transcript row, so a reading that needs a
+ * transcript of many rows asks for many turns. At the default length one turn
+ * streams for several minutes — longer than a reading takes — so the streams
+ * are still running when the last drive is made.
  */
-export function streamingTranscript(messages = 40): TugcodeTranscript {
-  const outputs: unknown[] = [];
+export function streamingTranscript(messages = 40, turns = 1): TugcodeTranscript {
+  const replayed: { index: number; description: string; outputs: unknown[] }[] = [];
   let seq = 0;
-  let lastMsgId = "";
-  for (let m = 0; m < messages; m++) {
-    const msgId = `stub-msg-${m}`;
-    const text = messageText(m);
-    outputs.push({
-      type: "content_block_start",
-      msg_id: msgId,
-      block_index: 0,
-      kind: "text",
-      ipc_version: IPC_VERSION,
-    });
-    let rev = 0;
-    for (const delta of deltasOf(text)) {
+  for (let t = 0; t < turns; t++) {
+    const outputs: unknown[] = [];
+    let lastMsgId = "";
+    for (let m = 0; m < messages; m++) {
+      const k = t * messages + m;
+      const msgId = `stub-msg-${k}`;
+      const text = messageText(k);
+      outputs.push({
+        type: "content_block_start",
+        msg_id: msgId,
+        block_index: 0,
+        kind: "text",
+        ipc_version: IPC_VERSION,
+      });
+      let rev = 0;
+      for (const delta of deltasOf(text)) {
+        outputs.push({
+          type: "assistant_text",
+          msg_id: msgId,
+          block_index: 0,
+          seq,
+          rev: rev++,
+          text: delta,
+          is_partial: true,
+          status: "partial",
+          ipc_version: IPC_VERSION,
+        });
+      }
       outputs.push({
         type: "assistant_text",
         msg_id: msgId,
         block_index: 0,
         seq,
-        rev: rev++,
-        text: delta,
-        is_partial: true,
-        status: "partial",
+        rev,
+        text,
+        is_partial: false,
+        status: "complete",
         ipc_version: IPC_VERSION,
       });
+      seq++;
+      lastMsgId = msgId;
     }
     outputs.push({
-      type: "assistant_text",
-      msg_id: msgId,
-      block_index: 0,
+      type: "turn_complete",
+      msg_id: lastMsgId,
       seq,
-      rev,
-      text,
-      is_partial: false,
-      status: "complete",
+      result: "success",
       ipc_version: IPC_VERSION,
     });
-    seq++;
-    lastMsgId = msgId;
+    replayed.push({
+      index: t,
+      description: turns === 1 ? "a long streamed turn" : `streamed turn ${t + 1}`,
+      outputs,
+    });
   }
-  outputs.push({
-    type: "turn_complete",
-    msg_id: lastMsgId,
-    seq,
-    result: "success",
-    ipc_version: IPC_VERSION,
-  });
   return {
     schemaVersion: TUGCODE_TRANSCRIPT_SCHEMA_VERSION,
     tugcodeVersion: "stub",
     paceMs: STREAM_PACE_MS,
-    turns: [{ index: 0, description: "a long streamed turn", outputs }],
+    turns: replayed,
   };
 }
 
 /**
  * Bind each of `cardIds` to a fresh session whose tugcode replays
  * {@link streamingTranscript}, one card at a time, each waiting for its
- * binding — its picker gone and its transcript mounted.
+ * binding — its picker gone and its transcript mounted. `messages` and
+ * `turns` size the transcript: the default is one turn that streams for
+ * several minutes, and a reading that waits for every turn to end, or needs
+ * many rows, asks for shorter turns and more of them.
  */
 export async function bindStreamingStubs(
   app: App,
   cardIds: readonly string[],
   stubDir: string,
+  messages?: number,
+  turns?: number,
 ): Promise<StubCard[]> {
-  const transcript = JSON.stringify(streamingTranscript());
+  const transcript = JSON.stringify(streamingTranscript(messages, turns));
   const cards: StubCard[] = [];
   for (const cardId of cardIds) {
     const tugSessionId = randomUUID();

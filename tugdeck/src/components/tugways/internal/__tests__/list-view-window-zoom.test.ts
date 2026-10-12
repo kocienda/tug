@@ -4,10 +4,10 @@
  * View › Zoom scales the deck root by a transform and sizes it to the window
  * ÷ the factor, so a zoom step moves a viewport-sized scroller's layout width
  * by the factor's ratio and leaves `devicePixelRatio` where it was. The width
- * settle keys on the zoom factor: read as a reflow, that move would wipe the
- * measured-height ledger, suspend eviction and mount every row of every
- * transcript in one commit. These pin the classification and what each
- * settle leaves the next commit to render. No React, no DOM.
+ * settle keys on the zoom factor: read as a reflow, that move would mark every
+ * measured height stale and drain every transcript through measure segments.
+ * These pin the classification and what each settle leaves the next commit to
+ * render. No React, no DOM.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -16,7 +16,8 @@ import { HeightIndex } from "../list-view-height-index";
 import {
   classifyWidthSettle,
   computeWindow,
-  resolveEvictWindow,
+  MEASURE_SEGMENT_MAX_ROWS,
+  resolveEvictSegments,
   type WidthSample,
 } from "../list-view-window";
 
@@ -72,33 +73,6 @@ describe("classifyWidthSettle", () => {
   });
 });
 
-describe("resolveEvictWindow", () => {
-  const measured = (n: number, h = 80): HeightIndex => {
-    const index = new HeightIndex();
-    for (let i = 0; i < n; i += 1) index.set(i, h);
-    return index;
-  };
-
-  test("a whole ledger evicts to the candidate", () => {
-    expect(
-      resolveEvictWindow({ firstIndex: 40, lastIndex: 60 }, measured(100), 100),
-    ).toEqual({ kind: "evict", firstIndex: 40, lastIndex: 60 });
-  });
-
-  test("an unmeasured appended row widens to it, not to everything", () => {
-    const ledger = measured(99);
-    expect(
-      resolveEvictWindow({ firstIndex: 40, lastIndex: 60 }, ledger, 100),
-    ).toEqual({ kind: "widened", firstIndex: 40, lastIndex: 100 });
-  });
-
-  test("an empty ledger suspends", () => {
-    expect(
-      resolveEvictWindow({ firstIndex: 40, lastIndex: 60 }, new HeightIndex(), 100),
-    ).toEqual({ kind: "suspended" });
-  });
-});
-
 describe("a zoom step's settle and the commit after it", () => {
   const ROWS = 300;
   const ROW_H = 120;
@@ -118,7 +92,7 @@ describe("a zoom step's settle and the commit after it", () => {
 
   /** The settle's ledger action, as the list view takes it. */
   const settle = (ledger: HeightIndex, prev: WidthSample, next: WidthSample): void => {
-    if (classifyWidthSettle(prev, next) === "reflowed") ledger.clear();
+    if (classifyWidthSettle(prev, next) === "reflowed") ledger.markAllStale();
   };
 
   const fullLedger = (): HeightIndex => {
@@ -130,9 +104,16 @@ describe("a zoom step's settle and the commit after it", () => {
   test("a rescale keeps the ledger, so the commit mounts the viewport's rows only", () => {
     const ledger = fullLedger();
     settle(ledger, { width: 900, zoomFactor: 1 }, { width: 1000, zoomFactor: 0.9 });
-    const resolution = resolveEvictWindow(candidateAt(ledger), ledger, ROWS);
+    const resolution = resolveEvictSegments(
+      candidateAt(ledger),
+      ledger,
+      ROWS,
+      VIEWPORT,
+      (i) => ledger.get(i) ?? 0,
+    );
     expect(resolution.kind).toBe("evict");
     if (resolution.kind === "suspended") return;
+    expect(resolution.segment).toBeNull();
     const mounted = resolution.lastIndex - resolution.firstIndex;
     // The scrollport plus a viewport of margin each side, plus overscan.
     expect(mounted).toBeLessThanOrEqual(
@@ -141,11 +122,34 @@ describe("a zoom step's settle and the commit after it", () => {
     expect(mounted).toBeLessThan(ROWS / 10);
   });
 
-  test("a reflow wipes the ledger and the commit suspends — the mount a zoom must not cause", () => {
+  // This reverses an earlier decision in the open. A reflow used to wipe the
+  // ledger, and the commit after it suspended eviction and mounted every row.
+  // It now keeps every height as stale and drains them a capped segment at a
+  // time, so no width change mounts the whole transcript.
+  test("a reflow keeps the ledger stale, so the commit mounts the window and one capped segment", () => {
     const ledger = fullLedger();
     settle(ledger, { width: 661, zoomFactor: 1 }, { width: 541, zoomFactor: 1 });
-    expect(resolveEvictWindow(candidateAt(ledger), ledger, ROWS)).toEqual({
-      kind: "suspended",
-    });
+    expect(ledger.staleCount()).toBe(ROWS);
+    const candidate = candidateAt(ledger);
+    const resolution = resolveEvictSegments(
+      candidate,
+      ledger,
+      ROWS,
+      VIEWPORT,
+      (i) => ledger.get(i) ?? 0,
+    );
+    expect(resolution.kind).toBe("evict");
+    if (resolution.kind === "suspended") return;
+    // The segment touches the window, so it merges into it: the window grows
+    // by at most one segment's rows, and never reaches the whole list.
+    const segmentRows =
+      resolution.segment === null
+        ? 0
+        : resolution.segment.lastIndex - resolution.segment.firstIndex;
+    const grown =
+      resolution.lastIndex - resolution.firstIndex -
+      (candidate.lastIndex - candidate.firstIndex);
+    expect(grown + segmentRows).toBeLessThanOrEqual(MEASURE_SEGMENT_MAX_ROWS);
+    expect(resolution.lastIndex - resolution.firstIndex).toBeLessThan(ROWS / 4);
   });
 });

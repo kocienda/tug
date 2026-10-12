@@ -97,6 +97,22 @@ const EDGE_JS = `(function () {
   };
 })()`;
 
+/**
+ * The column holds `n` posts and the newest is mounted. Counted from the
+ * store: the column is windowed, so its mounted cells are not its posts.
+ * Where the column follows its edge the newest post is in the window, so its
+ * cell being mounted says the commit that added it has landed.
+ */
+function holdsWithNewest(n: number): string {
+  return `(function () {
+  var posts = window.__tug.overviewPosts() || [];
+  if (posts.length !== ${n}) return false;
+  var key = posts[posts.length - 1].key;
+  return Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
+    .some(function (c) { return c.getAttribute("data-post-key") === key; });
+})()`;
+}
+
 async function edge(app: App): Promise<Edge> {
   return app.evalJS<Edge>(EDGE_JS);
 }
@@ -188,7 +204,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
           expect(await publish(app, wirePost(id))).toBe(true);
         }
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 12`,
+          holdsWithNewest(12),
           { timeoutMs: 10_000 },
         );
 
@@ -225,9 +241,16 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // them down. This is the half a naive "always scroll to the newest"
         // gets wrong, and the reader loses their place every time a session
         // finishes a turn.
+        const heightBefore = await app.evalJS<number>(
+          `document.querySelector(${JSON.stringify(TRANSCRIPT)}).scrollHeight`,
+        );
         expect(await publish(app, wirePost(32))).toBe(true);
+        // Held, and landed: the column grew by the post, below the reader.
+        // (The store's count, not the mounted cells' — the column is
+        // windowed, and the post arrived out of view.)
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 13`,
+          `(window.__tug.overviewPosts() || []).length === 13 &&
+            document.querySelector(${JSON.stringify(TRANSCRIPT)}).scrollHeight > ${heightBefore}`,
           { timeoutMs: 10_000 },
         );
         const held = await edge(app);
@@ -263,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // the edge rather than being left below the fold.
         expect(await publish(app, wirePost(33))).toBe(true);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 14`,
+          holdsWithNewest(14),
           { timeoutMs: 10_000 },
         );
         const following = await edge(app);
@@ -366,7 +389,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // that following is genuinely on again.
         expect(await publish(app, wirePost(34))).toBe(true);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 15`,
+          holdsWithNewest(15),
           { timeoutMs: 10_000 },
         );
         const afterResize = await edge(app);

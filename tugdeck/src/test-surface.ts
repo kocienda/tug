@@ -450,8 +450,14 @@ import {
  * reduces in the ingest Worker, so what `driveSession` posts reaches the
  * card's store one message hop later; the harness's `driveSession` waits on
  * this after every drive, so no test sees the hop. Additive; major stays `2`.
+ *
+ * `2.31.0`: adds {@link TugTestSurface.overviewPosts}. The Overview column is
+ * windowed, so the posts in its DOM are the ones near the scrollport, not the
+ * ones it holds; a test that means "the column holds N posts" or "the column
+ * leads with this post" reads the store through this. Additive; major stays
+ * `2`.
  */
-export const SURFACE_VERSION = "2.30.0" as const;
+export const SURFACE_VERSION = "2.31.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -1162,6 +1168,15 @@ export interface TugTestSurface {
    * Returns `false` when the JSON does not parse or carries no `posts` array.
    */
   publishOverviewPostsPage(payloadJson: string): boolean;
+
+  /**
+   * The posts the Overview column holds, oldest first: each post's key and
+   * body (SURFACE_VERSION 2.31.0). The column mounts only the posts near its
+   * scrollport, so this — not a count of `.overview-cell` — is what says how
+   * many posts it holds and which one leads it. `null` when no Overview store
+   * is active.
+   */
+  overviewPosts(): Array<{ key: string; body: string }> | null;
 
   /**
    * Deliver a `session_updated` ledger row as if it had arrived over the wire
@@ -2623,6 +2638,12 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       }
       _ingestOverviewPageForTest(body as ListOverviewPostsOk);
       return true;
+    },
+
+    overviewPosts(): Array<{ key: string; body: string }> | null {
+      const store = getOverviewStore();
+      if (store === null) return null;
+      return store.getSnapshot().posts.map((p) => ({ key: p.key, body: p.body }));
     },
 
     copySessionAtom(sessionId: string): boolean {

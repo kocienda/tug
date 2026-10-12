@@ -604,6 +604,88 @@ function measurePinLocally(root: HTMLElement, pin: HTMLElement): () => void {
 // Component
 // ---------------------------------------------------------------------------
 
+export interface TugTranscriptEntryPinProps {
+  /** Which participant the attribution names. Drives the icon. */
+  participant: Participant;
+  /** Bold leading label. */
+  identifier: React.ReactNode;
+  /** Optional small timestamp beside the identifier. */
+  timestamp?: React.ReactNode;
+  /** Optional turn address, pinned to the row's right edge. */
+  address?: TurnAddress;
+  /** Optional trailing header slot, after the address. */
+  headerTrailing?: React.ReactNode;
+  /**
+   * The identifier's `id`, for an entry whose `aria-labelledby` names it.
+   * A copy of an attribution drawn elsewhere passes none, so no id appears
+   * twice in the document.
+   */
+  identifierId?: string;
+  /**
+   * Draw the pin as stuck: `data-stuck="true"`, which shows the obscuring
+   * strip under it. For a pin drawn pinned by its host rather than by
+   * sticky positioning.
+   */
+  stuck?: boolean;
+}
+
+/**
+ * An entry's attribution pin — the gutter icon and the header row as one
+ * block. {@link TugTranscriptEntry} renders its pin through this, and a
+ * host that draws an entry's attribution elsewhere (the Overview's one
+ * column-owned pinned header) renders the same component, so the two
+ * cannot drift apart.
+ */
+export const TugTranscriptEntryPin = React.forwardRef<
+  HTMLDivElement,
+  TugTranscriptEntryPinProps
+>(function TugTranscriptEntryPin(
+  {
+    participant,
+    identifier,
+    timestamp,
+    address,
+    headerTrailing,
+    identifierId,
+    stuck,
+  },
+  pinRef,
+) {
+  return (
+    <div
+      ref={pinRef}
+      className="tug-transcript-entry__pin"
+      data-stuck={stuck === true ? "true" : undefined}
+    >
+      <div className="tug-transcript-entry__icon" aria-hidden="true">
+        {PARTICIPANT_ICONS[participant]}
+      </div>
+      <div className="tug-transcript-entry__header">
+        <strong id={identifierId} className="tug-transcript-entry__identifier">
+          {identifier}
+        </strong>
+        {timestamp !== undefined && (
+          <span className="tug-transcript-entry__timestamp">{timestamp}</span>
+        )}
+        {address !== undefined && (
+          <span
+            className="tug-transcript-entry__sequence"
+            data-slot="tug-transcript-entry-sequence"
+            aria-label={`${SPEAKER_ARIA_NOUN[address.speaker]} message ${formatTurnAddress(address).slice(1)}`}
+          >
+            {formatTurnAddress(address)}
+          </span>
+        )}
+        {headerTrailing !== undefined && headerTrailing !== null && (
+          <span className="tug-transcript-entry__header-trailing">
+            {headerTrailing}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
   participant,
   identifier,
@@ -657,36 +739,15 @@ export const TugTranscriptEntry: React.FC<TugTranscriptEntryProps> = ({
       {/* ONE sticky element per entry: icon + attribution header pin as
           a single block. The child class names (and their geometry) are
           unchanged — only the sticky role moved up to this wrapper. */}
-      <div ref={pinRef} className="tug-transcript-entry__pin">
-        <div className="tug-transcript-entry__icon" aria-hidden="true">
-          {PARTICIPANT_ICONS[participant]}
-        </div>
-        <div className="tug-transcript-entry__header">
-          <strong
-            id={labelledById}
-            className="tug-transcript-entry__identifier"
-          >
-            {identifier}
-          </strong>
-          {timestamp !== undefined && (
-            <span className="tug-transcript-entry__timestamp">{timestamp}</span>
-          )}
-          {address !== undefined && (
-            <span
-              className="tug-transcript-entry__sequence"
-              data-slot="tug-transcript-entry-sequence"
-              aria-label={`${SPEAKER_ARIA_NOUN[address.speaker]} message ${formatTurnAddress(address).slice(1)}`}
-            >
-              {formatTurnAddress(address)}
-            </span>
-          )}
-          {headerTrailing !== undefined && headerTrailing !== null && (
-            <span className="tug-transcript-entry__header-trailing">
-              {headerTrailing}
-            </span>
-          )}
-        </div>
-      </div>
+      <TugTranscriptEntryPin
+        ref={pinRef}
+        participant={participant}
+        identifier={identifier}
+        timestamp={timestamp}
+        address={address}
+        headerTrailing={headerTrailing}
+        identifierId={labelledById}
+      />
       <div className="tug-transcript-entry__content">
         <div className="tug-transcript-entry__gutter" aria-hidden="true" />
         <div className="tug-transcript-entry__body-column">

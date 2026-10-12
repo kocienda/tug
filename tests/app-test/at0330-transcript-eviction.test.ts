@@ -30,6 +30,11 @@
  * |                     | batch freeze (and the card's save gate) until the tab |
  * |                     | is next shown, instead of releasing at the hidden     |
  * |                     | settle                                                |
+ * | reflow drain        | a width change mounting every row to re-measure it,   |
+ * |                     | or the reader's place drifting while the stale        |
+ * |                     | heights drain                                         |
+ * | out-of-view append  | a row appended below a reader at the top widening the |
+ * |                     | window all the way down to it                         |
  *
  * The transcript is seeded with COMPLETE TURNS, not with many messages in one
  * turn: consecutive assistant messages inside a turn coalesce into a single
@@ -78,18 +83,25 @@ function replyText(n: number): string {
   ].join("\n");
 }
 
-/** Seed `turns` committed prompt→reply turns; every third one holds a tool
- *  block, so an expand gesture has something to open. */
-async function seedTurns(app: App, turns: number): Promise<void> {
+/** Seed `turns` committed prompt→reply turns, numbered from `start`; every
+ *  third one holds a tool block, so an expand gesture has something to open.
+ *  `afterSend` runs between each turn's composer send and its feed frames. */
+async function seedTurns(
+  app: App,
+  turns: number,
+  start = 0,
+  afterSend?: () => Promise<void>,
+): Promise<void> {
   const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
     app.driveSession("A", {
       op: "ingestFrame",
       feedId: FEED_CODE_OUTPUT,
       decoded: { tug_session_id: SID, ...decoded },
     });
-  for (let n = 0; n < turns; n += 1) {
+  for (let n = start; n < start + turns; n += 1) {
     const msgId = `${SID}-m${n}`;
     await app.driveSession("A", { op: "send", text: `prompt ${n}` });
+    if (afterSend !== undefined) await afterSend();
     await frame({ type: "prompt_anchor", promptUuid: `${SID}-u${n}` });
     await frame({
       type: "content_block_start",
@@ -156,6 +168,50 @@ async function scrollTo(app: App, frac: number): Promise<void> {
   return el.scrollTop;
 })()`);
   await new Promise((r) => setTimeout(r, 500));
+}
+
+/** The transcript's row count: 1 + the largest row index mounted while it
+ *  rests at the bottom. The list publishes no item count. */
+async function readRowCount(app: App): Promise<number> {
+  await scrollTo(app, 1);
+  return app.evalJS<number>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var max = -1;
+  el.querySelectorAll("[data-tug-list-cell-index]").forEach(function (c) {
+    var i = Number(c.getAttribute("data-tug-list-cell-index"));
+    if (i > max) max = i;
+  });
+  return max + 1;
+})()`);
+}
+
+/** Start an in-page rAF sampler of the scroller's mounted row count. It
+ *  also records whether `data-evict-stale` was ever seen, so a drain that
+ *  starts and ends between two polls is still witnessed. */
+async function startMountSampler(app: App): Promise<void> {
+  await app.evalJS<boolean>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var s = { peak: 0, sawStale: false, done: false };
+  window.__at0330Sampler = s;
+  var tick = function () {
+    if (s.done) return;
+    var n = el.querySelectorAll("[data-tug-list-cell-index]").length;
+    if (n > s.peak) s.peak = n;
+    if (el.hasAttribute("data-evict-stale")) s.sawStale = true;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return true;
+})()`);
+}
+
+/** Stop the sampler and read what it saw. */
+async function stopMountSampler(app: App): Promise<{ peak: number; sawStale: boolean }> {
+  return app.evalJS(`(function () {
+  var s = window.__at0330Sampler;
+  s.done = true;
+  return { peak: s.peak, sawStale: s.sawStale };
+})()`);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
@@ -563,6 +619,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
           before.w - 60,
         ];
         let lastClientWidth = before.w;
+        await startMountSampler(app);
         for (const w of burstWidths) {
           lastClientWidth = await setWidth(w);
         }
@@ -580,15 +637,18 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
         // The freeze keeps eviction running through the burst.
         expect(midBurst.active).toBe(true);
 
-        // Rest past the settle interval, then let the wipe → full
-        // render → re-measure → re-arm cycle complete.
+        // Rest past the settle interval, then let the drain re-measure
+        // every stale row. The exactness below holds after the drain, not
+        // before it: until then stale heights stand in for unmounted rows.
         await app.waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
-  return el.hasAttribute("data-evict-active");
+  return window.__at0330Sampler.sawStale &&
+    el.hasAttribute("data-evict-active") && !el.hasAttribute("data-evict-stale");
 })()`,
           { timeoutMs: 20_000, pollMs: 250 },
         );
+        await stopMountSampler(app);
         await new Promise((r) => setTimeout(r, 1500));
 
         const settled = await app.evalJS<{
@@ -604,7 +664,8 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
   };
 })()`);
         expect(settled.active).toBe(true);
-        // One suspension per resize gesture, not one per tick.
+        // A reflow drains rather than suspends; at most one fallback for the
+        // whole gesture, never one per tick.
         expect(settled.fallbacks - before.fallbacks).toBeLessThanOrEqual(1);
 
         // Exactness after settle: the evicted document is the same
@@ -622,6 +683,143 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
   return { h: el.scrollHeight };
 })()`);
         expect(Math.abs(settled.h - full.h)).toBeLessThanOrEqual(2);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a reflow never mounts the whole transcript",
+    async () => {
+      const app = await standUp("at0330-reflow-drain");
+      try {
+        const rowCount = await readRowCount(app);
+        await scrollTo(app, 0.5);
+        // Put a row's top edge on the scrollport top, so "where the reader
+        // is" is a whole row whose offset can be read before and after.
+        await app.evalJS<boolean>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var portTop = el.getBoundingClientRect().top;
+  var cells = [].slice.call(el.querySelectorAll("[data-tug-list-cell-index]"));
+  var top = cells.filter(function (c) { return c.getBoundingClientRect().bottom > portTop + 1; })
+    .sort(function (a, b) { return a.getBoundingClientRect().top - b.getBoundingClientRect().top; })[0];
+  el.scrollTop = Math.round(el.scrollTop + top.getBoundingClientRect().top - portTop);
+  return true;
+})()`);
+        await new Promise((r) => setTimeout(r, 500));
+        const readTop = (index: number | null) =>
+          app.evalJS<{ index: number; offset: number; w: number; fallbacks: number }>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var portTop = el.getBoundingClientRect().top;
+  var want = ${index === null ? "null" : index};
+  var cells = [].slice.call(el.querySelectorAll("[data-tug-list-cell-index]"));
+  var top = want === null
+    ? cells.filter(function (c) { return c.getBoundingClientRect().bottom > portTop + 1; })
+        .sort(function (a, b) { return a.getBoundingClientRect().top - b.getBoundingClientRect().top; })[0]
+    : el.querySelector('[data-tug-list-cell-index="' + want + '"]');
+  return {
+    index: top ? Number(top.getAttribute("data-tug-list-cell-index")) : -1,
+    offset: top ? top.getBoundingClientRect().top - portTop : NaN,
+    w: el.clientWidth,
+    fallbacks: Number(el.getAttribute("data-evict-fallbacks") || "-1"),
+  };
+})()`);
+        const before = await readTop(null);
+        expect(before.index).toBeGreaterThan(0);
+
+        // A direct width write opens no resize episode, so the drain's own
+        // restore target is what holds the reader.
+        await startMountSampler(app);
+        await app.evalJS<number>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  el.style.flex = "0 0 auto";
+  el.style.width = "${before.w - 120}px";
+  return el.clientWidth;
+})()`);
+        await app.waitForCondition<boolean>(
+          `(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return window.__at0330Sampler.sawStale && !el.hasAttribute("data-evict-stale");
+})()`,
+          { timeoutMs: 20_000, pollMs: 250 },
+        );
+        // Past the restore target's release tail, so what is read is where
+        // the reader was left, not where the hold is still putting them.
+        await new Promise((r) => setTimeout(r, 1000));
+        const sampled = await stopMountSampler(app);
+        const after = await readTop(before.index);
+        const settledH = await app.evalJS<number>(
+          `document.querySelector('${SCROLLER}').scrollHeight`,
+        );
+        note(
+          `reflow drain: rows ${rowCount}, peak mounted ${sampled.peak}, ` +
+            `top row ${before.index} offset ${before.offset.toFixed(1)} → ${after.offset.toFixed(1)}, ` +
+            `fallbacks ${before.fallbacks} → ${after.fallbacks}`,
+        );
+        expect(sampled.peak).toBeLessThan(rowCount);
+        expect(after.fallbacks).toBe(before.fallbacks);
+        expect(after.index).toBe(before.index);
+        expect(Math.abs(after.offset - before.offset)).toBeLessThanOrEqual(1);
+
+        // Exactness after the drain: the evicted document is the same
+        // height the fully-mounted one is at this width.
+        await app.evalJS<boolean>(
+          `(window.__tug.setTranscriptEvictionDisabled(true), true)`,
+        );
+        await app.waitForCondition<boolean>(
+          `!document.querySelector('${SCROLLER}').hasAttribute("data-evict-active")`,
+          { timeoutMs: 20_000, pollMs: 250 },
+        );
+        await new Promise((r) => setTimeout(r, 1000));
+        const fullH = await app.evalJS<number>(
+          `document.querySelector('${SCROLLER}').scrollHeight`,
+        );
+        expect(Math.abs(settledH - fullH)).toBeLessThanOrEqual(2);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "an out-of-view append mounts alone",
+    async () => {
+      const app = await standUp("at0330-append");
+      try {
+        const rowsBefore = await readRowCount(app);
+        let mountedBefore = 0;
+        // The feed opens a turn only behind a composer send, which is the
+        // user's own act and may re-pin the bottom. So the send goes first,
+        // and the reader is taken back to the top before the turn's frames
+        // land: what this case needs is a row arriving far below the window
+        // while the reader is at the top.
+        await seedTurns(app, 1, TURNS, async () => {
+          await new Promise((r) => setTimeout(r, 500));
+          await scrollTo(app, 0);
+          mountedBefore = await app.evalJS<number>(
+            `document.querySelector('${SCROLLER}').querySelectorAll("[data-tug-list-cell-index]").length`,
+          );
+          await startMountSampler(app);
+        });
+        await new Promise((r) => setTimeout(r, 1500));
+        const sampled = await stopMountSampler(app);
+        const view = await app.evalJS<{ top: number; port: number }>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return { top: el.scrollTop, port: el.clientHeight };
+})()`);
+        // Precondition: the reader is still at the top after the append.
+        expect(view.top).toBeLessThanOrEqual(view.port);
+        const rowsAfter = await readRowCount(app);
+        note(
+          `out-of-view append: rows ${rowsBefore} → ${rowsAfter}, ` +
+            `mounted ${mountedBefore} before, peak ${sampled.peak}`,
+        );
+        expect(rowsAfter).toBeGreaterThan(rowsBefore);
+        expect(sampled.peak).toBeLessThanOrEqual(mountedBefore + (rowsAfter - rowsBefore));
+        expect(sampled.peak).toBeLessThan(rowsAfter);
       } finally {
         await app.close();
       }

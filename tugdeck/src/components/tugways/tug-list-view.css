@@ -33,6 +33,9 @@
  *   document flow. The window slides as the user scrolls.
  * - `.tug-list-view-spacer--bottom` accounts for unrendered cells
  *   below the window — same imperative-height pattern.
+ * - `.tug-list-view-spacer--middle`, under `evictOffscreen`, stands
+ *   inside the window between a measure segment (a short run of rows
+ *   mounted only to be measured) and the window's own rows.
  *
  * Token contract: only `--tugx-list-view-*` tokens drive this file
  * ([L20]). Base `--tug-*` tokens are referenced from those component
@@ -289,6 +292,9 @@ body {
 
 .tug-list-view-spacer {
   width: 100%;
+  /* The middle spacer is a flex item of the window; it must keep the
+     height it was given. */
+  flex: none;
   /* Height set imperatively by the component via `style.height` to
      match cumulative unrendered-cell height. Initial value is zero;
      the post-mount `useLayoutEffect` writes the real values before

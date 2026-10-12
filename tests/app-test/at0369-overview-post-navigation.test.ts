@@ -66,7 +66,10 @@ function wirePost(id: number): WirePost {
 
 /** Where the column stands: which post is flush at the top, and how far down. */
 interface Standing {
-  /** Index of the post whose top is at the scrollport top, or -1 if none is. */
+  /** Index (in the column's posts, oldest first) of the post whose top is
+   *  at the scrollport top, or -1 if none is. Read by post key against the
+   *  store, because the column is windowed: a mounted cell's place among
+   *  the mounted cells moves whenever the window does. */
   flushIndex: number;
   scrollTop: number;
   atBottom: boolean;
@@ -75,10 +78,13 @@ interface Standing {
 const STANDING_JS = `(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var cells = Array.from(document.querySelectorAll(${JSON.stringify(POST)}));
+  var keys = (window.__tug.overviewPosts() || []).map(function (p) { return p.key; });
   var portTop = el.getBoundingClientRect().top;
   var flush = -1;
-  cells.forEach(function (cell, i) {
-    if (Math.abs(cell.getBoundingClientRect().top - portTop) <= 2) flush = i;
+  cells.forEach(function (cell) {
+    if (Math.abs(cell.getBoundingClientRect().top - portTop) <= 2) {
+      flush = keys.indexOf(cell.getAttribute("data-post-key"));
+    }
   });
   return {
     flushIndex: flush,
@@ -113,7 +119,11 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
           ).toBe(true);
         }
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 12`,
+          // Held, and rendered: the column follows its newest post, so post
+          // 31 is mounted once the commit that holds all twelve has landed.
+          `(window.__tug.overviewPosts() || []).length === 12 &&
+            Array.from(document.querySelectorAll(${JSON.stringify(`${POST} .overview-post-body`)}))
+              .some(function (b) { return (b.textContent || "").indexOf("Post 31") === 0; })`,
           { timeoutMs: 10_000 },
         );
 

@@ -580,6 +580,9 @@ export class SmartScroll {
 
   get isFollowingBottom(): boolean { return this._isFollowingBottom; }
 
+  /** Whether a restore target is installed (see `setRestoreTarget`). */
+  get hasRestoreTarget(): boolean { return this._restoreTarget !== null; }
+
   /** Monotonic count of user input events carrying scroll intent
    *  (wheel, pointerdown, scroll-key keydown). See
    *  `_userActivitySeq`. */

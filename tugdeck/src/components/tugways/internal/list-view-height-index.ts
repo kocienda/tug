@@ -36,6 +36,16 @@
  * that want the binary-search behavior call `prepare` once per
  * `(itemCount, estimateFn)` change and read freely afterward.
  *
+ * **A stale tier.** A width change that re-wraps text makes every
+ * measured height suspect without making it useless: the row is still
+ * there, and its old height is a far better stand-in than an estimate
+ * or a mount of the whole list. `markAllStale` keeps every height and
+ * flags it; `set` clears the flag for the row it measures. `has` and
+ * `coversRange` keep their meaning (a height is present, fresh or
+ * stale), and the flag travels with its entry through `shift`, `delete`
+ * and `clear`. The Fenwick cache never sees the flag, because flipping
+ * it changes no height.
+ *
  * Laws: this module is non-React, non-DOM. No tuglaws apply directly
  * — the height index is consumed by `TugListView`, which carries the
  * relevant law citations.
@@ -53,6 +63,9 @@ interface PreparedCache {
 export class HeightIndex {
   private readonly heights = new Map<number, number>();
 
+  /** Indices whose height predates the last `markAllStale`; always a subset of `heights`' keys. */
+  private readonly stale = new Set<number>();
+
   private cache: PreparedCache | null = null;
 
   /**
@@ -67,10 +80,13 @@ export class HeightIndex {
    * delta between the old effective height and the new measurement.
    * Out-of-range writes leave the cache intact and become visible the
    * next time `prepare` is called.
+   *
+   * A recorded measurement is fresh: the index leaves the stale tier.
    */
   set(index: number, height: number): void {
     if (!Number.isFinite(height) || height < 0) return;
     this.heights.set(index, height);
+    this.stale.delete(index);
     if (this.cache !== null && index >= 0 && index < this.cache.itemCount) {
       const oldEffective = this.cache.effective[index];
       this.cache.effective[index] = height;
@@ -86,6 +102,25 @@ export class HeightIndex {
   /** Whether `index` has been measured. */
   has(index: number): boolean {
     return this.heights.has(index);
+  }
+
+  /**
+   * Keep every measured height and mark it stale — the ledger's answer
+   * to a width change that re-wraps text. The heights still stand in
+   * the spacers, and each row is measured fresh as it mounts.
+   */
+  markAllStale(): void {
+    for (const index of this.heights.keys()) this.stale.add(index);
+  }
+
+  /** Whether `index` has a height measured since the last `markAllStale`. */
+  isFresh(index: number): boolean {
+    return this.heights.has(index) && !this.stale.has(index);
+  }
+
+  /** How many held heights are stale. */
+  staleCount(): number {
+    return this.stale.size;
   }
 
   /**
@@ -157,6 +192,7 @@ export class HeightIndex {
    */
   delete(index: number): boolean {
     const had = this.heights.delete(index);
+    this.stale.delete(index);
     if (
       had
       && this.cache !== null
@@ -177,6 +213,7 @@ export class HeightIndex {
    */
   clear(): void {
     this.heights.clear();
+    this.stale.clear();
     this.cache = null;
   }
 
@@ -192,6 +229,7 @@ export class HeightIndex {
    * the cell formerly at index `i` is now at `i + M`; calling
    * `shift(M)` moves its measurement accordingly so the height index
    * stays aligned with the DOM without re-measuring the existing rows.
+   * A stale entry stays stale at its new index.
    *
    * `by <= 0` is a no-op. Invalidates any prepared cache — the next
    * `prepare` rebuilds the Fenwick tree over the shifted indices.
@@ -206,6 +244,11 @@ export class HeightIndex {
     this.heights.clear();
     for (const [i, h] of shifted) {
       this.heights.set(i, h);
+    }
+    if (this.stale.size > 0) {
+      const moved = Array.from(this.stale, (i) => i + delta);
+      this.stale.clear();
+      for (const i of moved) this.stale.add(i);
     }
     this.cache = null;
   }

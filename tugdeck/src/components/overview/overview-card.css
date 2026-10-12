@@ -94,7 +94,7 @@
    attribution design, and there is one.
    ------------------------------------------------------------------------ */
 
-.overview-transcript .tug-transcript-entry {
+:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry {
   --tugx-transcript-controls-margin-top: var(--tug-space-2xs);
   /* TUNE HERE — see the gutter note above. */
   --tugx-transcript-icon-column-width: 2.2em;
@@ -106,11 +106,54 @@
   --tugx-transcript-icon-column-gap: 2px;
 }
 
+/* ---------------------------------------------------------------------------
+   One pinned header for the column, not one per post.
+   ---------------------------------------------------------------------------
+   Every post's attribution sits in flow. The column draws one copy of the top
+   post's attribution over the scrollport, `.overview-pinned-header`, and
+   places it where a sticky pin would sit: at the top while the post's head
+   has scrolled past, pushed up as the post's bottom edge leaves. A sticky pin
+   per post was a stacking context and a compositing-overlap candidate per
+   post, re-tested by WebKit on every rendering update; this is one for the
+   column. `OverviewContent` writes its width, offset and visibility ([L06]).
+
+   The pin stays registered with the entry's pin-stack controller, static: its
+   `--tugx-pin-stack-top` on the scroller is what a code block's sticky header
+   pins against, which now puts that header directly under this one. A static
+   pin never reads as displaced, so `data-stuck` never lands on one in flow. */
+.overview-transcript .tug-transcript-entry__pin {
+  position: static;
+}
+
+/* Over the scroller, in the region it fills: the region is the positioned
+   ancestor. The column's own em anchor, so the copy draws at the post's size.
+   Above body chrome pinned in the column, which sits at the same z-index and
+   earlier in tree order. */
+.overview-pinned-header {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: var(--tugx-overview-transcript-inset-start);
+  font-size: 14px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.overview-pinned-header[data-visible="false"] {
+  visibility: hidden;
+}
+
 /* The breathing room the scroller's zeroed start-side padding gave up. On the
    first row, so it scrolls away with the content rather than standing open
    above a pinned header. */
 .overview-transcript > :first-child {
   margin-block-start: var(--tug-space-md);
+}
+
+/* A spacer standing in for posts the window left out. It is a child of the
+   flex column like a post, so the gap and the first- and last-child margins
+   treat it as one; it must keep the height it was given. */
+.overview-spacer {
+  flex: none;
 }
 
 /* Breathing room at the end, on the last row for the symmetry of it. Without
@@ -120,16 +163,16 @@
   margin-block-end: var(--tugx-overview-transcript-end-space);
 }
 
-.overview-transcript .tug-transcript-entry__identifier {
+:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry__identifier {
   font-size: 0.95em;
 }
 
-.overview-transcript .tug-transcript-entry__timestamp {
+:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry__timestamp {
   font-size: 0.85em;
   font-variant-numeric: tabular-nums;
 }
 
-.overview-transcript .tug-transcript-entry__icon svg {
+:is(.overview-transcript, .overview-pinned-header) .tug-transcript-entry__icon svg {
   width: 1.2em;
   height: 1.2em;
   margin-block-start: var(--tugx-transcript-icon-nudge, 1px);
@@ -152,7 +195,7 @@
 
    Judged by eye, because "reads the same size" is a perceptual claim and
    nothing computes it. `at0365` measures that the pair is applied at all. */
-.overview-transcript
+:is(.overview-transcript, .overview-pinned-header)
   .tug-transcript-entry[data-participant="observer"]
   .tug-transcript-entry__icon
   svg {
@@ -162,7 +205,7 @@
   --tugx-transcript-icon-nudge: 2px;
 }
 
-.overview-transcript
+:is(.overview-transcript, .overview-pinned-header)
   .tug-transcript-entry[data-participant="operator"]
   .tug-transcript-entry__icon
   svg {
@@ -205,6 +248,18 @@
 
 .overview-post-body .tugx-md-block {
   font-size: 1em;
+  /* One stacking context per post. The block's `contain: content` makes one
+     per markdown block; in a post it buys nothing (a post is written once,
+     never streamed), so it is undone here, and what it did that shows is
+     kept by constructions that make no context: `flow-root` holds the block's
+     own formatting context, so a paragraph's margins do not collapse through
+     it; `overflow: clip` clips its ink as paint containment did; and
+     `position: relative` keeps it the containing block of anything absolute
+     inside it. */
+  contain: none;
+  display: flow-root;
+  overflow: clip;
+  position: relative;
 }
 
 /* The pictures a question was asked with, under its prose — the transcript
@@ -244,7 +299,10 @@
   --tugx-overview-z1b-copy-baseline-nudge: 0.5px;
   --tugx-overview-z1b-copy-pad-cancel: -0.75rem;
   --tugx-overview-z1b-copy-snug: -9px;
-  transform: translateY(var(--tugx-overview-z1b-copy-baseline-nudge));
+  /* A relative offset rather than a transform: the same half-pixel, and no
+     stacking context per post. */
+  position: relative;
+  top: var(--tugx-overview-z1b-copy-baseline-nudge);
   margin-left: calc(
     var(--tugx-overview-z1b-copy-pad-cancel) + var(--tugx-overview-z1b-copy-snug)
   );

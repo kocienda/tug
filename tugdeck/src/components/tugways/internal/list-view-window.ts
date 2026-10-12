@@ -367,52 +367,162 @@ export interface EvictionLedger {
 }
 
 /**
- * How an eviction-mode commit renders, given the candidate window and
- * what the measured-height ledger holds.
+ * Eviction margins, in viewport heights (see `TugListView`'s
+ * `evictOffscreen` prop). A row mounts once it is within one viewport of
+ * the scrollport and is not released until it is two viewports away — the
+ * gap is the hysteresis band, and it is also the budget for a fast flick:
+ * at a viewport of scroll per frame, a row is already mounted a frame
+ * before it could be seen.
  *
- * - `evict` — every row outside the candidate is measured: render the
- *   candidate and stand spacers in for the rest.
- * - `widened` — some rows outside are unmeasured, but not all of them:
- *   widen the window just far enough to mount every unmeasured row, so
- *   the spacers still cover measured rows only.
- * - `suspended` — widening reaches both ends (a cold or wiped ledger):
- *   render every row. This is the whole-transcript mount the eviction
- *   mode counts as a suspension.
+ * Cell counts cannot express this: transcript rows range from one line
+ * to thousands, so "three cells" is a screenful in one place and a
+ * sliver in another.
  */
-export type EvictWindowResolution =
-  | { kind: "evict"; firstIndex: number; lastIndex: number }
-  | { kind: "widened"; firstIndex: number; lastIndex: number }
+export const EVICT_MOUNT_MARGIN_VIEWPORTS = 1;
+export const EVICT_RETAIN_MARGIN_VIEWPORTS = 2;
+
+/**
+ * The most rows one measure segment mounts for a stale drain. A segment
+ * is also capped at a viewport of stale height, so a drain costs about a
+ * screenful of layout per commit whatever the rows' sizes.
+ */
+export const MEASURE_SEGMENT_MAX_ROWS = 8;
+
+/** What a measure segment asks of the ledger beyond eviction's questions. */
+export interface MeasureLedger extends EvictionLedger {
+  isFresh(index: number): boolean;
+}
+
+/** A half-open run of rows `[firstIndex, lastIndex)`. */
+export interface RowRun {
+  firstIndex: number;
+  lastIndex: number;
+}
+
+/**
+ * How an eviction-mode commit renders: the window, plus at most one
+ * *measure segment* — a separate run of rows outside the window, mounted
+ * only so it can be measured, then released.
+ *
+ * - `evict` — render the window and the segment (or none), with spacers
+ *   standing in for every other row. Every spacer row has a height.
+ * - `suspended` — no row outside the window has a height at all (a cold
+ *   ledger): render every row.
+ */
+export type EvictSegmentsResolution =
+  | { kind: "evict"; firstIndex: number; lastIndex: number; segment: RowRun | null }
   | { kind: "suspended" };
 
-export function resolveEvictWindow(
-  candidate: { firstIndex: number; lastIndex: number },
-  ledger: EvictionLedger,
+/**
+ * Resolve the window and its measure segment from the candidate window
+ * and the ledger. The rules, in order:
+ *
+ * 1. **Cold.** No row outside the window has a height, and there is at
+ *    least one → `suspended`.
+ * 2. **Missing heights.** A row with no height mounts in the commit it
+ *    appears, or a spacer would estimate it, so a missing run is never
+ *    capped. Missing rows on one side only make the segment the run
+ *    covering them all. On both sides, the window clamps outward over
+ *    the nearer side's run and the farther side's run is the segment
+ *    (ties count the side below as nearer).
+ * 3. **Stale heights.** Otherwise the segment is the stale run nearest
+ *    the window (below wins a tie), taken from its window end and capped
+ *    at {@link MEASURE_SEGMENT_MAX_ROWS} rows and at the rows whose
+ *    heights sum to `budgetPx`, minimum one row.
+ * 4. **Fresh.** Otherwise no segment.
+ *
+ * A segment never touches the window: one that would is merged into it.
+ */
+export function resolveEvictSegments(
+  candidate: RowRun,
+  ledger: MeasureLedger,
   itemCount: number,
-): EvictWindowResolution {
-  if (
-    ledger.coversRange(0, candidate.firstIndex) &&
-    ledger.coversRange(candidate.lastIndex, itemCount)
-  ) {
-    return {
-      kind: "evict",
-      firstIndex: candidate.firstIndex,
-      lastIndex: candidate.lastIndex,
-    };
-  }
-  let firstIndex = candidate.firstIndex;
+  budgetPx: number,
+  heightFor: (index: number) => number,
+): EvictSegmentsResolution {
+  let firstIndex = Math.max(0, Math.min(candidate.firstIndex, itemCount));
+  let lastIndex = Math.max(firstIndex, Math.min(candidate.lastIndex, itemCount));
+  const outside = firstIndex + (itemCount - lastIndex);
+
+  // One pass over the rows outside the window: what is missing on each
+  // side, whether anything has a height, and the nearest stale row.
+  let anyHeight = false;
+  let missAboveFirst = -1;
+  let missAboveLast = -1;
+  let missBelowFirst = -1;
+  let missBelowLast = -1;
+  let staleAbove = -1; // the largest stale index above the window
+  let staleBelow = -1; // the smallest stale index below it
   for (let i = 0; i < firstIndex; i += 1) {
     if (!ledger.has(i)) {
-      firstIndex = i;
-      break;
+      if (missAboveFirst === -1) missAboveFirst = i;
+      missAboveLast = i;
+    } else {
+      anyHeight = true;
+      if (!ledger.isFresh(i)) staleAbove = i;
     }
   }
-  let lastIndex = candidate.lastIndex;
-  for (let i = itemCount - 1; i >= lastIndex; i -= 1) {
+  for (let i = lastIndex; i < itemCount; i += 1) {
     if (!ledger.has(i)) {
-      lastIndex = i + 1;
-      break;
+      if (missBelowFirst === -1) missBelowFirst = i;
+      missBelowLast = i;
+    } else {
+      anyHeight = true;
+      if (staleBelow === -1 && !ledger.isFresh(i)) staleBelow = i;
     }
   }
-  if (firstIndex === 0 && lastIndex === itemCount) return { kind: "suspended" };
-  return { kind: "widened", firstIndex, lastIndex };
+
+  if (outside > 0 && !anyHeight) return { kind: "suspended" };
+
+  let segment: RowRun | null = null;
+  const missAbove: RowRun | null =
+    missAboveFirst === -1 ? null : { firstIndex: missAboveFirst, lastIndex: missAboveLast + 1 };
+  const missBelow: RowRun | null =
+    missBelowFirst === -1 ? null : { firstIndex: missBelowFirst, lastIndex: missBelowLast + 1 };
+
+  if (missAbove !== null && missBelow !== null) {
+    const gapAbove = firstIndex - missAbove.lastIndex;
+    const gapBelow = missBelow.firstIndex - lastIndex;
+    if (gapBelow <= gapAbove) {
+      lastIndex = missBelow.lastIndex;
+      segment = missAbove;
+    } else {
+      firstIndex = missAbove.firstIndex;
+      segment = missBelow;
+    }
+  } else if (missAbove !== null || missBelow !== null) {
+    segment = missAbove ?? missBelow;
+  } else if (staleAbove !== -1 || staleBelow !== -1) {
+    const below =
+      staleBelow !== -1 && (staleAbove === -1 || staleBelow - lastIndex <= firstIndex - 1 - staleAbove);
+    const step = below ? 1 : -1;
+    const start = below ? staleBelow : staleAbove;
+    let end = start; // the last row taken, inclusive
+    let rows = 1;
+    let height = Math.max(0, heightFor(start));
+    for (let i = start + step; i >= 0 && i < itemCount; i += step) {
+      if (!ledger.has(i) || ledger.isFresh(i)) break;
+      if (rows >= MEASURE_SEGMENT_MAX_ROWS) break;
+      const h = Math.max(0, heightFor(i));
+      if (height + h > budgetPx) break;
+      height += h;
+      rows += 1;
+      end = i;
+    }
+    segment = below
+      ? { firstIndex: start, lastIndex: end + 1 }
+      : { firstIndex: end, lastIndex: start + 1 };
+  }
+
+  // A segment that touches the window is part of it.
+  if (segment !== null) {
+    if (segment.lastIndex === firstIndex) {
+      firstIndex = segment.firstIndex;
+      segment = null;
+    } else if (segment.firstIndex === lastIndex) {
+      lastIndex = segment.lastIndex;
+      segment = null;
+    }
+  }
+  return { kind: "evict", firstIndex, lastIndex, segment };
 }

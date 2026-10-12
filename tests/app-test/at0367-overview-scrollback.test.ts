@@ -36,7 +36,6 @@ const TEST_TIMEOUT_MS = 90_000;
 
 const CARD = '[data-testid="overview-card"]';
 const TRANSCRIPT = '[data-testid="overview-transcript"]';
-const POST = `${CARD} .overview-cell`;
 
 interface WirePost {
   id: number;
@@ -63,19 +62,22 @@ function wirePost(id: number): WirePost {
 interface Geometry {
   scrollTop: number;
   scrollHeight: number;
-  /** The first rendered row's own body text — which post leads the column. */
+  /** The first post's own body text — which post leads the column. Read
+   *  from the store: the column is windowed, so the first post it holds is
+   *  not necessarily mounted. */
   firstBody: string;
+  /** How many posts the column holds (the store, for the same reason). */
   rows: number;
 }
 
 const GEOMETRY_JS = `(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
-  var first = document.querySelector(${JSON.stringify(`${POST} .overview-post-body`)});
+  var posts = window.__tug.overviewPosts() || [];
   return {
     scrollTop: el === null ? -1 : el.scrollTop,
     scrollHeight: el === null ? -1 : el.scrollHeight,
-    firstBody: first === null ? "" : (first.textContent || "").slice(0, 12),
-    rows: document.querySelectorAll(${JSON.stringify(POST)}).length,
+    firstBody: posts.length === 0 ? "" : posts[0].body.slice(0, 12),
+    rows: posts.length,
   };
 })()`;
 
@@ -109,7 +111,11 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
           ).toBe(true);
         }
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 12`,
+          // Held, and rendered: the column follows its newest post, so post
+          // 31 is mounted once the commit that holds all twelve has landed.
+          `(window.__tug.overviewPosts() || []).length === 12 &&
+            Array.from(document.querySelectorAll(${JSON.stringify(`${CARD} .overview-post-body`)}))
+              .some(function (b) { return (b.textContent || "").indexOf("Post 31") === 0; })`,
           { timeoutMs: 10_000 },
         );
 
@@ -148,7 +154,10 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
         ).toBe(true);
 
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 16`,
+          // The store holds the page, and the commit that mounted it (and
+          // compensated the scroll for it) has landed.
+          `(window.__tug.overviewPosts() || []).length === 16 &&
+            document.querySelector(${JSON.stringify(TRANSCRIPT)}).scrollHeight > ${before.scrollHeight}`,
           { timeoutMs: 10_000 },
         );
 

@@ -99,8 +99,18 @@ The source brief's [F05] question (whether lost frames on an aged deck track ele
 
 | | Build | Elements | Baseline walk (mean) | `overview-absent` | Notes |
 |---|---|---|---|---|---|
-| Fresh | | | | | |
-| Aged | | | | | |
+| Harness, fresh | `9714b6f37` (debug, `at0727`) | 5,422 (533 stacking contexts) | 4.97 ms, spread 1.33 | +1.03 ms, not moved | 30 Overview posts; `c1` the slice, three stub sessions bound and empty |
+| Harness, aged | `9714b6f37` (debug, `at0727`) | 15,913 (1,424 stacking contexts) | 5.60 ms, spread 0.83 | −0.10 ms, not moved | 150 posts, all mounted; three stubs streamed 16 rows each and evict to 6; every scroller swept; a fold and a split driven |
+| User's deck, as found | 0.8.18 `9714b6f37` (release), up 1 h 18 min | 30,097 (1,945 stacking contexts) | 5.58 ms, spread 4.82 | +0.75 ms, not moved | 90 Overview posts; no arm moved the walk past its spread; `overview-skip` left the column off its live edge |
+| Harness, fresh, after | `f87299f03` (debug, `at0727`) | 4,209 (367 stacking contexts) | 4.27 ms, spread 0.67 | −0.03 ms, not moved | 30 posts held, 11 mounted, one stacking context each; `transcript-absent` +0.47 ms, not moved |
+| Harness, aged, after | `f87299f03` (debug, `at0727`) | 6,960 (538 stacking contexts) | 5.10 ms, spread 1.73 | +0.53 ms, not moved | 150 posts held, 11 mounted; three stubs at 16 rows evict to 6 and peak at 6 through the fold and the split; both fold drives sealed, the split launched no beat; `transcript-absent` +0.37 ms, not moved |
+| User's deck, as found, second | 0.8.18 `9714b6f37` (release), up 2 h 22 min | 38,056 (2,908 stacking contexts) | 7.23 ms, spread 12.57 | +0.45 ms, not moved | Still `main`, so not an after: 147 Overview posts, all mounted, each with a sticky pin and four contexts of its own, and 74 of them a live session dot of four more; no arm moved the walk past its spread; `overview-skip`, `parked-absent` and `transcript-absent` left their scrollers off their places |
+
+**The ceiling margin is 1.33 ms.** It is the fresh harness baseline's own mean spread ([P02] of the arc's plan; an earlier run of the same reading read 1.10), and `at0727` carries it as `CEILING_MARGIN_MS`. On the harness, tripling the document (5.4k to 15.9k elements, 533 to 1,424 stacking contexts, the Overview from 30 to 150 mounted posts) moved the mean walk by 0.63 ms, inside the margin, and no arm read as moved on either deck. At this population the walk does not track what is mounted the way [F02] of the population-ceiling brief expected, so the after-reading is read against the census as much as the walk.
+
+**After.** With the Overview windowed and pinned by one header, the aged harness deck holds 6,960 elements and 538 stacking contexts where it held 15,913 and 1,424, and the Overview mounts 11 of its 150 posts at one stacking context each where it mounted all 150 at four. The aged mean walk is 5.10 ms against a fresh 4.27, 0.83 ms apart, inside the 1.33 ms margin, and `at0727` now asserts that ceiling, the Overview's mounted count, no full mount through either reflowing settle, and both fold drives sealed. The walk moved less than the census did, as the before-reading said it would. The user's deck still runs `main`, so its second reading is the as-found deck again, aged further: 38,056 elements with all 147 posts mounted. Its reading of this arc's code is owed after the join, and the fresh arm at the next relaunch.
+
+**Full-mount peaks.** None were reached. The fold and the split were driven on `c1` and slot 0, and the three transcripts that evict at rest (16 rows, 6 mounted) peaked at 6 through both drives with no eviction fallback: neither gesture changes an evicting transcript's width on this deck. The Overview held all 150 posts throughout, as it does at rest. The transcript's full-mount path is reached by a direct width write, which `at0330`'s reflow case reads.
 
 ## After (release) {#after-release}
 

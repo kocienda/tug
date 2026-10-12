@@ -99,6 +99,22 @@ const EDGE_JS = `(function () {
   };
 })()`;
 
+/**
+ * The column holds `n` posts and the newest is mounted. Counted from the
+ * store: the column is windowed, so its mounted cells are not its posts.
+ * Where the column follows its edge the newest post is in the window, so its
+ * cell being mounted says the commit that added it has landed.
+ */
+function holdsWithNewest(n: number): string {
+  return `(function () {
+  var posts = window.__tug.overviewPosts() || [];
+  if (posts.length !== ${n}) return false;
+  var key = posts[posts.length - 1].key;
+  return Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
+    .some(function (c) { return c.getAttribute("data-post-key") === key; });
+})()`;
+}
+
 async function edge(app: App): Promise<Edge> {
   return app.evalJS<Edge>(EDGE_JS);
 }
@@ -113,7 +129,7 @@ async function openWithPosts(app: App, count: number): Promise<void> {
     expect(await publish(app, wirePost(id))).toBe(true);
   }
   await app.waitForCondition<boolean>(
-    `document.querySelectorAll(${JSON.stringify(POST)}).length === ${count}`,
+    holdsWithNewest(count),
     { timeoutMs: 10_000 },
   );
   await app.waitForCondition<boolean>(
@@ -180,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
         // on, so the next post keeps the edge.
         expect(await publish(app, wirePost(32))).toBe(true);
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 13`,
+          holdsWithNewest(13),
           { timeoutMs: 10_000 },
         );
         const after = await edge(app);
@@ -239,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
           expect(await publish(app, wirePost(id))).toBe(true);
         }
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(POST)}).length === 16`,
+          holdsWithNewest(16),
           { timeoutMs: 10_000 },
         );
         const grown = await edge(app);
