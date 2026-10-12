@@ -186,6 +186,7 @@ import { pressCollapsesSelection } from "./press-collapses-selection";
 import type { TextSelectionAdapter } from "./text-selection-adapter";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTextCardEditorTheme } from "./tug-text-card-editor/theme";
+import { emptyLineSelection } from "./tug-text-card-editor/empty-line-selection";
 
 // ---------------------------------------------------------------------------
 // Compartments and annotations
@@ -1092,6 +1093,9 @@ export const TugTextCardEditor = React.forwardRef<
         // than on release — otherwise the whole range stays painted for as
         // long as the button is held. See `press-collapses-selection.ts`.
         pressCollapsesSelection,
+        // Native `::selection` paints nothing on a blank line; this marks
+        // the selected ones so the theme can. See `empty-line-selection.ts`.
+        emptyLineSelection,
         // Keeps the viewport-top LINE across a card width change, and
         // publishes it for the cross-mount save path. A pixel offset means
         // nothing after a re-wrap; a line does.

@@ -1,5 +1,8 @@
 I started the Tug project eight months ago today, with the goal of creating an Integrated Development Environment (IDE) for AI coding. 
 
+Tug is a native macOS IDE for AI coding. Claude Code does the AI work. Tug wraps it in a graphical application where the conversation, the shell, the files, the git history and the work in flight all live on one surface, with real typography, direct manipulation and keyboard command throughout. It is built on three ideas worth stating up front:
+
+
 AI has dramatically increased the potential scope and speed of software development, and I think our software development tools can and should change as well. To some extent, they are. Some IDEs have bolted on AI features, but have otherwise stayed mostly the same. Claude Code offers a terminal app (that works far better than I imagined it could), but it fails to capitalize gives up much of the iconography, typography, and other advantages of graphical user interface programs. Other apps and efforts underway as well, but in my view, we are now in a period where we should try a lot of different things, to question and re-make long-held conventions and beliefs about how software can get made.
 
 This is what I've done. Tug is a native macOS IDE for AI coding. Claude Code does the AI work. Tug wraps it in a graphical application where the conversation, the shell, the files, the git history and in-flight work all live on one surface, with excellent typography, graphical text input, direct manipulation, fully-integrated keyboard commands, and many custom components that help track the development process.

@@ -105,6 +105,17 @@ export const tugTextCardEditorTheme: Extension = EditorView.theme({
   ".cm-selectionBackground, ::selection": {
     backgroundColor: "var(--tugx-textcard-selection-bg)",
   },
+  // A blank line has no text for `::selection` to paint, so a selected one
+  // wears a newline-width swatch instead (`empty-line-selection.ts`). A
+  // background image, not content: layout and the active-line wash stay put.
+  ".cm-line.cm-tug-selectedEmptyLine": {
+    backgroundImage:
+      "linear-gradient(var(--tugx-textcard-selection-bg), var(--tugx-textcard-selection-bg))",
+    backgroundOrigin: "content-box",
+    backgroundPosition: "left top",
+    backgroundSize: "1ch 100%",
+    backgroundRepeat: "no-repeat",
+  },
   // CM6's bundled search panel stays mounted-but-hidden: mounting
   // initializes the search state's `panel` field, which the match
   // highlighter requires before painting decorations. The Tug find UI
