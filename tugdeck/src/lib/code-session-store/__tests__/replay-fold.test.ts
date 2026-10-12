@@ -24,11 +24,16 @@ import {
   REPLAY_FOLD_FLUSH_THRESHOLD,
 } from "@/lib/code-session-store";
 import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
-import { LivePublishTick } from "@/lib/live-publish-tick";
-import type { TugConnection } from "@/connection";
+import { Pacer } from "@/lib/ingest/pacer";
+import { ManualClock } from "@/lib/ingest/testing/manual-clock";
+import { TugConnection } from "@/connection";
+import { InProcessIngestChannel, type IngestChannel } from "@/lib/ingest/ingest-channel";
+import type { SessionBatch, SessionControl, SessionPatchOf } from "@/lib/ingest/session-patch";
+import { FakeWebSocket, QUIET_TIMERS, handshake, installFakeWebSocket } from "@/lib/ingest/testing/fake-websocket";
 import { TestFrameChannel } from "@/lib/code-session-store/testing/mock-feed-store";
 import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
-import { FeedId } from "@/protocol";
+import { FeedId, encodeFrame } from "@/protocol";
+import { deckTrace } from "@/deck-trace";
 
 const TUG = FIXTURE_IDS.TUG_SESSION_ID;
 
@@ -75,6 +80,59 @@ function emitReplayedTurn(conn: TestFrameChannel, n: number): void {
     msg_id: FIXTURE_IDS.MSG_ID_N(n),
     result: "success",
   });
+}
+
+/** The inner frames of one replayed turn, as a `replay_batch` carries them. */
+function turnFrames(n: number): Array<Record<string, unknown>> {
+  return [
+    { type: "add_user_message", content: [{ type: "text", text: `prompt ${n}` }] },
+    {
+      type: "assistant_text",
+      status: "complete",
+      msg_id: FIXTURE_IDS.MSG_ID_N(n),
+      text: `reply ${n}`,
+      is_partial: false,
+      rev: 0,
+      seq: 0,
+    },
+    { type: "turn_complete", seq: 0, msg_id: FIXTURE_IDS.MSG_ID_N(n), result: "success" },
+  ];
+}
+
+/** An in-process channel that keeps a copy of every batch the host posts. */
+class TappedChannel implements IngestChannel {
+  readonly batches: SessionBatch[] = [];
+  private readonly inner: InProcessIngestChannel;
+  private listener: ((batch: SessionBatch) => void) | null = null;
+
+  constructor(clock: ManualClock, periodMs: number) {
+    this.inner = new InProcessIngestChannel({
+      timers: QUIET_TIMERS,
+      makePolicy: (flush) => new Pacer(flush, periodMs, clock),
+    });
+    this.inner.setBatchListener((batch) => {
+      this.batches.push(batch);
+      this.listener?.(batch);
+    });
+  }
+  post(control: SessionControl, transfer?: ArrayBuffer[]): void {
+    this.inner.post(control, transfer);
+  }
+  setBatchListener(listener: (batch: SessionBatch) => void): void {
+    this.listener = listener;
+  }
+  dispose(): void {
+    this.inner.dispose();
+  }
+}
+
+/** What a transcript draws, row by row, for comparing two runs. */
+function rows(store: CodeSessionStore): unknown[] {
+  return store.getSnapshot().transcript.map((t) => ({
+    msgId: t.msgId,
+    result: t.result,
+    messages: t.messages.map((m) => m.kind),
+  }));
 }
 
 describe("replay fold — one snapshot tick per flush", () => {
@@ -203,39 +261,33 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(store.getSnapshot().transcript).toHaveLength(2);
   });
 
-  it("same-phase text-only deltas publish nothing; structural ones coalesce to one notify per frame tick", () => {
-    // A tick of the store's own over a manual frame, so the coalesced
-    // publish is deterministic. The coalescing contract's second half —
-    // an immediate publish supersedes the pending one, so no double
-    // notify — rests on the store taking its entry back out of the tick,
-    // which `tick.size` shows.
-    const frames: Array<() => void> = [];
-    const tick = new LivePublishTick({
-      requestFrame: (cb) => frames.push(cb),
-      cancelFrame: () => {
-        frames.length = 0;
-      },
-      setTimeout: () => 0,
-      clearTimeout: () => {},
-    });
+  it("same-phase text-only deltas publish nothing; a period's structural deltas publish once, at its batch", () => {
+    // The session's host paced to a period on a manual clock, so the batch
+    // the mirror publishes on is deterministic. Every delta reduces where it
+    // lands; what the period decides is when the mirror hears about it, and
+    // a batch notifies each mirror once however many publishing patches it
+    // carried — a phase transition included, so the burst before it can
+    // never notify a second time.
+    const PERIOD = 1000 / 60;
+    const clock = new ManualClock();
     const conn = new TestFrameChannel();
     const store = new CodeSessionStore({
       conn: conn as unknown as TugConnection,
       lifecycle: new ConnectionLifecycle(),
       tugSessionId: TUG,
       sessionMode: "new",
-      publishTick: tick,
+      makeFlushPolicy: (flush) => new Pacer(flush, PERIOD, clock),
     });
-    const firePending = (): void => {
-      for (const cb of frames.splice(0)) cb();
-    };
     let count = 0;
     store.subscribe(() => {
       count += 1;
     });
+    const nextPeriod = (): void => clock.advance(PERIOD);
 
+    // A local action's acknowledgment posts at once, carrying its publish.
     store.send("hello", []);
     const afterSend = count;
+    expect(afterSend).toBe(1);
     const delta = (seq: number, blockIndex?: number): void =>
       emit(conn, {
         type: "assistant_text",
@@ -248,57 +300,51 @@ describe("replay fold — one snapshot tick per flush", () => {
         ...(blockIndex === undefined ? {} : { block_index: blockIndex }),
       });
     // The first two deltas cross phase boundaries (submitting →
-    // awaiting_first_token → streaming) — semantic boundaries, each
-    // published immediately.
+    // awaiting_first_token → streaming); both publish, in one batch.
     delta(0);
     delta(1);
-    expect(count).toBe(afterSend + 2);
+    expect(count).toBe(afterSend);
+    nextPeriod();
+    expect(count).toBe(afterSend + 1);
+    expect(store.getSnapshot().phase).toBe("streaming");
     // Same-phase text-only burst: the text reaches the DOM through the
     // PropertyStore, so the snapshot stays pinned and nobody is told —
-    // not now, and not on the frame. The stream-text signal (what the
-    // open find bar follows) moves once on the frame instead.
+    // not now, and not at the batch. The stream-text signal (what the
+    // open find bar follows) moves once at the batch instead.
     const pinned = store.getSnapshot();
     const version = store.getStreamTextVersion();
     delta(2);
     delta(3);
     delta(4);
-    expect(store.getSnapshot()).toBe(pinned);
-    expect(count).toBe(afterSend + 2);
-    expect(frames.length).toBe(1);
-    firePending();
-    expect(count).toBe(afterSend + 2);
+    nextPeriod();
+    expect(count).toBe(afterSend + 1);
     expect(store.getSnapshot()).toBe(pinned);
     expect(store.getStreamTextVersion()).toBe(version + 1);
     // Same-phase burst that mints Messages (blocks with no
-    // `content_block_start`): structural, so every event still reduces
-    // immediately (reads stay truthful) and the listener notification
-    // coalesces into ONE publish on the next frame.
+    // `content_block_start`): structural, so each publishes — and the
+    // period's batch carries them all to ONE notify.
     delta(5, 1);
     delta(6, 2);
     delta(7, 3);
+    expect(count).toBe(afterSend + 1);
+    expect(clock.armed).toBe(1);
+    nextPeriod();
     expect(count).toBe(afterSend + 2);
-    expect(tick.size).toBe(1);
-    expect(frames.length).toBe(1);
-    firePending();
-    expect(count).toBe(afterSend + 3);
-    // A phase transition before the frame (turn_complete) publishes
-    // immediately — end-of-turn paint never waits on the tick.
+    // A phase transition in the same period as a structural delta rides the
+    // same batch: one notify for both, and nothing armed after it.
     delta(8, 4);
-    expect(tick.size).toBe(1);
     emit(conn, {
       type: "turn_complete",
       seq: 0,
       msg_id: FIXTURE_IDS.MSG_ID_N(1),
       result: "success",
     });
-    expect(count).toBe(afterSend + 4);
-    // The immediate publish took the pending entry back out of the tick,
-    // which disarmed — the frame arrives with nothing pending, so the
-    // burst that preceded turn_complete can never notify a second time.
-    expect(tick.size).toBe(0);
-    expect(frames.length).toBe(0);
-    firePending();
-    expect(count).toBe(afterSend + 4);
+    nextPeriod();
+    expect(count).toBe(afterSend + 3);
+    expect(store.getSnapshot().phase).toBe("idle");
+    expect(clock.armed).toBe(0);
+    nextPeriod();
+    expect(count).toBe(afterSend + 3);
   });
 
   it("mid-stream, a tool call and an error still publish at once", () => {
@@ -339,60 +385,93 @@ describe("replay fold — one snapshot tick per flush", () => {
     expect(store.getSnapshot().phase).toBe("errored");
   });
 
-  it("two streaming stores ride one frame: one frame requested, each notifies once in it", () => {
-    const frames: Array<() => void> = [];
-    const tick = new LivePublishTick({
-      requestFrame: (cb) => frames.push(cb),
-      cancelFrame: () => {
-        frames.length = 0;
-      },
-      setTimeout: () => 0,
-      clearTimeout: () => {},
-    });
-    const streams = [0, 1].map(() => {
-      const conn = new TestFrameChannel();
+  it("a 600-frame replay_batch through the paced host crosses as at most three structure patches and the phase exit", () => {
+    // The host as the Worker runs it — its own socket, paced to a period —
+    // with the page's facade and mirror on the other side of the channel.
+    const restore = installFakeWebSocket();
+    try {
+      const PERIOD = 1000 / 60;
+      const clock = new ManualClock();
+      const channel = new TappedChannel(clock, PERIOD);
+      const conn = new TugConnection("ws://test.invalid/ws", { channel });
+      conn.connect();
+      const ws = FakeWebSocket.last!;
+      handshake(ws);
+      clock.advance(PERIOD);
       const store = new CodeSessionStore({
-        conn: conn as unknown as TugConnection,
+        conn,
         lifecycle: new ConnectionLifecycle(),
         tugSessionId: TUG,
-        sessionMode: "new",
-        publishTick: tick,
+        sessionMode: "resume",
       });
-      let count = 0;
+      let notifies = 0;
       store.subscribe(() => {
-        count += 1;
+        notifies += 1;
       });
-      store.send("hello", []);
-      return { conn, count: () => count };
-    });
-    const delta = (conn: TestFrameChannel, seq: number, blockIndex?: number): void =>
-      emit(conn, {
-        type: "assistant_text",
-        status: "partial",
-        msg_id: FIXTURE_IDS.MSG_ID_N(1),
-        text: "x",
-        is_partial: true,
-        rev: 0,
-        seq,
-        ...(blockIndex === undefined ? {} : { block_index: blockIndex }),
+      const wire = (evt: Record<string, unknown>): void => {
+        const payload = new TextEncoder().encode(JSON.stringify({ ...evt, tug_session_id: TUG }));
+        ws.fireMessage(encodeFrame({ feedId: FeedId.CODE_OUTPUT, flags: 0, payload }));
+        clock.advance(PERIOD);
+      };
+      const structures = (): SessionPatchOf<"structure">[] =>
+        channel.batches.flatMap((b) =>
+          b.entries.filter((p): p is SessionPatchOf<"structure"> => p.kind === "structure" && p.session !== null),
+        );
+
+      const TURNS = 200;
+      deckTrace.clear();
+      wire({ type: "replay_started" });
+      expect(store.getSnapshot().phase).toBe("replaying");
+      const opened = structures().length;
+      const notifiesOpen = notifies;
+
+      wire({ type: "replay_batch", frames: Array.from({ length: TURNS }, (_, i) => turnFrames(i + 1)).flat() });
+      const folded = structures().slice(opened);
+      expect(folded.length).toBeGreaterThan(0);
+      expect(folded.length).toBeLessThanOrEqual(3);
+      // The two threshold flushes publish, in the period's one batch: one
+      // notify, and the frames after the second stay unread — the snapshot is
+      // pinned where that flush left it, not partway through a turn.
+      expect(notifies).toBe(notifiesOpen + 1);
+      const pinned = store.getSnapshot();
+      expect(pinned.phase).toBe("replaying");
+      expect(pinned.transcript).toHaveLength(Math.floor((2 * REPLAY_FOLD_FLUSH_THRESHOLD) / 3));
+      expect(store.getSnapshot()).toBe(pinned);
+
+      wire({ type: "replay_complete", count: TURNS });
+      const exit = structures().slice(opened + folded.length);
+      expect(exit).toHaveLength(1);
+      expect(exit[0]!.payload.publish).toBe("sync");
+      expect(exit[0]!.payload.state?.phase).toBe("idle");
+      expect(notifies).toBe(notifiesOpen + 2);
+
+      // The logged window counts the notifies the mirror made — three —
+      // not the engine's four publishing posts, two of which shared a batch.
+      expect(store._getPerfForDevPanel().lastReplay!.commits).toBe(3);
+      const logged = deckTrace
+        .dump()
+        .filter((e) => e.kind === "session-lifecycle" && e.event === "perf.replay_ingest");
+      expect(logged).toHaveLength(1);
+      expect(logged[0]!.kind === "session-lifecycle" && logged[0]!.fields).toMatchObject({
+        tug_session_id: TUG,
+        frames: 3 * TURNS + 2,
+        commits: 3,
       });
-    // Past the phase boundaries, so every later delta is same-phase.
-    for (const { conn } of streams) {
-      delta(conn, 0);
-      delta(conn, 1);
+      deckTrace.clear();
+
+      // The same frames reduced in-process, one message at a time, leave the
+      // same transcript.
+      const local = makeStore();
+      emit(local.conn, { type: "replay_started" });
+      for (let n = 1; n <= TURNS; n++) emitReplayedTurn(local.conn, n);
+      emit(local.conn, { type: "replay_complete", count: TURNS });
+      expect(store.getSnapshot().transcript).toHaveLength(TURNS);
+      expect(rows(store)).toEqual(rows(local.store));
+      store.dispose();
+      local.store.dispose();
+    } finally {
+      restore();
     }
-    const before = streams.map((s) => s.count());
-    // Each delta mints a Message, so each store has a structural publish to
-    // coalesce; a text-only delta would publish nothing at all.
-    for (let seq = 2; seq < 6; seq++) {
-      for (const { conn } of streams) delta(conn, seq, seq);
-    }
-    expect(streams.map((s) => s.count())).toEqual(before);
-    expect(frames.length).toBe(1);
-    expect(tick.size).toBe(2);
-    for (const cb of frames.splice(0)) cb();
-    expect(streams.map((s) => s.count())).toEqual(before.map((n) => n + 1));
-    expect(tick.size).toBe(0);
   });
 
   it("golden: folded ingest produces a final state deep-equal to a second identical run", () => {

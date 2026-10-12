@@ -203,6 +203,21 @@
             .filter(function (e) { return e.kind === "settle-gate"; })
             .map(function (e) { return [rel(e.timestamp), e.phase]; })
         : null;
+      // Every ingest batch the page applied, on the drive's clock, with
+      // whether it applied inside the gate — after a close row and before
+      // the open — read by the trace's own order. A batch the gate parked
+      // applies inside the release, which runs before the open row is
+      // written, so it is in that span by order but applied at the open:
+      // its row says `parked`, and it is not counted inside.
+      var ingest = null;
+      if (trace) {
+        ingest = [];
+        var shut = false;
+        trace.since(traceMark).forEach(function (e) {
+          if (e.kind === "settle-gate") shut = e.phase === "close";
+          else if (e.kind === "ingest-batch") ingest.push([rel(e.timestamp), e.patches, shut && !e.parked]);
+        });
+      }
       // The deck's own rows, written only while the record switch is on
       // (`__tugMotion.record`): the verdict's input. `null` when it is off,
       // which the shell end reports rather than reading as green.
@@ -234,6 +249,7 @@
         sheds: sheds.filter(function (t) { return t >= t0; }).map(rel),
         settleBeats: settleBeats,
         gates: gates,
+        ingest: ingest,
         engine: engine,
         chains: chains,
         // Each chain's paying read, on the drive's clock, so the shell end can

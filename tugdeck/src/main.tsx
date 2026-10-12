@@ -243,7 +243,7 @@ installGestureScope(window);
 const wsUrl = `ws://${window.location.host}/ws`;
 
 // Create connection (module scope — must be synchronous)
-export const connection = new TugConnection(wsUrl);
+export const connection = new TugConnection(wsUrl, { host: "worker" });
 
 // Construct the connection-lifecycle event pipe and attach it to the
 // connection BEFORE `connection.connect()` runs below, so the very first

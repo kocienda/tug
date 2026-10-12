@@ -1537,7 +1537,7 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
   // Test-mode override: bypass the feed-data gate so cards whose
   // `cardFeedIds` would otherwise wait on a live tugcast/tugcode
   // backend (notably session-card, which gates on `[CODE_INPUT,
-  // CODE_OUTPUT, SESSION_SIDEBAND, FILETREE]`) can mount in the
+  // SESSION_SIDEBAND, FILETREE]`) can mount in the
   // in-app harness. Tests don't drive the AI side of those cards;
   // they exercise focus, selection, persistence, and other
   // framework concerns that don't depend on real feed data. The

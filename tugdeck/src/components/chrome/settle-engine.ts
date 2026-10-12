@@ -134,6 +134,8 @@ import {
 } from "./space-layer";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { SettleGapSampler } from "@/lib/settle-gap-sampler";
+import { getConnection } from "@/lib/connection-singleton";
+import { FALLBACK_FRAME_PERIOD_MS } from "@/lib/frame-period";
 import {
   isSidebarSide,
   type ColumnMode,
@@ -279,9 +281,30 @@ const settleGapSampler = new SettleGapSampler({
   record: (row) => deckTrace.record({ kind: "settle-gap", ...row }),
 });
 
+/** The display period last posted to the ingest Worker; it starts at the fallback. */
+let postedDisplayPeriodMs = FALLBACK_FRAME_PERIOD_MS;
+
+/**
+ * Tell the ingest Worker the display's period when the sampler has learned
+ * one that differs from what it was last told by more than half a
+ * millisecond ([P07]). The sampler samples only inside a settle and has no
+ * "learned" event, so this runs where its window stops: once per settle.
+ * Before the first settle the Worker paces at the 60 Hz fallback, which errs
+ * toward the slower cadence on a faster display.
+ */
+function postDisplayPeriod(): void {
+  const periodMs = settleGapSampler.periodMs();
+  if (Math.abs(periodMs - postedDisplayPeriodMs) <= 0.5) return;
+  const conn = getConnection();
+  if (conn === null) return;
+  postedDisplayPeriodMs = periodMs;
+  conn.setDisplayPeriod(periodMs);
+}
+
 /** {@link putSettlingMarkOn}'s inverse: the container's mark and every frame's. */
 function takeSettlingMarkOff(el: HTMLElement): void {
   settleGapSampler.stop();
+  postDisplayPeriod();
   el.removeAttribute("data-imposer-settling");
   for (const frame of el.querySelectorAll<HTMLElement>(
     ".tug-pane[data-imposer-settling]",

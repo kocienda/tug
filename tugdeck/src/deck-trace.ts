@@ -889,6 +889,21 @@ export type DeckTraceEvent = {
       fields: Record<string, unknown>;
     }
   | {
+      // One batch from the ingest host, applied on the page: `patches` is how
+      // many patches it carried. A batch that arrives while a settle's motion
+      // gate is closed is parked and applied as the gate opens — inside the
+      // release, so before the settle writes its `settle-gate` open row —
+      // and says so with `parked`. A settle reading counts the unparked rows
+      // between its gate's close and open to confirm the wire was sealed.
+      //
+      // Not always-recorded: one row per display period while anything
+      // streams is a measurement, not evidence of a defect. The settle verb
+      // switches recording on for each drive it reads.
+      kind: "ingest-batch";
+      patches: number;
+      parked: boolean;
+    }
+  | {
       // One completed `DeckManager.activateSpace`, with its numbered phases
       // separated so a slow switch names the phase that was slow rather than
       // the switch as a whole. Recorded once per switch, from inside the
@@ -1048,6 +1063,7 @@ export type DeckTraceEventInput =
       StampedFields
     >
   | Omit<Extract<DeckTraceEvent, { kind: "session-lifecycle" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "ingest-batch" }>, StampedFields>
   | Omit<
       Extract<DeckTraceEvent, { kind: "space-switch-timing" }>,
       StampedFields

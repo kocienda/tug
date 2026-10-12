@@ -412,7 +412,19 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // exactly that, so the declaration already names its true subject.
     "tugdeck/src/lib/annotator/": 21,
 
-    "tugdeck/src/lib/code-session-store/": 30,
+    // Raised from 30 for `hooks/use-session-fields.ts`, which is not new
+    // reach: it is the store's own field selector, the one door every session
+    // subscriber now reads the snapshot through, so a test declaring this
+    // subtree already exercises it on every render it asserts over. Raised in
+    // place, which trips the refinance rule until it is committed, as the
+    // bridge's entry above was.
+    //
+    // Raised from 31 for `session-engine.ts`, which is not new reach either:
+    // it is the half of the store that reduces, split out so it can run in
+    // the ingest Worker, and every frame a test declaring this subtree drives
+    // is reduced there. Raised in place, on the same terms.
+    "tugdeck/src/lib/code-session-store/": 32,
+
     // Raised from 19 for `streaming-flush.ts`, which is not new reach: it is
     // the streaming block's frame coalescer, lifted out of
     // `tug-markdown-block.tsx` when its reconcile learned to wait for the

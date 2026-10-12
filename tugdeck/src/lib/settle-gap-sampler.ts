@@ -119,7 +119,15 @@ export class SettleGapSampler {
     this.nextGap = (this.nextGap + 1) % PERIOD_RING;
   };
 
-  /** The display's period as the ring reads it, or the 60 Hz fallback before it can. */
+  /**
+   * The display's period as the ring reads it, or the 60 Hz fallback before
+   * it can. Public because the ingest Worker paces its batches to it, and
+   * learns it from the settle engine each time a settle's sampling stops.
+   */
+  periodMs(): number {
+    return this.period();
+  }
+
   private period(): number {
     if (this.gaps.length < PERIOD_MIN_GAPS) return FALLBACK_FRAME_PERIOD_MS;
     const sorted = [...this.gaps].sort((a, b) => a - b);

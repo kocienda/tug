@@ -576,6 +576,7 @@ const EVENT_FIXTURES: Record<
     event: "perf.replay_ingest",
     fields: { frames: 3396, dispatchMs: 11 },
   },
+  "ingest-batch": { kind: "ingest-batch", patches: 7, parked: true },
   "opening-bid-mismatch": {
     kind: "opening-bid-mismatch",
     memberId: "p2",

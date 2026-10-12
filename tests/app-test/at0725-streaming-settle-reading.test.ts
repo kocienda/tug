@@ -20,11 +20,16 @@
  *  - `tugtool deck motion gaps` is read after both gestures: the late frames
  *    the always-recorded `settle-gap` row kept across every settle the
  *    gestures drove, on a deck whose trace recording nobody switched on.
+ *  - Inside every streaming drive's motion — between its gate's close and
+ *    its open — the page applied no ingest batch: the wire is held in the
+ *    ingest Worker while the gate is closed, and a batch already in flight
+ *    waits on the page for the open.
  *
  * What it asserts is that the arm runs end to end: every reading taken, each
- * under three streams, with the samplers' phases beside them. The numbers are
- * noted, not barred — this is the baseline the arc's fixes are read against,
- * and its record is the program brief's
+ * under three streams, with the samplers' phases beside them, and the wire
+ * sealed inside every motion. The other numbers are noted, not barred — this
+ * is the baseline the arc's fixes are read against, and its record is the
+ * program brief's
  * (`briefs/main-thread-headroom-program-brief.md`).
  *
  * The verb is the bundle's own `tugtool`, built from this tree with the app.
@@ -35,6 +40,9 @@
  * @covers tugrust/crates/tugtool/src/commands/deck_motion_settle.rs
  * @covers tugrust/crates/tugtool/src/commands/deck_motion_settle.js
  * @covers tugdeck/src/lib/settle-gap-sampler.ts
+ * @covers tugdeck/src/lib/ingest/session-link.ts
+ * @covers tugdeck/src/lib/ingest/session-patch.ts
+ * @covers tugdeck/src/lib/ingest/ingest-host.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -148,12 +156,15 @@ const CENSUS_CAP = 400;
  * The census keeps only its last 400 commits, and three streams commit about
  * 100 times a second, so the window is collected a second at a time and a
  * slice that reaches the cap is reported as capped rather than read short.
+ * Over the same window it reads `window.__tugIngest`, the page's always-on
+ * count of main-thread tasks carrying wire data, as `ingest` tasks per
+ * second with the thread that holds the socket.
  */
 async function noteRestCensus(app: App, label: string): Promise<void> {
   const armed = await app.evalJS<boolean>(`(() => {
     if (!window.__tugLead || !window.__tugCommits) return false;
     window.__tugLead.arm();
-    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0 };
+    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0, ingest0: window.__tugIngest ? window.__tugIngest.tasks : null };
     return true;
   })()`);
   if (!armed) {
@@ -187,8 +198,12 @@ async function noteRestCensus(app: App, label: string): Promise<void> {
       for (const [name, n] of c.top) byName.set(name, (byName.get(name) || 0) + n);
     }
     const secs = (t1 - t0) / 1000;
+    const ingest = window.__tugIngest && rest.ingest0 !== null
+      ? { host: window.__tugIngest.host, tasksPerSec: Math.round((window.__tugIngest.since(rest.ingest0) / secs) * 10) / 10 }
+      : null;
     return JSON.stringify({
       seconds: Math.round(secs * 10) / 10,
+      ingest,
       cappedSlices: rest.capped,
       commitsPerSec: Math.round((seen.length / secs) * 10) / 10,
       reactMsPerSec: Math.round((reactMs / secs) * 10) / 10,
@@ -300,6 +315,11 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
                 STREAMERS.length,
               );
               expect(r.window, `${gesture.name}: the settle mark came off`).not.toBeNull();
+              expect(r.motion, `${gesture.name}: the motion was read`).not.toBeNull();
+              expect(
+                r.motion!.ingest_batches,
+                `${gesture.name}: no ingest batch applied inside the motion's gate`,
+              ).toEqual([]);
             }
             const samples = (data!.samples ?? []) as unknown[];
             expect(samples.length, `${gesture.name}: the samplers reported`).toBeGreaterThan(0);

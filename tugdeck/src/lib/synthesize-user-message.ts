@@ -272,6 +272,53 @@ async function defaultBakeImage(
   }
 }
 
+/**
+ * File one image block's bytes under `id`, and bake its thumbnail if it has
+ * none. Returns the bake's promise, or `null` when the entry already carried
+ * a thumbnail.
+ *
+ * The synthesizer files every image block it walks this way. So does the
+ * Session card's mirror, for the bytes a session engine filed while it
+ * synthesized a replayed message away from the page.
+ */
+export function putImageBytes(
+  bytesStore: AtomBytesStore,
+  id: string,
+  content: string,
+  mediaType: string,
+  bakeImage: (data: string, mediaType: string) => Promise<string | null> = defaultBakeImage,
+): Promise<void> | null {
+  // Merge with any existing entry's thumbnail so the live path
+  // (where drop / paste already populated thumbnailDataUrl)
+  // doesn't lose it on the synthesizer's idempotent put.
+  const existing = bytesStore.get(id);
+  const entry: AtomBytesEntry = { content, mediaType };
+  if (existing?.thumbnailDataUrl !== undefined) {
+    entry.thumbnailDataUrl = existing.thumbnailDataUrl;
+  }
+  bytesStore.put(id, entry);
+  if (entry.thumbnailDataUrl !== undefined) return null;
+  // No prior thumbnail — fire the bake. Resolves with the
+  // updated entry once the worker returns; settles even on
+  // bake failure (the entry stays without a thumbnail; the
+  // strip renderer falls back to a placeholder tile).
+  return bakeImage(content, mediaType).then(
+    (url) => {
+      if (url === null) return;
+      // Re-read in case the entry has shifted (rare; defensive
+      // against concurrent puts) — preserve current `content` /
+      // `mediaType` rather than re-stamping with stale values.
+      const cur = bytesStore.get(id);
+      if (cur === null) return;
+      bytesStore.put(id, { ...cur, thumbnailDataUrl: url });
+    },
+    () => {
+      // Bake threw — the bytes-store entry stays as-is; the
+      // strip renderer will see no thumbnail and fall back.
+    },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Synthesis
 // ---------------------------------------------------------------------------
@@ -401,40 +448,8 @@ export function synthesizeUserMessageFromBlocks(
       const label = `image-${labelN}`;
       const resolvedId = atomIdAt?.(idx);
       const id = resolvedId ?? mintAtomId();
-      // Merge with any existing entry's thumbnail so the live path
-      // (where drop / paste already populated thumbnailDataUrl)
-      // doesn't lose it on the synthesizer's idempotent put.
-      const existing = bytesStore.get(id);
-      const entry: AtomBytesEntry = {
-        content: block.source.data,
-        mediaType: block.source.media_type,
-      };
-      if (existing?.thumbnailDataUrl !== undefined) {
-        entry.thumbnailDataUrl = existing.thumbnailDataUrl;
-      }
-      bytesStore.put(id, entry);
-      if (entry.thumbnailDataUrl === undefined) {
-        // No prior thumbnail — fire the bake. Resolves with the
-        // updated entry once the worker returns; settles even on
-        // bake failure (the entry stays without a thumbnail; Step 6's
-        // strip renderer falls back to a placeholder tile).
-        const bake = bakeImage(block.source.data, block.source.media_type).then(
-          (url) => {
-            if (url === null) return;
-            // Re-read in case the entry has shifted (rare; defensive
-            // against concurrent puts) — preserve current `content` /
-            // `mediaType` rather than re-stamping with stale values.
-            const cur = bytesStore.get(id);
-            if (cur === null) return;
-            bytesStore.put(id, { ...cur, thumbnailDataUrl: url });
-          },
-          () => {
-            // Bake threw — the bytes-store entry stays as-is; the
-            // strip renderer will see no thumbnail and fall back.
-          },
-        );
-        bakes.push(bake);
-      }
+      const bake = putImageBytes(bytesStore, id, block.source.data, block.source.media_type, bakeImage);
+      if (bake !== null) bakes.push(bake);
       textBuf += TUG_ATOM_CHAR;
       atoms.push({
         kind: "atom",

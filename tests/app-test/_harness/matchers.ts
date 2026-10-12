@@ -332,6 +332,13 @@ export type DeckTraceEventShape = {
       fields: Record<string, unknown>;
     }
   | {
+      kind: "ingest-batch";
+      /** How many patches the batch the page applied carried. */
+      patches: number;
+      /** Whether a closed motion gate parked it until its open. */
+      parked: boolean;
+    }
+  | {
       kind: "space-switch-timing";
       fromSpaceId: string;
       toSpaceId: string;
@@ -413,6 +420,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "opening-bid-mismatch",
   "settle-gap",
   "session-lifecycle",
+  "ingest-batch",
   "space-switch-timing",
   "space-epoch",
   "space-switch-frames",
@@ -705,6 +713,8 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `session-lifecycle ${fmt(e.event)} ${Object.entries(e.fields)
         .map(([k, v]) => `${k}=${fmt(v)}`)
         .join(" ")}`;
+    case "ingest-batch":
+      return `ingest-batch patches=${e.patches}${e.parked ? " parked" : ""}`;
     case "space-switch-timing":
       return `space-switch-timing ${fmt(e.fromSpaceId)}→${fmt(e.toSpaceId)} cards=${e.outgoingCards}/${e.incomingCards} commit=${e.commitMs.toFixed(1)} restore=${e.restoreMs.toFixed(1)} total=${e.totalMs.toFixed(1)} paint=${e.paintMs.toFixed(1)}`;
     case "space-epoch":

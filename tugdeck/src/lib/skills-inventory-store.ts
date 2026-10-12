@@ -12,9 +12,10 @@
  * a session-init push) keeps the listing fresh across a card rebind / HMR
  * reload with no ledger persistence — mirroring `/diff`'s `GitDiffStore`.
  *
- * The owning `FeedStore` is filtered to `type === "skills_inventory"` for this
- * session, so the high-traffic CODE_OUTPUT stream only wakes this store on the
- * one frame it cares about; `requestId` disambiguates rapid refreshes.
+ * Its source is the session mirror's routed store for `skills_inventory`: the
+ * ingest host routes this session's frames of that type there, so the
+ * high-traffic CODE_OUTPUT stream only wakes this store on the one frame it
+ * cares about; `requestId` disambiguates rapid refreshes.
  *
  * Pure presentation helpers (`skillSourceLabel`, `formatSkillTokens`,
  * `skillLockLabel`, `skillsSummaryLine`) live here so the listing mapping is
@@ -24,7 +25,7 @@
  */
 
 import { Subscribable } from "./subscribable";
-import type { FeedStore } from "./feed-store";
+import type { FeedSnapshotSource } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
@@ -132,12 +133,12 @@ export class SkillsInventoryStore extends Subscribable {
   private _snapshot: SkillsInventorySnapshot = EMPTY_SNAPSHOT;
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
-  private readonly _feedStore: FeedStore;
+  private readonly _feedStore: FeedSnapshotSource;
   private readonly _feedId: FeedIdValue;
   private readonly _tugSessionId: string;
   private _seq = 0;
 
-  constructor(feedStore: FeedStore, feedId: FeedIdValue, tugSessionId: string) {
+  constructor(feedStore: FeedSnapshotSource, feedId: FeedIdValue, tugSessionId: string) {
     super();
     this._feedStore = feedStore;
     this._feedId = feedId;

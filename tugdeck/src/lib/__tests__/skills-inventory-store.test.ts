@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { RoutedFrameStore } from "../ingest/routed-frame-store";
 
 import {
   SkillsInventoryStore,
@@ -94,12 +95,8 @@ describe("parseSkillsInventoryPayload", () => {
 
 describe("SkillsInventoryStore._ingestForTest", () => {
   test("resolves to ready with the ingested payload", () => {
-    // A minimal fake FeedStore — the test seam bypasses it.
-    const feedStore = {
-      subscribe: () => () => {},
-      getSnapshot: () => new Map(),
-    } as unknown as ConstructorParameters<typeof SkillsInventoryStore>[0];
-    const store = new SkillsInventoryStore(feedStore, 0x10, "sess");
+    // The mirror's routed store, as the services bag passes it; the test seam bypasses it.
+    const store = new SkillsInventoryStore(new RoutedFrameStore("skills_inventory"), 0x10, "sess");
     store._ingestForTest({
       type: "skills_inventory",
       request_id: "si-9",
@@ -112,11 +109,7 @@ describe("SkillsInventoryStore._ingestForTest", () => {
   });
 
   test("throws on a malformed ingest payload", () => {
-    const feedStore = {
-      subscribe: () => () => {},
-      getSnapshot: () => new Map(),
-    } as unknown as ConstructorParameters<typeof SkillsInventoryStore>[0];
-    const store = new SkillsInventoryStore(feedStore, 0x10, "sess");
+    const store = new SkillsInventoryStore(new RoutedFrameStore("skills_inventory"), 0x10, "sess");
     expect(() => store._ingestForTest({ type: "nope" })).toThrow();
     store.dispose();
   });

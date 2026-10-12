@@ -116,6 +116,12 @@ const LEAD: TugLeadRecorder | undefined = (() => {
 
 export type GestureScopeReason = "pointer" | "prelaunch";
 
+/**
+ * A motion gate transition: a hold arrived — the one that closed the gate, or
+ * one nested inside it — with its cap, or the last hold released.
+ */
+export type MotionGateChange = { held: true; capMs: number } | { held: false };
+
 export class GestureScope {
   private pending = false;
   /** The pending scope's frame has fired; its release is one task away. */
@@ -130,6 +136,7 @@ export class GestureScope {
   private motionEpoch = 0;
   private held = new Set<() => void>();
   private queue: Array<() => void> = [];
+  private readonly gateObservers = new Set<(change: MotionGateChange) => void>();
   private readonly schedule: ScheduleRelease;
   private readonly motionEnabled: () => boolean;
   private readonly now: () => number;
@@ -207,6 +214,7 @@ export class GestureScope {
     if (!this.motionEnabled()) return () => {};
     this.motionHolds += 1;
     this.motionEpoch += 1;
+    this.tellGate({ held: true, capMs });
     let open = true;
     let cap: ReturnType<typeof setTimeout> | null = null;
     const release = (): void => {
@@ -214,13 +222,33 @@ export class GestureScope {
       open = false;
       if (cap !== null) clearTimeout(cap);
       this.motionHolds -= 1;
-      if (this.motionHolds === 0 && !this.pending) this.runHeldAndQueued();
+      if (this.motionHolds > 0) return;
+      // The gate's observers first: what they apply is there for the tells
+      // the release then runs.
+      this.tellGate({ held: false });
+      if (!this.pending) this.runHeldAndQueued();
     };
     cap = setTimeout(() => {
       release();
       onCap?.();
     }, capMs);
     return release;
+  }
+
+  /**
+   * Hear every motion gate transition: each hold as it arrives, with its cap,
+   * and the last release. Silent with motion off, where no hold is taken.
+   * Returns the unsubscribe.
+   */
+  observeMotionGate(listener: (change: MotionGateChange) => void): () => void {
+    this.gateObservers.add(listener);
+    return () => {
+      this.gateObservers.delete(listener);
+    };
+  }
+
+  private tellGate(change: MotionGateChange): void {
+    for (const listener of [...this.gateObservers]) listener(change);
   }
 
   /** Whether a tell or a queued body waits now. */

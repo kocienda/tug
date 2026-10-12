@@ -101,7 +101,7 @@ This document is the index. Each stage has its own brief with its own evidence, 
 |---|---|---|
 | 1. streaming-motion-reading | | Baseline, one probe per fix, and the after-reading below, all 2026-10-11. The harness after-reading is taken; on the user's deck nothing was streaming at either reading and the deck runs `main`, so the user's-deck streaming after-reading is owed once the stage joins. |
 | 2. react-off-the-stream-path | | Baseline and after-reading on the harness, 2026-10-11, below: at rest with three streams, React fell from 125 commits/s and at least 199 ms/s to 24 commits/s and 22 ms/s. The user's-deck streaming reading is owed once the stage joins, as stage 1's is. |
-| 3. ingest-worker | | |
+| 3. ingest-worker | | Baseline and after-reading on the harness, 2026-10-12, below: at rest with three streams, main-thread tasks carrying wire data fell from 119/s to 44.9/s, now posted by the ingest Worker, with React's rest census unchanged, and no ingest batch was applied inside any motion. The user's deck was read quiet, since nothing was streaming text, and it runs `main`; the user's-deck streaming after-reading is owed once the stage joins, as stages 1 and 2 recorded. |
 | 4. population-ceiling | | |
 | 5. tugcast-renders | | |
 
@@ -230,3 +230,36 @@ Two drives each; times in ms. The always-recorded `settle-gap` row saw eight lat
 **At rest the stage did what it set out to do.** A streamed token costs React no commit: the commits/s fell fivefold, React's time per second about ninefold and the fibers performed per second nearly twentyfold. What remains is card content, not the stream: the tooltip and popper subtrees of controls inside the card body, mostly the telemetry status row, re-rendering on its structural publishes and its 1 Hz tick. The floor before the drives fell with it, from 309–325 ms/s busy to 102–148, and script's share of WebContent's busy samples across the drives fell from 46–52% to 28–30%.
 
 **Inside the motion the gaps did not move.** The longest gaps read 31–57 ms against 32–49 at the baseline. The 57 is one drive, with three 21-fiber `SessionTelemetryStatusRow2` commits inside its motion. Every row still misses the one-period bar. React in the window was 31–51 ms after stage 1 and reads 19–39 now, which is inside the run-to-run spread. The largest commit is a quarter smaller on the fold and an eighth smaller on the slot move, because the title bar no longer re-renders for either, but it lands at the gesture's start rather than inside the motion, so it shortens the lead's work rather than the gaps. What fills the motion's gaps is not React's: stage 1 found the same, and with React's rest work gone, compositing, layout and style (71, 48–49 and 25–29 samples) are now nearly as large as script (82–94). That is stage 3's and stage 4's ground.
+
+#### Stage 3 after-reading — 2026-10-12
+
+`at0725-streaming-settle-reading`, slice arm, on the arc's final tree (`bd1ceb307`), read alone. The baseline is the same file at the arc's base (`aa0316a97`, stage 2 joined) with only the ingest-task counter added, taken before anything moved. Both are on the stage-1 harness deck: four cards four-up, three streaming a stubbed turn at one word per 25 ms. At the baseline the socket, the decode and every session's reducer ran on the page's main thread; after, they run in the ingest Worker, which posts the page one batch per display period and holds the wire while a settle's motion gate is closed.
+
+| Rest, three streams | Wire tasks/s on the main thread | Commits/s | React ms/s | Fibers performed/s |
+|---|---|---|---|---|
+| baseline | 119 (`onmessage`, main thread) | 25.2 | 18.7 | 2,023 |
+| after | 44.9 (batches from the Worker) | 22.9 | 18.9 | 1,891 |
+
+| Reading | Floor before the drives | Lead | Longest gap | React in the window | Commits in the window | Ingest batches applied inside the motion | WebContent main thread |
+|---|---|---|---|---|---|---|---|
+| quiet fold, before | — | 23, 16 | 29, 28 | 16, 26 | 3, 3 | not recorded | not sampled |
+| quiet fold, after | — | 31, 16 | 31, 34 | 18, 33 | 3, 3 | 0, 0 | not sampled |
+| fold, three streams, before | 15 updates/s, 101 ms/s busy | 14, 13 | 35, 43 | 28, 46 | 12, 7 | not recorded | busy 302 of 1,047; script 70 (23%) |
+| fold, three streams, after | 18 updates/s, 95 ms/s busy | 13, 11 | 37, 34 | 33, 34 | 9, 8 | 0, 0 | busy 296 of 1,045; script 72 (24%) |
+| slot, three streams, before | 34 updates/s, 143 ms/s busy | 16, 14 | 41, 53 | 32, 33 | 3, 4 | not recorded | busy 334 of 1,073; script 70 (21%) |
+| slot, three streams, after | 39 updates/s, 160 ms/s busy | 19, 13 | 43, 44 | 37, 34 | 3, 8 | 0, 0 | busy 291 of 1,029; script 52 (18%) |
+
+Two drives each; times in ms. The `ingest-batch` trace row did not exist at the baseline, so its column reads only after. The always-recorded `settle-gap` row saw seven late frames at each reading, three in the set-up and four in the `move` beat: 28–52 ms at the baseline and 34–44 after, against a 17 ms period.
+
+**The wire left the main thread, and the hold works.** The page's wire tasks fell from 119 per second, one per WebSocket message, to 44.9, one per batch the Worker posts; that is under the arc's bar of 65, one per display period at 60 Hz plus the local actions' acknowledgments. In every motion, streaming or quiet, no ingest batch was applied: the Worker holds what the streams produce until the gate opens, or until its own cap if the gate never does. What still commits inside a streaming motion is three 21-fiber `SessionTelemetryStatusRow2` commits per drive, as at stages 1 and 2, and with no batch applied in the motion they cannot have come from the wire. The rest census did not regress when the reducer moved across the thread: 22.9 commits/s against 25.2, inside the run-to-run spread, which says the field-level patches keep the snapshot fields' identity as the in-process store did.
+
+**The frames did not follow, on this deck.** The longest gaps read 34–44 ms with three streams against 35–53 at the baseline, and every drive still misses the one-period bar. The worst drive came down by 9 ms, which is inside the run-to-run spread every earlier reading showed. Script's share of WebContent's busy samples across the drives is 18–24% against 21–23%, and the busy count is flat at 291–296 of about 1,040 against 302–334. So on this harness the reduction and decode were not what held the main thread under streaming: three stubbed streams at one word per 25 ms, whose sessions hold one turn each, cost the main thread little to reduce. What the busy samples carry is compositing, layout and style (63–84, 49–58 and 30–39 samples), which is stage 4's ground. The case this stage was built for is a long session streaming quickly on a large deck, where each event's reduction and publish run against a transcript of hundreds of turns, and only the user's deck under streaming can say what moving that off the main thread is worth.
+
+**User's release deck, quiet.** 35,932 elements and 2,894 stacking contexts, visible: nearly twice the population of stage 1's reading, of which an Overview card and its parked twin are 11,070 elements each. One session was mid-turn and none was streaming text, so `--streaming 3` refused and the deck was read with `--streaming 0`, as stages 1 and 2 were; `--tasks` was left off, since it reloads the live deck. The deck runs `main`, which carries none of this stage's changes, so this is a reading of the code this stage replaces. The samplers stop WebContent to read its stacks, so the frame numbers carry their perturbation, as stage 1's did.
+
+| Gesture | Floor | Settle window | Lead | Longest gap (motion) | Land frame | WebContent main thread: busy, by phase |
+|---|---|---|---|---|---|---|
+| fold | 5 updates/s | 861, 428 ms | 170, 7 | 170 (62), 140 (45) | 62, 45 | 351 of 1,106; compositing 90, ipc 55, style 42, layout 37, script 21 |
+| slot | 14 updates/s | 1,017, 1,009 ms | 459, 75 | 459 (78), 331 (46) | 78, 46 | 438 of 1,101; style 146, compositing 108, layout 46, script 26 |
+
+The user's deck tells stage 1's story again, larger: the frames are lost before the motion begins (leads of 170 and 459 ms on the first drive of each gesture), and inside it to compositing and style, with script at 21–26 samples. None of that is wire work. Whether this stage matters on the user's deck turns on the streaming reading there, on a deck that carries the Worker, and it is owed once the stage joins.

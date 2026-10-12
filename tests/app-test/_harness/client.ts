@@ -985,8 +985,14 @@ export type SessionDriveAction =
  * Drive a bound session card's `CodeSessionStore` one step through the
  * lifecycle matrix via `window.__tug.driveSession`. The card must
  * already be bound (`bindSession`); the surface throws otherwise.
+ *
+ * The session's engine reduces in the ingest Worker, so the drive reaches
+ * the card's store one message hop after the surface call returns. This
+ * waits for the store to settle (`__tug.sessionSettled`, SURFACE_VERSION
+ * 2.30.0) before resolving, so a caller reads what its drive did, as it did
+ * when the store reduced on the page.
  */
-export function driveSession(
+export async function driveSession(
   caller: HarnessCaller,
   cardId: string,
   action: SessionDriveAction,
@@ -995,7 +1001,10 @@ export function driveSession(
   const script = callSurface(
     `(window.__tug.driveSession(${lit(cardId)}, ${lit(action)}), null)`,
   );
-  return caller.evalJS<null>(script, evalOpts).then(() => undefined);
+  await caller.evalJS<null>(script, evalOpts);
+  await caller.waitForCondition<boolean>(
+    callSurface(`window.__tug.sessionSettled(${lit(cardId)})`),
+  );
 }
 
 /**

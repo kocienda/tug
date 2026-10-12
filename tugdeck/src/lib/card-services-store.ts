@@ -96,28 +96,25 @@ export interface CardServices {
   readonly fileTreeStore: FileTreeStore;
   readonly fileTreeFeedStore: FeedStore;
   /**
-   * Single-shot `/skills` request/response store ([#step-12d]) and its
-   * CODE_OUTPUT feed (filtered to `type === "skills_inventory"` for this
-   * session). Fires `skills_inventory_query` and resolves the matching
-   * tugcode response — not a continuous subscription.
+   * Single-shot `/skills` request/response store ([#step-12d]), fed by the
+   * session mirror's routed store for `skills_inventory` ([P14]). Fires
+   * `skills_inventory_query` and resolves the matching tugcode response —
+   * not a continuous subscription.
    */
   readonly skillsInventoryStore: SkillsInventoryStore;
-  readonly skillsInventoryFeedStore: FeedStore;
   /**
-   * Single-shot `/hooks` request/response store ([#step-12c]) and its
-   * CODE_OUTPUT feed (filtered to `type === "hooks_inventory"`).
+   * Single-shot `/hooks` request/response store ([#step-12c]), fed by the
+   * routed store for `hooks_inventory`.
    */
   readonly hooksInventoryStore: HooksInventoryStore;
-  readonly hooksInventoryFeedStore: FeedStore;
   /**
-   * `/btw` side-question store (Spec S02) and its CODE_OUTPUT feed (filtered
-   * to `type === "side_question_answer"` for this session). Keeps an ephemeral
-   * ask/answer history; overlay-only, never dispatched to the code-session
-   * store ([P05]). NOT a `KNOWN_CODE_OUTPUT_TYPES` member, so the transcript
-   * never sees a side question.
+   * `/btw` side-question store (Spec S02), fed by the routed store for
+   * `side_question_answer`. Keeps an ephemeral ask/answer history;
+   * overlay-only, never dispatched to the code-session store ([P05]). NOT a
+   * `KNOWN_CODE_OUTPUT_TYPES` member, so the transcript never sees a side
+   * question.
    */
   readonly sideQuestionStore: SideQuestionStore;
-  readonly sideQuestionFeedStore: FeedStore;
   /**
    * `$`-route shell session (Spec S01) and its `SHELL_OUTPUT` feed (filtered to
    * this session). Owns shell session state (`live`/`cwd`/in-flight) and
@@ -406,7 +403,7 @@ class CardServicesStore {
     const settle = (reason: "ready" | "timeout"): void => {
       if (settled) return;
       settled = true;
-      queueMicrotask(() => this._completeHeldSwap(cardId, services, reason));
+      queueMicrotask(() => void this._completeHeldSwap(cardId, services, reason));
     };
     const unsubscribe = store.subscribe(() => {
       if (ready()) settle("ready");
@@ -426,18 +423,29 @@ class CardServicesStore {
   /**
    * Show the new bag: dispose the old one, carry anything the user sent
    * while the swap waited into the new store, and notify once.
+   *
+   * The shown store is a mirror of an engine in the ingest Worker, so a send
+   * the user made in the task before this one may not have come back yet;
+   * the queued sends are read once the shown store has settled ([P09]). The
+   * swap is re-checked after the wait, since it may have been dropped or
+   * replaced while it waited.
    */
-  private _completeHeldSwap(
+  private async _completeHeldSwap(
     cardId: string,
     services: CardServices,
     reason: "ready" | "timeout",
-  ): void {
-    const held = this._heldSwaps.get(cardId);
+  ): Promise<void> {
+    let held = this._heldSwaps.get(cardId);
     // Dropped or replaced since the swap settled: nothing to complete.
     if (held === undefined || held.services !== services) return;
+    const shown = this._services.get(cardId);
+    if (shown !== undefined && !shown.codeSessionStore.isSettled()) {
+      await shown.codeSessionStore.whenSettled();
+      held = this._heldSwaps.get(cardId);
+      if (held === undefined || held.services !== services || this._services.get(cardId) !== shown) return;
+    }
     held.release();
     this._heldSwaps.delete(cardId);
-    const shown = this._services.get(cardId);
     const waiting = shown?.codeSessionStore.exportQueuedSends() ?? [];
     if (shown !== undefined) {
       this._disposeBag(cardId, shown, { stash: false });
@@ -587,69 +595,31 @@ class CardServicesStore {
     // here would be a second subscription waking on every GIT_DIFF broadcast
     // with nothing left to read it.
 
-    // `/skills` ([#step-12d]): a CODE_OUTPUT feed narrowed to this session's
-    // `skills_inventory` frames (so the high-traffic stream only wakes the
-    // store on its own response), plus the single-shot request/response store.
-    // The response rides tugcode's stdout (relayed verbatim on CODE_OUTPUT),
-    // so there is no dedicated feed id — the filter does the narrowing.
-    const skillsInventoryFilter: FeedStoreFilter = (_feedId, decoded) =>
-      typeof decoded === "object" &&
-      decoded !== null &&
-      (decoded as { type?: unknown }).type === "skills_inventory" &&
-      (decoded as { tug_session_id?: unknown }).tug_session_id ===
-        binding.tugSessionId;
-    const skillsInventoryFeedStore = new FeedStore(
-      connection,
-      [FeedId.CODE_OUTPUT],
-      undefined,
-      skillsInventoryFilter,
-    );
+    // `/skills` ([#step-12d]): the single-shot request/response store, fed
+    // by the session mirror's routed store for `skills_inventory`. The
+    // response rides tugcode's stdout (relayed verbatim on CODE_OUTPUT), and
+    // the ingest host routes this session's frames of that type to the
+    // mirror ([P14]), so the page never reads the CODE_OUTPUT stream.
     const skillsInventoryStore = new SkillsInventoryStore(
-      skillsInventoryFeedStore,
+      codeSessionStore.routedFrames("skills_inventory"),
       FeedId.CODE_OUTPUT,
       binding.tugSessionId,
     );
 
-    // `/hooks` ([#step-12c]): same shape as `/skills` — a CODE_OUTPUT feed
-    // narrowed to this session's `hooks_inventory` frames, plus the single-shot
-    // request/response store.
-    const hooksInventoryFilter: FeedStoreFilter = (_feedId, decoded) =>
-      typeof decoded === "object" &&
-      decoded !== null &&
-      (decoded as { type?: unknown }).type === "hooks_inventory" &&
-      (decoded as { tug_session_id?: unknown }).tug_session_id ===
-        binding.tugSessionId;
-    const hooksInventoryFeedStore = new FeedStore(
-      connection,
-      [FeedId.CODE_OUTPUT],
-      undefined,
-      hooksInventoryFilter,
-    );
+    // `/hooks` ([#step-12c]): same shape as `/skills`, fed by the routed
+    // store for `hooks_inventory`.
     const hooksInventoryStore = new HooksInventoryStore(
-      hooksInventoryFeedStore,
+      codeSessionStore.routedFrames("hooks_inventory"),
       FeedId.CODE_OUTPUT,
       binding.tugSessionId,
     );
 
-    // `/btw` side questions (Spec S02): a CODE_OUTPUT feed narrowed to this
-    // session's `side_question_answer` frames, plus the ephemeral ask/answer
-    // history store. The frame is deliberately absent from
-    // `KNOWN_CODE_OUTPUT_TYPES`, so it reaches ONLY this dedicated feed and
-    // never the code-session (transcript) store ([P05]).
-    const sideQuestionFilter: FeedStoreFilter = (_feedId, decoded) =>
-      typeof decoded === "object" &&
-      decoded !== null &&
-      (decoded as { type?: unknown }).type === "side_question_answer" &&
-      (decoded as { tug_session_id?: unknown }).tug_session_id ===
-        binding.tugSessionId;
-    const sideQuestionFeedStore = new FeedStore(
-      connection,
-      [FeedId.CODE_OUTPUT],
-      undefined,
-      sideQuestionFilter,
-    );
+    // `/btw` side questions (Spec S02): the ephemeral ask/answer history
+    // store, fed by the routed store for `side_question_answer`. The frame is
+    // deliberately absent from `KNOWN_CODE_OUTPUT_TYPES`, and the host routes
+    // it past the engine, so it never reaches the transcript ([P05]).
     const sideQuestionStore = new SideQuestionStore(
-      sideQuestionFeedStore,
+      codeSessionStore.routedFrames("side_question_answer"),
       FeedId.CODE_OUTPUT,
       binding.tugSessionId,
       binding.lineId,
@@ -844,11 +814,8 @@ class CardServicesStore {
       fileTreeStore,
       fileTreeFeedStore,
       skillsInventoryStore,
-      skillsInventoryFeedStore,
       hooksInventoryStore,
-      hooksInventoryFeedStore,
       sideQuestionStore,
-      sideQuestionFeedStore,
       shellSessionStore,
       shellSessionFeedStore,
       refsSessionStore,
@@ -881,25 +848,39 @@ class CardServicesStore {
     logSessionLifecycle("services_store.dispose", { card_id: cardId });
     this._openingRuns.get(services.codeSessionStore)?.();
     this._openingRuns.delete(services.codeSessionStore);
+    const store = services.codeSessionStore;
+    const settled = store.isSettled();
     if (opts.stash) {
       // Rescue anything the user queued before the store goes down with
       // the bag. A reconnect disposes every card up front, before any
       // restore is attempted, so this is the last moment those messages
       // exist anywhere ([L23]).
-      stashQueuedSends(cardId, services.codeSessionStore.exportQueuedSends());
+      //
+      // A send posted in the task before this one may not have come back
+      // from the ingest Worker yet ([P09]). Then the store outlives its bag
+      // by that one acknowledgment: it is stashed and disposed once it has
+      // settled. The restore that drains the stash answers a request sent
+      // after this, through the same Worker, which handled the send — and
+      // flushed its acknowledgment — before it could read that reply, so the
+      // stash is always in place first.
+      if (settled) {
+        stashQueuedSends(cardId, store.exportQueuedSends());
+      } else {
+        void store.whenSettled().then(() => {
+          stashQueuedSends(cardId, store.exportQueuedSends());
+          store.dispose();
+        });
+      }
     }
-    services.codeSessionStore.dispose();
+    if (!opts.stash || settled) store.dispose();
     services.transcriptStore.dispose();
     services.sessionMetadataStore.dispose();
     services.sessionMetadataFeedStore.dispose();
     services.fileTreeStore.dispose();
     services.fileTreeFeedStore.dispose();
     services.skillsInventoryStore.dispose();
-    services.skillsInventoryFeedStore.dispose();
     services.hooksInventoryStore.dispose();
-    services.hooksInventoryFeedStore.dispose();
     services.sideQuestionStore.dispose();
-    services.sideQuestionFeedStore.dispose();
     services.shellSessionStore.dispose();
     services.pathCommandsStore.dispose();
     services.shellGrammarStore.dispose();

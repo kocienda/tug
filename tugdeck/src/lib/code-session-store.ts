@@ -1,17 +1,22 @@
 /**
- * CodeSessionStore — per-Session-card L02 store that owns Claude Code turn
- * state for a single `tug_session_id`. It observes filtered
- * CODE_OUTPUT / SESSION_STATE frames through a real `FeedStore`,
- * dispatches CODE_INPUT messages via `encodeCodeInputPayload`, and
- * exposes an append-only transcript plus an in-flight streaming
- * document that `TugMarkdownView` can render.
+ * CodeSessionStore — per-Session-card L02 store for a single
+ * `tug_session_id`'s Claude Code turn state, as a mirror.
  *
- * Step 3 wires the basic `idle → submitting → awaiting_first_token →
- * streaming → idle` round-trip; Steps 4–8 extend the reducer to cover
- * streaming deltas, tool calls, control forwards, interrupt + queue,
- * and errored transitions.
+ * The session is reduced elsewhere: its `SessionEngine` runs in an ingest
+ * host, routes the session's CODE_OUTPUT / SESSION_STATE / CONTROL frames,
+ * runs the reducer and its effects, and posts patches. This store applies
+ * them — field-level structure patches merged into its own state and
+ * transcript, so everything a patch does not name keeps its identity, and
+ * stream writes into the `PropertyStore` that `TugMarkdownView` reads — and
+ * publishes to React once per batch the host posts: the host paces its
+ * batches to the display period, so a streaming burst costs React one render
+ * per frame, and a replay fold keeps the snapshot pinned until it flushes.
+ * Local actions are assembled here, where the page's stores are, and posted
+ * to the engine as finished events, each with a sequence number the engine
+ * acknowledges; {@link CodeSessionStore.whenSettled} is how a reader that
+ * needs the result of its own action waits for it ([P09]).
  *
- * [D01] store owns filtered FeedStore
+ * [D01] store owns its session's engine
  * [D02] card owns CONTROL lifecycle
  * [D03] three-identifier model
  * [D04] transcript + streaming
@@ -22,24 +27,17 @@
 import {
   FeedId,
   encodeCodeInputPayload,
-  encodeRecordContextBreakdown,
-  encodeRecordSessionStateChange,
-  encodeRecordTurnTelemetry,
   encodeRequestReplay,
   DEFAULT_REPLAY_WINDOW_TURNS,
-  type ContentBlock,
-  type FeedIdValue,
 } from "@/protocol";
 import type { EditorView } from "@codemirror/view";
 import type { PermissionMode } from "@tugproto/inbound";
 import type { TugConnection } from "@/connection";
 import type { ConnectionLifecycle } from "@/lib/connection-lifecycle";
-import {
-  PropertyStore,
-} from "@/lib/property-store";
-import { FeedStore } from "@/lib/feed-store";
+import { PropertyStore } from "@/lib/property-store";
 import { Subscribable } from "@/lib/subscribable";
-import { RunProgressStore } from "@/lib/run-progress-store";
+import { RunProgressStore, type RunProgressFrame } from "@/lib/run-progress-store";
+import { RoutedFrameStore } from "@/lib/ingest/routed-frame-store";
 import type { AtomSegment } from "./tug-atom-img";
 import { TUG_ATOM_CHAR } from "./tug-atom-char";
 import { hasLeadingCommandAtom } from "./command-atom";
@@ -52,45 +50,21 @@ import { buildWirePayload } from "./build-wire-payload";
 import { sessionCitationStore } from "./session-citation-store";
 import { sessionVerdictAskKey } from "./session-atom";
 import type { SessionRefVerdict } from "./session-ref-block";
-import { synthesizeUserMessageFromBlocks } from "./synthesize-user-message";
-import {
-  isCompactionSummarizeText,
-  splitCompactionSeed,
-} from "./compaction-request";
-import {
-  taskStartedEvent,
-  taskUpdatedEvent,
-  taskProgressEvent,
-} from "./code-session-store/select-jobs";
-import { isDecodeError } from "@tugproto/decode";
-import {
-  decodeTagged,
-  OUTBOUND_DECODERS,
-  type AnyDecodedFrame,
-  type DecodedTag,
-} from "@tugproto/outbound-decoders";
+import { putImageBytes, synthesizeUserMessageFromBlocks } from "./synthesize-user-message";
 import { goalIsActive } from "./code-session-store/select-goal";
 import {
   createInitialState,
   deriveActiveTurnSnapshot,
-  isTextOnlyChange,
-  reduce,
-  interruptSilenceEffect,
-  replayBracketEffect,
-  replaySilenceEffect,
-  streamStallCancelEffect,
-  truncateTranscriptAtAnchor,
-  evictOldestTurns,
-  countContextTurns,
-  TRANSCRIPT_TURN_CAP,
-  upsertInkTurn,
-  appendTurnInterleavingInk,
-  absorbArcNotes,
-  systemNoteKey,
   type CodeSessionState,
 } from "./code-session-store/reducer";
+import {
+  LIVE_USAGE_PATH,
+  mintTurnKey,
+  type LiveTurnPerf,
+  type ReplayIngestPerf,
+  type TimerSource,
+} from "./code-session-store/session-engine";
 import { logSessionLifecycle } from "./session-lifecycle-log";
-import { RELOCATION_BOUNDARY_EVENT } from "./code-session-store/stages";
 import { getDigestStore } from "./digest-store";
 import {
   networkPathStore,
@@ -101,14 +75,29 @@ import {
   invalidateCachedParsesByPrefix,
 } from "./markdown/parse-cache";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
+import { installDevLogSink } from "./dev-log-port";
 import { pathResolutionStore } from "./annotator/path-resolution";
 import type {
   CodeSessionEvent,
   RefsResultActionEvent,
 } from "./code-session-store/events";
-import type { Effect } from "./code-session-store/effects";
-import { publishLocalSessionStateChange } from "./session-state-changes-local-events";
-import { type LivePublishTick, livePublishTick } from "./live-publish-tick";
+import {
+  publishLocalSessionStateChange,
+  type LocalSessionStateChange,
+} from "./session-state-changes-local-events";
+import {
+  openInProcessSession,
+  type SessionLink,
+  type SessionOpener,
+} from "./ingest/session-link";
+import type { FlushPolicyFactory } from "./ingest/ingest-host";
+import {
+  applyTranscriptSplices,
+  type SessionMeta,
+  type SessionPatchOf,
+  type SessionPatchTarget,
+  type SessionTranscriptSplice,
+} from "./ingest/session-patch";
 import type {
   CardSessionMode,
   CodeSessionSnapshot,
@@ -116,7 +105,6 @@ import type {
   LiveMessageUsage,
   PendingAsk,
   TurnEntry,
-  SystemNote,
 } from "./code-session-store/types";
 
 export type {
@@ -153,122 +141,38 @@ export {
   REPLAY_TIMEOUT_DWELL_MS,
 } from "./code-session-store/reducer";
 
-/**
- * Timer source injected into `CodeSessionStore` for the replay-clock
- * `schedule_timer` / `cancel_timer` effects. Defaults to globalThis
- * timers in production; tests inject a fake source so they can
- * deterministically advance time without racing real wall-clock
- * delays.
- */
-export interface TimerSource {
-  setTimeout: (cb: () => void, ms: number) => unknown;
-  clearTimeout: (handle: unknown) => void;
-}
+export {
+  KNOWN_CODE_OUTPUT_TYPES,
+  REPLAY_FOLD_FLUSH_THRESHOLD,
+  REWIND_ANCHOR_OUTSIDE_WINDOW,
+  UNWRAPPED_CODE_OUTPUT_TYPES,
+} from "./code-session-store/session-engine";
 
-const DEFAULT_TIMER_SOURCE: TimerSource = {
-  setTimeout: (cb, ms) =>
-    (globalThis as { setTimeout: (cb: () => void, ms: number) => unknown })
-      .setTimeout(cb, ms),
-  clearTimeout: (handle) =>
-    (globalThis as { clearTimeout: (handle: unknown) => void })
-      .clearTimeout(handle),
-};
+export type {
+  LiveTurnPerf,
+  ReplayIngestPerf,
+  TimerSource,
+} from "./code-session-store/session-engine";
+
+// The session engine and the reducer log through the dev-log port. On the
+// page both halves go to the stores they always went to, each looked up at
+// call time so a test that reassigns a level still sees the call.
+installDevLogSink({
+  log: (level, source, message, data) => tugDevLogStore[level](source, message, data),
+  lifecycle: (tag, fields) => logSessionLifecycle(tag, fields),
+});
 
 const STREAM_SOURCE_TAG = "code-session-store";
 
-/**
- * Streaming-document path carrying the latest `streaming_usage` frame —
- * high-frequency display telemetry kept OFF the snapshot so a usage frame
- * re-renders only the status cells observing this path, never the
- * transcript list. Cleared at `activeTurn` boundaries by `dispatch`.
- */
-const LIVE_USAGE_PATH = "telemetry.liveTurnUsage";
-
-/**
- * The refusal a conversation rewind gets when its anchor is not in the loaded
- * transcript window — a turn the transcript cap evicted, or one never paged
- * in. Carried in `lastRewindResult.error`, which the rewind sheet shows.
- */
-export const REWIND_ANCHOR_OUTSIDE_WINDOW =
-  "That message is no longer loaded. Load previous to reach it, then rewind.";
-
-/**
- * Replay-fold flush threshold. While the reducer's `replaying` phase
- * is open, wire-origin events reduce immediately but their listener
- * notification (and snapshot publication) is deferred; every
- * `REPLAY_FOLD_FLUSH_THRESHOLD` deferred events the fold flushes one
- * notify so a whale-sized replay paints progressively instead of
- * holding the UI to the very end. Flushes are event-driven only —
- * the other triggers are the window closing (`replay_complete` or
- * any phase exit) and store teardown. No timers, no rAF.
- */
-export const REPLAY_FOLD_FLUSH_THRESHOLD = 250;
-
-/**
- * Per-replay-window ingest counters (the `perf.replay_ingest`
- * instrumentation surface). One record is opened on `replay_started`,
- * accumulated per dispatched event / listener notification, and
- * closed + emitted on `replay_complete`.
- *
- * `commits` is the store's own `notify` count inside the
- * window — the "≤ N commits per replay" assertion surface. `folds`
- * counts buffered-fold flushes; zero until the replay fold lands and
- * kept in the shape from day one so consumers never see a field
- * appear mid-plan.
- */
-export interface ReplayIngestPerf {
-  startedAtMs: number;
-  completedAtMs: number | null;
-  /** Reducer-relevant events dispatched inside the window. */
-  frames: number;
-  /** Buffered-fold flushes (0 until the replay fold exists). */
-  folds: number;
-  /** Listener notifications (React commit triggers) inside the window. */
-  commits: number;
-  /**
-   * Synchronous CPU spent in the pure `reduce()` call, summed across
-   * every frame in the window (ms). Isolates the reducer's own cost
-   * from arrival pacing.
-   */
-  reduceMs: number;
-  /**
-   * Synchronous CPU spent in the whole dispatch body — reduce +
-   * effects + persist + publish/notify — summed across every frame
-   * (ms). Compare against the window's wall span (`completedAtMs -
-   * startedAtMs`): if `dispatchMs` is much smaller, the browser spent
-   * the window *waiting for frames to arrive*, not processing them —
-   * the cost lives upstream in emit/transport, not in ingest.
-   */
-  dispatchMs: number;
+/** The engine's perf records, as of its last post. */
+interface MirrorPerf {
+  replay: ReplayIngestPerf | null;
+  lastReplay: ReplayIngestPerf | null;
+  liveTurn: LiveTurnPerf | null;
+  lastLiveTurn: LiveTurnPerf | null;
 }
 
-/**
- * Per-live-turn commit counters (the `perf.live_commits` surface).
- * Opened on `send`, closed + emitted on the matching `turn_complete`.
- */
-export interface LiveTurnPerf {
-  turnKey: string;
-  startedAtMs: number;
-  /** Listener notifications between send and turn_complete. */
-  commits: number;
-}
-
-/**
- * Mint a stable per-turn key. Used as the React-key seed for the
- * inflight cell pair and preserved unchanged through commit into
- * `TurnEntry.turnKey`. Lives in the store wrapper (not the reducer)
- * because `crypto.randomUUID()` is impure and the reducer is
- * contractually pure + time-independent.
- *
- * Fallback `turn-${time}-${random}` shape covers runtimes without
- * `crypto.randomUUID` — uniqueness is per-session, not global.
- */
-function mintTurnKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
+const NO_PERF: MirrorPerf = { replay: null, lastReplay: null, liveTurn: null, lastLiveTurn: null };
 
 /**
  * What the client knows about one session atom, for the trailing reference
@@ -308,61 +212,6 @@ function sessionAtomVerdict(atom: AtomSegment): {
   // says so — "not on this machine" is actionable, "not answered yet" names
   // the command that answers it.
   return { verdict: answer.status === "unknown" ? "absent" : "unverified" };
-}
-
-/**
- * CODE_OUTPUT tags the store takes apart before admission. Each has a
- * decoder, and none reaches the reducer as itself: `routeFrame` unwraps a
- * `replay_batch` and routes its frames one by one, and `divertProgress`
- * sends the two progress frames to {@link RunProgressStore}.
- */
-export const UNWRAPPED_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set<DecodedTag>([
-  "replay_batch",
-  "tool_progress",
-  "run_progress",
-]);
-
-/**
- * CODE_OUTPUT frame `type` values the reducer admits: every tag in the
- * decoder table (`@tugproto/outbound-decoders`) that the store does not
- * take apart first. What each one means to the reducer is written at its
- * case in `CodeSessionStore.wireToEvent`.
- */
-export const KNOWN_CODE_OUTPUT_TYPES: ReadonlySet<string> = new Set(
-  (Object.keys(OUTBOUND_DECODERS) as DecodedTag[]).filter(
-    (tag) => !UNWRAPPED_CODE_OUTPUT_TYPES.has(tag),
-  ),
-);
-
-/**
- * Decode a CODE_OUTPUT value by its own tag. A value whose tag the decoder
- * table does not know is dropped silently, as an unknown tag always was. A
- * frame whose tag has a decoder and whose shape has drifted is dropped with
- * one line naming the tag, the path, what was expected and what arrived, so
- * an upstream drift reads as a decode error here and never reaches the
- * reducer as the wrong shape.
- */
-function decodeCodeOutput(value: unknown): AnyDecodedFrame | null {
-  const frame = decodeTagged(value);
-  if (isDecodeError(frame)) {
-    tugDevLogStore.warn("code-session-store", `CODE_OUTPUT decode error: ${frame.toString()}`, {
-      tag: frame.tag,
-      path: frame.path,
-      expected: frame.expected,
-      got: frame.got,
-    });
-    return null;
-  }
-  return frame;
-}
-
-/**
- * tugcast's `tug_session_id` stamp, which no decoder declares and every
- * decoded frame carries through untouched.
- */
-function stampedSessionId(frame: object): string | undefined {
-  const id = (frame as { tug_session_id?: unknown }).tug_session_id;
-  return typeof id === "string" ? id : undefined;
 }
 
 export interface CodeSessionStoreOptions {
@@ -420,11 +269,14 @@ export interface CodeSessionStoreOptions {
    */
   timerSource?: TimerSource;
   /**
-   * Test seam — the frame-aligned tick coalesced live publishes ride.
-   * Production callers omit this and share `livePublishTick`; tests
-   * inject their own over a manual source.
+   * Test seam — when the session's host posts its batches. Omitted, an
+   * engine on this thread posts at the end of every message, so a frame has
+   * reached the mirror by the time it returns; a test that reads the
+   * per-period cadence passes a `Pacer` on a manual clock. Like
+   * {@link timerSource} it is a function, so a store that passes it gets an
+   * engine on this thread.
    */
-  publishTick?: LivePublishTick;
+  makeFlushPolicy?: FlushPolicyFactory;
 }
 
 /**
@@ -438,8 +290,17 @@ export class CodeSessionStore extends Subscribable {
    * heartbeat and the command's own `run_progress` reports. Diverted out of
    * the frame stream before the reducer, because neither is part of the
    * session's record and a heartbeat a second must not rebuild the snapshot.
+   * The session engine diverts them; its `progress` patches land here.
    */
   readonly runProgress = new RunProgressStore();
+
+  /**
+   * The narrow per-session stores' frames, one store per routed CODE_OUTPUT
+   * type ([P14]). The ingest host routes a `/skills` or `/hooks` response or
+   * a `/btw` answer to this session's mirror, and the mirror hands it to the
+   * store for its type; the page never reads CODE_OUTPUT itself.
+   */
+  private readonly _routedFrames = new Map<string, RoutedFrameStore>();
 
   private readonly conn: TugConnection;
   private readonly lifecycle: ConnectionLifecycle;
@@ -447,18 +308,19 @@ export class CodeSessionStore extends Subscribable {
   private readonly displayLabel: string;
   private readonly sessionMode: CardSessionMode;
   private readonly restoreWindowTurns: number;
-  private readonly feedStore: FeedStore;
   private readonly pendingContextStore: PendingContextStore | undefined;
-  private readonly timerSource: TimerSource;
-  private readonly publishTick: LivePublishTick;
-  /**
-   * Active replay-clock timers keyed by their effect `name`
-   * (`"preflight"`, `"soft_budget"`, `"timeout_dwell"`). Populated by
-   * `schedule_timer` effects from the reducer; cleared by
-   * `cancel_timer` effects, by the timer's own callback after it
-   * dispatches the named tick event, and by `dispose()`.
-   */
-  private readonly _replayTimers: Map<string, unknown> = new Map();
+  /** The line to this session's engine, which reduces every frame and action. */
+  private readonly _link: SessionLink;
+  /** Where the engine's patches land; identity-stable for the store's life. */
+  private readonly _patchTarget: SessionPatchTarget = {
+    stream: (patch) => this.applyStream(patch),
+    structure: (patch) => this.applyStructure(patch),
+    progress: (patch) => this.applyProgress(patch),
+    effect: (patch) => this.applyEffect(patch),
+    ack: (patch) => this.applyAck(patch),
+    routedFrame: (patch) => this.routedFrames(patch.payload.type).accept(patch.payload.feedId, patch.payload.decoded),
+    endOfBatch: () => this.endOfBatch(),
+  };
 
   /**
    * Per-card bytes side-table for inline image attachments. One
@@ -466,7 +328,8 @@ export class CodeSessionStore extends Subscribable {
    * the drop / paste handlers in the embedded text editor populate
    * it, the wire-flattening at submit-time reads from it, and the
    * `useCardStatePreservation` snapshot round-trips its contents
-   * across cold boot / pane restore.
+   * across cold boot / pane restore. A replayed message's images arrive
+   * as the engine's `atom-bytes` effect.
    *
    * Exposed via {@link getAtomBytesStore} so non-React consumers
    * (the drop / paste extensions inside CodeMirror) can reach it
@@ -475,27 +338,14 @@ export class CodeSessionStore extends Subscribable {
    */
   private readonly atomBytesStore: AtomBytesStore;
 
+  /** The session's state, as of the engine's last structure patch. */
   private state: CodeSessionState;
-
+  /** The transcript, as of the engine's last structure patch. */
   private _transcript: ReadonlyArray<TurnEntry> = [];
-  // Older turns staged by a load-previous (prepend) replay bracket, in
-  // arrival order. `flush-prepend` commits this batch to the FRONT of
-  // `_transcript` at the bracket's `replay_complete`, then clears it.
-  private _prependStaging: TurnEntry[] = [];
-  // Target message count of the in-flight load-previous (0 when none),
-  // for the load sheet's determinate progress. The loaded-so-far value
-  // is derived from `_prependStaging` at snapshot time.
+  // Load-previous progress as the engine reports it: the turns the load
+  // asked for, and the older turns staged so far.
   private _loadPreviousTarget = 0;
-  // Context turns `_transcript` may hold before the oldest are evicted.
-  // Starts at the cap, or at the restore window when that is deeper, and
-  // only rises: a load-previous that pages in past it raises it to what the
-  // user asked to see, so the window keeps what they paged in and slides by
-  // one per later turn rather than snapping back.
-  private _transcriptTurnLimit: number;
-  // True from a conversation rewind's send until its `rewind_result` ack (or
-  // a transport close). The cap holds off meanwhile, so the anchor the ack
-  // truncates at cannot be evicted out from under it.
-  private _conversationRewindInFlight = false;
+  private _prependStagingCount = 0;
   private _cachedSnapshot: CodeSessionSnapshot | null = null;
 
   /**
@@ -505,7 +355,7 @@ export class CodeSessionStore extends Subscribable {
    */
   private _pendingAsk: PendingAsk | null = null;
   /**
-   * The last `user_message` this store put on the wire, kept for
+   * The last `user_message` the engine put on the wire, kept for
    * {@link _lastSentUserMessageForTest} and read by nothing else.
    */
   private _lastSentUserMessage: unknown = null;
@@ -514,7 +364,6 @@ export class CodeSessionStore extends Subscribable {
   private _sendsHeldForHandOver = false;
   /** Set by `bindEditorView`; outside `state`, so it notifies nobody. */
   private _editorView: (() => EditorView | null) | null = null;
-  private _feedStoreUnsub: (() => void) | null = null;
   /**
    * Aggregated unsubscribe callbacks for every `ConnectionLifecycle`
    * channel the store observes. Currently `connectionDidClose` (Step 1b)
@@ -530,52 +379,43 @@ export class CodeSessionStore extends Subscribable {
    * *transition* into `satisfied` and not on every repeat report of it.
    */
   private _lastPathStatus: NetworkPathStatus | null = null;
-  private _lastFrameByFeed: Map<number, unknown> = new Map();
+  /** The highest action sequence number the engine has acknowledged. */
+  private _ackedSeq = 0;
+  /** The highest sequence number this store has posted. */
+  private _postedSeq = 0;
+  /** Readers waiting on an acknowledgment, each with the seq it waits for. */
+  private _settleWaiters: Array<{ seq: number; resolve: () => void }> = [];
+  /**
+   * The `File` lists this store parked, oldest first, until the engine's
+   * structure patch for each arrives. A `File` crosses to the engine as a
+   * structured clone, but the prompt entry decodes the bytes of the objects
+   * the drop produced, so the slot it reads carries these.
+   */
+  private readonly _parkedFiles: File[][] = [];
 
   /**
-   * Perf instrumentation state — pure observability, no behavior.
-   * `_perfReplay` is the open replay window (null between windows);
-   * `_perfLastReplay` retains the most recently completed window so
-   * the transcript host can stamp `perf.replay_render` against its
-   * start time after the replay paint gate drops. `_perfLiveTurn`
-   * is the open live-turn commit counter (null between turns).
+   * Perf instrumentation — pure observability, no behavior. The counters
+   * run in the engine; the commits are this store's own notifies, counted
+   * against the window that was open when the engine published.
    */
-  private _perfReplay: ReplayIngestPerf | null = null;
-  private _perfLastReplay: ReplayIngestPerf | null = null;
-  private _perfLiveTurn: LiveTurnPerf | null = null;
-  private _perfLastLiveTurn: LiveTurnPerf | null = null;
+  private _perf: MirrorPerf = NO_PERF;
+  private _replayCommits = 0;
+  private _lastReplayCommits = 0;
+  private _liveCommits = 0;
+  private _lastLiveCommits = 0;
 
   /**
-   * Replay-fold deferred-notify count. Non-zero while the `replaying`
-   * phase has reduced wire events whose listener notification (and
-   * snapshot publication — `_cachedSnapshot` stays pinned) has not
-   * flushed yet. The fold is notification-deferral only: every event
-   * still reduces and processes its effects immediately, so the
-   * reducer's semantics are byte-identical to per-frame dispatch —
-   * React simply observes one snapshot tick per flush ([L02]).
+   * Whether a publishing structure patch has been applied in the batch now
+   * being applied. The batch's end notifies once for all of them, so a
+   * streaming burst costs React one render per batch — one per display
+   * period, as the host paces them — and every session's render lands in
+   * the same task. The host's timer, not the page's frames, sets the
+   * cadence, so an occluded window's background-card transcripts keep
+   * moving.
    */
-  private _foldPending = 0;
-
-  /**
-   * Live-notify coalescing: same-phase wire dispatches ride ONE
-   * publish on the next tick of the shared frame-aligned
-   * {@link LivePublishTick}, so a streaming burst costs React one
-   * render per frame instead of one per token, and every streaming
-   * store's render lands in the same frame instead of on its own
-   * timer. Local dispatches (user actions) and phase transitions
-   * always publish immediately, cancelling anything pending. The
-   * tick's deadline timer keeps an occluded window's background-card
-   * transcripts moving, which is why this was a timer before it was a
-   * frame.
-   */
-  private _livePublishPending = false;
-
-  /** The entry this store hands the tick: identity-stable, so the tick can drop it. */
-  private readonly _livePublish = (): void => {
-    this._livePublishPending = false;
-    if (this._disposed) return;
-    this._publishAndNotify();
-  };
+  private _notifyPending = false;
+  /** The perf as it stood before this batch's first structure patch. */
+  private _batchPerf: MirrorPerf | null = null;
 
   /**
    * Streamed text is not a publish ([L22]): a delta that only grew a
@@ -583,19 +423,13 @@ export class CodeSessionStore extends Subscribable {
    * `subscribe`, because the `PropertyStore` already carries the text to the
    * blocks that paint it. A reader that genuinely follows the text as a whole
    * — the open find bar's index — observes this signal instead: a version
-   * that moves once per frame tick while text streams.
+   * that moves once per batch while text streams.
    */
   private _streamTextVersion = 0;
   private _streamTextPending = false;
   private readonly _streamTextListeners = new Set<() => void>();
-  private readonly _streamTextPublish = (): void => {
-    this._streamTextPending = false;
-    if (this._disposed) return;
-    this._streamTextVersion += 1;
-    for (const listener of [...this._streamTextListeners]) listener();
-  };
 
-  /** Subscribe to streamed-text growth, coalesced to the shared frame tick. */
+  /** Subscribe to streamed-text growth, signalled once per batch. */
   observeStreamText = (listener: () => void): (() => void) => {
     this._streamTextListeners.add(listener);
     return () => {
@@ -614,16 +448,8 @@ export class CodeSessionStore extends Subscribable {
     this.displayLabel = options.displayLabel ?? options.tugSessionId.slice(0, 8);
     this.restoreWindowTurns =
       options.restoreWindowTurns ?? DEFAULT_REPLAY_WINDOW_TURNS;
-    // A faithful restore deeper than the cap asked to see its saved anchor;
-    // the window holds what it restores, as it holds what load previous adds.
-    this._transcriptTurnLimit = Math.max(
-      options.transcriptTurnCap ?? TRANSCRIPT_TURN_CAP,
-      this.restoreWindowTurns,
-    );
     this.sessionMode = options.sessionMode;
     this.pendingContextStore = options.pendingContextStore;
-    this.timerSource = options.timerSource ?? DEFAULT_TIMER_SOURCE;
-    this.publishTick = options.publishTick ?? livePublishTick;
 
     // Per-card bytes side-table — populated at drop / paste, drained
     // at `clear()` on dispose. Snapshot rides
@@ -636,9 +462,7 @@ export class CodeSessionStore extends Subscribable {
     // shaped `turn.${turnKey}.${channel}` (assistant / thinking /
     // tools). Each turn writes to its own path; every committed
     // turn's cell keeps observing the same path forever (no
-    // overwrites). The previous legacy `inflight.*` paths are gone —
-    // they were a parallel path system from before the turnKey
-    // architecture and were inert in the transcript dispatch.
+    // overwrites).
     this.streamingDocument = new PropertyStore({
       schema: [],
       initialValues: {},
@@ -652,30 +476,39 @@ export class CodeSessionStore extends Subscribable {
       dynamicPaths: true,
     });
 
+    // The engine starts from the same initial state, so its first
+    // structure patch diffs against what this mirror already holds.
     this.state = createInitialState(
       this.tugSessionId,
       this.displayLabel,
       this.sessionMode,
     );
 
-    this.feedStore = new FeedStore(
-      this.conn,
-      [
-        FeedId.CODE_OUTPUT,
-        FeedId.SESSION_STATE,
-        FeedId.CONTROL,
-      ] as ReadonlyArray<FeedIdValue>,
-      undefined,
-      (feedId, decoded) => this.acceptFrame(feedId, decoded),
-    );
-    this._feedStoreUnsub = this.feedStore.subscribe(() =>
-      this.onFeedStoreChange(),
-    );
+    // Open the session's engine. A connection that hosts engines opens it
+    // there; a frame source that offers no opener — a test's fake — gets an
+    // in-process host fed by its own frames. Either way a frame the source
+    // replays on subscribe reaches the engine, and its patches this store,
+    // before the constructor returns.
+    const open = {
+      tugSessionId: this.tugSessionId,
+      displayLabel: this.displayLabel,
+      sessionMode: this.sessionMode,
+      restoreWindowTurns: this.restoreWindowTurns,
+      ...(options.transcriptTurnCap !== undefined
+        ? { transcriptTurnCap: options.transcriptTurnCap }
+        : {}),
+    };
+    const local = { timerSource: options.timerSource, makePolicy: options.makeFlushPolicy };
+    const opener = options.conn as Partial<SessionOpener>;
+    this._link =
+      typeof opener.openSession === "function"
+        ? opener.openSession(open, this._patchTarget, local)
+        : openInProcessSession(options.conn, open, this._patchTarget, local);
 
     // Lifecycle wiring per [D07]: `ConnectionLifecycle` is the action
     // source, the reducer is the responder. The store subscribes once
     // at construction and translates the two lifecycle events that
-    // matter to its reducer:
+    // matter to its session:
     //
     //   - `connectionDidClose` → `transport_close`. The reducer flips
     //     `transportState` to `offline` (and, for non-idle phases, the
@@ -780,7 +613,7 @@ export class CodeSessionStore extends Subscribable {
    */
   _ingestFrameForTest = (feedId: number, decoded: unknown): void => {
     if (this._disposed) return;
-    this.routeFrame(feedId, decoded);
+    this._postedSeq = this._link.testFrame(feedId, decoded);
   };
 
   /**
@@ -956,7 +789,7 @@ export class CodeSessionStore extends Subscribable {
         ? this._loadPreviousTarget
         : 0,
       loadingPreviousLoaded: this.state.replayPrependActive
-        ? this._prependStaging.length
+        ? this._prependStagingCount
         : 0,
       replayPreflightActive: this.state.replayPreflightActive,
       replaySoftBudgetElapsed: this.state.replaySoftBudgetElapsed,
@@ -1294,8 +1127,8 @@ export class CodeSessionStore extends Subscribable {
         ? win.firstLoadedTurnIndex
         : Math.min(Math.max(0, amount), win.firstLoadedTurnIndex);
     if (turns <= 0) return;
-    this._loadPreviousTarget = turns;
-    this.beginLoadPreviousBracket();
+    if (this._disposed) return;
+    this.dispatch({ type: "begin_load_previous", target: turns });
     // The N turns immediately older than the current oldest-loaded turn.
     const frame = encodeRequestReplay(this.tugSessionId, {
       turnRange: [
@@ -1572,21 +1405,8 @@ export class CodeSessionStore extends Subscribable {
     // anchor has to be in the window. The sheet only offers loaded turns; an
     // anchor outside the window is refused in the ack's own shape rather
     // than sent, because the server would chop turns the deck cannot cut.
-    // Load previous reaches an older turn first.
-    if (
-      scope !== "code" &&
-      !this._transcript.some((turn) => turn.promptUuid === promptUuid)
-    ) {
-      this.dispatch({
-        type: "rewind_result",
-        promptUuid,
-        scope,
-        canRewind: false,
-        error: REWIND_ANCHOR_OUTSIDE_WINDOW,
-      });
-      return;
-    }
-    if (scope !== "code") this._conversationRewindInFlight = true;
+    // Load previous reaches an older turn first. The engine holds the
+    // transcript, so it runs that check before it sends.
     this.dispatch({
       type: "session_rewind_request",
       promptUuid,
@@ -1777,7 +1597,9 @@ export class CodeSessionStore extends Subscribable {
   insertFiles(files: readonly File[]): void {
     if (this._disposed) return;
     if (files.length === 0) return;
-    this.dispatch({ type: "insert_files", files: [...files] });
+    const parked = [...files];
+    this._parkedFiles.push(parked);
+    this.dispatch({ type: "insert_files", files: parked });
   }
 
   /**
@@ -1970,31 +1792,25 @@ export class CodeSessionStore extends Subscribable {
   }
 
   /**
-   * Local teardown: unsubscribe from FeedStore, clear listeners, clear
+   * Local teardown: close the session's engine, clear listeners, clear
    * queuedSends, clear in-flight streaming paths. Per [L23] the
    * transcript is user-visible state and is NOT cleared. Per [D02] the
    * card owns `close_session` — this method never writes a CONTROL frame.
    */
   dispose(): void {
     if (this._disposed) return;
-    // Teardown flush of an open replay fold — nothing is ever
-    // stranded: listeners still attached observe the final reduced
-    // state in one last snapshot tick before they're cleared.
-    // A pending coalesced live notify is published here and dropped
-    // from the shared tick.
-    if (this._livePublishPending) {
-      this._publishAndNotify();
-    }
-    if (this._streamTextPending) {
-      this.publishTick.cancel(this._streamTextPublish);
-      this._streamTextPending = false;
-    }
-    this._flushReplayFold();
+    // Closing the engine flushes an open replay fold — on this thread the
+    // flush arrives before the close returns, so listeners still attached
+    // observe the final reduced state in one last snapshot before they're
+    // cleared — and cancels every replay-clock timer it holds ([L27]).
+    // Nothing it posts after reaches this store.
+    this._link.close();
     this._disposed = true;
-    if (this._feedStoreUnsub) {
-      this._feedStoreUnsub();
-      this._feedStoreUnsub = null;
-    }
+    this._streamTextPending = false;
+    this._notifyPending = false;
+    // Nobody waits on an engine that is gone.
+    this._ackedSeq = this._postedSeq;
+    this.releaseSettleWaiters();
     for (const unsub of this._lifecycleUnsubs) {
       unsub();
     }
@@ -2003,22 +1819,13 @@ export class CodeSessionStore extends Subscribable {
       this._pathUnsub();
       this._pathUnsub = null;
     }
-    this.feedStore.dispose();
-    // Cancel every in-flight replay-clock timer. After dispose, even
-    // if a callback fires before the cancel takes effect (timer
-    // sources without instant cancellation guarantees), the
-    // `_disposed` guard inside the schedule_timer callback drops the
-    // dispatch — listeners are already cleared and the reducer
-    // wouldn't observe its tick anyway.
-    for (const handle of this._replayTimers.values()) {
-      this.timerSource.clearTimeout(handle);
-    }
-    this._replayTimers.clear();
     this.clearListeners();
     this.state.queuedSends = [];
     // Release any retained attachment bytes; the bytes-store is per-
     // card and has no consumers past dispose.
     this.atomBytesStore.clear();
+    for (const store of this._routedFrames.values()) store.dispose();
+    this._routedFrames.clear();
     // No per-turn-path cleanup on dispose: the streamingDocument
     // dies with the store instance, taking its accumulated paths
     // with it. Consumers that survived past dispose would already
@@ -2033,682 +1840,256 @@ export class CodeSessionStore extends Subscribable {
   }
 
   // ---------------------------------------------------------------------
-  // Internal dispatch pipeline
+  // The engine's patches
   // ---------------------------------------------------------------------
 
   /**
-   * Per-card frame filter: one rule for every feed — match on the
-   * payload's `tug_session_id`.
-   *
-   * CONTROL error frames used to be exempt. Both of the ones that reach
-   * a session store (`session_unknown` from the supervisor's orphan
-   * dispatcher, `session_not_owned` from the router's authz reject) now
-   * carry the id of the session whose turn they killed, so the exemption
-   * has nothing left to admit — and keeping it would be actively wrong,
-   * because each notice ends a live turn from any phase. An unaddressed
-   * error would end the wrong card's turn.
+   * A local action. The event is assembled here and reduced by the engine,
+   * whose patches come back before this returns when the engine is
+   * in-process.
    */
-  private acceptFrame(feedId: number, decoded: unknown): boolean {
-    const d = decoded as { tug_session_id?: string };
-    return d.tug_session_id === this.tugSessionId;
-  }
-
-  private onFeedStoreChange(): void {
+  private dispatch(event: CodeSessionEvent): void {
     if (this._disposed) return;
-    const snap = this.feedStore.getSnapshot();
-    for (const [feedId, value] of snap.entries()) {
-      if (this._lastFrameByFeed.get(feedId) !== value) {
-        this._lastFrameByFeed.set(feedId, value);
-        this.routeFrame(feedId, value);
-      }
-    }
+    this._postedSeq = this._link.action(event);
   }
 
   /**
-   * Route one decoded feed value into the reducer. A CODE_OUTPUT value is
-   * decoded by its tag first ({@link decodeCodeOutput}), and one that does
-   * not decode goes no further. A `replay_batch` is a transport-only
-   * envelope: its `frames` are decoded and admitted one by one, exactly as
-   * a per-frame replay would be, so one drifted frame drops alone and the
-   * reducer never sees the batch. The session filter has already run on the
-   * outer value at the FeedStore boundary, so inner frames dispatch
-   * post-filter and need no `tug_session_id` of their own.
+   * Whether the engine has acknowledged every action and test frame this
+   * store has posted, so the mirror reads what they did. Always true for an
+   * engine on this thread, which answers before the post returns.
    */
-  private routeFrame(feedId: number, value: unknown): void {
-    if (feedId !== FeedId.CODE_OUTPUT) {
-      const event = this.frameToEvent(feedId, value);
-      if (event !== null) this.dispatch(event, "wire");
-      return;
-    }
-    const frame = decodeCodeOutput(value);
-    if (frame?.type === "replay_batch") {
-      for (const inner of frame.frames) this.admitWireFrame(decodeCodeOutput(inner));
-      return;
-    }
-    this.admitWireFrame(frame);
-  }
-
-  /** Divert a decoded CODE_OUTPUT frame's progress meaning, then dispatch its event. */
-  private admitWireFrame(frame: AnyDecodedFrame | null): void {
-    if (frame === null || this.divertProgress(frame)) return;
-    const event = this.wireToEvent(frame);
-    if (event !== null) this.dispatch(event, "wire");
+  isSettled(): boolean {
+    return this._ackedSeq >= this._postedSeq;
   }
 
   /**
-   * Send a CODE_OUTPUT frame's live-progress meaning to {@link runProgress}.
-   * Returns true for the two progress frames, which the reducer never sees;
-   * a `tool_result` also closes its call here, and still goes on to the
-   * reducer.
+   * Resolves once the mirror has applied the engine's acknowledgment of the
+   * last action this store posted before the call — at once when nothing is
+   * outstanding, and at dispose. A reader that must see what its own action
+   * did (the queued sends a hand-over exports, the text a quit stashes)
+   * awaits this rather than assuming the reduction already happened ([P09]).
    */
-  private divertProgress(frame: AnyDecodedFrame): boolean {
-    switch (frame.type) {
-      case "tool_progress":
-        this.runProgress.applyHeartbeat(
-          frame.tool_use_id,
-          frame.elapsed_time_seconds,
-          Date.now(),
-        );
-        return true;
-      case "run_progress":
-        this.runProgress.applyReport(
-          frame,
-          Date.now(),
-          (id) =>
-            this.state.jobs.some((j) => j.toolUseId === id && j.status === "running"),
-        );
-        return true;
-      case "tool_result":
-        this.runProgress.close(frame.tool_use_id);
-        return false;
-      default:
-        return false;
+  whenSettled(): Promise<void> {
+    if (this.isSettled()) return Promise.resolve();
+    return new Promise((resolve) => {
+      this._settleWaiters.push({ seq: this._postedSeq, resolve });
+    });
+  }
+
+  /** Resolve every waiter whose seq the engine has acknowledged. */
+  private releaseSettleWaiters(): void {
+    if (this._settleWaiters.length === 0) return;
+    const still: typeof this._settleWaiters = [];
+    for (const waiter of this._settleWaiters) {
+      if (waiter.seq <= this._ackedSeq) waiter.resolve();
+      else still.push(waiter);
     }
+    this._settleWaiters = still;
+  }
+
+  /** Streamed text and live usage: writes into the streaming document. */
+  private applyStream(patch: SessionPatchOf<"stream">): void {
+    for (const write of patch.payload.writes) {
+      this.streamingDocument.set(write.path, write.value, STREAM_SOURCE_TAG);
+    }
+    // A delta that only grew text publishes nothing; the readers that
+    // follow the text as a whole hear it once, at the batch's end.
+    if (patch.payload.textGrew) this._streamTextPending = true;
   }
 
   /**
-   * The reducer event a decoded CODE_OUTPUT frame becomes, or null for a
-   * frame the reducer has nothing to do with. Most frames are their own
-   * event; the rest are renamed to camelCase here, or carry a value only
-   * this impure wrapper can supply (a minted `turnKey`, a wall-clock
-   * deadline), so the reducer stays pure.
+   * One structure patch: merge the state fields it names, splice the
+   * transcript, take the meta, and mark the batch to publish — or, inside a
+   * replay fold, not.
+   * Everything the patch does not name keeps its identity ([P05]).
    */
-  private wireToEvent(frame: AnyDecodedFrame): CodeSessionEvent | null {
-    switch (frame.type) {
-      case "session_init": {
-        // Divergence check: log loudly if claude's session_id differs
-        // from our tugSessionId. Tugdeck operates on a single id
-        // (tugSessionId, decided by the picker); a divergence here
-        // would be a tugcast/tugcode bug that broke the post-Phase-B
-        // invariant. The store does not consume claude's id for any
-        // user-facing purpose — see reducer.handleSessionInit.
-        const claudeSid = frame.session_id ?? null;
-        logSessionLifecycle("code_store.session_init_recv", {
-          tug_session_id: this.tugSessionId,
-          claude_session_id: claudeSid,
-          divergent: claudeSid !== null && claudeSid !== this.tugSessionId,
-        });
-        return frame;
-      }
-      case "content_block_start":
-      case "assistant_text":
-      case "thinking_text":
-      case "tool_use":
-      case "tool_result":
-      case "tool_use_structured":
-      case "turn_complete":
-      case "system_metadata":
-      case "control_request_forward":
-      case "cost_update":
-      case "context_breakdown":
-      case "error":
-        return frame;
-      case "turn_cancelled":
-        // The cancel receipt: tugcode closes an interrupted turn with this
-        // rather than `turn_complete` whenever the turn ended with
-        // `ActiveTurn.interrupted` set — the escalation ladder that
-        // force-terminates a wedged claude, the drain's EOF path, and
-        // `stop_all_work`. The reducer commits the turn as interrupted and
-        // clears the per-interrupt flags; `is_recovery: true` marks a cancel
-        // tugcode performed to recover a wedged claude, which commits the
-        // same way but is not badged as a stop the user asked for. The field
-        // names stay the wire's: there is no turnKey to mint and no deadline
-        // to compute, so nothing to normalize toward.
-        return {
-          type: "turn_cancelled",
-          msg_id: frame.msg_id,
-          seq: frame.seq,
-          partial_result: frame.partial_result,
-          ...(frame.is_recovery === true ? { is_recovery: true } : {}),
-        };
-      case "interrupt_noop":
-        // The receipt for an interrupt that found nothing to interrupt —
-        // tugcode's `handleInterrupt` reached a card with no claude process
-        // (`no_process`) or a live claude with no turn open (`no_turn`).
-        // Either way no turn can end, so the reducer clears the
-        // per-interrupt flags and leaves the transcript alone.
-        return { type: "interrupt_noop", reason: frame.reason };
-      case "stop_all_work_done":
-        // tugcode's answer to `stop_all_work` — the group was swept and its
-        // respawn acked. Emitted on its failure paths too, which is exactly
-        // why the deck listens: it is the belt to `turn_cancelled`'s
-        // braces, so a teardown that half-worked still settles a card
-        // offering Force Stop.
-        return frame;
-      case "api_retry":
-        // Claude's SDK is backing off and retrying a retryable API failure.
-        // Display-only: the reducer folds it into `apiRetry`, no phase
-        // change. The wire carries `retry_delay_ms` (a duration); the banner
-        // wants an absolute `deadline` to count down toward, stamped here so
-        // the reducer stays time-free.
-        return {
-          type: "api_retry",
-          attempt: frame.attempt,
-          maxRetries: frame.max_retries,
-          deadline: Date.now() + frame.retry_delay_ms,
-          error: frame.error,
-          errorStatus: frame.error_status,
-        };
-      case "model_refusal_fallback":
-        // A model declined and the SDK retried on a fallback model
-        // (non-fatal). Display-only: the reducer folds it into
-        // `refusalFallback`, no phase change.
-        return {
-          type: "model_refusal_fallback",
-          originalModel: frame.original_model,
-          fallbackModel: frame.fallback_model,
-        };
-      case "output_truncated":
-        // An assistant message closed on `max_tokens`. Display-only: the
-        // reducer flips `outputTruncated`, no phase change.
-        return { type: "output_truncated" };
-      case "goal_feedback":
-        // `/goal` evaluator feedback — the Stop-hook evaluator judged the
-        // goal condition unmet mid-cycle. The reducer folds it into `goal`
-        // (round count + latest reason); no phase change, no transcript ink.
-        return {
-          type: "goal_feedback",
-          condition: frame.condition,
-          reason: frame.reason,
-        };
-      case "compact_boundary":
-        // Claude compacted its context (auto-compaction at capacity, or a
-        // native `/compact`). The reducer appends a compaction `system_note`
-        // divider to the active turn (or the last committed turn on replay).
-        // Every field is optional: claude omits `compactMetadata` on some
-        // boundaries.
-        return {
-          type: "compact_boundary",
-          ...(frame.trigger !== undefined ? { trigger: frame.trigger } : {}),
-          ...(frame.pre_tokens !== undefined ? { preTokens: frame.pre_tokens } : {}),
-          ...(frame.post_tokens !== undefined ? { postTokens: frame.post_tokens } : {}),
-          ...(frame.timestamp !== undefined ? { timestamp: frame.timestamp } : {}),
-        };
-      case "compact_summary":
-        // The compaction summary text, emitted right after
-        // `compact_boundary` on both the live and replay paths. The reducer
-        // folds it into `compactionSeed` so the carry-forward block
-        // restores; no phase change, no transcript ink.
-        return { type: "compact_summary", summary: frame.summary };
-      case "session_segment":
-        // tugcode announced that the card's live claude session id changed,
-        // and how. Only `kind: "rotation"` — the server seating the next
-        // stage of an arc — reaches the reducer, as its `session_stage`
-        // event: a stage divider so the arc reads as one scroll, and the
-        // wheel's turn opened from the prompt the frame echoes. Every other
-        // kind is the bridge's identity record and draws nothing. Only the
-        // display fields cross: the session ids belong to the bridge's
-        // identity transfer, not to the divider.
-        if (frame.kind !== "rotation") return null;
-        return {
-          type: "session_stage",
-          stage: frame.stage ?? "",
-          model: frame.model ?? "",
-          document: frame.document ?? "",
-          arc: frame.arc ?? "",
-          ...(frame.steps !== undefined && frame.steps.length > 0
-            ? { steps: frame.steps }
-            : {}),
-          // The turn key is minted here because the reducer is pure.
-          ...(frame.prompt !== undefined && frame.prompt.length > 0
-            ? { prompt: frame.prompt, turnKey: mintTurnKey() }
-            : {}),
-        };
-      case "replay_stage":
-        // The same boundary, replayed: tugcode emits this between the
-        // JSONLs of an arc's stages during a lineage restore. A replayed
-        // rotation is only a divider — the identity transfer it names
-        // already happened.
-        return {
-          type: "session_stage",
-          stage: frame.stage,
-          model: frame.model,
-          document: frame.document,
-          arc: frame.arc,
-        };
-      case "replay_relocation":
-        // Where, in a replay, the card changed its project directory: after
-        // the history carried from the old directory and before the first
-        // turn said in the new one. Only a divider.
-        return {
-          type: "session_relocation",
-          fromDir: frame.from_dir,
-          toDir: frame.to_dir,
-        };
-      case "unknown_event":
-        // tugcode's forward-compat catch-all: claude streamed a top-level
-        // event type this build doesn't translate. The reducer folds it
-        // into `unknownEvent`, driving a soft warn banner, and stamps `at`
-        // itself.
-        return {
-          type: "unknown_event",
-          originalType: frame.original_type,
-          payloadHexPreview: frame.payload_hex_preview,
-        };
-      case "streaming_usage":
-        // Live intra-turn token usage — high-frequency telemetry published
-        // to the streaming document's live-usage path (never the snapshot);
-        // no phase change, no persist.
-        return frame;
-      case "resume_failed":
-        // tugcode emits this after a failed `--resume` spawn. The reducer
-        // rolls it into `lastError`.
-        logSessionLifecycle("code_store.resume_failed_recv", {
-          tug_session_id: this.tugSessionId,
-          stale_session_id: frame.stale_session_id,
-          reason: frame.reason,
-        });
-        return frame;
-      case "replay_started":
-      case "replay_complete":
-        // Replay bracket events emitted by the JSONL replay translator. The
-        // reducer transitions into / out of the `replaying` phase on these
-        // and populates `lastReplayResult` on completion.
-        return frame;
-      case "add_user_message":
-        return this.addUserMessageEvent(frame);
-      case "wake_started":
-      case "assistant_opener":
-      case "tug_notice":
-        // Turn openers with no user message. `wake_started` opens a wake
-        // bracket when claude resumes from idle on an async trigger
-        // (Monitor / CronCreate / ScheduleWakeup / …); `assistant_opener`
-        // opens an assistant-only turn for orphan assistant content
-        // (`tuglaws/turn-metric.md` S02); `tug_notice` is tugcast's opener
-        // beside a turn Tug injected itself, so no server-initiated turn
-        // arrives with no visible cause. The `turnKey` is a React-key seed
-        // with no meaning on the wire, minted here so the reducer stays
-        // pure.
-        return { ...frame, turnKey: mintTurnKey() };
-      case "task_started":
-        // Background-job lifecycle frames (the JOBS cell's feed — unrelated
-        // to the TaskCreate/TaskUpdate tool calls behind TASKS), folded into
-        // the session-lifetime jobs ledger. An empty id is refused by the
-        // mapping and the frame dropped.
-        return taskStartedEvent(frame) ?? null;
-      case "task_updated":
-        return taskUpdatedEvent(frame) ?? null;
-      case "task_progress":
-        // In-flight ticks for a backgrounded agent: the reducer folds the
-        // latest tick's tool and usage onto the running job row, and never
-        // inserts one.
-        return taskProgressEvent(frame) ?? null;
-      case "prompt_anchor":
-      case "rewind_preview_result":
-      case "rewind_result":
-        // `/rewind` frames. `prompt_anchor` carries the live turn's rewind
-        // anchor (the reducer stamps it onto the turn);
-        // `rewind_preview_result` carries a per-turn diff-stat (folded into
-        // the preview cache); `rewind_result` is the applied-rewind ack.
-        return frame;
-      case "replay_batch":
-      case "tool_progress":
-      case "run_progress":
-        // Taken apart before admission (`UNWRAPPED_CODE_OUTPUT_TYPES`).
-        return null;
-    }
-  }
-
-  /**
-   * Per-turn synthetic user-message frame, emitted by the replay translator
-   * at the start of each replayed turn and by tugcode's mid-turn snapshot
-   * path. The reducer's `handleAddUserMessage` mints a `pendingTurn` whose
-   * `initialMessages` is `[user_message]`, so the following
-   * `turn_complete` commits a `TurnEntry` with the historical submission.
-   */
-  private addUserMessageEvent(
-    frame: Extract<AnyDecodedFrame, { type: "add_user_message" }>,
-  ): CodeSessionEvent {
-    // `turnKey` is a client-side React-key seed minted by the store
-    // wrapper for every dispatched replay event. The wire doesn't (and
-    // shouldn't) carry it — replay is a synthesis of historical user
-    // submissions, and the cell wrapper identity is purely React's
-    // concern. Minting here keeps the reducer pure.
-    //
-    // The wire's `content` blocks (Anthropic API shape, carried verbatim
-    // through tugcast / tugcode) are walked through
-    // `synthesizeUserMessageFromBlocks` to produce the substrate
-    // `(text, atoms)` pair. No resolver — replay path mints fresh atom ids;
-    // the bytes-store is per-card-mount (fresh on reload) so
-    // orphan-from-id-reuse is impossible.
-    const rawContent: ContentBlock[] = frame.content;
-    // A `/compact`-born first message carries the recap as a marked
-    // leading content block (it rode the wire with the user's text).
-    // Split it off the *raw* content before synthesis so the recap never
-    // passes through `synthesizeUserMessageFromBlocks` (which parses
-    // `@`-mention markers): the bubble is the residual user content, the
-    // recap re-marks `compactionSeed` so the carry-forward summary renders
-    // on reload exactly as live.
-    const lead = rawContent[0];
-    const leadText = lead !== undefined && lead.type === "text" ? lead.text : "";
-    const seedSummary = leadText !== "" ? splitCompactionSeed(leadText) : null;
-    // A canceled `/compact` leaves its throwaway summarization turn in the
-    // discarded session's JSONL (claude persisted it; the client's
-    // `suppress` never crossed the wire). Recognize it on reload and mark
-    // the turn suppressed so it is dropped, not committed.
-    const suppressedTurn = leadText !== "" && isCompactionSummarizeText(leadText);
-    const content = seedSummary !== null ? rawContent.slice(1) : rawContent;
-    const synth = synthesizeUserMessageFromBlocks(content, this.atomBytesStore);
-    return {
-      type: "add_user_message",
-      text: synth.text,
-      atoms: synth.atoms,
-      tug_session_id: stampedSessionId(frame),
-      turnKey: mintTurnKey(),
-      timestamp: frame.timestamp,
-      // `/rewind` anchor on the replay / mid-turn-snapshot path; the
-      // reducer stamps it onto the turn.
-      promptUuid:
-        frame.promptUuid !== undefined && frame.promptUuid.length > 0
-          ? frame.promptUuid
-          : undefined,
-      // Who authored the submission, as tugcode's translator stated it on
-      // the one frame it identified as a stage's opening prompt.
-      origin: frame.origin === "wheel" ? "wheel" : undefined,
-      ...(seedSummary !== null ? { compactionSummary: seedSummary } : {}),
-      ...(suppressedTurn ? { suppressedTurn: true } : {}),
-    };
-  }
-
-  private frameToEvent(
-    feedId: number,
-    decoded: unknown,
-  ): CodeSessionEvent | null {
-    if (feedId === FeedId.SESSION_STATE) {
-      // SESSION_STATE payload shape is `{ tug_session_id, state, detail }`.
-      // Only `state: "errored"` maps to a reducer event; all other
-      // states (`pending`, `spawning`, `closed`, …) are dropped.
-      const ss = decoded as { state?: string; detail?: string };
-      if (ss.state !== "errored") return null;
-      return {
-        type: "session_state_errored",
-        detail: typeof ss.detail === "string" ? ss.detail : undefined,
-      };
-    }
-    if (feedId === FeedId.CONTROL) {
-      // Only CONTROL *error* frames map to reducer events. Everything
-      // else (`spawn_session_ok`, `session_backpressure`, app-level
-      // actions like `reload` / `set-theme`) either belongs to
-      // `action-dispatch.ts` or is dropped by `acceptFrame` upstream
-      // of this point. The two error details we recognize are
-      // `session_unknown` (supervisor orphan dispatcher) and
-      // `session_not_owned` (router P5 authz reject).
-      const ce = decoded as { type?: string; detail?: string };
-      if (ce.type !== "error") return null;
-      if (ce.detail === "session_unknown") {
-        return { type: "session_unknown", detail: ce.detail };
-      }
-      if (ce.detail === "session_not_owned") {
-        return { type: "session_not_owned", detail: ce.detail };
-      }
-      return null;
-    }
-    return null;
-  }
-
-  /**
-   * Hold the transcript at its turn limit. When the window holds more
-   * context turns than the limit, the oldest leave `_transcript`, their
-   * render-once parse entries are dropped, and the reducer advances the
-   * recency window past them and forgets their ids — so they read as older
-   * turns the load-previous door pages back in, as on a partially restored
-   * session.
-   * Never mid-bracket: a replay's turns land first and are held to the
-   * limit once it closes, and a load-previous bracket only ever raises it.
-   */
-  private enforceTranscriptCap(): void {
+  private applyStructure(patch: SessionPatchOf<"structure">): void {
+    const { state, transcript, meta, publish } = patch.payload;
     if (
-      this.state.phase === "replaying" ||
-      this.state.replayPrependActive ||
-      this._conversationRewindInFlight
+      publish === "fold" &&
+      this._notifyPending &&
+      this._cachedSnapshot === null &&
+      this.listenerCount > 0
     ) {
-      return;
+      // A publish earlier in this batch would have told its listeners at
+      // once, and they would have read the state as of that publish: pin it
+      // now, so the fold that follows stays unread until it flushes. With
+      // nobody listening there is no read to stand in for, and a later read
+      // shows the merged state, as an unread snapshot always did.
+      this.getSnapshot();
     }
-    const { transcript, evicted, windowTurns } = evictOldestTurns(
-      this._transcript,
-      this._transcriptTurnLimit,
-    );
-    if (evicted.length === 0) return;
-    this._transcript = transcript;
-    for (const turn of evicted) {
-      invalidateCachedParsesByPrefix(
-        this.streamingDocument,
-        `turn.${turn.turnKey}.`,
-      );
+    if (this._batchPerf === null) this._batchPerf = this._perf;
+    if (state !== undefined) {
+      const next = { ...this.state, ...state };
+      if (state.pendingFileInsert != null) {
+        next.pendingFileInsert = this._parkedFiles.shift() ?? state.pendingFileInsert;
+      }
+      this.state = next;
     }
-    this.state = reduce(this.state, {
-      type: "transcript_evicted",
-      evicted: evicted.length,
-      evictedMsgIds: evicted.flatMap((turn) =>
-        turn.msgId ? [turn.msgId] : [],
-      ),
-      windowTurns,
-    }).state;
+    if (transcript !== undefined) {
+      const before = this._transcript;
+      this._transcript = applyTranscriptSplices(before, transcript);
+      this.dropRemovedTurnParses(before, transcript);
+    }
+    if (meta !== undefined) this.takeMeta(meta);
+    if (publish === "sync") {
+      // Reads stay truthful at once — a `getSnapshot` sees the merged
+      // state. Only the notification waits for the batch's end.
+      this._cachedSnapshot = null;
+      this._notifyPending = true;
+    }
+    // A folded patch publishes nothing: a snapshot already read stays
+    // pinned until the fold flushes, as the replay fold always held it.
   }
 
-  private dispatch(
-    event: CodeSessionEvent,
-    origin: "wire" | "local" = "local",
+  /**
+   * The batch is applied: notify once if anything in it published, and
+   * signal streamed text once if any grew. A perf window the batch closed
+   * keeps the commit its own closing post published, and is logged here,
+   * with the notifies this store made rather than the posts the engine did.
+   */
+  private endOfBatch(): void {
+    const prevPerf = this._batchPerf ?? this._perf;
+    this._batchPerf = null;
+    if (this._disposed) return;
+    if (this._notifyPending) {
+      this._notifyPending = false;
+      this._publishAndNotify(prevPerf);
+    }
+    if (prevPerf.replay !== null && this._perf.replay === null) {
+      this._lastReplayCommits = this._replayCommits;
+      if (this._perf.lastReplay !== null) this.logReplayIngest(this._perf.lastReplay, this._lastReplayCommits);
+    }
+    if (prevPerf.liveTurn !== null && this._perf.liveTurn === null) {
+      this._lastLiveCommits = this._liveCommits;
+      if (this._perf.lastLiveTurn !== null) this.logLiveCommits(this._perf.lastLiveTurn, this._lastLiveCommits);
+    }
+    if (this._streamTextPending) {
+      this._streamTextPending = false;
+      this._streamTextVersion += 1;
+      for (const listener of [...this._streamTextListeners]) listener();
+    }
+  }
+
+  /**
+   * Drop the render-once parse entries of every turn the splices removed —
+   * an eviction by the transcript cap, or a rewind's truncation. A turn
+   * replaced by a newer version of itself keeps its key, and its entries.
+   */
+  private dropRemovedTurnParses(
+    before: ReadonlyArray<TurnEntry>,
+    splices: ReadonlyArray<SessionTranscriptSplice>,
   ): void {
-    this._perfBeforeReduce(event);
-    if (event.type === "rewind_result" || event.type === "transport_close") {
-      this._conversationRewindInFlight = false;
-    }
-    const prev = this.state;
-    const dispatchStart = performance.now();
-    const reduceStart = dispatchStart;
-    const reduced = reduce(this.state, event);
-    const effects = reduced.effects;
-    const reduceMs = performance.now() - reduceStart;
-    this.state = reduced.state;
-    const transcriptBefore = this._transcript;
-    this.processEffects(effects);
-    // The transcript cap runs only when the effects moved the transcript or
-    // a replay bracket closed over the turns it held back, so a token delta
-    // never pays for a count of the window.
-    if (
-      this._transcript !== transcriptBefore ||
-      (prev.phase === "replaying" && this.state.phase !== "replaying")
-    ) {
-      this.enforceTranscriptCap();
-    }
-    const state = this.state;
-    // The two replay deadlines, both armed here rather than in the
-    // reducer: the silence one because only the wrapper knows an event's
-    // origin, and the bracket cap because arming and cancelling it are
-    // one rule about a phase transition, and splitting them would leave
-    // the cancel to be remembered at every exit. Both run after
-    // `processEffects`, so the deck's own ingest work on a large
-    // `replay_batch` never counts against either.
-    //
-    // Silence restarts on a bracket-borne wire frame only ([P05]);
-    // the cap is armed once per bracket and never re-armed ([P04]).
-    const silence = replaySilenceEffect(
-      prev.phase,
-      state.phase,
-      origin === "wire",
-      event.type,
-    );
-    if (silence !== null) this.processEffects([silence]);
-    const bracket = replayBracketEffect(prev.phase, state.phase);
-    if (bracket !== null) this.processEffects([bracket]);
-    // The interrupt deadline, on the same terms and for the same reason:
-    // its life is the `interruptInFlight` flag's, and a rule written once
-    // here cannot be forgotten at one of the fourteen returns that clear
-    // the flag.
-    const interrupt = interruptSilenceEffect(
-      prev.interruptInFlight,
-      state.interruptInFlight,
-    );
-    if (interrupt !== null) this.processEffects([interrupt]);
-    // The stall timer's cancel half, on the same terms again. Its *arm* is
-    // emitted by the four handlers that fold a live stream event, because
-    // only they know an event arrived; its cancel is a transition on the
-    // phase, because the endings that matter are the ones where no further
-    // stream event ever comes.
-    const stall = streamStallCancelEffect(prev.phase, state.phase);
-    if (stall !== null) this.processEffects([stall]);
-    this.maybePersistStateChange(prev, state);
-    // Turn boundary (send or commit): the live usage path clears so the
-    // status cells never read a stale frame across turns — the old
-    // in-state lifecycle (`reset at send / superseded at commit`),
-    // preserved at the wrapper now that usage rides the streaming
-    // document instead of the snapshot.
-    if (
-      prev.pendingTurn !== state.pendingTurn &&
-      (prev.pendingTurn === null || state.pendingTurn === null) &&
-      this.streamingDocument.get(LIVE_USAGE_PATH) != null
-    ) {
-      this.streamingDocument.set(LIVE_USAGE_PATH, null, STREAM_SOURCE_TAG);
-    }
-    // `write-live-usage` is fine-grained by design — its observers ride
-    // the streaming document, so the effect alone must not tick the
-    // whole-store snapshot.
-    const notifyWorthy =
-      prev !== state ||
-      effects.some((e) => e.kind !== "write-live-usage");
-    if (notifyWorthy) {
-      // Replay fold ([P03]): while the reducer's `replaying` phase is
-      // open, WIRE events defer their notification — the snapshot
-      // stays pinned (`_cachedSnapshot` untouched) so React observes
-      // one tick per flush instead of one per frame. Deferral is
-      // wire-only: local actions, timer ticks (the soft-budget
-      // banner), and transport events publish immediately so
-      // mid-window UI stays truthful. `replay_started` itself
-      // publishes so the replay paint gate mounts; any event that
-      // exits the phase (`replay_complete`, an error path) lands in
-      // the else-branch and flushes everything pending in its own
-      // notify.
-      const defer =
-        origin === "wire" &&
-        state.phase === "replaying" &&
-        event.type !== "replay_started";
-      if (defer) {
-        this._foldPending += 1;
-        if (this._foldPending >= REPLAY_FOLD_FLUSH_THRESHOLD) {
-          this._flushReplayFold();
-        }
-      } else if (
-        origin === "wire" &&
-        prev.phase === state.phase &&
-        (event.type === "assistant_text" || event.type === "thinking_text")
-      ) {
-        // Live streaming firehose. A delta that only grew text publishes
-        // nothing: the snapshot stays pinned, and the text reaches the DOM
-        // through the `PropertyStore` the reducer's `write-inflight` effect
-        // already wrote ([L22]) — a token costs React no commit. A delta
-        // that also moved something a reader draws (a cleared stall or
-        // retry, a released held send, a minted Message) coalesces to one
-        // notify on the shared frame tick. Everything else — phase
-        // transitions, tool results, errors, control frames — is
-        // low-frequency and publishes synchronously below, so
-        // side-effectful observers (binding clears, notices) stay
-        // prompt.
-        if (isTextOnlyChange(prev, state)) {
-          this._scheduleStreamText();
-        } else {
-          this._publishCoalesced();
-        }
-      } else {
-        this._publishAndNotify();
+    if (!splices.some((s) => s.deleteCount > 0)) return;
+    const surviving = new Set(this._transcript.map((t) => t.turnKey));
+    for (const turn of before) {
+      if (!surviving.has(turn.turnKey)) {
+        invalidateCachedParsesByPrefix(this.streamingDocument, `turn.${turn.turnKey}.`);
       }
     }
-    if (this._perfReplay !== null) {
-      this._perfReplay.reduceMs += reduceMs;
-      this._perfReplay.dispatchMs += performance.now() - dispatchStart;
+  }
+
+  /** Take the engine-owned facts the patch carries. */
+  private takeMeta(meta: SessionMeta): void {
+    if (meta.loadPreviousTarget !== undefined) this._loadPreviousTarget = meta.loadPreviousTarget;
+    if (meta.prependStagingCount !== undefined) this._prependStagingCount = meta.prependStagingCount;
+    if ("lastSentUserMessage" in meta) this._lastSentUserMessage = meta.lastSentUserMessage;
+    if (meta.perf !== undefined) {
+      const prev = this._perf;
+      const next = meta.perf as MirrorPerf;
+      // A window opened since the last post starts its own count.
+      if (next.replay !== null && prev.replay?.startedAtMs !== next.replay.startedAtMs) {
+        this._replayCommits = 0;
+      }
+      if (next.liveTurn !== null && prev.liveTurn?.turnKey !== next.liveTurn.turnKey) {
+        this._liveCommits = 0;
+      }
+      this._perf = next;
     }
-    this._perfAfterDispatch(event);
+  }
+
+  /** A running tool's progress, in batch order. */
+  private applyProgress(patch: SessionPatchOf<"progress">): void {
+    const op = patch.payload;
+    switch (op.op) {
+      case "heartbeat":
+        this.runProgress.applyHeartbeat(op.toolUseId, op.elapsedSeconds, op.nowMs);
+        return;
+      case "report":
+        this.runProgress.applyReport(op.frame as RunProgressFrame, op.nowMs, () => op.runningJob);
+        return;
+      case "close":
+        this.runProgress.close(op.toolUseId);
+        return;
+      case "clear":
+        this.runProgress.clear();
+        return;
+    }
+  }
+
+  /** What only the page can do for the session. */
+  private applyEffect(patch: SessionPatchOf<"effect">): void {
+    const effect = patch.payload;
+    switch (effect.effect) {
+      case "confirm-written-paths":
+        // The one write the deck watched happen. The resolver's other two
+        // doors — a probe it asked for, a filesystem frame — are reports
+        // about somebody else's write and both cost a round trip; this
+        // one is already the answer, so it is handed over rather than
+        // asked about.
+        pathResolutionStore.confirmWritten(effect.paths);
+        return;
+      case "local-state-change":
+        // Local notify for any popover subscribed to this card's
+        // state-change log, carrying the `atMs` of the engine's wire write.
+        publishLocalSessionStateChange(effect.change as LocalSessionStateChange);
+        return;
+      case "atom-bytes":
+        // A replayed message's images, filed where the card's other
+        // attachments are, with their thumbnails baked here.
+        for (const bytes of effect.entries) {
+          void putImageBytes(this.atomBytesStore, bytes.id, bytes.content, bytes.mediaType);
+        }
+        return;
+    }
+  }
+
+  /** The store this session's routed frames of `type` land in; one per type, for the store's life. */
+  routedFrames(type: string): RoutedFrameStore {
+    let store = this._routedFrames.get(type);
+    if (store === undefined) {
+      store = new RoutedFrameStore(type);
+      this._routedFrames.set(type, store);
+    }
+    return store;
+  }
+
+  private applyAck(patch: SessionPatchOf<"ack">): void {
+    this._ackedSeq = Math.max(this._ackedSeq, patch.payload.seq);
+    this.releaseSettleWaiters();
   }
 
   /**
-   * Publish the current state (invalidate the pinned snapshot) and
-   * notify listeners once. Any deferred fold events ride this notify —
-   * a single snapshot tick covers everything reduced since the last
-   * publication.
+   * Notify listeners once for the batch's publishes. The snapshot was
+   * already invalidated where each publish was applied — and re-pinned if a
+   * fold followed it in the same batch, which this must leave standing.
+   * `prevPerf` is the perf as it stood before the patch being published, so
+   * a post that closed a window counts against it.
    */
-  private _publishAndNotify(): void {
-    // A pending tick publish is superseded — this publish carries
-    // everything reduced so far.
-    if (this._livePublishPending) {
-      this.publishTick.cancel(this._livePublish);
-      this._livePublishPending = false;
-    }
-    const hadFold = this._foldPending > 0;
-    this._foldPending = 0;
-    this._cachedSnapshot = null;
+  private _publishAndNotify(prevPerf: MirrorPerf = this._perf): void {
     this.notify();
-    this._perfOnCommit();
-    if (hadFold && this._perfReplay !== null) {
-      this._perfReplay.folds += 1;
-    }
-  }
-
-  /**
-   * Hand ONE publish to the shared tick (if none is pending): every
-   * same-phase wire event before the next frame rides that single
-   * notify. State/effects are already applied by the time this runs —
-   * only the React notification defers, exactly like the replay fold's
-   * pinned snapshot, just on a frame cadence instead of a count
-   * threshold. The notify latency is under one display frame, and the
-   * streamed text itself paints imperatively (the [L22] PropertyStore
-   * path) with no deferral at all.
-   */
-  private _publishCoalesced(): void {
-    // Reads stay truthful immediately — a synchronous `getSnapshot`
-    // after this dispatch sees the reduced state (unlike the replay
-    // fold, which pins the snapshot on purpose). Only the listener
-    // notification defers, so React renders once per window instead of
-    // once per token.
-    this._cachedSnapshot = null;
-    if (this._livePublishPending) return;
-    this._livePublishPending = true;
-    this.publishTick.schedule(this._livePublish);
-  }
-
-  /** Hand ONE streamed-text signal to the shared tick (if none is pending). */
-  private _scheduleStreamText(): void {
-    if (this._streamTextPending) return;
-    this._streamTextPending = true;
-    this.publishTick.schedule(this._streamTextPublish);
-  }
-
-  /** Threshold / teardown flush of the replay fold. */
-  private _flushReplayFold(): void {
-    if (this._foldPending === 0) return;
-    this._publishAndNotify();
+    this.countCommit(prevPerf);
   }
 
   // ---------------------------------------------------------------------
-  // Perf instrumentation (pure observability — no behavior, no state
-  // visible to React; counters live beside the dispatch pipeline
-  // because the store is the only place that sees every event AND
-  // every listener notification)
+  // Perf instrumentation (pure observability — no behavior)
   // ---------------------------------------------------------------------
 
   /**
-   * Dev-only read accessor over the perf counters. Consumed by the
-   * transcript host's `perf.replay_render` emission and by tests;
-   * not part of the public L02 contract.
+   * Dev-only read accessor over the perf counters: the engine's records,
+   * with the commits this store counted. Consumed by the transcript host's
+   * `perf.replay_render` emission and by tests; not part of the public L02
+   * contract.
    *
    * @internal
    */
@@ -2717,432 +2098,61 @@ export class CodeSessionStore extends Subscribable {
     lastReplay: ReplayIngestPerf | null;
     liveTurn: LiveTurnPerf | null;
     lastLiveTurn: LiveTurnPerf | null;
-  } => ({
-    replay: this._perfReplay,
-    lastReplay: this._perfLastReplay,
-    liveTurn: this._perfLiveTurn,
-    lastLiveTurn: this._perfLastLiveTurn,
-  });
-
-  /** Open windows and count the dispatched event before it reduces. */
-  private _perfBeforeReduce(event: CodeSessionEvent): void {
-    if (event.type === "replay_started") {
-      this._perfReplay = {
-        startedAtMs: Date.now(),
-        completedAtMs: null,
-        frames: 0,
-        folds: 0,
-        commits: 0,
-        reduceMs: 0,
-        dispatchMs: 0,
-      };
-    }
-    if (this._perfReplay !== null) {
-      this._perfReplay.frames += 1;
-    }
-    if (event.type === "send") {
-      this._perfLiveTurn = {
-        turnKey: event.turnKey,
-        startedAtMs: Date.now(),
-        commits: 0,
-      };
-    }
-  }
-
-  /** Count one listener notification against any open window. */
-  private _perfOnCommit(): void {
-    if (this._perfReplay !== null) {
-      this._perfReplay.commits += 1;
-    } else if (this._perfLiveTurn !== null) {
-      this._perfLiveTurn.commits += 1;
-    }
-  }
-
-  /** Close windows + emit summaries after the event fully dispatched. */
-  private _perfAfterDispatch(event: CodeSessionEvent): void {
-    if (event.type === "replay_complete" && this._perfReplay !== null) {
-      const perf = this._perfReplay;
-      perf.completedAtMs = Date.now();
-      this._perfLastReplay = perf;
-      this._perfReplay = null;
-      const wallMs = perf.completedAtMs - perf.startedAtMs;
-      const summary = {
-        tug_session_id: this.tugSessionId,
-        ms: wallMs,
-        frames: perf.frames,
-        folds: perf.folds,
-        commits: perf.commits,
-        // CPU breakdown: dispatchMs is the synchronous browser work
-        // across the window; reduceMs is the pure-reducer slice of it.
-        // `ms - dispatchMs` is time the browser spent idle waiting for
-        // frames — the share of the load that lives upstream of ingest.
-        reduceMs: Math.round(perf.reduceMs),
-        dispatchMs: Math.round(perf.dispatchMs),
-        waitMs: Math.round(wallMs - perf.dispatchMs),
-      };
-      logSessionLifecycle("perf.replay_ingest", summary);
-      tugDevLogStore.info("perf", "replay_ingest", summary);
-      return;
-    }
-    if (
-      event.type === "turn_complete" &&
-      this._perfReplay === null &&
-      this._perfLiveTurn !== null
-    ) {
-      const turn = this._perfLiveTurn;
-      this._perfLiveTurn = null;
-      this._perfLastLiveTurn = turn;
-      const summary = {
-        tug_session_id: this.tugSessionId,
-        turnKey: turn.turnKey,
-        commits: turn.commits,
-        ms: Date.now() - turn.startedAtMs,
-      };
-      logSessionLifecycle("perf.live_commits", summary);
-      tugDevLogStore.info("perf", "live_commits", summary);
-    }
-  }
+  } => {
+    const perf = this._perf;
+    return {
+      replay: perf.replay && { ...perf.replay, commits: this._replayCommits },
+      lastReplay: perf.lastReplay && { ...perf.lastReplay, commits: this._lastReplayCommits },
+      liveTurn: perf.liveTurn && { ...perf.liveTurn, commits: this._liveCommits },
+      lastLiveTurn: perf.lastLiveTurn && { ...perf.lastLiveTurn, commits: this._lastLiveCommits },
+    };
+  };
 
   /**
-   * After every reduce, compare the indicator-tone triple `(phase,
-   * transportState, interruptInFlight)` between prev and next state.
-   * If any axis changed, fire-and-forget a
-   * `record_session_state_change` CONTROL frame so the supervisor
-   * appends one row to the `session_state_changes` ledger. This is
-   * the client-side primary dedupe; the ledger layer dedupes against
-   * the most-recent persisted triple as a race safety-net.
-   *
-   * The triple seeds the popover's state-change log
-   * (Step 20.4.9); persistence survives reload so the log is not
-   * lost when the card re-mounts. The collapse rules (transcript-
-   * length, `pendingApproval` vs `pendingQuestion`, `queuedSends`,
-   * `turnEndReason`, DRILLDOWN_OPEN) are owned by the reducer's
-   * indicator-tone derivation; this hook only sees what the snapshot
-   * already exposes through these three fields. See the parent plan
-   * step's "Coverage and known collapses" note.
+   * Count one notify against the window that was open when the engine
+   * published it: a replay window first, then a live turn — including the
+   * window the publishing post itself closed.
    */
-  private maybePersistStateChange(
-    prev: CodeSessionState,
-    next: CodeSessionState,
-  ): void {
-    if (
-      prev.phase === next.phase &&
-      prev.transportState === next.transportState &&
-      prev.interruptInFlight === next.interruptInFlight
-    ) {
-      return;
+  private countCommit(prev: MirrorPerf): void {
+    const perf = this._perf;
+    if (perf.replay !== null || prev.replay !== null) {
+      this._replayCommits += 1;
+    } else if (perf.liveTurn !== null || prev.liveTurn !== null) {
+      this._liveCommits += 1;
     }
-    const atMs = Date.now();
-    const frame = encodeRecordSessionStateChange({
-      tugSessionId: this.tugSessionId,
-      atMs,
-      phase: next.phase,
-      transportState: next.transportState,
-      interruptInFlight: next.interruptInFlight,
-    });
-    this.conn.send(frame.feedId, frame.payload);
-    // Local notify for any popover subscribed to this card's
-    // state-change log. Same `atMs` as the wire write so the
-    // persisted row and the locally-published row carry identical
-    // timestamps — important for the popover's dedupe-on-subsequent-
-    // reload path.
-    publishLocalSessionStateChange({
-      tugSessionId: this.tugSessionId,
-      atMs,
-      phase: next.phase,
-      transportState: next.transportState,
-      interruptInFlight: next.interruptInFlight,
-    });
   }
 
-  private processEffects(effects: Effect[]): void {
-    for (const effect of effects) {
-      switch (effect.kind) {
-        case "write-live-usage":
-          // High-frequency display telemetry — a per-path write only its
-          // observers (the Tokens / Context cells) see; the transcript
-          // list never re-renders for it.
-          this.streamingDocument.set(
-            LIVE_USAGE_PATH,
-            effect.usage,
-            STREAM_SOURCE_TAG,
-          );
-          break;
-        case "write-inflight": {
-          // Per-Message path `turn.${turnKey}.message.${messageKey}.${channel}`
-          // ([D07]). Each Message's path is stable from mint through
-          // commit (the cell wrapper subscribing to it survives the
-          // inflight → committed transition without a React unmount);
-          // each new Message of the same turn writes to its own path
-          // so streaming subscriptions don't cross-pollinate.
-          const path = `turn.${effect.turnKey}.message.${effect.messageKey}.${effect.channel}`;
-          this.streamingDocument.set(path, effect.value, STREAM_SOURCE_TAG);
-          break;
-        }
-        case "clear-inflight":
-          // No-op under the per-turn-paths architecture. Each turn
-          // writes to its own path; nothing needs clearing at
-          // `turn_complete`. Kept as an enum variant so the reducer
-          // (which still emits the effect at turn boundaries — see
-          // `handleTurnComplete`) doesn't need a coordinated change.
-          // If `clear-inflight` outlives its callers, fold the
-          // emission out of the reducer too.
-          break;
-        case "send-frame":
-          // The test witness above; one assignment on a path that already
-          // encodes and writes a frame.
-          if (effect.msg.type === "user_message") {
-            this._lastSentUserMessage = effect.msg;
-          }
-          this.conn.send(
-            FeedId.CODE_INPUT,
-            encodeCodeInputPayload(effect.msg, this.tugSessionId),
-          );
-          break;
-        case "append-transcript":
-          // Copy-on-write so old snapshot refs remain valid for
-          // useSyncExternalStore consumers.
-          if (effect.prepend === true) {
-            // Load-previous bracket: stage older turns (arrival order)
-            // for a single front-commit at flush-prepend. Staging keeps
-            // the prepended block's order correct and lets the list view
-            // observe one structural growth at the front rather than M.
-            this._prependStaging.push(effect.entry);
-          } else {
-            // Append, but keep the turn interleaved with any shell rows the
-            // ledger restore ([P07]) seated ahead of it — on a Maker ▸
-            // Reload the `list_shell_exchanges` restore can land before the
-            // JSONL replay, so a bare append would strand the replayed Claude
-            // turn behind shell rows it chronologically precedes. The helper
-            // only slides past trailing shell turns; non-shell order is intact.
-            // The arriving turn may be the one a restored arc-note row was
-            // waiting for — absorb it inside at its clock position ([P12]),
-            // so the reload race converges on the live reading whichever
-            // side landed first.
-            this._transcript = absorbArcNotes(
-              appendTurnInterleavingInk(this._transcript, effect.entry),
-            );
-          }
-          break;
-        case "ingest-ink-turn":
-          // Shell exchange ([P06]/[P12]): upsert the turn — settle in place
-          // (same turnKey) or insert at its timestamp position (mint /
-          // restore interleave). Copy-on-write, disjoint from the Claude
-          // turn lifecycle. An arc-note row whose turn is already committed
-          // is then absorbed into it ([P12]) — the other side of the same
-          // convergence the `append-transcript` case runs.
-          this._transcript = absorbArcNotes(
-            upsertInkTurn(this._transcript, effect.entry),
-          );
-          break;
-        case "flush-prepend":
-          // Commit the staged older batch ahead of the existing
-          // transcript. Copy-on-write; existing `TurnEntry` refs (and
-          // their `turnKey`s) are reused, so React preserves the
-          // already-mounted rows' identity across the index shift ([L26]).
-          if (this._prependStaging.length > 0) {
-            // The older bracket may hold the turns that restored arc-note
-            // rows were waiting for — the same absorption the append path
-            // runs ([P12]), on the block that just became visible.
-            this._transcript = absorbArcNotes([
-              ...this._prependStaging,
-              ...this._transcript,
-            ]);
-            this._prependStaging = [];
-            // The user asked to see these; the cap rises to hold them.
-            this._transcriptTurnLimit = Math.max(
-              this._transcriptTurnLimit,
-              countContextTurns(this._transcript),
-            );
-          }
-          break;
-        case "discard-prepend":
-          // Cancelled load-previous: drop the staged older turns; the
-          // prior transcript/window is untouched.
-          this._prependStaging = [];
-          break;
-        case "truncate-transcript": {
-          // L26-safe local truncation ([#step-7-3]): drop the anchor turn
-          // and everything after; survivors keep their `TurnEntry` reference
-          // (and thus `turnKey`/`msgId`) so React preserves their mounts. The
-          // pure helper returns the SAME array reference when the anchor
-          // isn't present, so a stale ack is a true no-op (no snapshot churn).
-          const before = this._transcript;
-          this._transcript = truncateTranscriptAtAnchor(
-            before,
-            effect.promptUuid,
-          );
-          // Row removal is the one structural "mutation" of finalized
-          // rows — drop the removed turns' render-once parse entries
-          // through the explicit invalidation API. (TurnKeys are
-          // UUIDs, never reused, so a missed drop would only be dead
-          // weight — this keeps the cache exact anyway.)
-          if (this._transcript !== before) {
-            const surviving = new Set(this._transcript.map((t) => t.turnKey));
-            for (const turn of before) {
-              if (!surviving.has(turn.turnKey)) {
-                invalidateCachedParsesByPrefix(
-                  this.streamingDocument,
-                  `turn.${turn.turnKey}.`,
-                );
-              }
-            }
-          }
-          break;
-        }
-        case "append-compact-note": {
-          // [P04] replay fallback: the `compact_boundary` arrived with no open
-          // turn, so seat the divider on the last committed turn (the
-          // transcript lives here, not in reducer state — [D04]). Copy-on-write
-          // so old snapshot refs stay valid; the note's key is minted from the
-          // last turn's `turnKey` + `messages.length` (deterministic, pure,
-          // collision-safe). Empty transcript ⇒ no-op.
-          if (this._transcript.length > 0) {
-            const lastIndex = this._transcript.length - 1;
-            const turn = this._transcript[lastIndex];
-            const note: SystemNote = {
-              kind: "system_note",
-              messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
-              createdAt: effect.timestamp ?? Date.now(),
-              text: effect.text,
-              source: "compact",
-            };
-            const nextTranscript = [...this._transcript];
-            nextTranscript[lastIndex] = {
-              ...turn,
-              messages: [...turn.messages, note],
-              // Replay honest-total stamp (H1, Spec S03): the divider seats on
-              // this last surviving turn, so "window after this turn = the
-              // post-compaction total" is exactly honest. `deriveContextWindows`
-              // reads it as `window(N)` even with no post-compaction turn. On
-              // the live path the scratch stamp already set it, so the effect
-              // omits it and this leaves the committed value untouched.
-              ...(typeof effect.compactionPostTotal === "number"
-                ? { compactionPostTotal: effect.compactionPostTotal }
-                : {}),
-            };
-            this._transcript = nextTranscript;
-          }
-          break;
-        }
-        case "append-stage-note": {
-          // The arc rotated at idle, so there is no open turn: seat the stage
-          // divider on the last committed turn, copy-on-write, with a key
-          // minted from that turn's `turnKey` + `messages.length`. Same shape
-          // as `append-compact-note` above; empty transcript ⇒ no-op.
-          if (this._transcript.length > 0) {
-            const lastIndex = this._transcript.length - 1;
-            const turn = this._transcript[lastIndex];
-            const note: SystemNote = {
-              kind: "system_note",
-              messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
-              createdAt: Date.now(),
-              text: effect.text,
-              source: "stage",
-              stageFacts: effect.stageFacts,
-            };
-            const nextTranscript = [...this._transcript];
-            nextTranscript[lastIndex] = {
-              ...turn,
-              messages: [...turn.messages, note],
-            };
-            this._transcript = nextTranscript;
-          }
-          break;
-        }
-        case "append-relocation-note": {
-          // A directory change, seated like a stage divider: on the last
-          // committed turn, copy-on-write. Every replayed frame before it has
-          // committed, so it reads after the history the card carried and
-          // before the first turn in the new directory. Empty ⇒ no-op.
-          if (this._transcript.length > 0) {
-            const lastIndex = this._transcript.length - 1;
-            const turn = this._transcript[lastIndex];
-            const note: SystemNote = {
-              kind: "system_note",
-              messageKey: systemNoteKey(turn.turnKey, turn.messages.length),
-              createdAt: Date.now(),
-              text: RELOCATION_BOUNDARY_EVENT,
-              source: "relocation",
-              relocation: { fromDir: effect.fromDir, toDir: effect.toDir },
-            };
-            const nextTranscript = [...this._transcript];
-            nextTranscript[lastIndex] = {
-              ...turn,
-              messages: [...turn.messages, note],
-            };
-            this._transcript = nextTranscript;
-          }
-          break;
-        }
-        case "schedule_timer": {
-          // Re-entry on the same name cancels the prior timer first
-          // so neither callback can race with the new one.
-          const prior = this._replayTimers.get(effect.name);
-          if (prior !== undefined) {
-            this.timerSource.clearTimeout(prior);
-          }
-          const fire = effect.fire;
-          const name = effect.name;
-          const handle = this.timerSource.setTimeout(() => {
-            this._replayTimers.delete(name);
-            if (this._disposed) return;
-            this.dispatch(fire);
-          }, effect.ms);
-          this._replayTimers.set(effect.name, handle);
-          break;
-        }
-        case "cancel_timer": {
-          const handle = this._replayTimers.get(effect.name);
-          if (handle !== undefined) {
-            this.timerSource.clearTimeout(handle);
-            this._replayTimers.delete(effect.name);
-          }
-          break;
-        }
-        case "record-telemetry": {
-          // Fire-and-forget CONTROL frame to the supervisor. Persists
-          // the per-turn telemetry block in the sqlite SessionLedger
-          // so the next resume can inline it onto the replayed
-          // `turn_complete`. The supervisor doesn't ack; the
-          // reducer's TurnEntry is already committed locally — the
-          // wire write is purely "remember this for the next reload."
-          const frame = encodeRecordTurnTelemetry({
-            tugSessionId: this.tugSessionId,
-            msgId: effect.msgId,
-            telemetry: effect.telemetry,
-            endedAt: effect.endedAt,
-          });
-          this.conn.send(frame.feedId, frame.payload);
-          break;
-        }
-        case "confirm-written-paths":
-          // The one write the deck watched happen. The resolver's other two
-          // doors — a probe it asked for, a filesystem frame — are reports
-          // about somebody else's write and both cost a round trip; this
-          // one is already the answer, so it is handed over rather than
-          // asked about. The reducer has already ruled out a replayed
-          // result, which is the only case where a past write would be a
-          // lie about the present.
-          pathResolutionStore.confirmWritten(effect.paths);
-          break;
-        case "record-context-breakdown": {
-          // Fire-and-forget CONTROL frame to the supervisor. Persists
-          // the `/context`-style breakdown blob in the sqlite
-          // `context_breakdown_latest` table so the next bind can
-          // re-emit it as a synthetic `context_breakdown` frame
-          // before any new live frame lands. Idempotent on
-          // `tug_session_id` via UPSERT — repeat writes overwrite.
-          const frame = encodeRecordContextBreakdown({
-            tugSessionId: this.tugSessionId,
-            payload: effect.payload,
-            capturedAt: effect.capturedAt,
-          });
-          this.conn.send(frame.feedId, frame.payload);
-          break;
-        }
-      }
-    }
+  /** `perf.replay_ingest`: one closed replay window, with this store's commits. */
+  private logReplayIngest(perf: ReplayIngestPerf, commits: number): void {
+    const wallMs = (perf.completedAtMs ?? perf.startedAtMs) - perf.startedAtMs;
+    const summary = {
+      tug_session_id: this.tugSessionId,
+      ms: wallMs,
+      frames: perf.frames,
+      folds: perf.folds,
+      commits,
+      // CPU breakdown: dispatchMs is the synchronous work across the
+      // window; reduceMs is the pure-reducer slice of it. `ms -
+      // dispatchMs` is time spent idle waiting for frames — the share of
+      // the load that lives upstream of ingest.
+      reduceMs: Math.round(perf.reduceMs),
+      dispatchMs: Math.round(perf.dispatchMs),
+      waitMs: Math.round(wallMs - perf.dispatchMs),
+    };
+    logSessionLifecycle("perf.replay_ingest", summary);
+    tugDevLogStore.info("perf", "replay_ingest", summary);
+  }
+
+  /** `perf.live_commits`: one closed live turn, with this store's commits. */
+  private logLiveCommits(turn: LiveTurnPerf, commits: number): void {
+    const summary = {
+      tug_session_id: this.tugSessionId,
+      turnKey: turn.turnKey,
+      commits,
+      ms: (turn.completedAtMs ?? turn.startedAtMs) - turn.startedAtMs,
+    };
+    logSessionLifecycle("perf.live_commits", summary);
+    tugDevLogStore.info("perf", "live_commits", summary);
   }
 
   /**

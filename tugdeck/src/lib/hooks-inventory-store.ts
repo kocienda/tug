@@ -19,7 +19,7 @@
  */
 
 import { Subscribable } from "./subscribable";
-import type { FeedStore } from "./feed-store";
+import type { FeedSnapshotSource } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
@@ -189,12 +189,12 @@ export class HooksInventoryStore extends Subscribable {
   private _snapshot: HooksInventorySnapshot = EMPTY_SNAPSHOT;
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
-  private readonly _feedStore: FeedStore;
+  private readonly _feedStore: FeedSnapshotSource;
   private readonly _feedId: FeedIdValue;
   private readonly _tugSessionId: string;
   private _seq = 0;
 
-  constructor(feedStore: FeedStore, feedId: FeedIdValue, tugSessionId: string) {
+  constructor(feedStore: FeedSnapshotSource, feedId: FeedIdValue, tugSessionId: string) {
     super();
     this._feedStore = feedStore;
     this._feedId = feedId;

@@ -35,6 +35,13 @@ import {
 } from "@/protocol";
 import type { FeedStoreFilter } from "@/lib/feed-store";
 import { Subscribable } from "@/lib/subscribable";
+import {
+  openInProcessSession,
+  type SessionLink,
+  type SessionLocalOptions,
+  type SessionOpenOptions,
+} from "@/lib/ingest/session-link";
+import type { SessionPatchTarget } from "@/lib/ingest/session-patch";
 
 function isStateChangeFrame(frame: {
   feedId: number;
@@ -109,6 +116,15 @@ export class TestFrameChannel {
       const idx = list.indexOf(callback);
       if (idx >= 0) list.splice(idx, 1);
     };
+  }
+
+  /**
+   * Open a session's engine as the connection does: an in-process host fed
+   * by {@link dispatchFrame}, whose writes land in {@link recordedFrames}
+   * through {@link send}. The injected `timerSource` drives its replay clock.
+   */
+  openSession(open: SessionOpenOptions, target: SessionPatchTarget, local?: SessionLocalOptions): SessionLink {
+    return openInProcessSession(this, open, target, local);
   }
 
   /**

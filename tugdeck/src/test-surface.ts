@@ -79,6 +79,8 @@ import {
 } from "./lib/card-session-binding-store";
 import { publishListCardBindingsOk } from "./lib/session-ledger-events";
 import type { CardBinding } from "./protocol";
+import { FeedId } from "./protocol";
+import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import {
@@ -440,8 +442,16 @@ import {
  * `2.28.0`: adds {@link TugTestSurface.spawnSessionNew}, the real
  * `spawn_session(mode=new)` frame — how a card binds to a session whose
  * tugcode the test has stubbed. Additive; major stays `2`.
+ *
+ * `2.29.0`: adds {@link TugTestSurface.ingestSpike}, the proof that a module
+ * Worker can hold tugcast's socket on this WebKit. Additive; major stays `2`.
+ *
+ * `2.30.0`: adds {@link TugTestSurface.sessionSettled}. A session's engine
+ * reduces in the ingest Worker, so what `driveSession` posts reaches the
+ * card's store one message hop later; the harness's `driveSession` waits on
+ * this after every drive, so no test sees the hop. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.28.0" as const;
+export const SURFACE_VERSION = "2.30.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -765,6 +775,24 @@ export type SelectionSnapshot =
       text: string;
       isCollapsed: boolean;
       cardId: string | null;
+    };
+
+/** What {@link TugTestSurface.ingestSpike} saw, as plain JSON. */
+export type IngestSpikeReport =
+  | {
+      readonly ok: true;
+      readonly handshake: { protocol?: unknown; version?: unknown };
+      /** The transferred frame's byte length. */
+      readonly firstFrameBytes: number;
+      /** The frame header's feed id byte. */
+      readonly firstFeedId: number | null;
+      readonly hasRaf: boolean;
+    }
+  | {
+      readonly ok: false;
+      readonly stage: "load" | "open" | "handshake" | "frame";
+      readonly error: string;
+      readonly hasRaf: boolean | null;
     };
 
 /**
@@ -1189,6 +1217,21 @@ export interface TugTestSurface {
   } | null>;
 
   /**
+   * Build the ingest Worker and have it open this page's own `ws://<host>/ws`,
+   * complete tugcast's handshake, subscribe to snapshot feeds and transfer
+   * back the first binary frame it receives (SURFACE_VERSION 2.29.0).
+   *
+   * It exists because everything the ingest Worker carries rests on this
+   * WebKit letting a dedicated module Worker hold the page's socket with the
+   * page's origin. The result is plain JSON: the handshake reply, the
+   * transferred frame's size and feed id, and whether the Worker's global
+   * scope has `requestAnimationFrame`. The page's own connection is not
+   * touched. `evalJS` cannot return a promise's result, so a test parks the
+   * resolved value on `window` and waits for it.
+   */
+  ingestSpike(): Promise<IngestSpikeReport>;
+
+  /**
    * Record activity units on a session's channel, exactly as a live `ACTIVITY`
    * frame would (SURFACE_VERSION 2.2.0).
    *
@@ -1560,6 +1603,13 @@ export interface TugTestSurface {
    */
   refreshInkRestore(cardId: string): void;
   driveSession(cardId: string, action: SessionDriveAction): void;
+
+  /**
+   * Whether one card's session store has heard back from its engine about
+   * everything it posted — `CodeSessionStore.isSettled()`. True for a card
+   * with no bound session, which has nothing outstanding.
+   */
+  sessionSettled(cardId: string): boolean;
 
   /**
    * The last `user_message` one card's session store put on the wire, as its
@@ -2597,6 +2647,41 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       };
     },
 
+    ingestSpike(): Promise<IngestSpikeReport> {
+      return new Promise((resolve) => {
+        const worker = new Worker(
+          new URL("@/lib/workers/ingest-worker.ts", import.meta.url),
+          { type: "module" },
+        );
+        worker.onmessage = (event: MessageEvent<IngestSpikeResponse>): void => {
+          worker.terminate();
+          const r = event.data;
+          if (!r.ok) {
+            resolve({ ok: false, stage: r.stage, error: r.error, hasRaf: r.hasRaf });
+            return;
+          }
+          const bytes = r.firstFrameBytes;
+          resolve({
+            ok: true,
+            handshake: r.handshake,
+            firstFrameBytes: bytes.byteLength,
+            firstFeedId: bytes.byteLength > 0 ? new Uint8Array(bytes)[0]! : null,
+            hasRaf: r.hasRaf,
+          });
+        };
+        worker.onerror = (event: ErrorEvent): void => {
+          worker.terminate();
+          resolve({ ok: false, stage: "load", error: event.message || "the Worker failed to load", hasRaf: null });
+        };
+        const request: IngestSpikeRequest = {
+          kind: "spike",
+          wsUrl: `ws://${window.location.host}/ws`,
+          feeds: [FeedId.DEFAULTS, FeedId.FILETREE, FeedId.GIT_HEAD],
+        };
+        worker.postMessage(request);
+      });
+    },
+
     publishSessionUpdated(payloadJson: string): boolean {
       let body: unknown;
       try {
@@ -3023,6 +3108,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         throw new Error(`refreshInkRestore: card "${cardId}" has no bound session`);
       }
       services.shellSessionStore.refreshRestore();
+    },
+
+    sessionSettled(cardId: string): boolean {
+      return cardServicesStore.getServices(cardId)?.codeSessionStore.isSettled() ?? true;
     },
 
     driveSession(cardId: string, action: SessionDriveAction): void {

@@ -2866,6 +2866,13 @@ export const SessionTranscriptHost = forwardRef<
     findOpen ? codeSessionStore.observeStreamText : NOOP_SUBSCRIBE,
     codeSessionStore.getStreamTextVersion,
   );
+  // The invalidation keys, nulled while find is closed so a closed bar
+  // rebuilds nothing.
+  const findTranscriptKey = findOpen ? transcriptKey : null;
+  const findActiveTurnKey = findOpen ? activeTurnKey : null;
+  const findQueuedSendsKey = findOpen ? queuedSendsKey : null;
+  const findStreamTextVersion = findOpen ? streamTextVersion : null;
+  const findExpansionVersion = findOpen ? expansionVersion : null;
   const searchIndex = useMemo(
     () =>
       findOpen
@@ -2876,17 +2883,7 @@ export const SessionTranscriptHost = forwardRef<
     // bumps on every expand/collapse toggle. All of them key the memo only
     // while find is open, so a closed bar rebuilds nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the row keys, `streamTextVersion` and `expansionVersion` are the invalidation keys named above; the builder reads the live stores
-    [
-      dataSource,
-      streamingStore,
-      toolBlockExpansion,
-      findOpen,
-      findOpen ? transcriptKey : null,
-      findOpen ? activeTurnKey : null,
-      findOpen ? queuedSendsKey : null,
-      findOpen ? streamTextVersion : null,
-      findOpen ? expansionVersion : null,
-    ],
+    [dataSource, streamingStore, toolBlockExpansion, findOpen, findTranscriptKey, findActiveTurnKey, findQueuedSendsKey, findStreamTextVersion, findExpansionVersion],
   );
   // The transcript's find ENGINE — the session's delegate: the session owns
   // query/options/wrap semantics; this engine owns the index search, the

@@ -238,15 +238,30 @@ export async function runTerminationPipeline(deps: TerminationDeps): Promise<Ter
  * synchronously; a CASE B turn reaches it when the wire's
  * `turn_complete(error)` commits the interrupted entry. Every
  * subscription is released on acknowledgment *and* on expiry ([L27]).
+ *
+ * Every store is a mirror of an engine in the ingest Worker, so the pass
+ * first waits for each to settle ([P09]): a send queued in the same task as
+ * the quit has then come back, `canInterrupt` reads it, and the stash below
+ * finds it in `queuedSends` before the interrupt clears it ([L23]). The
+ * termination save's `captureUnsentText` runs after this pass, on settled
+ * mirrors. That wait is bounded too, by the same budget: a Worker that has
+ * stopped answering leaves the pass to read the mirrors as they stand.
  */
 export async function interruptLiveSessions(): Promise<{
   interrupted: string[];
   unacknowledged: string[];
 }> {
-  const live = cardServicesStore
+  const stores = cardServicesStore
     .allServices()
-    .map((services) => services.codeSessionStore)
-    .filter((store) => store.getSnapshot().canInterrupt);
+    .map((services) => services.codeSessionStore);
+  await new Promise<void>((resolve) => {
+    const timer = window.setTimeout(resolve, TERMINATION_INTERRUPT_AWAIT_MS);
+    void Promise.all(stores.map((store) => store.whenSettled())).then(() => {
+      window.clearTimeout(timer);
+      resolve();
+    });
+  });
+  const live = stores.filter((store) => store.getSnapshot().canInterrupt);
 
   if (live.length === 0) {
     return Promise.resolve({ interrupted: [], unacknowledged: [] });

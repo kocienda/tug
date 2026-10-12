@@ -92,6 +92,17 @@ export function defaultDecode(payload: Uint8Array): unknown {
 export type FeedStoreFilter = (feedId: FeedIdValue, decoded: unknown) => boolean;
 
 /**
+ * What a store that folds one feed's frames reads: the last decoded value per
+ * feed id, and a change notification. A `FeedStore` is one; so is a
+ * `RoutedFrameStore`, which the ingest host feeds one session's frames of one
+ * type without the page ever decoding the feed.
+ */
+export interface FeedSnapshotSource {
+  getSnapshot(): Map<number, unknown>;
+  subscribe(listener: () => void): () => void;
+}
+
+/**
  * FeedStore holds decoded feed payloads in a `Map<number, unknown>`.
  *
  * Lifecycle:

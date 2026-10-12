@@ -585,6 +585,11 @@ pub struct Motion {
     pub chains: Option<Vec<LandSite>>,
     /// `None` without `--tasks`.
     pub deliveries: Option<Vec<LandSite>>,
+    /// The ingest batches the page applied inside the motion's gate — after
+    /// its close, before its open — as `(t, patches)`; the wire is held in
+    /// the ingest Worker there, so this is empty. `None` when the page kept
+    /// no trace, or predates the `ingest-batch` row.
+    pub ingest_batches: Option<Vec<(f64, usize)>>,
 }
 
 /// Read the motion between the gate's last close before `off` and `off`.
@@ -597,6 +602,7 @@ pub fn motion(
     commits: Option<&[RawCommit]>,
     chains: Option<&[LandSite]>,
     tasks: Option<&[RawTask]>,
+    ingest: Option<&[(f64, usize, bool)]>,
 ) -> Option<Motion> {
     let at = gates
         .iter()
@@ -609,12 +615,19 @@ pub fn motion(
         .map(|pair| round1(pair[1] - pair[0]))
         .reduce(f64::max);
     let (commits, chains, deliveries) = events_in(commits, chains, tasks, |t| t > at && t <= off);
+    let ingest_batches = ingest.map(|rows| {
+        rows.iter()
+            .filter(|(t, _, shut)| *shut && *t >= at)
+            .map(|(t, patches, _)| (*t, *patches))
+            .collect()
+    });
     Some(Motion {
         at_ms: at,
         longest_gap_ms,
         commits,
         chains,
         deliveries,
+        ingest_batches,
     })
 }
 
@@ -891,6 +904,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
     let land_chains: Option<Vec<LandSite>> = list(raw, "landChains");
     let tasks: Option<Vec<RawTask>> = list(raw, "tasks");
     let gates: Vec<(f64, String)> = list(raw, "gates").unwrap_or_default();
+    let ingest: Option<Vec<(f64, usize, bool)>> = list(raw, "ingest");
     let motion_reading = (drive.gesture != "switch")
         .then(|| window_of(&marks))
         .flatten()
@@ -902,6 +916,7 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
                 raw_commits.as_deref(),
                 land_chains.as_deref(),
                 tasks.as_deref(),
+                ingest.as_deref(),
             )
         });
     let land = (drive.gesture != "switch")
@@ -1324,12 +1339,13 @@ pub fn reading_extras(r: &Reading) -> String {
         let count = |n: Option<usize>| n.map_or_else(|| "—".to_string(), |n| n.to_string());
         let _ = writeln!(
             out,
-            "   motion from {:.1} ms: longest gap {} ms; commits {}, chains {}, deliveries {}",
+            "   motion from {:.1} ms: longest gap {} ms; commits {}, chains {}, deliveries {}, ingest batches {}",
             motion.at_ms,
             ms(motion.longest_gap_ms),
             count(motion.commits.as_ref().map(Vec::len)),
             count(motion.chains.as_ref().map(Vec::len)),
             count(motion.deliveries.as_ref().map(Vec::len)),
+            count(motion.ingest_batches.as_ref().map(Vec::len)),
         );
         for c in motion.commits.iter().flatten() {
             let _ = writeln!(
@@ -1822,7 +1838,10 @@ mod tests {
             {"t": 120.0, "performed": 4, "origins": [["SessionCard", 1]], "top": []},
         ]))
         .unwrap();
-        let m = motion(&frames, &gates, 170.0, Some(&commits), None, None).unwrap();
+        // Batches the page applied: one inside the first gate, one inside the
+        // motion's, one the motion's gate parked and applied at its open.
+        let ingest = [(20.0, 3, true), (120.0, 2, true), (171.0, 4, false)];
+        let m = motion(&frames, &gates, 170.0, Some(&commits), None, None, Some(&ingest)).unwrap();
         assert_eq!(m.at_ms, 95.0);
         // 106.7 → 150 is inside; 90 → 106.7 opened before the close, and
         // 166.7 → 183.4 closes after the off.
@@ -1836,8 +1855,9 @@ mod tests {
             vec!["SessionCard"]
         );
         assert_eq!((m.chains, m.deliveries), (None, None));
+        assert_eq!(m.ingest_batches, Some(vec![(120.0, 2)]));
         // No close before the land: a deck with no gate has no motion to read.
-        assert_eq!(motion(&frames, &[], 170.0, None, None, None), None);
+        assert_eq!(motion(&frames, &[], 170.0, None, None, None, None), None);
     }
 
     #[test]

@@ -89,9 +89,11 @@ export function registerSessionCard(): void {
     },
     cardsGroup: "sessions",
     identity: { live: liveSessionIdentity, parked: parkedSessionIdentity },
+    // No CODE_OUTPUT: no frame on it carries `workspace_key`, so the card
+    // feed's filter never admitted one, and the page reads that feed only
+    // through the session mirror ([P14]).
     cardFeedIds: [
       FeedId.CODE_INPUT,
-      FeedId.CODE_OUTPUT,
       FeedId.SESSION_SIDEBAND,
       FeedId.FILETREE,
     ],

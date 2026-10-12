@@ -49,6 +49,7 @@
 
 import { SHOWN_PANE_FRAMES } from "@/lib/pane-frame-selectors";
 import { landRecorder } from "@/lib/land-frame-record";
+import { FALLBACK_FRAME_PERIOD_MS } from "@/lib/frame-period";
 
 /**
  * The properties a settling deck is allowed to animate.
@@ -97,7 +98,7 @@ export const SUSPENSION_FLOOR_TICKS = 10;
 export const GAP_TOLERANCE = 1.5;
 
 /** The frame period assumed when the run carries too few gaps to derive one. */
-export const FALLBACK_FRAME_PERIOD_MS = 1000 / 60;
+export { FALLBACK_FRAME_PERIOD_MS };
 
 /**
  * How far a frame's computed pose may sit from the pose its curve says it

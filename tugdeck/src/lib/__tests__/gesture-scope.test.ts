@@ -303,6 +303,52 @@ describe("GestureScope", () => {
     expect(calls).toEqual(["tell"]);
     expect(scope.isMotionHeld()).toBe(false);
   });
+
+  it("observeMotionGate hears each hold with its cap and the last release, and nothing else", () => {
+    const { scope, flushes } = harness();
+    const heard: unknown[] = [];
+    const stop = scope.observeMotionGate((change) => heard.push(change));
+    const first = scope.holdMotion(10_000);
+    const second = scope.holdMotion(5_000);
+    // Neither a scope's open and release nor an inner release is a gate transition.
+    scope.open("pointer");
+    flushes[0]();
+    first();
+    first();
+    expect(heard).toEqual([
+      { held: true, capMs: 10_000 },
+      { held: true, capMs: 5_000 },
+    ]);
+    second();
+    expect(heard).toEqual([
+      { held: true, capMs: 10_000 },
+      { held: true, capMs: 5_000 },
+      { held: false },
+    ]);
+    stop();
+    scope.holdMotion(10_000)();
+    expect(heard).toHaveLength(3);
+  });
+
+  it("the gate's observers hear its release before the tells it held run", () => {
+    const { scope } = harness();
+    const order: string[] = [];
+    scope.observeMotionGate((change) => {
+      if (!change.held) order.push("observer");
+    });
+    const release = scope.holdMotion(10_000);
+    scope.tell(() => order.push("tell"));
+    release();
+    expect(order).toEqual(["observer", "tell"]);
+  });
+
+  it("observeMotionGate hears nothing with motion off", () => {
+    const { scope } = harness(false);
+    const heard: unknown[] = [];
+    scope.observeMotionGate((change) => heard.push(change));
+    scope.holdMotion(10_000)();
+    expect(heard).toEqual([]);
+  });
 });
 
 describe("flushThrough", () => {

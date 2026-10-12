@@ -2,8 +2,12 @@
  * `TugConnection` heartbeat-watchdog unit tests.
  *
  * Drives a real `TugConnection` against a stubbed `WebSocket` and a
- * manually controlled clock + interval table. The watchdog reads
- * `Date.now()` and runs on `window.setInterval`, so each test
+ * manually controlled clock + interval table. The connection's default host
+ * is the in-process one: the same `IngestHost` that runs in the ingest
+ * Worker, on this thread, behind a channel that clones every message and
+ * delivers synchronously — so a socket event has reached the page's
+ * callbacks by the time it returns. The watchdog (in `WireSocket`) reads
+ * `Date.now()` and runs on `globalThis.setInterval`, so each test
  *
  *   - sets the simulated wall-clock with `setSystemTime`,
  *   - captures every `setInterval` callback the connection registers,

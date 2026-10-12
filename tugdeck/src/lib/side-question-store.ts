@@ -20,7 +20,7 @@
  */
 
 import { Subscribable } from "./subscribable";
-import type { FeedStore } from "./feed-store";
+import type { FeedSnapshotSource } from "./feed-store";
 import type { FeedIdValue } from "../protocol";
 import { FeedId } from "../protocol";
 import { getConnection } from "./connection-singleton";
@@ -113,7 +113,7 @@ export class SideQuestionStore extends Subscribable {
   private _snapshot: SideQuestionSnapshot = EMPTY_SNAPSHOT;
   private _unsubscribeFeed: (() => void) | null = null;
   private _lastPayloadRef: unknown = undefined;
-  private readonly _feedStore: FeedStore;
+  private readonly _feedStore: FeedSnapshotSource;
   private readonly _feedId: FeedIdValue;
   /** The segment the `/btw` frame is addressed to — the wire's key. */
   private readonly _tugSessionId: string;
@@ -131,7 +131,7 @@ export class SideQuestionStore extends Subscribable {
    * card rotates through a session id per stage.
    */
   constructor(
-    feedStore: FeedStore,
+    feedStore: FeedSnapshotSource,
     feedId: FeedIdValue,
     tugSessionId: string,
     lineId: string,

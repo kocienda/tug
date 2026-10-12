@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { RoutedFrameStore } from "../ingest/routed-frame-store";
 
 import {
   HOOK_EVENT_CATALOG,
@@ -100,11 +101,7 @@ describe("parseHooksInventoryPayload", () => {
 });
 
 describe("HooksInventoryStore._ingestForTest", () => {
-  const fakeFeed = () =>
-    ({
-      subscribe: () => () => {},
-      getSnapshot: () => new Map(),
-    }) as unknown as ConstructorParameters<typeof HooksInventoryStore>[0];
+  const fakeFeed = () => new RoutedFrameStore("hooks_inventory");
 
   test("resolves to ready with the ingested payload", () => {
     const store = new HooksInventoryStore(fakeFeed(), 0x10, "sess");

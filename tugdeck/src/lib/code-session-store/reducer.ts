@@ -172,7 +172,7 @@ import { TUG_ATOM_CHAR } from "../tug-atom-char";
 import { mintLeadingCommandAtom } from "../command-atom";
 import { writtenPaths } from "../annotator/written-paths";
 import { decodePermissionDenials, mergeDenials } from "./denials";
-import { tugDevLogStore } from "../tug-dev-log-store/tug-dev-log-store";
+import { devLog } from "../dev-log-port";
 import {
   deriveTurnTelemetry,
   mergeTurnTelemetry,
@@ -2228,7 +2228,7 @@ function handleContentBlockStart(
         // tool_use missing the required id/name. Log a dev warning
         // and drop; minting a Message with empty identity would
         // orphan downstream lookups by `tool_use_id`.
-        tugDevLogStore.warn(
+        devLog.warn(
           "code-session-store",
           "content_block_start tool_use missing id/name",
           { msgId: event.msg_id, blockIndex: event.block_index },
@@ -2356,7 +2356,7 @@ function handleTextDelta(
   let nextBlockIndex = entry.blockIndex;
   let messageKey: string;
   if (arrayIdx === undefined) {
-    tugDevLogStore.warn(
+    devLog.warn(
       "code-session-store",
       `${kind} delta without matching content_block_start; defensive mint`,
       { msgId, blockIndex: event.block_index },
@@ -2387,7 +2387,7 @@ function handleTextDelta(
       // tugcode bug (the wire shouldn't emit text deltas under a
       // tool_use block, etc.). Drop with a dev-log warning rather
       // than mutating across kinds.
-      tugDevLogStore.warn(
+      devLog.warn(
         "code-session-store",
         `${kind} delta into Message of kind ${existing.kind}; dropping`,
         { msgId, blockIndex: event.block_index },
@@ -2608,7 +2608,7 @@ function handleToolUse(
     // Defensive mint — no prior `content_block_start`. Logged so a
     // tugcode wire-shape regression surfaces in the dev-log rather
     // than silently orphaning the call's lookup.
-    tugDevLogStore.warn(
+    devLog.warn(
       "code-session-store",
       "tool_use without matching content_block_start; defensive mint",
       { toolUseId, toolName },
@@ -2648,7 +2648,7 @@ function handleToolUse(
   } else {
     const existing = entry.messages[arrayIdx];
     if (existing.kind !== "tool_use") {
-      tugDevLogStore.warn(
+      devLog.warn(
         "code-session-store",
         `tool_use into Message of kind ${existing.kind}; dropping`,
         { toolUseId },
@@ -3610,7 +3610,7 @@ function handleTurnComplete(
       return { state, effects: [] };
     }
     if (state.pendingTurn === null) {
-      tugDevLogStore.warn(
+      devLog.warn(
         "code-session-store",
         "dropping turn_complete with no pendingTurn or activeMsgId",
         { eventMsgId: event.msg_id, phase: state.phase },
@@ -3650,7 +3650,7 @@ function handleTurnComplete(
   // `/compact` row vanished until a reload replayed it) and phase left
   // stranded in-flight ("Waiting" forever). Dedupe only real identities.
   if (msgId !== "" && state.committedMsgIds.has(msgId)) {
-    tugDevLogStore.warn(
+    devLog.warn(
       "code-session-store",
       "dropping duplicate turn_complete",
       { msgId },
@@ -3970,7 +3970,7 @@ function handleTurnCancelled(
     state.phase === "idle" ||
     state.phase === "replaying"
   ) {
-    tugDevLogStore.warn(
+    devLog.warn(
       "code-session-store",
       "dropping turn_cancelled with no live turn to cancel",
       { msgId: event.msg_id, phase: state.phase },
@@ -3984,7 +3984,7 @@ function handleTurnCancelled(
   // committed is a turn this frame cannot close twice. "" is never an
   // identity — it is the shared key every no-content turn carries.
   if (msgId !== "" && state.committedMsgIds.has(msgId)) {
-    tugDevLogStore.warn("code-session-store", "dropping duplicate turn_cancelled", {
+    devLog.warn("code-session-store", "dropping duplicate turn_cancelled", {
       msgId,
     });
     return { state, effects: [] };
@@ -4143,7 +4143,7 @@ function handleInterruptNoop(
     // drop in this file keeps.
     return { state, effects: [] };
   }
-  tugDevLogStore.warn(
+  devLog.warn(
     "code-session-store",
     "interrupt reached the bridge with nothing to interrupt",
     { reason: event.reason },

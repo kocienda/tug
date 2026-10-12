@@ -1303,6 +1303,11 @@ export interface BindResumeAcknowledgedEvent {
  */
 export interface BeginLoadPreviousEvent {
   type: "begin_load_previous";
+  /**
+   * The turns the load asked for, for the sheet's determinate progress. The
+   * session engine keeps it; the reducer has no use for it.
+   */
+  target?: number;
 }
 
 /**

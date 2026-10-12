@@ -6,7 +6,9 @@
  * only grows while a socket lives, registrations coalesce onto a microtask,
  * and a reconnect re-establishes the whole thing after its handshake.
  *
- * These drive a real `TugConnection` against a stubbed `WebSocket`, decode
+ * These drive a real `TugConnection` — over its default in-process ingest
+ * host, which runs the Worker's code on this thread and delivers
+ * synchronously — against a stubbed `WebSocket`, decode
  * what it actually put on the wire, and assert on frame *order* as well as
  * content — the ordering is the load-bearing part of the input-rejection
  * case, and membership alone passes even when the order is wrong.
