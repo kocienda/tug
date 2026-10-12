@@ -1,19 +1,43 @@
-# Tug
+# Tug: An IDE for AI coding
 
-*An IDE for AI coding*
+Tug is a full-featured Integrated Development Environment (IDE) built from scratch to improve the experience of AI-assisted software development. It is a macOS app and uses Claude Code for the AI contribution. All prompts, AI responses, shell commands, file edits, git history, and in-flight work are integrated together, with excellent typography, rich text input, and content display along with tools to visualize, track, and manage the work. Tug is open source, distributed under the MIT license.
 
-I started the Tug project eight months ago today, with the goal of creating an Integrated Development Environment (IDE) for AI coding. I’ve made much progress, and I’m beginning to pull together the loose ends that remain in preparation for more complete descriptions and announcements.
+I’ve made everything just like I want it. My hope is that the things I chose to please myself might also please you too.
 
-Before I do that, today feels like a good time to take stock. I know that the topic of AI as an aid in creative and technical work remains controversial, but for myself, I am convinced. The scope and pace of work I have been able to achieve since this past February is too obvious to deny. I offer two means to express this. 
+## Download
 
-The first is that I started with only a Claude Code account, and I now have a complex, fully-functioning app that I use all day every day for software development and other projects too. I’m typing this message in Tug right now. About four months ago, I cut over to developing Tug with Tug (I did the preceding bootstrapping period with Claude Code in the terminal). From that day, I never looked back. This gives me the confidence that Tug is becoming suitable for serious projects. The advent of AI has given me the license to *dream bigger dreams*, and then set about realizing them, and if nothing else, that is worthwhile. I started with nothing, and now, I am a very happy user of the app I’ve created.
+> Tug is alpha software: expect rough edges and frequent changes.
 
-The second is the numbers, admittedly a tricky way to assess a software project, but the sheer scale of the output seems noteworthy. In Tug, over eight months, I’ve done just over 7k commits in more than 3.9k files and have produced almost 875k lines of code in a half-dozen languages. These numbers don’t tell anything about quality, of course, but they do speak to the pace of my work, which is incredible to me. In 2020, I did a six-month project I did to create Up Spell, an iOS word game. I wrote that project in the *old-fashioned* style where I typed each line of code all by myself, one at a time. The results were: ~850 commits, 235 files, and 31k lines of code.
+**[Download Tug for macOS](https://github.com/kocienda/tug/releases/latest/download/Tug.dmg)**: the latest release, as a disk image.
 
-This adds up to: ~6× more commits, ~20× more net code lines/day, and ~28× more total lines of code. In Tug, I have been working far faster than I did during Up Spell, and I have produced all this code as the only human on the project. In the times before AI, I doubt I would have even attempted a project of the size and complexity of Tug. It feels as if it would have taken me *many years* to do the work I have done in the past few months. 
+[![Latest release](https://img.shields.io/github/v/release/kocienda/tug?label=version)](https://github.com/kocienda/tug/releases/latest)
+[![Release date](https://img.shields.io/github/release-date/kocienda/tug?label=released)](https://github.com/kocienda/tug/releases/latest)
 
-I am convinced in this new approach to AI-assisted software development, and for me, the only way is forward. I do not miss the old ways at all.
+### System requirements
 
-All this code is open source. Feel free to have a look for yourself.
+- A Mac with Apple silicon
+- macOS 14 Sonoma or later
 
-[https://github.com/kocienda/tug](https://github.com/kocienda/tug)
+### What else you’ll need
+
+- A paid Claude plan that includes Claude Code, such as Pro or Max (the free plan doesn’t). Tug runs Claude Code, and the first-launch setup of Tug installs the `claude` program (if needed) and logs you in.
+- The `git` program for changes and commits. If `git` isn’t on your Mac, setup offers to install Apple’s Command Line Tools (about 3 GB). You can skip the install at first and add `git` later, when you’re ready for your first commit.
+
+Looking for an earlier version? [See all releases](https://github.com/kocienda/tug/releases).
+
+## For developers
+
+Building Tug from source needs more than running it does. Beyond the requirements above, a build machine needs:
+
+- Xcode 26.3 or later, for the Swift app and the macOS 26 SDK it compiles against
+- A Rust toolchain from [rustup](https://rustup.rs) (the checkout pins the version), plus `cargo-nextest` for the tests
+- [Bun](https://bun.sh) 1.3, for the frontend, the Claude Code bridge, and the TypeScript tests
+- [`just`](https://github.com/casey/just), which runs every build, test, and lint recipe
+- `tmux`, `wasm-pack`, and `shellcheck` for the day-to-day development loop
+
+An Apple Developer ID certificate is needed for the signed developer bundle and the app-test suite, but not for an unsigned local build. [DEVELOPING.md](DEVELOPING.md) walks through installing the tools and going from a fresh checkout to a running build.
+
+## Learn more
+
+- [What is Tug](https://kocienda.com/tug/what-is-tug)
+- [Read the journal](https://kocienda.com/tug/journal)
