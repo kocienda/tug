@@ -2496,12 +2496,41 @@ struct ConfigPayload {
     surfaces: Vec<SurfacePayload>,
     build: Option<String>,
     post_create: Vec<String>,
+    doctrine: Vec<String>,
+    laws: Vec<String>,
     devise_model: Option<String>,
     review_model: Option<String>,
     implement_model: Option<String>,
     audit_model: Option<String>,
     implement_compact_tokens: Option<u64>,
     idle_settle_secs: Option<u64>,
+}
+
+impl ConfigPayload {
+    fn from_arc(arc: tugtool_core::config::ArcConfig) -> Self {
+        ConfigPayload {
+            surfaces: arc
+                .surfaces
+                .into_iter()
+                .map(|s| SurfacePayload {
+                    name: s.name,
+                    paths: s.paths,
+                    check: s.check,
+                    checked_by: s.checked_by,
+                })
+                .collect(),
+            build: arc.build,
+            post_create: arc.post_create,
+            doctrine: arc.doctrine,
+            laws: arc.laws,
+            devise_model: arc.devise_model,
+            review_model: arc.review_model,
+            implement_model: arc.implement_model,
+            audit_model: arc.audit_model,
+            implement_compact_tokens: arc.implement_compact_tokens,
+            idle_settle_secs: arc.idle_settle_secs,
+        }
+    }
 }
 
 /// Read the declarations the run's ending and the build offer consume.
@@ -2513,27 +2542,7 @@ fn run_config(json: bool, quiet: bool) -> Result<(), AppError> {
     let root = tugtool_core::config::find_project_root().map_err(|e| e.to_string())?;
     let config =
         tugtool_core::config::Config::load_from_project(&root).map_err(|e| e.to_string())?;
-    let arc = config.tugtool.arc;
-    let payload = ConfigPayload {
-        surfaces: arc
-            .surfaces
-            .into_iter()
-            .map(|s| SurfacePayload {
-                name: s.name,
-                paths: s.paths,
-                check: s.check,
-                checked_by: s.checked_by,
-            })
-            .collect(),
-        build: arc.build,
-        post_create: arc.post_create,
-        devise_model: arc.devise_model,
-        review_model: arc.review_model,
-        implement_model: arc.implement_model,
-        audit_model: arc.audit_model,
-        implement_compact_tokens: arc.implement_compact_tokens,
-        idle_settle_secs: arc.idle_settle_secs,
-    };
+    let payload = ConfigPayload::from_arc(config.tugtool.arc);
 
     if json {
         print_ok("arc config", &payload);
@@ -2568,6 +2577,16 @@ fn run_config(json: bool, quiet: bool) -> Result<(), AppError> {
             println!("post_create:  {}", undeclared);
         } else {
             println!("post_create:  {}", payload.post_create.join("; "));
+        }
+        if payload.doctrine.is_empty() {
+            println!("doctrine:     {}", undeclared);
+        } else {
+            println!("doctrine:     {}", payload.doctrine.join(" "));
+        }
+        if payload.laws.is_empty() {
+            println!("laws:         {}", undeclared);
+        } else {
+            println!("laws:         {}", payload.laws.join(" "));
         }
         println!(
             "devise_model:    {}",
@@ -3221,17 +3240,7 @@ mod tests {
     fn the_config_payload_reports_every_stage_key_as_null_when_undeclared() {
         // A project that declares none must still report all four, so a
         // consumer reads the same shape whatever the project says.
-        let payload = ConfigPayload {
-            surfaces: Vec::new(),
-            build: None,
-            post_create: Vec::new(),
-            devise_model: None,
-            review_model: None,
-            implement_model: None,
-            audit_model: None,
-            implement_compact_tokens: None,
-            idle_settle_secs: None,
-        };
+        let payload = ConfigPayload::from_arc(tugtool_core::config::ArcConfig::default());
         let value = serde_json::to_value(&payload).expect("serialize");
         for key in [
             "devise_model",
@@ -3245,6 +3254,30 @@ mod tests {
                 "{key} must be reported as null, not absent"
             );
         }
+    }
+
+    #[test]
+    fn the_config_payload_reports_doctrine_and_laws() {
+        // Undeclared, both are empty lists rather than absent, so a stage
+        // reads one shape whether or not the project wrote a supplement.
+        let silent = serde_json::to_value(ConfigPayload::from_arc(
+            tugtool_core::config::ArcConfig::default(),
+        ))
+        .expect("serialize");
+        assert_eq!(silent["doctrine"], serde_json::json!([]));
+        assert_eq!(silent["laws"], serde_json::json!([]));
+
+        let config: tugtool_core::config::Config = toml::from_str(
+            "[tugtool.arc]\ndoctrine = [\"doc/arc.md\"]\nlaws = [\"doc/laws.md\", \"doc/decisions.md\"]\n",
+        )
+        .expect("parse");
+        let declared =
+            serde_json::to_value(ConfigPayload::from_arc(config.tugtool.arc)).expect("serialize");
+        assert_eq!(declared["doctrine"], serde_json::json!(["doc/arc.md"]));
+        assert_eq!(
+            declared["laws"],
+            serde_json::json!(["doc/laws.md", "doc/decisions.md"])
+        );
     }
 
     #[test]

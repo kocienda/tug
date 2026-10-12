@@ -11,6 +11,20 @@ post_create = [
 # The build offered at the end of a run with a face.
 build = "just app-debug"
 
+# This checkout's supplement to the arc doctrine the plugin ships: its test
+# commands, its app-test discipline, the test shapes it bans, and its state-zone
+# mapping. The implement, audit and review stages read it after the plugin's.
+doctrine = ["tuglaws/arc-supplement.md"]
+
+# The laws the review cross-checks a plan against and the audit's fit check
+# cites by label. Which code they govern is in the supplement.
+laws = [
+  "tuglaws/tuglaws.md",
+  "tuglaws/design-decisions.md",
+  "tuglaws/pane-model.md",
+  "tuglaws/component-authoring.md",
+]
+
 # The models the server-driven arc runs each stage on. Declaring one is a
 # choice about this project's work, so all four are left undeclared here: a
 # stage runs on the account default until somebody says otherwise.

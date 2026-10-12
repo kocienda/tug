@@ -150,6 +150,6 @@ A pending-rotation note ahead of that divider would be a new action, a new store
 ## See also
 
 - [arc-lifecycle.md](arc-lifecycle.md) — what an arc is, and the other meaning of *stage*.
-- [arc-work-doctrine.md](arc-work-doctrine.md) — how an agent works on an arc worktree.
+- [arc-work-doctrine.md](../tugplug/doctrine/arc-work-doctrine.md) — how an agent works on an arc worktree; ships in the plugin.
 - [ledger-reliability.md](ledger-reliability.md) — `[LR9]` and the shutdown supervisor.
 - [turn-lifecycle.md](turn-lifecycle.md) — the turn whose end a rotation waits for.

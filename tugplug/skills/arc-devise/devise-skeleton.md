@@ -4,12 +4,12 @@
   This is the format contract for plans authored by `/tugplug:arc-devise` and walked
   by `/tugplug:arc-implement`. Its mechanical half is checked by `tugtool plan lint`;
   its judgment half is `/tugplug:arc-review`'s, against
-  `tuglaws/plan-review-rubric.md`.
+  the plan review rubric that ships beside that skill.
   The devise skill's output is a plan written against this skeleton.
 
   Prefix reservation: plan-local design decisions use `[P01]` (NOT `[D01]`).
-  `[D##]` is reserved for the global design decisions in `design-decisions.md`,
-  which a plan may also cite by reference — keeping the two namespaces distinct.
+  `[D##]` is reserved for the project's global design decisions, where it keeps
+  any, which a plan may also cite by reference — keeping the two namespaces distinct.
 
   **Five sections are mandatory; the rest of this template is guidance.** The linter
   fails a plan that omits any of `{#plan-metadata}`, `{#phase-overview}`,
@@ -143,7 +143,7 @@ This plan format relies on **explicit, named anchors** and **rich `References:` 
   - **`step-N`**: execution step anchors (e.g. `step-1`, `step-2`, `step-3`)
   - **`pNN-...`**: plan-local design decisions (`[P01]`) anchors, e.g. `{#p01-sandbox-copy}`.
     Use `P`, never `D` — `[D##]` is reserved for the global decisions in
-    `design-decisions.md`, which this plan may also cite by reference.
+    the project's design-decisions document, where it keeps one, which this plan may also cite by reference.
   - **`qNN-...`**: open questions (`[Q01]`) anchors, e.g. `{#q01-import-resolution}`
   - **`rNN-...`**: risk notes (`Risk R01`) anchors, e.g. `{#r01-perf-regression}`
   - **`lNN-...`**: lists (`List L01`) anchors, e.g. `{#l01-supported-ops}`
@@ -167,7 +167,7 @@ Numbering rules:
 - Always use **two digits**: `P01`, `Q01`, `S01`, `T01`, `L01`, `R01`, `M01`.
 - Never reuse an ID within a plan. If you delete one, leave the gap.
 - `P##` (plan-local decisions) is distinct from `[D##]` (global decisions in
-  `design-decisions.md`). A `References:` line may cite both — `[P05]` for a
+  the project's design-decisions document). A `References:` line may cite both — `[P05]` for a
   decision made *in this plan*, `[D40]` for one it inherits from the global set.
 
 #### 4) `**Depends on:**` lines for execution step dependencies {#depends-on-lines}
@@ -260,7 +260,7 @@ Table T05, (#op-rename, #fundamental-wall)
 > Record *decisions* (not options). Each decision includes the "why" so later phases don't reopen it accidentally.
 >
 > These are **plan-local** decisions, labelled `[P01]`, `[P02]`, … Do not use `[D##]`
-> — that prefix belongs to the global [design-decisions.md](design-decisions.md). When a
+> — that prefix belongs to the project's global design decisions, where it keeps any. When a
 > plan-local decision restates or depends on a global one, cite the global by ID in the
 > rationale (e.g. "follows [D40]").
 
@@ -304,15 +304,18 @@ Table T05, (#op-rename, #fundamental-wall)
 - **Output Schemas**: CLI output, API responses, wire formats (contract)
 - **Configuration Schema**: config file format, precedence, CLI flag mapping
 
-#### State Zone Mapping (tugdeck/tugways plans) {#state-zone-mapping}
+#### Project-Law Mapping (Optional) {#project-law-mapping}
 
-> For frontend work, map every new piece of state to a tuglaws zone *before*
-> writing code — the zone dictates the mechanism, and getting it wrong is the most
-> common law violation. Omit this subsection for non-frontend plans.
+> For a project that declares laws (the `laws` documents `tugtool arc config`
+> reports), map every new piece of state or new mechanism to the law that governs
+> it *before* writing code — the law dictates the mechanism, and getting it wrong is
+> the most common law violation. The project's doctrine supplement says which work
+> its laws require this for, and what the columns are called there. Omit this
+> subsection when the project declares no laws or the work touches none.
 
-| State | Zone (appearance / local-data / structure) | Mechanism | Law |
-|-------|--------------------------------------------|-----------|-----|
-| `<state>` | <zone> | CSS+DOM / useState+useRef / store + useSyncExternalStore / useLayoutEffect | [L24], [L06], [L02], [L22] |
+| State or mechanism | Category the law assigns | Mechanism | Law |
+|--------------------|--------------------------|-----------|-----|
+| `<state>` | <category> | <how it is carried> | <law label> |
 
 ---
 
@@ -396,9 +399,9 @@ Table T05, (#op-rename, #fundamental-wall)
 > 3. On **`Current`** the base has not moved, so the tree the run's last checkpoint verified *is* the deliverable, byte for byte. **Nothing re-runs.** The ending costs one `arc replay` and seconds.
 > 4. On **`Conflicted`** the replay names the round it could not apply. That is work arriving at the right desk — the model is present, the worktree is warm, and the conflict is resolved there as normal work, then verified as in (2).
 >
-> **A verify that comes back red is ordinary work, not a new state.** Fix it in the warm worktree, commit the fix as a round, and run it again — the same aftermath the `Conflicted` arm already teaches. Nothing about a red verify reaches the join: the join gate is reconcile-clean alone ([D149]), and a run stopped at a red verify has simply not finished its ending.
+> **A verify that comes back red is ordinary work, not a new state.** Fix it in the warm worktree, commit the fix as a round, and run it again — the same aftermath the `Conflicted` arm already teaches. Nothing about a red verify reaches the join: the join gate is reconcile-clean alone, and a run stopped at a red verify has simply not finished its ending.
 >
-> A plan whose last step re-lists `cargo nextest run`, `tsc`, `vite build`, `bun test`, and `app-test-changed` has written a sweep, not a checkpoint. Write the procedure above instead.
+> A plan whose last step re-lists every compiler, type check, build and test command its earlier steps already ran has written a sweep, not a checkpoint. Write the procedure above instead.
 >
 > **References are mandatory:** Every step must cite specific plan artifacts ([P01], Spec S01, Table T01, etc.) and anchors (#section-name). Never cite line numbers—add an anchor instead.
 >

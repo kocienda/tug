@@ -46,8 +46,9 @@ const REPO_ROOT = resolve(APP_TEST_DIR, "..", "..");
 const ALLOWLIST_PATH = join(import.meta.dir, "doc-link-allowlist.txt");
 
 // Directories walked whole. Each crate's own `src` under tugrust/crates is
-// expanded below.
-const SCAN_ROOTS = ["tugdeck/src", "tugdeck/styles", "tugcode/src"];
+// expanded below. `tugplug` is walked because the arc doctrine, the devise
+// skeleton and the plan review rubric live there, and they cite the laws.
+const SCAN_ROOTS = ["tugdeck/src", "tugdeck/styles", "tugcode/src", "tugplug"];
 
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", "target"]);
 

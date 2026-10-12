@@ -45,37 +45,17 @@ const RULES: Rule[] = [
     why: "a skill runs in the user's project; what is true here is not true there",
   },
   {
+    name: "tuglaws",
+    pattern: /tuglaws\//,
+    why: "tuglaws/ exists only in this checkout; doctrine ships in the plugin, and a project's own supplement and laws arrive through `tugtool arc config`",
+  },
+  {
     name: "jq",
     pattern: /(^|[\s|(;&])jq(\s|$)/,
     only: [".sh"],
     why: "jq is not in the bundle; hook decisions are computed by `tugtool hook`",
   },
 ];
-
-/**
- * A skill that reads a doctrine document must say what survives without it.
- * The link is fine — it is a pointer into a project that has one — but the
- * sentence that makes the skill work on a project that does not is required.
- */
-const TUGLAWS_LINK = /tuglaws\//;
-const ABSENCE_CLAUSE = /(has no|without|absent)[^\n]{0,40}`tuglaws\/|`tuglaws\/`[^\n]{0,60}\babsent\b/i;
-
-/**
- * A format the bundle ships is read on projects that have no tuglaws/ at all,
- * so it may not point there even with an absence clause: the pointer would be
- * dead on every one of them. This is the stronger rule, and it stands in for
- * the absence-clause rule above: a file that may not name tuglaws/ at all has
- * nothing an absence clause could excuse.
- */
-const SHIPPED_FORMAT = new Set([
-  "work-grammar.md",
-  "file-editing.md",
-  "transcript-prose.md",
-  "tool-calls.md",
-  "ask-user-question.md",
-  "working-rules.md",
-  "skills/brief/brief-skeleton.md",
-]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -110,16 +90,6 @@ export function lintPlugin(pluginDir = PLUGIN): string[] {
           failures.push(`${rel}:${i + 1}: [${rule.name}] ${rule.why}\n    ${raw.trim().slice(0, 140)}`);
         }
       });
-    }
-    if (rel.startsWith("skills/") && TUGLAWS_LINK.test(text) && !ABSENCE_CLAUSE.test(text)) {
-      failures.push(
-        `${rel}: [tuglaws-without-absence-clause] cites tuglaws/ but never says what survives on a project that has none`,
-      );
-    }
-    if (SHIPPED_FORMAT.has(rel) && TUGLAWS_LINK.test(text)) {
-      failures.push(
-        `${rel}: [tuglaws-in-shipped-format] a format the bundle ships is read on projects with no tuglaws/; it may not point there`,
-      );
     }
   }
   return failures;

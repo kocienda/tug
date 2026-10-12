@@ -40,6 +40,22 @@ pub struct ArcConfig {
     #[serde(default)]
     pub post_create: Vec<String>,
 
+    /// Documents, relative to the project root, that carry this project's own
+    /// supplement to the arc doctrine — its test commands, its build and debug
+    /// recipes, the shapes its tests may not take. The implement, audit and
+    /// review stages read each one after the doctrine the plugin ships. The
+    /// plugin's doctrine is complete without them, so an empty list is the
+    /// whole doctrine with nothing added, not a degraded mode.
+    #[serde(default)]
+    pub doctrine: Vec<String>,
+
+    /// The project's law documents, relative to the project root: the ones the
+    /// review stage cross-checks a plan against and the audit's fit check
+    /// cites specific laws from. An empty list declares none, and the stages
+    /// that would cite one say the axis was skipped.
+    #[serde(default)]
+    pub laws: Vec<String>,
+
     /// The retired `verify` key, bound only so the loader can see it and
     /// refuse. Nothing reads its value: a project declares the surfaces it is
     /// made of, and the fit check runs what those surfaces declare. A config
@@ -295,6 +311,17 @@ pub const DEFAULT_CONFIG: &str = r#"[tugtool.arc]
 # fresh checkout lacks. A non-zero exit rolls the worktree back.
 post_create = []
 # post_create = ["npm install"]
+
+# Documents carrying this project's own supplement to the arc doctrine the
+# plugin ships: its test commands, its build recipes, the shapes its tests may
+# not take. The implement, audit and review stages read each after the
+# plugin's doctrine. Declare none and the plugin's doctrine stands alone.
+# doctrine = ["doc/arc-supplement.md"]
+
+# The project's law documents. The review stage cross-checks a plan against
+# them and the audit's fit check cites specific laws from them. Declare none
+# and that axis is skipped, and the stage says so.
+# laws = ["doc/architecture.md"]
 
 # The surfaces this project is made of. `tugtool arc verify <arc>` resolves
 # every path the arc would land to the surface declaring the longest matching
@@ -903,6 +930,40 @@ mod tests {
         let empty: Config = toml::from_str("").expect("empty config should parse");
         assert!(empty.tugtool.arc.surfaces.is_empty());
         assert!(empty.tugtool.arc.build.is_none());
+    }
+
+    #[test]
+    fn doctrine_and_laws_parse_as_lists() {
+        let toml = "[tugtool.arc]\ndoctrine = [\"doc/arc.md\"]\nlaws = [\"doc/laws.md\", \"doc/decisions.md\"]\n";
+        let config: Config =
+            toml::from_str(toml).expect("declaring doctrine and laws should parse");
+        let arc = &config.tugtool.arc;
+        assert_eq!(arc.doctrine, vec!["doc/arc.md".to_string()]);
+        assert_eq!(
+            arc.laws,
+            vec!["doc/laws.md".to_string(), "doc/decisions.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn doctrine_and_laws_default_to_empty() {
+        // Declaring neither is the plugin's doctrine standing alone, so the
+        // parse is an empty list rather than an error or a missing table.
+        let silent: Config = toml::from_str("[tugtool.arc]\npost_create = []\n").unwrap();
+        assert!(silent.tugtool.arc.doctrine.is_empty());
+        assert!(silent.tugtool.arc.laws.is_empty());
+        let empty: Config = toml::from_str("").unwrap();
+        assert!(empty.tugtool.arc.doctrine.is_empty());
+        assert!(empty.tugtool.arc.laws.is_empty());
+    }
+
+    #[test]
+    fn the_default_config_template_documents_doctrine_and_laws() {
+        let config: Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+        assert!(config.tugtool.arc.doctrine.is_empty());
+        assert!(config.tugtool.arc.laws.is_empty());
+        assert!(DEFAULT_CONFIG.contains("# doctrine = ["));
+        assert!(DEFAULT_CONFIG.contains("# laws = ["));
     }
 
     #[test]

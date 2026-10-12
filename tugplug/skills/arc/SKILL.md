@@ -24,7 +24,7 @@ Everything downstream is identical: one step per turn, compaction between steps,
 
 **You are the orchestrator, in-thread.** Do not spawn sub-agents (`Task`). The plugin is agentless by charter.
 
-**Read [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md)** for the discipline the arc works under. This skill states the door; the doctrine states the rules. **When the project has no `tuglaws/`,** that document is absent and cannot be read; the discipline that survives is the one the stage skills carry inline — one working root, verify before every commit, never commit red, rounds through `tugtool arc commit`, stop before the join. Say so once, at the start, so the user knows which fidelity they are getting; do not reconstruct the missing document from memory.
+**Read the arc doctrine**, `${CLAUDE_PLUGIN_ROOT}/doctrine/arc-work-doctrine.md`, with `Read`, for the discipline the arc works under. It ships with the plugin, so it is there on every project. This skill states the door; the doctrine states the rules.
 
 ## Input grammar
 
@@ -75,7 +75,7 @@ Invoked bare with nothing in flight, ask what to work on. That is the whole of t
 
 Converse until the work is concrete. This is a conversation, not an intake form: a few sharp questions beat a checklist, and an already-specific instruction passes straight through without a single question. **An idea is already specific when this session already holds its design** — a spike card the user had you read, a brief or plan they pointed at, a thread of decisions made in this conversation. The invocation then names what to do with that design, and nothing about it is asked again.
 
-What is worth asking is bounded by the doctrine's [never-ask list](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. Where that document is absent, that sentence is the boundary. **A question the code can answer is not a question for the user** — a wire field that is missing, a hook that skips a case, a component with no remaining mount. Read the code and write the answer into the brief as a `[B##]` decision or an `[F##]` finding; a dialog that asks the user to choose between two readings of the codebase is the brief's work handed back to them.
+What is worth asking is bounded by the doctrine's *What never gets asked* list: design questions, never process ones, and nothing with a conventional default. **A question the code can answer is not a question for the user** — a wire field that is missing, a hook that skips a case, a component with no remaining mount. Read the code and write the answer into the brief as a `[B##]` decision or an `[F##]` finding; a dialog that asks the user to choose between two readings of the codebase is the brief's work handed back to them.
 
 Read enough code to ask a good question. An idea sharpened against the real files ("this touches the store or the card — which did you mean?") is worth three rounds of sharpening it in the abstract.
 

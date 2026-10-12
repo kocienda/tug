@@ -17,7 +17,9 @@ It is the sibling of `arc-review`, at the other end of the arc. Review reads a p
 
 **You are the auditor, in-thread.** Do not spawn sub-agents (`Task`).
 
-**Read [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md) before you start.** The discipline every arc run works under is stated there and is not repeated here: the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, and the stop-before-join obligation. **When the project has no `tuglaws/`,** that document is absent and cannot be read; the rules that survive its absence are the ones carried inline below — one working root, verify before every commit, never commit red, rounds through `tugtool arc commit`, stop before the join. Say so once, at the start, and do not invent the rest of the doctrine from memory.
+**Read the arc doctrine before you start:** `${CLAUDE_PLUGIN_ROOT}/doctrine/arc-work-doctrine.md`, with `Read`. It ships with the plugin, so it is there on every project. The discipline every arc run works under is stated there and is not repeated here: the one-and-only-working-root rule, the verification bar, test discipline and the banned test shapes, law discipline, round mechanics, and the stop-before-join obligation.
+
+**Then read what the project adds.** `tugtool arc config --json` reports `doctrine` and `laws`, each a list of paths relative to the project root. Read every `doctrine` document after the plugin's — the project's supplement, which says what its checks are called and which test shapes it bans. Read the `laws` documents too: they are what the fit check below cites laws from, by the labels the documents give them. A project that declares neither works under the plugin's doctrine alone, and the fit check has no laws to cite.
 
 ## Input
 
@@ -87,7 +89,7 @@ Five questions, in this order. The first three are the audit's own; the last two
 - **Does it answer what the brief asked for?** The ledger is one session's reading of the brief, and an arc can walk every step of it faithfully and still leave the brief's `[B##]` decisions unhonoured or its `[F##]` findings unaddressed. This is the question only the brief can ask, and it is why the brief is in the reading list ([B06]).
 - **Does it do anything neither document said?** Scope that arrived without a decision behind it. Not every unplanned line is wrong — work discovers things — but an unplanned line that changes a contract, a default, or a surface is a decision somebody made silently.
 - **Is it right?** Real defects, in the ordinary sense: the unhandled case, the wrong boundary, the state that can be reached and is not handled, the check that passes for the wrong reason.
-- **Does it fit?** The laws the change touches, the conventions of the files it sits in, the tests at the layer that can actually see the behaviour. For work under a project's law documents, name the specific laws — mimicry of neighbouring code proves nothing about which invariant that code was upholding.
+- **Does it fit?** The laws the change touches, the conventions of the files it sits in, the tests at the layer that can actually see the behaviour. For work the project's declared `laws` govern, name the specific laws by their labels — mimicry of neighbouring code proves nothing about which invariant that code was upholding.
 
 **Ground every finding in the tree.** Name the file, the symbol, the line. A finding you could have written without opening the file is not a finding.
 
@@ -160,7 +162,7 @@ Everywhere else the chip is noise at best and misinformation at worst: it reads 
 
 ## Guardrails
 
-Everything in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md), plus:
+Everything in the arc doctrine and the project's declared supplement, plus:
 
 - **No sub-agents.** Read, judge, and fix in-thread.
 - **Read the code before the claims.** The commit messages and the arc log are read after the diff, so the code is judged rather than the account of it.

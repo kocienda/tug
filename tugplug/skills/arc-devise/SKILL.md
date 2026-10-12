@@ -41,7 +41,7 @@ The documents are **not tracked**. `.tug/` is gitignored, so a plan lands on no 
 
 ### 1. Understand
 
-Read the relevant code before designing. Use Glob/Grep/Read to map the territory: the components, the data flow, the existing conventions, the laws that apply (a project's `tuglaws/`, where it has one). Pull external references with WebFetch/WebSearch only when the idea needs them. The plan must be grounded in how the code actually works, not how you imagine it works.
+Read the relevant code before designing. Use Glob/Grep/Read to map the territory: the components, the data flow, the existing conventions, the laws that apply (the `laws` documents `tugtool arc config --json` reports, where the project declares any). Read the `doctrine` documents it reports too: the project's supplement names its test commands, which the plan's checkpoints will run, and says which work its laws require a Project-Law Mapping for, which the skeleton defers to it. Pull external references with WebFetch/WebSearch only when the idea needs them. The plan must be grounded in how the code actually works, not how you imagine it works.
 
 ### 2. Clarify (only what matters)
 
@@ -55,22 +55,20 @@ tugtool arc ask <name> "Should the retry back off per-host or per-request?"
 
 That is `arc stop`'s twin: the same hand-back and the same receipt path, under the reason `needs a decision`, with the question written as the arc's last `arc-note` so the record carries it and the receipt reads it back. The user answers in their own conversation and `tugtool arc run <name>` picks the work back up. Outside an arc — the user typed `/arc-devise` and is sitting here — there is no arc to stop: say the question in prose, in one sentence, and wait for the answer like any other turn.
 
-Either way the bar is the doctrine's [never-ask list](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked): design questions, never process ones, and nothing with a conventional default. On a project with no `tuglaws/`, that one sentence *is* the boundary — apply it as stated here and say so. Stopping an arc over a question the code could have answered costs a person a round trip they never agreed to.
+Either way the bar is the *What never gets asked* section of the arc doctrine, `${CLAUDE_PLUGIN_ROOT}/doctrine/arc-work-doctrine.md`: design questions, never process ones, and nothing with a conventional default. Stopping an arc over a question the code could have answered costs a person a round trip they never agreed to.
 
 ### 3. Write against the skeleton
 
-Author the plan at the output path you were given (or asked for) following the **devise skeleton**, [`tuglaws/devise-skeleton.md`](../../../tuglaws/devise-skeleton.md) — this is the mandatory format. Conform to it exactly:
-
-**When the project has no `tuglaws/devise-skeleton.md`,** the format contract is the summary carried below plus `tugtool plan lint`, which ships with the product and is project-agnostic — write against the summary, lint until it exits 0, and say so. Do not reconstruct the skeleton document from memory; the linter is what the format actually means.
+Author the plan at the output path you were given (or asked for) following the **devise skeleton**, `${CLAUDE_PLUGIN_ROOT}/skills/arc-devise/devise-skeleton.md` — read it with `Read`; it ships beside this skill, and it is the mandatory format. Conform to it exactly, and lint until `tugtool plan lint` exits 0:
 
 **Writing a brief rather than a plan?** A brief records what was found and what was decided *before* an implementable document exists — no steps, no ledger, no checkpoints. Its format is [the brief skeleton](../brief/brief-skeleton.md): Purpose, Evidence (findings labelled `[F01]…`), Decisions (`[B01]…`, so the plan that follows can cite them), Open Questions, Non-goals, and Exit. It is deliberately unlinted, so nothing checks it and every section may be omitted when it has nothing to say. Note that `tugtool plan lint` exits 2 on a brief — that is correct, not a failure.
 
 - The skeleton's section order: Purpose, Plan Metadata, Phase Overview (Context / Strategy / Success Criteria / Scope / Non-goals / Dependencies / Constraints / Assumptions), then Open Questions, Risks, Design Decisions, optional Deep Dives / Specification / Rollout / Symbol Inventory, Test Plan Concepts, **Execution Steps** (with a **Step Status Ledger**), Deliverables.
 - Explicit `{#anchor}` headings; kebab-case; no phase numbers in anchors.
-- Stable labels: plan-local Design Decisions `[P01]` (use `P`, **never** `D` — `[D##]` is reserved for the global `tuglaws/design-decisions.md`, which a plan may cite by reference), Open Questions `[Q01]`, Specs `S01`, Tables `T01`, Lists `L01`, Risks `R01`, Milestones `M01` — always two digits, never reused.
+- Stable labels: plan-local Design Decisions `[P01]` (use `P`, **never** `D` — `[D##]` is reserved for the project's global design decisions, where it keeps any, which a plan may cite by reference), Open Questions `[Q01]`, Specs `S01`, Tables `T01`, Lists `L01`, Risks `R01`, Milestones `M01` — always two digits, never reused.
 - **Execution Steps** each carry a `**Commit:**` message, `**References:**` (cite decisions/specs/anchors — never line numbers), `**Depends on:**` where applicable (anchor refs like `#step-1`), Tasks, Tests, and a falsifiable Checkpoint. This is the part `/tugplug:arc-implement` walks. Seed the **Step Status Ledger** with every step marked `pending`.
 - **No step hands work to the user.** A build, a launch, an arranged surface, or a reading off a running instance is written as Tasks and a Checkpoint the implement stage carries out itself, never as "hand back to the user". A decision only the user can make is raised now, not parked in a step.
-- For frontend work in a project whose laws define state zones, fill the **State Zone Mapping** table — map each new piece of state to its zone before writing steps.
+- Where the project declares laws and its doctrine supplement asks for one, fill the **Project-Law Mapping** table — map each new piece of state or mechanism to the law that governs it before writing steps.
 - Resolve open questions where you can (spike them in-thread — read the code, check a fixture). **Raise the rest before you declare the plan ready** — a design question you cannot settle stops the arc with `tugtool arc ask` (or, outside an arc, is said in prose and waited on), and the answer lands in the plan as a decided item. Only a question the user *declines to settle* stays `[Q##]`, with its rationale and its plan to resolve. That is what makes the notation mean something: **a `[Q##]` in a finished plan was raised and deferred, never never-raised.**
 
 Prefer a tight, real plan over an exhaustive one. Every step should be executable with a clear commit boundary and a falsifiable checkpoint.
@@ -110,7 +108,7 @@ Don't start implementing from the devise skill — authoring and implementing ar
 
 - **No sub-agents.** Research and write in-thread.
 - **Explicit path wins; otherwise the name answers.** The plan goes exactly where the user says, or at the named arc's own address. Never hardcode a directory and never invent one — `tugtool arc documents <name> --ensure` is the resolver, and the only thing worth asking about is which arc.
-- **Conform to the skeleton.** `tuglaws/devise-skeleton.md` is the format contract, upheld by authorship and review.
+- **Conform to the skeleton.** The devise skeleton beside this skill is the format contract, upheld by authorship and review.
 - **Ground the plan in the real code.** Read before you design.
 - **Standalone always.** The plan must be implementable from any session with zero conversation context — bake every investigation finding into the document.
 - **Don't over-ask.** Clarify only design-changing unknowns.

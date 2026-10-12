@@ -23,7 +23,7 @@ Work descends from thought to document in a fixed order. Each rung has one defin
 - An **idea** is the seed: a concept for an investigation, feature, change, or fix, written by the user as a prompt. It has no required form.
 - A **sketch** is the converged shape of the conversation the idea starts — what the user and the model arrive at by going back and forth. A sketch lives **in the transcript only and is never written to a file**; that is its defining property, and the informality is the point. (An idea can skip this rung and go straight to a brief.)
 - A **brief** is the first document: a formal statement of what was found and what was decided, conforming to the brief skeleton the plugin ships ([brief-skeleton.md](brief-skeleton.md) points at it). It is not directly actionable — the test of a brief is whether a devise round can be run from it, not whether an implementer can work from it.
-- A **plan** is the implementable document, conforming to [tuglaws/devise-skeleton.md](devise-skeleton.md), written by the wheel's devise stage and read cold by its review stage.
+- A **plan** is the implementable document, conforming to the [devise skeleton](../tugplug/skills/arc-devise/devise-skeleton.md) the plugin ships, written by the wheel's devise stage and read cold by its review stage.
 
 **The word "plan" means only the document.** It names no route, no skill, no kind of work. That restriction is what un-jams the rest of the vocabulary.
 

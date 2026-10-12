@@ -309,6 +309,41 @@ describe("brief is the one skill a model may reach for", () => {
 });
 
 /**
+ * The arc doctrine, the devise skeleton and the plan review rubric ship in the
+ * bundle, and the arc skills read them there. The prompt test above asserts the
+ * system prompt names no `tuglaws/`, but the skills are not in the system
+ * prompt — so this reads them, and the documents they read, from the bundle's
+ * own copy and asserts the same absence.
+ */
+describe("the arc skills and their doctrine need no tuglaws/", () => {
+  const ARC_SKILLS = ["arc", "arc-devise", "arc-review", "arc-implement", "arc-audit"];
+  const DOCTRINE = [
+    "doctrine/arc-work-doctrine.md",
+    "skills/arc-devise/devise-skeleton.md",
+    "skills/arc-review/plan-review-rubric.md",
+  ];
+
+  test("every doctrine document ships in the bundle", () => {
+    for (const rel of DOCTRINE) {
+      expect(statSync(join(pluginRoot, rel)).size).toBeGreaterThan(0);
+    }
+  });
+
+  test("no arc skill and no doctrine document names tuglaws/", () => {
+    const files = [...ARC_SKILLS.map((s) => `skills/${s}/SKILL.md`), ...DOCTRINE];
+    const naming = files.filter((rel) => readFileSync(join(pluginRoot, rel), "utf8").includes("tuglaws/"));
+    expect(naming).toEqual([]);
+  });
+
+  test("every arc skill reads the doctrine through the plugin root", () => {
+    for (const skill of ARC_SKILLS) {
+      const text = readFileSync(join(pluginRoot, "skills", skill, "SKILL.md"), "utf8");
+      expect(text).toContain("${CLAUDE_PLUGIN_ROOT}/doctrine/arc-work-doctrine.md");
+    }
+  });
+});
+
+/**
  * Every `tugtool <ns> [verb]` a skill names, from both places a skill names one.
  *
  * The scanner used to be one pattern requiring a literal backtick immediately

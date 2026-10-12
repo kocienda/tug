@@ -1,6 +1,6 @@
 # The arc lifecycle
 
-*What an arc **is**, what its states mean, and what a binding is. The companion file [arc-work-doctrine.md](arc-work-doctrine.md) covers the other half — how **the model** behaves once it is working on one. Two audiences, two files: a person asking "why does this arc read as unbound" and a model asking "may I write here" are not asking the same question.*
+*What an arc **is**, what its states mean, and what a binding is. The companion file [arc-work-doctrine.md](../tugplug/doctrine/arc-work-doctrine.md), which ships in the plugin, covers the other half — how **the model** behaves once it is working on one. Two audiences, two files: a person asking "why does this arc read as unbound" and a model asking "may I write here" are not asking the same question.*
 
 ## What an arc is
 
@@ -278,6 +278,6 @@ The two phases that read differently at rest are the two done *to* an arc rather
 ## See also
 
 - [wheel.md](wheel.md) — what a rotation is, when it may happen, and the other meaning of *stage*. The [Interruptions](#interruptions) table above is what happens when something gets in one's way.
-- [arc-work-doctrine.md](arc-work-doctrine.md) — how an agent behaves on an arc worktree.
+- [arc-work-doctrine.md](../tugplug/doctrine/arc-work-doctrine.md) — how an agent behaves on an arc worktree; ships in the plugin. This checkout's supplement to it is [arc-supplement.md](arc-supplement.md).
 - [tracking-changes.md](tracking-changes.md) — the capture and commit layer beneath an arc, and the landing doctrine.
 - [D112] (scope axiom), [D113], [D116] (the landing workflow), [D138] (derive vs declare), [D139] (one plan home), [D168] (one grammar, two registers).

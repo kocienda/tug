@@ -1,12 +1,14 @@
 # Arc Work Doctrine
 
-*How the model works on an arc's worktree. The rules below hold for every arc — a plain one walking a task list, a planned one walking a devised plan, an audit that only reads. They are cited, not copied: a working skill states its own flow and points here for the discipline, so the discipline has exactly one home.*
+*How the model works on an arc's worktree. The rules below hold for every arc, on every project — a plain one walking a task list, a planned one walking a devised plan, an audit that only reads. They are cited, not copied: a working skill states its own flow and reads this file for the discipline, so the discipline has exactly one home, and it ships with the plugin rather than with any one project.*
+
+*A project may add to it. The documents its `[tugtool.arc]` table declares under `doctrine` — which `tugtool arc config` reports — are its supplement: its own test commands, its build and debug recipes, the test shapes it bans. A stage that reads this file reads those after it. A project that declares none works under this file alone, which is the whole doctrine and not a reduced one.*
 
 *The lane has one door, `/arc`, and the routing decision is the door's own. **Every arc runs under the wheel and every arc opens on a brief**; the two kinds differ by **settling time**, and by nothing else. A **plain** arc gets its brief and its **task list** written at the door, so it starts straight at implement. A **planned** arc gets the brief alone, so it devises a plan from it and reads that plan cold before any step is walked. The kind is derived from the documents when the arc opens — a task list beside the brief makes it plain, a brief alone makes it planned — and recorded there, so every reader afterwards consults the record rather than deriving it again. Everything downstream of the ledger is identical in the two.*
 
 ***The four stage skills are not doors.** `arc-devise`, `arc-review`, `arc-implement`, and `arc-audit` are internal machinery — stages of an arc, each refusing to run outside one, because the discipline each works under is only safe when something is pacing it. There is no one-stage arc for a typed invocation to land in and none is built. A user may still dig in and invoke one by hand; nothing prevents that, and nothing goes out of its way to support it. However an arc's kind was decided, the discipline below is the same one.*
 
-This document covers **how the work is done**. The arc's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `joining` mean and how each is derived or declared — is a separate subject, and lives in [arc-lifecycle.md](arc-lifecycle.md) along with the identity and binding models.
+This document covers **how the work is done**. The arc's state model — what `created`, `working`, `implementing`, `built`, `audited`, `draft-ready`, and `joining` mean and how each is derived or declared — is a separate subject, along with the identity and binding models, and is not repeated here.
 
 ## The one and only working root
 
@@ -16,7 +18,7 @@ An arc *is* a git branch plus a worktree. The branch is `tugarc/<name>`; an arc 
 - **Never write to the base checkout's working tree.** Not code, not a scratch file. The base branch is the user's; the only path back is their join gesture. The arc's own `.tug/arcs/<name>/` is not an exception to that rule but the reason there is nothing left to except: it is gitignored, invisible to `git status`, reached only through a verb, and so is not part of the tree the rule protects.
 - A stray write to the base root also *blocks* the join — the join preflight requires the base clean where it intersects the arc's files.
 
-An arc's documents live at `<main-repo>/.tug/arcs/<name>/` — `brief.md`, `plan.md`, and `tasks.md` — and the **name** is their address on every verb ([D139]). `tugtool arc documents <name>` reports all three and says which exist; `--ensure` creates the directory to write into. Every arc has a **brief**; a planned arc grows a `plan.md` at its devise stage, and a plain one carries a `tasks.md` its door wrote. The directory holds whatever else a stage leaves for the sessions after it — the implement stage's `baseline.md` is the one this doctrine names.
+An arc's documents live at `<main-repo>/.tug/arcs/<name>/` — `brief.md`, `plan.md`, and `tasks.md` — and the **name** is their address on every verb. `tugtool arc documents <name>` reports all three and says which exist; `--ensure` creates the directory to write into. Every arc has a **brief**; a planned arc grows a `plan.md` at its devise stage, and a plain one carries a `tasks.md` its door wrote. The directory holds whatever else a stage leaves for the sessions after it — the implement stage's `baseline.md` is the one this doctrine names.
 
 They are never tracked and never in the worktree, so nothing transplants them, nothing detects divergence between copies, and nothing has to clean them up. There is no directory to declare, assume, or ask about.
 
@@ -59,18 +61,20 @@ The engine is on by default, because the doctrine *is* the default and an opt-in
 
 ## Verify before every commit
 
-**Warnings are errors.** The Rust workspace enforces `-D warnings`; treat a type error, a lint finding, or a failing test the same way.
+**Warnings are errors.** Treat a compiler warning, a type error, a lint finding, and a failing test the same way: each one stops the round.
 
-The portable rule is two-sided: **a step's checkpoint runs the commands the plan names for the work that step did; the arc's ending runs the project's declared verify command.** The list below is what that first side comes to in this repository — read it as this project's instance of the rule, not as the rule.
+The rule is two-sided: **a step's checkpoint runs the commands the plan names for the work that step did; the arc's ending runs what the project's declared surfaces check.** The first side comes to the same shape on every project:
 
-- `bunx tsc --noEmit` for TypeScript that moved.
-- Pure-logic tests for the scope that moved (`bun test <scope>`).
-- `cargo nextest run` for Rust — the affected crates while iterating, the workspace on the **last step that touched Rust**. Not "before the arc ends": the ending has its own job, and re-running this is not it.
-- A real-app test where the change is one only the real app can show.
+- The type checker or compiler for code that moved.
+- The pure-logic tests for the scope that moved — the tests that import what changed, not the project's whole unit suite.
+- The project's full suite for a language on the **last step that touched it**, where the project wants one. Not "before the arc ends": the ending has its own job, and re-running this is not it.
+- A real-app test where the change is one only the running program can show.
+
+Which commands those are is the project's to say: the plan's checkpoints name them, and the project's doctrine supplement says what its layers are called.
 
 **Never commit red.** If a check fails, fix it and re-run; a round that lands broken makes every later round's verdict meaningless.
 
-**The slow layer runs once per step, after the last edit.** An app-test launches `Tug.app`, costs a two-minute `app-test-build` before it and tens of seconds to minutes per file, and queues machine-wide behind any other worktree's run. So it is a verdict on the finished step, never the loop you iterate in: iterate on `tsc` and `bun test`, then build once and run the step's selection once. Re-run alone only the files whose `history:` line says they were green before you touched the tree; a file `tugtool apptest history` shows red at the base, which the step does not claim to fix, leaves the selection and is named in the report instead. Never add a `note()` to a slow test and re-run it to read the note — a settle-frames file is about 160 seconds plus the rebuild, and one step that ran `at0622` five times to read instruments was the incident this paragraph records (2026-10-05). The core tier runs once per arc, on the first step that changes a harness file's existing behaviour; adding a new export nobody imports yet is not that. A file running many times past its recorded time is a wedged app: stop the run and relaunch, do not let it walk the rest of the selection into the same wall.
+**The slow layer runs once per step, after the last edit.** A test that launches the real program, drives a browser, samples frames, or waits on hardware costs a build before it and seconds to minutes per file, and it may queue behind another worktree's run of the same thing. So it is a verdict on the finished step, never the loop you iterate in: iterate on the type checker and the pure-logic tests, then build once and run the step's selection once. Where the project keeps a history of past runs, re-run alone only the files the history says were green before you touched the tree; a file already red at the base, which the step does not claim to fix, leaves the selection and is named in the report instead. Before launching, know the cost: read the last recorded wall time where there is one and say it, and where runs serialize behind a machine-wide gate, check who holds it. Never add an instrument to a slow test and re-run it to read the instrument — put every reading you will need in before the one run, or take the reading from a unit test over recorded data or from the running program. A file running many times past its recorded time is a wedged machine, not a result: stop the run and relaunch, do not let it walk the rest of the selection into the same wall.
 
 **A checkpoint that passed is spent.** It ran against these bytes, inside the step that changed them; running it again at the end proves nothing new and costs minutes. So: **the arc ends when the fit is verified — replay, verify only what the replay moved, report, and stop; never re-run a checkpoint that already passed.** The fit is the one thing the per-step checkpoints genuinely cannot have covered, because until the replay the arc's tree is the sandbox it forked from rather than the tree a join would land. The procedure is the devise skeleton's Integration Checkpoint pattern: `tugtool arc replay <name>`, then the scoped verification **only** on `Replayed`/`Recorded`; `Current` re-runs nothing; `Conflicted` is resolved in the worktree and then verified. What that verification *is* comes from the project, and one verb reads it: `tugtool arc verify <name>` resolves every path the replay moved to a surface declared in the project's own `[[tugtool.arc.surface]]` table and runs what those surfaces declare. A path no surface claims is a **refusal** — it runs no check at all and names the paths, because a table that has fallen behind its tree is a gap to declare rather than to work around. A project that declares no surfaces says so and verifies with the plan's own checkpoint commands over what the replay moved — never an invented one — and says so.
 
@@ -80,20 +84,20 @@ The portable rule is two-sided: **a step's checkpoint runs the commands the plan
 
 The kind of test must match the layer, and two kinds are banned outright.
 
-- **Real-app / browser-behavior tests** — focus, selection, event ordering, caret, portal timing, gestures — live in `tests/app-test/` and run through **`just app-test <file>`**. Never hand-roll the equivalent `TUGAPP_IN_APP_TEST=1 TUGAPP_DEBUG_PATH=… bun test …` pipeline: the recipe does the app-path query, the re-sign, the dist refresh, and the pkill, and prints a finished report ending in a `VERDICT:` line. Never pipe that output into a filter — the pipeline's exit status becomes the filter's, so a green run reads as a silent failure.
-- **Pure-logic tests** — stores, protocol, math, validators, layout trees — are plain `bun:test` files with no DOM globals.
+- **Real-program behavior tests** — focus, selection, event ordering, timing, gestures, anything only the running program can show — live wherever the project keeps its real-program harness and run through the recipe the project gives for it. Never hand-roll the pipeline that recipe wraps: the recipe exists because the setup it does is easy to get subtly wrong. Never pipe a test run's output into a filter — the pipeline's exit status becomes the filter's, so a green run reads as a silent failure.
+- **Pure-logic tests** — stores, protocol, math, validators, layout trees — are plain unit tests over data, with no simulated environment around them.
 - **Banned, do not write and do not re-add:**
-  - **Fake-DOM / RTL tests.** No `happy-dom`, no `jsdom` render tests, no `@testing-library/react`. There is no in-process DOM substrate. A test that needs `document`/`window` to express itself is either a pure function over data or an app-test.
-  - **Mock-store assertion tests.** Never hand-roll a core interface to count mock method calls, and do not write per-mutator "pin" tests even against the real engine. `tsc --noEmit` already catches interface drift. Write an integration test in response to a real bug, at the real layer.
+  - **Mock-interface assertion tests.** Never hand-roll a core interface to count mock method calls, and do not write per-mutator "pin" tests even against the real engine. The type checker already catches interface drift. Write an integration test in response to a real bug, at the real layer.
+  - **Whatever the project's supplement bans.** A project names the test shapes it has decided against — a simulated substrate it deleted, a harness it retired — and those are banned exactly as this list is.
 - If a banned shape looks genuinely worth it, **ask first**.
 
 ## Law discipline
 
-Before writing or materially changing code under `tugdeck/src/components/tugways/` or `tugdeck/src/components/chrome/` — hooks, components, CardHost plumbing, portal and registry wiring — read [`tuglaws.md`](tuglaws.md), [`pane-model.md`](pane-model.md), and [`component-authoring.md`](component-authoring.md), and **name the laws the change touches in the round's commit body** (e.g. "upholds [L02] via `useSyncExternalStore`; [L22] via direct store observation").
+A project may declare its laws — the documents its `[tugtool.arc]` table lists under `laws`, which `tugtool arc config` reports. Before writing or materially changing code those laws govern, read them, and **name the laws the change touches in the round's commit body** by the labels the documents give them — what each law is, and how the change upholds it. The project's supplement says which code the laws govern; where it does not, the laws themselves do.
 
 Preservation-by-mimicry is not an audit: copying the shape of neighbouring code proves nothing about which invariant it was upholding. Naming the law is the proof.
 
-Not required for Rust, Swift, plugin, or pure documentation changes.
+A project that declares no laws has nothing to name, and the round says nothing about it.
 
 ## Rounds
 
@@ -117,7 +121,7 @@ Git records the diff; the log records the instruction git cannot see. `tugtool a
 
 **No stage raises a dialog**, and all four say so in their tools rather than only in their prose. The refused ledger edit used to be one exception, on the grounds that a wrong guess there corrupts the durable record — and that reasoning was right about the hazard and wrong about the answer. The hand-edit the dialog offered was itself the corruption; what closes the hazard is a verb for every move (`step reset` to park, `step reopen --why` to un-finish) and `arc doctor` to name which record disagrees. A stage with the right verbs has nothing left to ask.
 
-**Devise and review were the other exception, and they are not one any more.** The argument for keeping them was that their product *is* a settled document, so a `[Q##]` nobody asked is worth less than an arc that paused. The premise was right and the mechanism was wrong: an `AskUserQuestion` inside a stage is an arc that has stopped **without saying so**. Nothing is written to the arc log, no receipt reaches the card, `tugtool arc record` still reads mid-stage, and the question itself is lost the moment the wheel rotates the card — which it may do while the dialog is open, because a dialog is not a turn and the wheel does not know it is there. A pause the record cannot see is exactly the silent early return [L31] forbids, one layer up.
+**Devise and review were the other exception, and they are not one any more.** The argument for keeping them was that their product *is* a settled document, so a `[Q##]` nobody asked is worth less than an arc that paused. The premise was right and the mechanism was wrong: an `AskUserQuestion` inside a stage is an arc that has stopped **without saying so**. Nothing is written to the arc log, no receipt reaches the card, `tugtool arc record` still reads mid-stage, and the question itself is lost the moment the wheel rotates the card — which it may do while the dialog is open, because a dialog is not a turn and the wheel does not know it is there. A pause the record cannot see is exactly the silent early return no stage may make, one layer up.
 
 **So a stage that needs a decision stops, and says what it wanted.** `tugtool arc ask <name> "<question>"` is `arc stop`'s twin: the same resolution, the same hand-back, the same receipt path, under its own reason — `needs a decision` — with the question written as the arc's last `arc-note` so the record carries it and the receipt reads it back beneath the sentence. The user answers in their own conversation and `tugtool arc run <name>` picks the work up, exactly as after any other stop. An arc that paused is now an arc that *stopped*, which is the only kind of pause this system can tell you about.
 
@@ -131,7 +135,7 @@ The bar for reaching for it is the never-ask list, unchanged and now uniform: de
 
 **The count is over turns the stage was *asked* for.** A backgrounded command completing re-invokes the model in a wake turn, and a wake is not a new ask — a stage whose only visible life is six background completions has answered nothing and has also declined nothing. And the horizon spends one re-ask before it stops: the first quiet asked turn is answered by the wheel naming the open step back to the stage, so a stage that ended a turn on a question or a snag is answered in one turn, and only a stage that declines a second *ask* is handed back. Before both of those the second count had no legitimate path to it at all, and the one thing that reliably reached it was background work.
 
-**And a step's background jobs do not outlive the step**, which is the same rule read from the wheel's side. The step-done line is the stage's own declaration that the step's work is over, so the supervisor ends the session's open jobs at that line: the busy latch that keeps an arc from being judged finished while a test sweep is still deciding protects the window *inside* a step, and nothing beyond it. Before this a job launched in a step and left running held the session busy until the reaper's thirty-minute horizon, and the wheel — correctly refusing to judge a busy session — waited there rather than prompting the next step, so the arc read as stalled long before it read as moving (brief [B01], [F09]).
+**And a step's background jobs do not outlive the step**, which is the same rule read from the wheel's side. The step-done line is the stage's own declaration that the step's work is over, so the supervisor ends the session's open jobs at that line: the busy latch that keeps an arc from being judged finished while a test sweep is still deciding protects the window *inside* a step, and nothing beyond it. Before this a job launched in a step and left running held the session busy until the reaper's thirty-minute horizon, and the wheel — correctly refusing to judge a busy session — waited there rather than prompting the next step, so the arc read as stalled long before it read as moving.
 
 **And a turn that never ends is answered by the clock.** That is the clock's one job, and the only shape that needs it: a hung turn never goes idle, so every arm the arc decides on an edge is unreachable for it. An *idle* session is never the clock's — it has an edge, the horizon answers it in one turn, and letting a stopwatch answer it too meant a stage that ended one quiet turn was told half an hour later, in a sentence about silence, what a re-ask settles immediately. The deadline is `[tugtool.arc].arc_stall_secs`, half an hour by default, `0` to turn it off, restarted by every turn that ends, every step that closes, every act the wheel itself takes, and the seated session's context growing. That last one is what lets it be short: a turn doing real work reports usage as it goes, so a slow turn keeps the clock reset and a hung one does not. When it runs out the arc stops with a receipt reading `stalled`, naming the resume, through the same hand-back every other stop goes through. It is the last resort under every other arm rather than a pacing device: a turn running a full test sweep is working, and the context it fills is how the clock knows.
 
@@ -141,19 +145,19 @@ Do not merge, and do not run the join on the user's behalf. That is the whole of
 
 **The build is an offer.** A change with a face is worth bringing up from the worktree so the user can look at it before the join; a refactor, a doctrine edit, or a Rust fix its own checkpoint already covered is not, and a debug instance nobody opens is cost with no reader. Offer it, do not assume it.
 
-What to run is the project's to say: the `build` command declared in `[tugtool.arc]`, which `tugtool arc config` reports. In this repository that declaration is `just app-debug`. A project that declares none offers none — say so, and say the work is inspectable at the worktree.
+What to run is the project's to say: the `build` command declared in `[tugtool.arc]`, which `tugtool arc config` reports. A project that declares none offers none — say so, and say the work is inspectable at the worktree.
 
 Before stopping, leave the **join draft** behind: write the squash message with `tugtool draft set --owner arc:<name> --message "…"`. The join gesture lands that message; it does not compose one. An arc that arrives at the join draftless stops there, which is a stall you caused one step earlier.
 
-Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message** ([D144]). Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the arc took. The draft is therefore the *only* durable prose the base will carry about this arc, and the round commits it might have leaned on to fill in what it left out will not be there.
+Write it knowing exactly what it becomes: **a join lands one commit on the base, and the draft is its message**. Not one commit per round, not the rounds replayed — one, whatever the ladder did off to the side to make the bytes merge, and regardless of how many rounds the arc took. The draft is therefore the *only* durable prose the base will carry about this arc, and the round commits it might have leaned on to fill in what it left out will not be there.
 
 **So the draft is a commit message, held to the same standard as every other commit the base carries.** An imperative subject in the repository's recent-commit style, then a body describing the change the base is about to receive — what it does, and the argument the work rests on — written for a reader who never saw the arc. Never a narration of the arc: no round-by-round digest, no step numbers, no "it did X and then Y", and no archaeology about defects found and fixed along the way. The round count is the receipt's fact rather than the message's: the join receipt shows it, the `Tug-Arc:` trailer names the branch and base, and the arc branch's own log holds the rounds until the join sweeps it. State the argument the work actually rests on and do not append an inferred benefit to make the change sound worthier. The subject is **bare** — no `tugarc(<name>): ` prefix, because the join wears the scope itself. Every line runs unbroken to its end (**no hard wrapping**), and no AI or agent attribution, ever.
 
-The exemplar is in the tree: `a18557090`, an arc join whose message says what a project can now declare, what routes through it, which boundary was held, and how it was proven — with no round list and nothing that requires having watched the arc. Read it before writing one.
+Read the base's recent joins before writing one — `git log` shows them. A good one says what the project can now do, which boundary was held, and how it was proven, with no round list and nothing that requires having watched the arc.
 
-**The arc arms itself, and `tugtool arc mark <name> built` is telemetry** ([D147]). What arms it is the arc reaching the step its selection declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time an arc ended early. The mark stamps the word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
+**The arc arms itself, and `tugtool arc mark <name> built` is telemetry.** What arms it is the arc reaching the step its selection declared it would run through — nothing has to remember to say so, which is the point: an endgame that depended on a chore was an endgame that went dark the first time an arc ended early. The mark stamps the word `built` on the arc's faces in place of the derived `ready`, which is worth doing when you did build and changes nothing when you skip it.
 
-Once armed, the pilot reconciles the arc against its base, unprompted. It runs no build and no tests — the arc's ending already verified the tree that lands ([D149]) — so a standing candidate is the whole of readiness, and the arc **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the arc's row, what the join would land, and where those words came from ([D152]). A stage's report therefore does not end in a `/arc-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself ([D142], [D147]).
+Once armed, the pilot reconciles the arc against its base, unprompted. It runs no build and no tests — the arc's ending already verified the tree that lands — so a standing candidate is the whole of readiness, and the arc **offers** the moment it has one: the Changes shade reveals itself on the bound session in the first quiet moment, showing the arc's row, what the join would land, and where those words came from. A stage's report therefore does not end in a `/arc-join <name>` chip and should not read as though nothing will happen until the user types one. Say what was built and stop; the arc will speak for itself.
 
 ## The join finishes itself
 
@@ -164,7 +168,7 @@ where the merge is a real tree with the whole project around it. It finishes
 what the ladder could not, **audits every file the ladder's machine rungs
 decided** against the arc's recorded intent, and reports what it did.
 
-**The gate is reconcile-clean, and nothing else** ([D149]). An arc joins when
+**The gate is reconcile-clean, and nothing else.** An arc joins when
 its merge onto the current base is clean — either because it always was, or
 because the ladder and the resolver made it so. No build runs here and no tests
 run here, because verification belongs to the arc's ending, over the tree the
@@ -199,8 +203,8 @@ behaves in a way that looks like nothing happening:
   discrete beats with minutes between them, and only the server's own timeouts
   can call it dead.
 
-**The join speaks in the room where the work is, and that room stands**
-([D152]). The decision surface is the Changes shade: the card reveals it in the
+**The join speaks in the room where the work is, and that room stands.**
+The decision surface is the Changes shade: the card reveals it in the
 first quiet moment — no turn running, no landing up, no half-typed prompt — and
 until one arrives the Changes segment wears an accent dot so the offer is quiet
 rather than silent. The reveal is a glance and nothing more: it enters no mode
@@ -263,7 +267,7 @@ A plan document carries step numbers because it *is* the bookkeeping; so does th
 
 ## Retiring something: the design goes, the spelling stays
 
-A retired **design** is deleted whole — the text and the apparatus behind it, its tests, its fixtures, its registry lines and its roster entries — never marked "superseded by"; a retired **spelling** is kept as an alias, because an unmatched `/verb` is submitted to claude as a prompt rather than refused, which is worse than a rename ([slash-commands.md](slash-commands.md#retire-a-spelling) owns that half and states it once). Tell the two apart by asking whether anything is left that a user could still type: if there is, it needs somewhere to land; if there is not, there is nothing to keep.
+A retired **design** is deleted whole — the text and the apparatus behind it, its tests, its fixtures, its registry lines and its roster entries — never marked "superseded by"; a retired **spelling** is kept as an alias, because a name a user can still type that lands nowhere is worse than a rename. Tell the two apart by asking whether anything is left that a user could still type: if there is, it needs somewhere to land; if there is not, there is nothing to keep.
 
 ## No sub-agents
 

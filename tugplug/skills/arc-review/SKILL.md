@@ -36,7 +36,7 @@ tugtool plan status <name-or-path> --json
 tugtool plan lint <name-or-path>
 ```
 
-`status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md#re-review-what-a-second-round-may-touch): *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here. When the rubric is absent, those two rules — *edits are decisions*, *`done` rows are frozen* — are the whole of re-review discipline; hold them as stated and say so.
+`status` tells you what kind of round this is before you read a line. `rounds: 0` (or `review: "never-reviewed"` with no stamped round) is a first pass — review the whole document. Anything else is a **re-review**, and re-review has its own rules, held in the rubric's *Re-review: what a second round may touch* section: *edits are decisions* and *done rows are frozen*. Read that section before touching a plan that has been reviewed before; do not restate it here.
 
 **Orient on what moved.** On a second or later round, read the git diff since the previous round when the plan is tracked and dirty; otherwise read the Review Record and orient on that. Name which one you used in the round's `Oriented on:` line — it tells the next reader how much of the document this round actually looked at.
 
@@ -56,9 +56,9 @@ This is the step that makes the review worth its cost. A finding you could have 
 
 ### 3. Apply the rubric
 
-Read [`tuglaws/plan-review-rubric.md`](../../../tuglaws/plan-review-rubric.md) and work down it: plan quality and coherence, technical choices, strategy and sequencing, holes and pitfalls, test-plan sanity, the tuglaws cross-check (name the specific laws; for frontend work in a project whose laws define state zones, verify the State Zone Mapping), the does-this-leave-the-architecture-better test, and the cold-reader test.
+Read the rubric — `${CLAUDE_PLUGIN_ROOT}/skills/arc-review/plan-review-rubric.md`, with `Read`; it ships beside this skill — and work down it: plan quality and coherence, technical choices, strategy and sequencing, holes and pitfalls, test-plan sanity, the project's declared laws (name the specific laws; verify the plan's Project-Law Mapping where the project's supplement requires one), the does-this-leave-the-architecture-better test, and the cold-reader test.
 
-If the rubric is absent — a project without `tuglaws/` — proceed on the criteria above and **say so** in the Review Record. A missing rubric degrades the review; it does not cancel it.
+**Then read what the project adds.** `tugtool arc config --json` reports `doctrine` and `laws`, each a list of paths relative to the project root. Read every `doctrine` document — the project's supplement says what its test layers are called, which test shapes it bans, and when its laws require a Project-Law Mapping — and read every `laws` document before the laws axis. A project that declares no laws has that axis skipped, and the Review Record says so in a sentence.
 
 ### 4. Apply the fixups
 
@@ -74,7 +74,7 @@ What to fix versus what to raise:
 
 **No dialog, and the tools say so rather than only the prose.** `AskUserQuestion` is refused in this skill: under an arc there is nobody in front of the stage, and a stage parked on a dialog is an arc that has stopped without saying so — nothing in the arc log, no receipt on the card, and the question lost the moment the wheel rotates the card, which it may do because a dialog is not a turn.
 
-Raise the design, never the process. Never raise whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is in [`tuglaws/arc-work-doctrine.md`](../../../tuglaws/arc-work-doctrine.md#what-never-gets-asked). Where that document is absent, the preceding sentence is the boundary, and say so. Stopping an arc over something the code could have settled is the same cost, spent by the machine instead of the user.
+Raise the design, never the process. Never raise whether to apply a fixup, whether to keep going, or anything else with a conventional default — the never-ask boundary is the *What never gets asked* section of the arc doctrine, `${CLAUDE_PLUGIN_ROOT}/doctrine/arc-work-doctrine.md`. Stopping an arc over something the code could have settled is the same cost, spent by the machine instead of the user.
 
 Keep the plan lint-clean as you go — re-run the linter after substantive edits.
 
@@ -86,8 +86,8 @@ Add one paragraph to `### Review Record {#review-record}` (immediately after Pla
 **Round 2 — 2026-08-13, opus.** Lint: 0 errors, 3 warnings (2 fixed).
 Oriented on: the git diff since round 1.
 Applied: sequencing — Step 4 depended on a later step, reordered; test plan — Step 2
-proposed an RTL render test, rewritten as an app-test; law [L02] — the new store read
-bypassed `useSyncExternalStore`, corrected in Spec S01.
+proposed a mock-interface assertion test, rewritten as an integration test; law [L02] —
+the new store read bypassed the subscription the law requires, corrected in Spec S01.
 Deferred: the migration-window question — asked, and the user chose to settle it during
 implementation; now [Q03].
 ```
@@ -128,7 +128,7 @@ A review that ends **without a stamp** has answered nothing, exactly as an audit
 - **No sub-agents.** Read, judge, and fix in-thread.
 - **Edit only the plan file.** Never the code it describes.
 - **Never report "looks good" without having read the code the plan touches.** A review that could have been written from the plan alone has not happened.
-- **Ground every claim in the real code or the tuglaws.** Name the file, the symbol, the law.
+- **Ground every claim in the real code or the project's declared laws.** Name the file, the symbol, the law.
 - **Fix what you can; ask what you cannot.** A judgment call is a dialog, never a silent decision — and only a deferral becomes an Open Question.
 - **Respect what moved.** Edits are decisions; `done` rows are frozen. The rules are in the rubric's re-review section, and they outrank your sense of how the plan should have been shaped.
 - **Always append the Review Record**, even on a clean pass — a round that found nothing is a fact worth recording, and a vacuous round is supposed to be visible in the artifact.

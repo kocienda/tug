@@ -23,6 +23,8 @@ The rule — backtick every path you write, and write a commit sha bare in backt
 
 Tug is distributed as `Tug.app` to people whose projects have nothing to do with this checkout: no `tuglaws/`, no `justfile`, no `CLAUDE.md` of ours, no `~/.local/bin` symlinks, possibly no `jq` or `bun`. Everything the AI needs to drive Tug on such a project must be inside the bundle — the binaries in `Contents/MacOS/` and the plugin at `Contents/Resources/tugplug/`. The contract and its guards are in [tugplug/CLAUDE.md](tugplug/CLAUDE.md#the-standalone-contract): `just tugplug-lint` (in `just lint`) refuses checkout-only shapes under `tugplug/`, and `just test-standalone` (in `just test`) drives the real hook script and arc verbs from a scratch project with an empty PATH. Anything Tug-specific a skill would like to say — which recipe builds, which tests are green — belongs in `.tugtool/config.toml` or in this file, never in the plugin.
 
+The arc doctrine, the devise skeleton and the plan review rubric ship in the plugin (`tugplug/doctrine/arc-work-doctrine.md`, `tugplug/skills/arc-devise/devise-skeleton.md`, `tugplug/skills/arc-review/plan-review-rubric.md`), and the arc skills read them at `${CLAUDE_PLUGIN_ROOT}`. What is true of Tug alone — the test commands, the app-test discipline, the laws a plan is cross-checked against — is [tuglaws/arc-supplement.md](tuglaws/arc-supplement.md), which `.tugtool/config.toml` declares under `[tugtool.arc]` `doctrine` beside the `laws` list; `tugtool arc config` reports both, and that is the only way a skill learns of either.
+
 ## Repository Structure
 
 | Directory | Description |

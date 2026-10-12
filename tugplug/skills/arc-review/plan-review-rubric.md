@@ -2,7 +2,7 @@
 
 What a reviewer judges when reading an implementation plan, and what a reviewer deliberately does not.
 
-This is doctrine, not skill prose. `/tugplug:arc-review` reads it before reviewing a plan, and a human reading a plan by hand can work down it. One copy, two readers.
+This is doctrine, not skill prose. It ships beside `/tugplug:arc-review`, which reads it before reviewing a plan, and a human reading a plan by hand can work down it. One copy, two readers. A project adds to it through the documents its `[tugtool.arc]` table declares — `doctrine` for its supplement, `laws` for its laws — which `tugtool arc config` reports.
 
 ## What this rubric does not cover
 
@@ -36,29 +36,29 @@ What will bite during implementation? Name the edge cases, failure modes, migrat
 
 Ask specifically: what happens on error, on interrupt, on unmount, on a crash mid-operation? What does a second invocation do? What does the user come back to?
 
-**A plan that projects repository files must trace the file's whole lifecycle, and must be verified once over the real repository's data.** A surface built for the state a file is in on the day it is written will be wrong about every later state — and the plan's own description of those states is not evidence, because the misreading that produced the surface is usually the misreading the plan repeats. Walk the file from written to adopted to landed to archived, and say what the surface shows at each; then read the code that moves it, not the decision that describes it. Fixtures alone cannot catch this: a fixture is written by whoever holds the wrong model, so it agrees with them. One render over what the repository actually contains is what disagrees ([D159]).
+**A plan that projects repository files must trace the file's whole lifecycle, and must be verified once over the real repository's data.** A surface built for the state a file is in on the day it is written will be wrong about every later state — and the plan's own description of those states is not evidence, because the misreading that produced the surface is usually the misreading the plan repeats. Walk the file from written to adopted to landed to archived, and say what the surface shows at each; then read the code that moves it, not the decision that describes it. Fixtures alone cannot catch this: a fixture is written by whoever holds the wrong model, so it agrees with them. One render over what the repository actually contains is what disagrees.
 
 ### 5. Test plan sanity
 
 Does each step's Tests block name a test that could actually fail for the right reason, at the right layer?
 
-Real-app behavior — focus, selection, event ordering, caret, portal timing, gestures — belongs in `tests/app-test/` and runs via `just app-test`. Everything else is pure-logic `bun:test` over data. Rust logic is `cargo nextest`.
+Real-program behavior — focus, selection, event ordering, timing, gestures — belongs in the project's real-program harness, run through the recipe the project gives for it. Everything else is pure-logic tests over data, at the language's own unit-test layer. The project's doctrine supplement names what those layers are called.
 
 **Banned outright.** Flag any step proposing one:
 
-- fake-DOM / RTL tests — `happy-dom`, `jsdom` render tests, `@testing-library/react`. There is no in-process DOM substrate; happy-dom was deleted.
-- mock-store assertion tests — hand-rolling a core interface to assert mock method-call counts. `tsc --noEmit` already catches interface drift.
+- mock-interface assertion tests — hand-rolling a core interface to assert mock method-call counts. The type checker already catches interface drift.
 - reflexive per-mutator "pin" tests, even against the real engine. Write an integration test in response to a real bug, at the real layer.
+- any shape the project's doctrine supplement bans.
 
 The linter catches these when they are named in a Tests block. It cannot catch a test described in prose that amounts to the same thing — that one is yours.
 
-## The tuglaws cross-check
+## The project's declared laws
 
-Confirm the proposed changes adhere to the laws in [`tuglaws.md`](tuglaws.md), cross-checking [`design-decisions.md`](design-decisions.md) where relevant. **Name the specific laws** the plan touches — `[L02]`, `[L22]`, `[L27]`, `[L28]`, … — and state, for each, whether the plan honors it or risks violating it. "Follows the laws" is not a cross-check.
+Confirm the proposed changes adhere to the laws the project declares — the documents its `[tugtool.arc]` table lists under `laws`, which `tugtool arc config` reports. Read them before judging. **Name the specific laws** the plan touches, by the labels the documents give them, and state, for each, whether the plan honors it or risks violating it. "Follows the laws" is not a cross-check.
 
-For tugdeck / tugways work this is mandatory, and so is the **State Zone Mapping**: every piece of state the plan introduces must name its zone (structure / local-data / appearance / lifecycle) and the mechanism that carries it there. A plan that moves appearance through React state, or reads external state without `useSyncExternalStore`, is wrong regardless of how well it reads.
+Where the plan carries a **Project-Law Mapping** — every piece of new state or new mechanism mapped to the law that governs it — verify each row against the law it names. The project's doctrine supplement says when its laws require that mapping; a plan that should carry one and does not has a hole.
 
-Also read [`component-authoring.md`](component-authoring.md) and [`pane-model.md`](pane-model.md) before judging tugdeck work.
+**When the project declares no laws, this axis is skipped**, and the Review Record says so in a sentence. A skipped axis is the honest record of a project with no laws to cite; an invented cross-check against laws nobody declared is not.
 
 ## The two tests that decide it
 
@@ -78,6 +78,6 @@ Orient on what moved: read the diff since the previous round when the plan is tr
 
 ## How a reviewer works
 
-Ground every claim in the real code or in the tuglaws. Read the components, the data flow, and the conventions the plan builds on before judging whether it fits them. No abstract hand-waving; no "consider whether" without having considered it.
+Ground every claim in the real code or in the project's declared laws. Read the components, the data flow, and the conventions the plan builds on before judging whether it fits them. No abstract hand-waving; no "consider whether" without having considered it.
 
 Never report "looks good" without having read the code the plan touches. A review that could have been written from the plan alone is not a review.

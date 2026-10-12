@@ -1841,7 +1841,16 @@ mod tests {
         // Batches the page applied: one inside the first gate, one inside the
         // motion's, one the motion's gate parked and applied at its open.
         let ingest = [(20.0, 3, true), (120.0, 2, true), (171.0, 4, false)];
-        let m = motion(&frames, &gates, 170.0, Some(&commits), None, None, Some(&ingest)).unwrap();
+        let m = motion(
+            &frames,
+            &gates,
+            170.0,
+            Some(&commits),
+            None,
+            None,
+            Some(&ingest),
+        )
+        .unwrap();
         assert_eq!(m.at_ms, 95.0);
         // 106.7 → 150 is inside; 90 → 106.7 opened before the close, and
         // 166.7 → 183.4 closes after the off.

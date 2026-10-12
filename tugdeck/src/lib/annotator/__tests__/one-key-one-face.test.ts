@@ -13,7 +13,7 @@
  * The rule that replaces it is one sentence: a path in ink acts like the
  * file it names, as that file is right now, everywhere, at the same time.
  * This file is that rule at the altitude a unit test can hold it. There is
- * no in-process DOM substrate here (`tuglaws/arc-work-doctrine.md`: no
+ * no in-process DOM substrate here (`tuglaws/arc-supplement.md`: no
  * jsdom, no happy-dom, no RTL), so the DOM half of the claim — three runs
  * in one container all carrying the mark after one batch — is the app-test's
  * (`tests/app-test/at0521-ink-follows-file.test.ts`), driven against the

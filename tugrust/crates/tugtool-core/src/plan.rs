@@ -2242,19 +2242,19 @@ Some context.
     /// invisible without a guard. Warnings count here as well as errors: the
     /// skeleton is the one document that should model a clean bill.
     ///
-    /// Resolved from the crate manifest and skipped cleanly when absent, so the
-    /// crate stays testable outside this repository.
+    /// Resolved from the crate manifest. The skeleton ships in the plugin, in
+    /// this same repository, so a missing file is a moved or deleted contract
+    /// and fails rather than skipping.
     #[test]
     fn the_skeleton_satisfies_its_own_rules() {
         let skeleton = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../tuglaws/devise-skeleton.md")
-            .canonicalize();
-        let Ok(skeleton) = skeleton else {
-            return;
-        };
-        let Ok(source) = std::fs::read_to_string(&skeleton) else {
-            return;
-        };
+            .join("../../../tugplug/skills/arc-devise/devise-skeleton.md");
+        let source = std::fs::read_to_string(&skeleton).unwrap_or_else(|e| {
+            panic!(
+                "the devise skeleton must exist at {}: {e}",
+                skeleton.display()
+            )
+        });
         let doc = parse(&source).expect("the devise skeleton must parse as a plan");
         let diagnostics = lint(&doc);
         assert!(
