@@ -338,6 +338,7 @@ const EXT_TO_LANG: Readonly<Record<string, string>> = Object.freeze({
   dart: "dart",
   vue: "vue",
   svelte: "svelte",
+  astro: "astro",
   sh: "shellscript",
   bash: "shellscript",
   zsh: "shellscript",

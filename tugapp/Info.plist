@@ -83,6 +83,31 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Source extensions macOS ships no UTI for. Without a declaration they
+	     resolve to a dyn.* type that conforms only to public.data, so the
+	     open gates (AppDelegate.isOpenableFile, the Open panels) and Finder's
+	     Open With turn them away. Declaring them as public.source-code makes
+	     them text everywhere those gates look. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.astro.source</string>
+			<key>UTTypeDescription</key>
+			<string>Astro Component</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.source-code</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>astro</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>

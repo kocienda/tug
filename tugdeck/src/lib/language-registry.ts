@@ -188,6 +188,9 @@ const LOADERS: Record<string, LanguageLoader> = {
   css: async () => cssLang(),
   html: async () => htmlLang(),
   htm: async () => htmlLang(),
+  // Frontmatter TypeScript over an HTML template, composed from the two
+  // grammars above; see the module.
+  astro: () => import("./astro-language").then((m) => m.astro()),
   // `addKeymap: false` on the same grounds as `markdownTextStyleSupport`: the
   // markdown keymap binds Enter to `insertNewlineContinueMarkup`, which writes
   // a bullet the writer did not type, and Backspace to `deleteMarkupBackward`.
@@ -262,6 +265,7 @@ const LANGUAGE_LABELS: Record<string, string> = {
   css: "CSS",
   html: "HTML",
   htm: "HTML",
+  astro: "Astro",
   md: "Markdown",
   markdown: "Markdown",
   go: "Go",
@@ -318,6 +322,7 @@ export const SELECTABLE_LANGUAGES: readonly SelectableLanguage[] = [
   { id: "json", label: "JSON", ext: "json" },
   { id: "css", label: "CSS", ext: "css" },
   { id: "html", label: "HTML", ext: "html" },
+  { id: "astro", label: "Astro", ext: "astro" },
   { id: "go", label: "Go", ext: "go" },
   { id: "java", label: "Java", ext: "java" },
   { id: "sql", label: "SQL", ext: "sql" },

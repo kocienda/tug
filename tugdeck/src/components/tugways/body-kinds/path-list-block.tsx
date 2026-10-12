@@ -259,7 +259,7 @@ const CODE_EXTENSIONS: ReadonlySet<string> = new Set([
   "rs", "go", "java", "kt", "kts", "swift", "c", "h", "cpp", "cxx", "cc",
   "hpp", "hxx", "cs", "fs", "ml", "hs", "ex", "exs", "erl", "clj", "cljs",
   "scala", "groovy", "lua", "php", "pl", "pm", "r", "jl", "zig", "v",
-  "dart", "vue", "svelte", "sh", "bash", "zsh", "fish", "css", "scss",
+  "dart", "vue", "svelte", "astro", "sh", "bash", "zsh", "fish", "css", "scss",
   "sass", "less", "html", "htm", "xml", "sql", "graphql", "gql",
 ]);
 /** Extensions that render with the structured-data icon. */

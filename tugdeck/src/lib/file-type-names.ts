@@ -97,6 +97,7 @@ const NAMED_EXTENSIONS: Readonly<Record<string, FileTypeName>> = {
   fish: SHELL,
   html: named("html", "HTML"),
   htm: named("html", "HTML"),
+  astro: named("astro", "Astro"),
   css: named("css", "CSS"),
   json: named("json", "JSON"),
   yaml: named("yaml", "YAML"),
