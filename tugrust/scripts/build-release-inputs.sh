@@ -41,10 +41,7 @@ echo "==> Compiling tugcode (bun)"
 # tiktoken) resolve from tugcode/node_modules. Installing here rather than
 # assuming a populated tree is what lets this run on a clean checkout.
 (cd "$REPO_ROOT/tugcode" && bun install --frozen-lockfile)
-(
-    cd "$REPO_ROOT"
-    bun build --compile tugcode/src/main.ts --outfile tugrust/target/release/tugcode
-)
+bash "$SCRIPT_DIR/compile-tugcode.sh" "$REPO_ROOT/tugrust/target/release/tugcode"
 
 echo "==> Building tugdeck static assets"
 (cd "$REPO_ROOT/tugdeck" && bun install --frozen-lockfile)

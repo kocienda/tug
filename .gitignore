@@ -47,6 +47,15 @@ aside
 
 node_modules/
 
+# `bun build --compile` stages its executable in a hidden temp file in the
+# working directory, `.<hash>-00000000.bun-build`, and a read-only bun (any
+# Homebrew install) abandons one there on every compile. Every tugcode compile
+# runs from a private `.bun-compile.*` scratch directory that
+# tugrust/scripts/compile-tugcode.sh deletes afterwards; these patterns only
+# catch what an interrupted compile leaves behind.
+*.bun-build
+/.bun-compile.*/
+
 # Frontend build output
 tugdeck/dist/
 

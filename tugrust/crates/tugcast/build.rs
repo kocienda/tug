@@ -46,7 +46,9 @@ fn main() {
         }
     }
 
-    // Compile tugcode to a standalone binary using bun build --compile.
+    // Compile tugcode to a standalone binary through compile-tugcode.sh, the
+    // one place `bun build --compile` runs (it keeps a read-only bun from
+    // stranding a copy of itself in the working directory on every compile).
     // Place the binary in the cargo target profile directory (next to tugcast/tugtool).
     // OUT_DIR is: target/{profile}/build/{crate}-{hash}/out
     // We walk up to find the profile directory (debug or release).
@@ -62,14 +64,9 @@ fn main() {
         .to_path_buf();
 
     let tugcode_binary = target_profile_dir.join("tugcode");
-    let status = Command::new("bun")
-        .args([
-            "build",
-            "--compile",
-            "src/main.ts",
-            &format!("--outfile={}", tugcode_binary.display()),
-        ])
-        .current_dir(&tugcode_dir)
+    let status = Command::new("bash")
+        .arg(repo_root.join("tugrust/scripts/compile-tugcode.sh"))
+        .arg(&tugcode_binary)
         .status()
         .expect("failed to run bun build --compile for tugcode");
     if !status.success() {
@@ -84,5 +81,11 @@ fn main() {
     println!(
         "cargo:rerun-if-changed={}",
         repo_root.join("tugcode/package.json").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        repo_root
+            .join("tugrust/scripts/compile-tugcode.sh")
+            .display()
     );
 }

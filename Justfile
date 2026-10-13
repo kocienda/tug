@@ -9,7 +9,7 @@ build:
     set -euo pipefail
     cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank
     cd ..
-    bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
+    bash tugrust/scripts/compile-tugcode.sh tugrust/target/debug/tugcode
     # Only the main checkout owns ~/.local/bin. A linked worktree (an arc under
     # .tug/worktrees/) builds its own ephemeral binaries; pointing the global
     # symlinks at them would dangle every tug* tool the moment the arc is torn
@@ -1472,7 +1472,7 @@ build-app:
     echo "==> [1/5] Rust debug binaries"
     [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 1 --total 5 --needle "just build-app" --needle "just app-test" -- "Rust debug binaries" >/dev/null 2>&1 || true
     (cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank)
-    bun build --compile tugcode/src/main.ts --outfile tugrust/target/debug/tugcode
+    bash tugrust/scripts/compile-tugcode.sh tugrust/target/debug/tugcode
 
     echo "==> [2/5] tugdeck deps + prebuilt dist"
     [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 2 --total 5 --needle "just build-app" --needle "just app-test" -- "tugdeck build" >/dev/null 2>&1 || true
