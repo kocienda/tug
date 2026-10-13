@@ -9,27 +9,22 @@
 pub(crate) fn is_js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n'
-            | '\u{b}'
-            | '\u{c}'
-            | '\r'
-            | ' '
-            | '\u{a0}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{202f}'
-            | '\u{205f}'
-            | '\u{3000}'
-            | '\u{feff}'
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
     )
 }
 
 /// Strip an ASCII-case-insensitive `prefix` from `s`.
 fn strip_prefix_ignore_case<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     let head = s.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &s[prefix.len()..])
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &s[prefix.len()..])
 }
 
 /// Match `/^<pre><code\s+class="language-([^"]+)"\s*>/i` at the start of
@@ -153,14 +148,25 @@ mod tests {
 
     #[test]
     fn extracts_math_source_and_aliases() {
-        let fence = |lang: &str, body: &str| format!("<pre><code class=\"language-{lang}\">{body}</code></pre>\n");
+        let fence = |lang: &str, body: &str| {
+            format!("<pre><code class=\"language-{lang}\">{body}</code></pre>\n")
+        };
         assert_eq!(
             extract_math_source(&fence("math", "E=mc^2\n")),
             Some(("math".to_string(), "E=mc^2".to_string()))
         );
-        assert_eq!(extract_math_source(&fence("latex", "x")).map(|m| m.0), Some("latex".to_string()));
-        assert_eq!(extract_math_source(&fence("tex", "x")).map(|m| m.0), Some("tex".to_string()));
-        assert_eq!(extract_math_source(&fence("MATH", "x")).map(|m| m.0), Some("math".to_string()));
+        assert_eq!(
+            extract_math_source(&fence("latex", "x")).map(|m| m.0),
+            Some("latex".to_string())
+        );
+        assert_eq!(
+            extract_math_source(&fence("tex", "x")).map(|m| m.0),
+            Some("tex".to_string())
+        );
+        assert_eq!(
+            extract_math_source(&fence("MATH", "x")).map(|m| m.0),
+            Some("math".to_string())
+        );
         assert_eq!(extract_math_source(&fence("ts", "x")), None);
         assert_eq!(extract_math_source("<pre><code>x</code></pre>\n"), None);
         assert_eq!(extract_math_source("<p>$E=mc^2$</p>"), None);

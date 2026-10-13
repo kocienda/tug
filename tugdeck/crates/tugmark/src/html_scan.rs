@@ -117,7 +117,9 @@ pub(crate) fn scan<'a>(html: &'a str, mut on_token: impl FnMut(Token<'a>)) {
                 if i < n && (bytes[i] == b'"' || bytes[i] == b'\'') {
                     let quote = bytes[i] as char;
                     let value_start = i + 1;
-                    let value_end = html[value_start..].find(quote).map_or(n, |off| value_start + off);
+                    let value_end = html[value_start..]
+                        .find(quote)
+                        .map_or(n, |off| value_start + off);
                     value = decode_entities(&html[value_start..value_end]);
                     i = (value_end + 1).min(n);
                 } else {
@@ -186,7 +188,10 @@ pub(crate) fn decode_entities(s: &str) -> String {
 
 /// The value of attribute `name` among `attrs`, if present.
 pub(crate) fn attr<'v>(attrs: &'v [(&str, String)], name: &str) -> Option<&'v str> {
-    attrs.iter().find(|(n, _)| *n == name).map(|(_, v)| v.as_str())
+    attrs
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, v)| v.as_str())
 }
 
 #[cfg(test)]
@@ -199,7 +204,10 @@ mod tests {
             out.push(match t {
                 Token::Start { name, attrs, .. } => format!(
                     "<{name}{}>",
-                    attrs.iter().map(|(n, v)| format!(" {n}={v}")).collect::<String>()
+                    attrs
+                        .iter()
+                        .map(|(n, v)| format!(" {n}={v}"))
+                        .collect::<String>()
                 ),
                 Token::End { name } => format!("</{name}>"),
                 Token::Text(text) => format!("[{text}]"),

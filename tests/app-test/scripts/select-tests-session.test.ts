@@ -27,6 +27,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { copyAppTestTree } from "./copy-app-test-tree";
 
 const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
 
@@ -113,7 +114,7 @@ function payload(buckets: {
 beforeAll(() => {
     root = mkdtempSync(join(tmpdir(), "select-tests-session-"));
     mkdirSync(join(root, "tests"), { recursive: true });
-    cpSync(REAL_APP_TEST_DIR, join(root, "tests", "app-test"), { recursive: true });
+    copyAppTestTree(REAL_APP_TEST_DIR, join(root, "tests", "app-test"));
     script = join(root, "tests", "app-test", "scripts", "select-tests.ts");
 
     // The copy is a git repo so the whole-tree fallback has something real to read.

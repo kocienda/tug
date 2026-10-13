@@ -12,7 +12,6 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
-    cpSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -22,6 +21,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { copyAppTestTree } from "./copy-app-test-tree";
 
 const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const SCRIPT_REL = "tests/app-test/scripts/select-tests.ts";
@@ -44,7 +44,7 @@ const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws"];
 function makeRepo(prefix: string): string {
     const dir = mkdtempSync(join(tmpdir(), prefix));
     mkdirSync(join(dir, "tests"), { recursive: true });
-    cpSync(REAL_APP_TEST_DIR, join(dir, "tests", "app-test"), { recursive: true });
+    copyAppTestTree(REAL_APP_TEST_DIR, join(dir, "tests", "app-test"));
     const realRepo = resolve(REAL_APP_TEST_DIR, "..", "..");
     for (const r of SOURCE_ROOTS) symlinkSync(join(realRepo, r), join(dir, r));
     Bun.spawnSync(["git", "init", "-q"], { cwd: dir });

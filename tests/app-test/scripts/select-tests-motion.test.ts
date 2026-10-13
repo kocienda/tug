@@ -11,9 +11,10 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { copyAppTestTree } from "./copy-app-test-tree";
 
 const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
@@ -76,7 +77,7 @@ describe("against a corpus copy with a declaration rewritten", () => {
 
     beforeAll(() => {
         dir = mkdtempSync(join(tmpdir(), "select-tests-motion-"));
-        cpSync(APP_TEST_DIR, join(dir, "app-test"), { recursive: true });
+        copyAppTestTree(APP_TEST_DIR, join(dir, "app-test"));
         script = join(dir, "app-test", "scripts", "select-tests.ts");
     });
 

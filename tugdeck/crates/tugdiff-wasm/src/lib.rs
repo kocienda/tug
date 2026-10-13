@@ -356,12 +356,7 @@ mod tests {
 
     #[test]
     fn parse_unified_diff_handles_empty_context_line() {
-        let fixture = concat!(
-            "@@ -1,3 +1,3 @@\n",
-            " keep\n",
-            "\n",
-            " keep2\n",
-        );
+        let fixture = concat!("@@ -1,3 +1,3 @@\n", " keep\n", "\n", " keep2\n",);
         let hunks = parse_unified_diff_text(fixture);
         assert_eq!(hunks.len(), 1);
         assert_eq!(hunks[0].lines.len(), 3);

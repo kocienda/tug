@@ -9,7 +9,9 @@
 use crate::highlight::highlight_fences;
 use crate::sanitize::sanitize;
 use crate::transform::apply_default_transformers;
-use crate::{fnv1a64, for_each_top_level_block, parse_blocks_to_html, TopLevelBlock, TopLevelBlockKind};
+use crate::{
+    fnv1a64, for_each_top_level_block, parse_blocks_to_html, TopLevelBlock, TopLevelBlockKind,
+};
 
 /// One rendered top-level block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,7 +138,9 @@ mod tests {
         let blocks = render_blocks(text, Highlight::Off);
         assert_eq!(blocks.len(), 3);
         let utf16: Vec<u16> = text.encode_utf16().collect();
-        let slice = |b: &RenderedBlock| String::from_utf16(&utf16[b.start_char as usize..b.end_char as usize]).unwrap();
+        let slice = |b: &RenderedBlock| {
+            String::from_utf16(&utf16[b.start_char as usize..b.end_char as usize]).unwrap()
+        };
         assert_eq!(slice(&blocks[0]), "😀 one\n");
         assert_eq!(slice(&blocks[1]), "漢字 two\n");
         assert_eq!(slice(&blocks[2]), "three");
@@ -170,11 +174,18 @@ mod tests {
 
     #[test]
     fn fenced_math_and_mermaid_are_transformed() {
-        let blocks = render_blocks("```math\nx^2\n```\n\n```mermaid\nA-->B\n```\n", Highlight::Off);
+        let blocks = render_blocks(
+            "```math\nx^2\n```\n\n```mermaid\nA-->B\n```\n",
+            Highlight::Off,
+        );
         assert_eq!(blocks[0].kind, "tug-math-display");
         assert!(blocks[0].html.contains(">x^2</div>"), "{}", blocks[0].html);
         assert_eq!(blocks[1].kind, "tug-mermaid");
-        assert!(blocks[1].html.contains(">A-->B</div>"), "{}", blocks[1].html);
+        assert!(
+            blocks[1].html.contains(">A-->B</div>"),
+            "{}",
+            blocks[1].html
+        );
     }
 
     #[test]

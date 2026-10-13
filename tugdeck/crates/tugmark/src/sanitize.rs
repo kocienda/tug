@@ -37,8 +37,20 @@ pub const URL_SCHEMES: &[&str] = &[
 /// DOMPurify's `URI_SAFE_ATTRIBUTES`: attributes whose value is never read
 /// as a URL, so any value is kept.
 const URI_SAFE_ATTRIBUTES: &[&str] = &[
-    "alt", "class", "for", "id", "label", "name", "pattern", "placeholder", "role", "summary",
-    "title", "value", "style", "xmlns",
+    "alt",
+    "class",
+    "for",
+    "id",
+    "label",
+    "name",
+    "pattern",
+    "placeholder",
+    "role",
+    "summary",
+    "title",
+    "value",
+    "style",
+    "xmlns",
 ];
 
 /// DOMPurify's `DATA_URI_TAGS`: elements a `data:` URL is admitted on.
@@ -290,10 +302,11 @@ fn is_attr_whitespace(c: char) -> bool {
 /// followed by `:`.
 fn is_allowed_uri(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
-    if SAFE_URI_SCHEMES
-        .iter()
-        .any(|scheme| lower.strip_prefix(scheme).is_some_and(|rest| rest.starts_with(':')))
-    {
+    if SAFE_URI_SCHEMES.iter().any(|scheme| {
+        lower
+            .strip_prefix(scheme)
+            .is_some_and(|rest| rest.starts_with(':'))
+    }) {
         return true;
     }
     let Some(first) = lower.chars().next() else {
@@ -329,7 +342,11 @@ fn breaks_out_of_xml(value: &str) -> bool {
 /// URI, it is a `data:` URL on a `src`/`href` of a `DATA_URI_TAGS`
 /// element, or it is empty.
 fn filter_attribute<'a>(tag: &str, name: &str, value: &'a str) -> Option<Cow<'a, str>> {
-    let value = if name == "value" { value } else { js_trim(value) };
+    let value = if name == "value" {
+        value
+    } else {
+        js_trim(value)
+    };
     if breaks_out_of_xml(value) {
         return None;
     }
@@ -350,7 +367,12 @@ fn filter_attribute<'a>(tag: &str, name: &str, value: &'a str) -> Option<Cow<'a,
 fn restrict_inputs(html: &str) -> String {
     let mut cuts = Vec::new();
     scan(html, |token| {
-        if let Token::Start { name: "input", attrs, span } = token {
+        if let Token::Start {
+            name: "input",
+            attrs,
+            span,
+        } = token
+        {
             if attr(&attrs, "type") != Some("checkbox") {
                 cuts.push(span);
             }
@@ -390,12 +412,18 @@ mod tests {
     #[test]
     fn event_handlers_are_removed() {
         assert_eq!(sanitize(r#"<p onclick="x()">a</p>"#), "<p>a</p>");
-        assert_eq!(sanitize(r#"<img src="a.png" onerror="x()">"#), r#"<img src="a.png">"#);
+        assert_eq!(
+            sanitize(r#"<img src="a.png" onerror="x()">"#),
+            r#"<img src="a.png">"#
+        );
     }
 
     #[test]
     fn javascript_urls_are_removed() {
-        assert_eq!(sanitize(r#"<a href="javascript:alert(1)">x</a>"#), "<a>x</a>");
+        assert_eq!(
+            sanitize(r#"<a href="javascript:alert(1)">x</a>"#),
+            "<a>x</a>"
+        );
         assert_eq!(
             sanitize(r#"<a href="https://example.com">x</a>"#),
             r#"<a href="https://example.com">x</a>"#
@@ -410,7 +438,10 @@ mod tests {
 
     #[test]
     fn a_raw_text_input_is_removed() {
-        assert_eq!(sanitize(r#"<p>a<input type="text" value="v">b</p>"#), "<p>ab</p>");
+        assert_eq!(
+            sanitize(r#"<p>a<input type="text" value="v">b</p>"#),
+            "<p>ab</p>"
+        );
         assert_eq!(sanitize("<p>a<input>b</p>"), "<p>ab</p>");
     }
 
@@ -428,10 +459,18 @@ mod tests {
 
     #[test]
     fn noscript_parses_as_an_ordinary_element() {
-        assert_eq!(sanitize("<p><noscript><p>x</p></noscript></p>"), "<p></p><p>x</p><p></p>");
-        assert_eq!(sanitize("<div><noscript><b>gone</b></noscript>kept</div>"), "<div>kept</div>");
         assert_eq!(
-            noscript_as_element(r#"<!--<noscript>--><a title="<noscript>"><textarea><noscript></textarea>"#),
+            sanitize("<p><noscript><p>x</p></noscript></p>"),
+            "<p></p><p>x</p><p></p>"
+        );
+        assert_eq!(
+            sanitize("<div><noscript><b>gone</b></noscript>kept</div>"),
+            "<div>kept</div>"
+        );
+        assert_eq!(
+            noscript_as_element(
+                r#"<!--<noscript>--><a title="<noscript>"><textarea><noscript></textarea>"#
+            ),
             r#"<!--<noscript>--><a title="<noscript>"><textarea><noscript></textarea>"#
         );
     }
@@ -440,12 +479,24 @@ mod tests {
     fn attribute_values_follow_dompurify() {
         assert_eq!(sanitize(r#"<p title="--><x>">a</p>"#), "<p>a</p>");
         assert_eq!(sanitize(r#"<p title="</style>">a</p>"#), "<p>a</p>");
-        assert_eq!(sanitize(r#"<ol start="javascript:x"><li>a</li></ol>"#), "<ol><li>a</li></ol>");
-        assert_eq!(sanitize(r#"<a href=" https://x.invalid/ ">a</a>"#), r#"<a href="https://x.invalid/">a</a>"#);
-        assert_eq!(sanitize(r#"<img src="data:image/png;base64,AA">"#), r#"<img src="data:image/png;base64,AA">"#);
+        assert_eq!(
+            sanitize(r#"<ol start="javascript:x"><li>a</li></ol>"#),
+            "<ol><li>a</li></ol>"
+        );
+        assert_eq!(
+            sanitize(r#"<a href=" https://x.invalid/ ">a</a>"#),
+            r#"<a href="https://x.invalid/">a</a>"#
+        );
+        assert_eq!(
+            sanitize(r#"<img src="data:image/png;base64,AA">"#),
+            r#"<img src="data:image/png;base64,AA">"#
+        );
         assert_eq!(sanitize(r#"<a href="data:text/html,x">a</a>"#), "<a>a</a>");
         assert_eq!(sanitize(r#"<img src="DATA:image/png;base64,AA">"#), "<img>");
-        assert_eq!(sanitize(r#"<p data-x="1" aria-label="a" id="title">a</p>"#), r#"<p id="title">a</p>"#);
+        assert_eq!(
+            sanitize(r#"<p data-x="1" aria-label="a" id="title">a</p>"#),
+            r#"<p id="title">a</p>"#
+        );
         assert!(is_allowed_uri("a/b:c") && is_allowed_uri("#x") && is_allowed_uri("/x"));
         assert!(!is_allowed_uri("custom-scheme:x") && !is_allowed_uri(""));
     }

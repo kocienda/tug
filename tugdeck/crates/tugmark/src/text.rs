@@ -18,7 +18,10 @@ const ATOM_CHAR: char = '\u{fffc}';
 
 /// Elements whose text the inline-math walk never enters.
 fn is_skip_tag(name: &str) -> bool {
-    matches!(name, "code" | "pre" | "script" | "style" | "textarea" | "title")
+    matches!(
+        name,
+        "code" | "pre" | "script" | "style" | "textarea" | "title"
+    )
 }
 
 fn has_class(attrs: &[(&str, String)], class: &str) -> bool {
@@ -105,7 +108,10 @@ fn find_inline_closer(t: &[u8], from: usize) -> Option<usize> {
         }
         if t[i] == b'$' {
             let next = t.get(i + 1).copied();
-            if (i > 0 && is_space(t[i - 1])) || next == Some(b'$') || next.is_some_and(|b| b.is_ascii_digit()) {
+            if (i > 0 && is_space(t[i - 1]))
+                || next == Some(b'$')
+                || next.is_some_and(|b| b.is_ascii_digit())
+            {
                 i += 1;
                 continue;
             }
@@ -183,17 +189,26 @@ mod tests {
 
     #[test]
     fn blocks_join_with_nothing_and_keep_their_own_newlines() {
-        assert_eq!(text_of("# Title\n\nBody &amp; more.\n"), "Title\nBody & more.\n");
+        assert_eq!(
+            text_of("# Title\n\nBody &amp; more.\n"),
+            "Title\nBody & more.\n"
+        );
     }
 
     #[test]
     fn fenced_math_is_dropped() {
-        assert_eq!(text_of("before\n\n```math\nx^2\n```\n\nafter\n"), "before\nafter\n");
+        assert_eq!(
+            text_of("before\n\n```math\nx^2\n```\n\nafter\n"),
+            "before\nafter\n"
+        );
     }
 
     #[test]
     fn inline_math_is_dropped_but_code_keeps_its_dollars() {
-        assert_eq!(text_of("cost $x^2$ here and `$y$`\n"), "cost  here and $y$\n");
+        assert_eq!(
+            text_of("cost $x^2$ here and `$y$`\n"),
+            "cost  here and $y$\n"
+        );
     }
 
     #[test]
@@ -215,7 +230,10 @@ mod tests {
 
     #[test]
     fn ranges_match_the_page_grammar() {
-        assert_eq!(find_inline_math_ranges("a $b$ c $$d$$"), vec![(2, 5), (8, 13)]);
+        assert_eq!(
+            find_inline_math_ranges("a $b$ c $$d$$"),
+            vec![(2, 5), (8, 13)]
+        );
         assert_eq!(find_inline_math_ranges(r"\$a$"), vec![]);
         assert_eq!(find_inline_math_ranges("$ a$"), vec![]);
         assert_eq!(find_inline_math_ranges("$$open"), vec![]);

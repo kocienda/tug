@@ -35,7 +35,9 @@ pub mod text;
 pub mod transform;
 
 #[cfg(feature = "native")]
-pub use render::{byte_to_utf16_map, render_blocks, render_blocks_with, text_hash, Highlight, RenderedBlock};
+pub use render::{
+    byte_to_utf16_map, render_blocks, render_blocks_with, text_hash, Highlight, RenderedBlock,
+};
 #[cfg(feature = "native")]
 pub use text::rendered_text;
 
@@ -559,4 +561,3 @@ mod tests {
         assert_ne!(h, h_para);
     }
 }
-

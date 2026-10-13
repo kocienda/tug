@@ -20,7 +20,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
     copyFileSync,
-    cpSync,
     mkdirSync,
     mkdtempSync,
     readdirSync,
@@ -31,6 +30,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { copyAppTestTree } from "./copy-app-test-tree";
 
 const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const REAL_REPO = resolve(REAL_APP_TEST_DIR, "..", "..");
@@ -161,7 +161,7 @@ beforeAll(() => {
     root = mkdtempSync(join(tmpdir(), "select-tests-rank-"));
     ledger = join(root, "apptest_results.db");
     mkdirSync(join(root, "tests"), { recursive: true });
-    cpSync(REAL_APP_TEST_DIR, join(root, "tests", "app-test"), { recursive: true });
+    copyAppTestTree(REAL_APP_TEST_DIR, join(root, "tests", "app-test"));
     for (const r of SOURCE_ROOTS) {
         const keep = COPIED.filter((c) => c.startsWith(`${r}/`)).map((c) => c.slice(r.length + 1));
         if (keep.length > 0) mirror(join(REAL_REPO, r), join(root, r), keep);
