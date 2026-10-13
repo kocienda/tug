@@ -1,7 +1,7 @@
 /**
  * at0732-tugcast-hostile-render.test.ts — a hostile turn streamed through
- * tugcast's renderer and the page's second barrier into the real WebKit,
- * held to the sanitizer's invariant on the live DOM.
+ * tugcast's renderer into the real WebKit, held to the sanitizer's invariant
+ * on the live DOM.
  *
  * The unit tests hold each sanitizer to the invariant with a parser that is
  * not WebKit's: html5ever on tugcast's side, jsdom on the page's. This file
@@ -22,12 +22,11 @@
  *   Security Policy violation fires on the page.
  * - When the turn ends, each row draws from a current tugcast record and no
  *   row of the turn parsed on the page, so what was checked is tugcast's
- *   render past the barrier; WebKit's own parse of each record's HTML holds
+ *   render as it sent it; WebKit's own parse of each record's HTML holds
  *   the whole invariant (`sanitize-invariant-check.ts`): allow-listed
  *   elements and attributes, safe schemes, no `data-`/`aria-`, and the
  *   post-sanitize vocabulary only in its own shapes.
  *
- * @covers tugdeck/src/lib/markdown/rendered-barrier.ts
  * @covers tugdeck/src/lib/markdown/sanitize-allowlist.json
  * @covers tugdeck/src/lib/markdown/render-incremental.ts
  * @covers tugdeck/src/lib/markdown/rendered-record.ts
@@ -207,7 +206,6 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
       try {
         const stubs = await bindStreamingStubs(app, [CARD], stubDir, texts.length, 1, (i) => texts[i]);
         expect(await app.evalJS<boolean>(watchScript())).toBe(true);
-        const barrier0 = await app.evalJS<{ deltas: number }>("window.__tug.renderedBarrier()");
         await startStreams(app, stubs);
         await app.waitForCondition<boolean>(
           `(function(){
@@ -223,12 +221,10 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
         const watch = await app.evalJS<Watch>(
           "({ checked: window.__at0732.checked, violations: window.__at0732.violations, csp: window.__at0732.csp })",
         );
-        const barrier = await app.evalJS<{ deltas: number; blocks: number }>("window.__tug.renderedBarrier()");
         note(
-          `at0732 live DOM: ${watch.checked} element checks, ${barrier.deltas - barrier0.deltas} barrier passes, ` +
+          `at0732 live DOM: ${watch.checked} element checks, ` +
             `${watch.violations.length} violations, ${watch.csp.length} CSP reports`,
         );
-        expect(barrier.deltas - barrier0.deltas, "the barrier ran over tugcast's emissions").toBeGreaterThan(0);
         expect(watch.checked, "the observer saw the turn's blocks land").toBeGreaterThan(100);
         expect(watch.violations, "nothing script-capable landed in a block").toEqual([]);
         expect(watch.csp, "no Content Security Policy violation").toEqual([]);

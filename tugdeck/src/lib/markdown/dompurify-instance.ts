@@ -128,30 +128,25 @@ const ID_SHAPE = SANITIZE_ALLOWLIST.ID_SHAPE;
 
 /**
  * `value` under the page's footnote prefix. A value already under it is
- * left as is, so tugcast's render, already prefixed, passes the barrier
- * unchanged.
+ * left as is, as tugmark's `IdShape::prefixed` leaves it.
  */
-export function underIdPrefix(value: string): string {
+function underIdPrefix(value: string): string {
   return value.startsWith(ID_SHAPE.prefix) ? value : `${ID_SHAPE.prefix}${value}`;
 }
-
-/** Whether a `class` token on an element named `tag` may stand beyond `CLASS_PREFIXES`. */
-export type ClassAllowance = (tag: string, token: string) => boolean;
 
 /**
  * Hold `class` and `id` to the allow-list's shapes, as tugmark's
  * `filter_attribute` and `restrict_ids` do: a `class` keeps only tokens in
- * `CLASS_PREFIXES` (or `extra`'s, for the barrier's post-sanitize
- * vocabulary), an `id` survives only on the footnote definition and moves
- * under the prefix, and a fragment `href` moves with it.
+ * `CLASS_PREFIXES`, an `id` survives only on the footnote definition and
+ * moves under the prefix, and a fragment `href` moves with it.
  */
-export function restrictIdsAndClasses(instance: DOMPurify, extra?: ClassAllowance): void {
+function restrictIdsAndClasses(instance: DOMPurify): void {
   instance.addHook("uponSanitizeAttribute", (node, data) => {
     const tag = node.nodeName.toLowerCase();
     if (data.attrName === "class") {
       const kept = data.attrValue
         .split(CLASS_SPACE)
-        .filter((t) => t !== "" && (SANITIZE_ALLOWLIST.CLASS_PREFIXES.some((p) => t.startsWith(p)) || extra?.(tag, t) === true));
+        .filter((t) => t !== "" && SANITIZE_ALLOWLIST.CLASS_PREFIXES.some((p) => t.startsWith(p)));
       if (kept.length === 0) data.keepAttr = false;
       else data.attrValue = kept.join(" ");
     } else if (data.attrName === "id") {
@@ -175,7 +170,7 @@ export function restrictIdsAndClasses(instance: DOMPurify, extra?: ClassAllowanc
  * `jsdom` Window stands in, so DOMPurify's tree-mutation logic matches the
  * WHATWG spec (jsdom is already a `devDependency`).
  */
-export function bindDOMPurify(): DOMPurify {
+function bindDOMPurify(): DOMPurify {
   const isBunOrNode =
     typeof (globalThis as { Bun?: unknown }).Bun !== "undefined"
     || (typeof process !== "undefined"
@@ -218,8 +213,7 @@ export function getPlainDOMPurify(): DOMPurify {
 /**
  * The markdown instance: the shared hooks and the allow-list's `class` and
  * `id` shapes. Every markdown path sanitizes through it with
- * `SANITIZE_CONFIG`; tugcast's renders get the barrier's own instance
- * (`rendered-barrier.ts`), and markup that is not markdown gets
+ * `SANITIZE_CONFIG`; markup that is not markdown gets
  * {@link getPlainDOMPurify}.
  */
 export function getDOMPurify(): DOMPurify {

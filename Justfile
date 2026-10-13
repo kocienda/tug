@@ -167,7 +167,7 @@ tugmark-golden:
 
 # Fuzz both sanitizers at a fresh seed (`just tugmark-fuzz 1234` repeats one).
 # tugcast's renderer and sanitizer run 200,000 cases reparsed by html5ever; the
-# page's pipeline and second barrier run `batches` runs of 1,000 reparsed by
+# page's markdown pipeline runs `batches` runs of 1,000 reparsed by
 # jsdom, seeds `seed` upward, each in its own process because DOMPurify on
 # jsdom slows as one process ages. CI runs each once, at the fixed seed in
 # its test file. A failure names its seed and case.

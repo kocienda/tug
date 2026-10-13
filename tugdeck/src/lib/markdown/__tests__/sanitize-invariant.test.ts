@@ -10,7 +10,7 @@
  * `tugrust/crates/tugcast/tests/tugmark_invariant.rs`.
  * The cases are the golden's blocks and DOMPurify's own regression payloads
  * (`crates/tugmark/corpus/dompurify/payloads.json`), through the page's
- * markdown pipeline, through the second barrier, and through DOMPurify with
+ * markdown pipeline and through DOMPurify with
  * the shared config directly — and a seeded fuzz over random markdown and
  * HTML fragments (`crates/tugmark/corpus/fuzz/atoms.json`), whose output is
  * reparsed by jsdom rather than read off the string. Every other case's
@@ -27,12 +27,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { initSync, parse_blocks_to_html } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
+import { initSync } from "../../../../crates/tugmark-wasm/pkg/tugmark_wasm.js";
 
 import { DEFAULT_BLOCK_TRANSFORMERS } from "../block-transformers";
 import { getDOMPurify, SANITIZE_CONFIG } from "../dompurify-instance";
 import { parseMarkdownToSanitizedBlocks } from "../parse-markdown-to-sanitized-blocks";
-import { sanitizeRenderedHtml } from "../rendered-barrier";
 import { type Attr, violations, violationsIn } from "./sanitize-invariant-check";
 
 const TUGDECK = join(import.meta.dir, "../../../..");
@@ -87,7 +86,6 @@ describe("the invariant", () => {
       for (const block of parseMarkdownToSanitizedBlocks(payload, { transformers: DEFAULT_BLOCK_TRANSFORMERS })) {
         for (const v of violations(block.html)) failures.push(`${title} (markdown): ${v}`);
       }
-      for (const v of violations(sanitizeRenderedHtml({ p: payload }).p)) failures.push(`${title} (barrier): ${v}`);
       for (const v of violations(purify.sanitize(payload, SANITIZE_CONFIG))) failures.push(`${title} (html): ${v}`);
     }
     expect(failures).toEqual([]);
@@ -178,11 +176,6 @@ describe("the fuzz", () => {
         ...parseMarkdownToSanitizedBlocks(text, { transformers: DEFAULT_BLOCK_TRANSFORMERS }).map(
           (b): [string, string] => ["markdown", b.html],
         ),
-        ["barrier", sanitizeRenderedHtml({ p: text }).p],
-        ...(parse_blocks_to_html(text) as string[]).map((h): [string, string] => [
-          "barrier over an unsanitized parse",
-          sanitizeRenderedHtml({ p: h }).p,
-        ]),
       ];
       for (const [path, html] of outputs) {
         for (const v of violationsIn(reparse(html))) failures.push(`case ${i} (${path}): ${v} in ${JSON.stringify(text)}`);

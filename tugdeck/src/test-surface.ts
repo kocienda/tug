@@ -120,7 +120,6 @@ import {
   snapshotRowParseCounters,
   type RowParseCountersSnapshot,
 } from "./lib/markdown/parse-counters";
-import { snapshotRenderedBarrier, type RenderedBarrierSnapshot } from "./lib/markdown/rendered-barrier";
 import { renderIncremental } from "./lib/markdown/render-incremental";
 import { isRenderedPending, isRenderedRecord } from "./lib/ingest/rendered-merge";
 import {
@@ -485,8 +484,12 @@ import {
  * block a record holds, in order, as the row writes it — so a test can hold
  * WebKit's own parse of what tugcast sent to the sanitizer's invariant.
  * Additive; major stays `2`.
+ *
+ * `2.37.0`: drops `renderedBarrier`. The page no longer sanitizes tugcast's
+ * renders a second time, so there is no pass left to count. Major stays `2`
+ * for the reason `2.20.0` gives.
  */
-export const SURFACE_VERSION = "2.36.0" as const;
+export const SURFACE_VERSION = "2.37.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -505,7 +508,7 @@ export interface RenderedRowFacts {
   /** A record's facts; `null` for any other state. */
   streaming: boolean | null;
   current: boolean | null;
-  /** A record's blocks' HTML, in order, past the page's second barrier; `null` for any other state. */
+  /** A record's blocks' HTML, in order, as tugcast sent it; `null` for any other state. */
   recordHtml: string[] | null;
   /** The page's own parse of `text`: each block's `data-content-hash`. */
   pageHashes: string[];
@@ -1234,13 +1237,6 @@ export interface TugTestSurface {
    * ends of a window and diffs the counts.
    */
   rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] };
-
-  /**
-   * The page's sanitize pass over tugcast's renders, since launch
-   * (SURFACE_VERSION 2.35.0): emissions that carried HTML, blocks sanitized,
-   * and the time spent — total and the slowest emission.
-   */
-  renderedBarrier(): RenderedBarrierSnapshot;
 
   /**
    * Each committed assistant-text Message of `cardId`'s session, in
@@ -2738,10 +2734,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         if (turnKey !== undefined) liveTurnKeys.push(turnKey);
       });
       return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
-    },
-
-    renderedBarrier(): RenderedBarrierSnapshot {
-      return snapshotRenderedBarrier();
     },
 
     async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {
