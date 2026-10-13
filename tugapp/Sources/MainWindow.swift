@@ -418,16 +418,20 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     static let harnessBackgroundLevel = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
 
     /// How long the splash may hold before the app says what it is waiting
-    /// on. Ten seconds is long enough that no healthy launch reaches it —
-    /// the recorded laps put a cold reveal under a second — and short
-    /// enough that a stalled one is answered while the user is still
-    /// looking at it.
+    /// on. Twenty seconds is long enough that no healthy launch reaches it,
+    /// even on a slow or heavily loaded machine — the recorded laps put a
+    /// cold reveal under a second on a fast one — and short enough that a
+    /// stalled one is answered while the user is still looking at it. Ten
+    /// seconds proved too tight: a slower machine mid-launch is still
+    /// healthy, and the "stuck" surface it earned there was a false alarm.
+    /// It must exceed `ProcessManager.viteReadyTimeout`, which the debug
+    /// bundle's launch waits out inside this window.
     ///
     /// The spinner it replaces had no deadline at all: a tugcast that never
     /// came up, a DNS lookup that never returned, an interface that never
     /// signalled ready all produced the same endless animation, and the
     /// only exit was force-quitting the app.
-    static let splashDeadlineMs = 10_000
+    static let splashDeadlineMs = 20_000
 
     /// `splashDeadlineMs` as the interval `DispatchQueue` wants.
     static var splashDeadlineInterval: TimeInterval {

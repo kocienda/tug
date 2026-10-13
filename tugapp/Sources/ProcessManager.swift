@@ -524,12 +524,21 @@ class ProcessManager {
         viteProcess = nil
     }
 
+    /// How long `waitForViteReady` waits for the Vite dev server by default.
+    ///
+    /// A cold first start, or any start on a slow or loaded machine, can take
+    /// well over ten seconds. The wait runs inside the splash deadline
+    /// (`MainWindow.splashDeadlineMs`), so it stays shorter than that deadline
+    /// with room left to load the page; otherwise the splash would declare the
+    /// launch stuck before Vite had its full wait.
+    static let viteReadyTimeout: TimeInterval = 15
+
     /// Poll the given port until a TCP connection succeeds, the Vite process exits, or timeout expires.
     ///
     /// Runs the polling loop on a background queue and calls the completion handler
     /// on the main queue with `true` if the port became reachable, `false` on timeout
     /// or if the Vite process died before the port became ready.
-    func waitForViteReady(port: Int, timeout: TimeInterval = 10, completion: @escaping (Bool) -> Void) {
+    func waitForViteReady(port: Int, timeout: TimeInterval = ProcessManager.viteReadyTimeout, completion: @escaping (Bool) -> Void) {
         let viteProc = self.viteProcess
         DispatchQueue.global(qos: .userInitiated).async {
             let deadline = Date().addingTimeInterval(timeout)

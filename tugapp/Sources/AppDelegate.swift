@@ -486,10 +486,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self.processManager.waitForViteReady(port: self.vitePort) { [weak self] ready in
                     guard let self = self else { return }
                     if !ready {
-                        NSLog("AppDelegate: vite server did not become ready in 10s")
+                        NSLog("AppDelegate: vite server did not become ready in %.0fs", ProcessManager.viteReadyTimeout)
                         TugLog.warn("launch", "vite server did not become ready", [
                             TugLog.field("port", self.vitePort),
-                            TugLog.field("waited_s", 10),
+                            TugLog.field("waited_s", Int(ProcessManager.viteReadyTimeout)),
                         ])
                     }
                     let viteURL = "http://127.0.0.1:\(self.vitePort)/auth?token=\(token)"
