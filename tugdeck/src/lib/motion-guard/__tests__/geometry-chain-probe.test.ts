@@ -161,6 +161,24 @@ describe("classifyGeometryChains", () => {
     expect(once?.ms).toBe(7);
   });
 
+  test("a read that paid is ranked by site whether or not it chained", () => {
+    const reading = classifyGeometryChains([
+      // The first read of a task, after a commit the probe never saw: no chain.
+      entry("read", "scrollTop", 1, "follow@smart-scroll.js:1:2", 3),
+      entry("read", "scrollTop", 2, "follow@smart-scroll.js:1:2", 2),
+      entry("read", "clientHeight", 3, "measure@list.js:4:5", 4),
+      // Under the floor: a read of a clean layout pays nothing.
+      entry("read", "clientWidth", 4, "cheap@a.js:1:1", 0.1),
+      entry("write", "setProperty", 4, "apply@b.js:2:2", 2),
+    ]);
+    expect(reading.chains).toBe(0);
+    expect(reading.paid.map((p) => [p.site, p.reads, p.ms, p.names])).toEqual([
+      ["follow@smart-scroll.js:1:2", 2, 5, ["scrollTop"]],
+      ["measure@list.js:4:5", 1, 4, ["clientHeight"]],
+    ]);
+    expect(reading.paid[0]!.functions).toEqual(["follow"]);
+  });
+
   test("an empty log reads zero ms, not -Infinity", () => {
     const reading = classifyGeometryChains([]);
     expect(reading.longestChainMs).toBe(0);

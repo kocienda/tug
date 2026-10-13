@@ -57,6 +57,7 @@
 import { deckTrace } from "../deck-trace";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { layoutRectOf } from "./page-zoom-store";
+import { deferToSetUp } from "./set-up-apply";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -364,6 +365,25 @@ export class SmartScroll {
   // common case, not an edge one.
   private _writesSinceScrollEvent = 0;
 
+  // This scroller's keys on the set-up's apply list: a restore and an
+  // element reveal asked for while a settle is in its set-up each wait for
+  // the Last pass's apply phase, the latest request of each kind replacing
+  // the earlier (`lib/set-up-apply.ts`).
+  private readonly _setUpKeys = { restore: {}, reveal: {} };
+
+  // The scroller's `scrollTop` as this class last KNEW it without a read
+  // of its own: the value a `scroll` event delivered, or the value one of
+  // its own writes left — a pin's exact maximum, a programmatic write read
+  // back on the layout the write itself flushed, an external write's
+  // declared position. 0 at construction, as `_lastScrollTop` is and for
+  // its reason: the scroller is the list view's own, mounted at the top.
+  // `null` after an animated write, whose landing is the browser's. What
+  // it cannot see is a writer that declares nothing, and a clamp; both
+  // deliver a `scroll` event a task later, which brings it current. The
+  // list view's render windows against it, so the render after a pin
+  // reads no layout (`keptScrollTop`).
+  private _keptTop: number | null = 0;
+
   // `scrollHeight` as of the same `scroll` event that set
   // `_lastScrollTop`. The two are read together so they describe one
   // moment — a consumer asking "did the document explain this move?"
@@ -635,6 +655,16 @@ export class SmartScroll {
    *  the document explains a change in the position. */
   get lastScrollEventHeight(): number { return this._lastScrollEventHeight; }
 
+  /**
+   * The `scrollTop` this scroller last knew without reading it — from a
+   * `scroll` event or one of its own writes — or `null` when it knows none.
+   * A reader that can live with the window a writer that declares nothing
+   * leaves open (one task, until that writer's `scroll` event) reads this
+   * instead of the live property, which forces a layout over any write
+   * since.
+   */
+  get keptScrollTop(): number | null { return this._keptTop; }
+
   // -------------------------------------------------------------------------
   // Public API — programmatic scroll
   // -------------------------------------------------------------------------
@@ -674,10 +704,13 @@ export class SmartScroll {
     this._programmaticWriteSeq += 1;
     this._writesSinceScrollEvent += 1;
     if (animated) {
+      this._keptTop = null;
       this._container.scrollTo({ top, behavior: 'smooth' });
       // scrollend event (or 150ms fallback) will return us to idle.
     } else {
       this._container.scrollTop = top;
+      // Read back: the write flushed layout to clamp, so this is clean.
+      this._keptTop = this._container.scrollTop;
       // Non-animated: target is reached immediately.
       this._exitProgrammaticImmediate();
     }
@@ -723,8 +756,13 @@ export class SmartScroll {
       return;
     }
     const max = this._container.scrollHeight - this._container.clientHeight;
-    if (this._container.scrollTop >= max) return;
+    const top = this._container.scrollTop;
+    if (top >= max) {
+      this._keptTop = top;
+      return;
+    }
     this._container.scrollTop = Math.max(0, max);
+    this._keptTop = Math.max(0, max);
     this._programmaticWriteSeq += 1;
     this._writesSinceScrollEvent += 1;
   }
@@ -749,6 +787,7 @@ export class SmartScroll {
   noteExternalWrite(): void {
     if (this._disposed) return;
     this._lastScrollTop = this._container.scrollTop;
+    this._keptTop = this._lastScrollTop;
     this._scrollTopSeeded = true;
     this._programmaticWriteSeq += 1;
     this._writesSinceScrollEvent += 1;
@@ -877,6 +916,16 @@ export class SmartScroll {
   ): void {
     if (this._disposed) return;
     const { animated = false, block = 'nearest' } = options;
+    // Reads the scrollport's box and the target's: in a settle's set-up those
+    // land over the settle's writes, so the request waits for its apply
+    // phase, where the geometry is the one the motion lands at.
+    if (
+      deferToSetUp(this._setUpKeys.reveal, () =>
+        this.scrollToElement(element, options),
+      )
+    ) {
+      return;
+    }
     const el = this._container;
     // `clientTop` is the border width: the scrollport's content box starts
     // inside it, and `clientHeight` already excludes the borders.
@@ -1003,6 +1052,12 @@ export class SmartScroll {
     if (resolver === null) return;
     if (this._isHeld?.() === true) {
       this._owedRestore = true;
+      return;
+    }
+    // A restore heartbeat in a settle's set-up — a child's layout effect, a
+    // sibling's commit — reads `scrollTop` over the settle's writes; it waits
+    // for the Last pass's apply phase instead, once.
+    if (deferToSetUp(this._setUpKeys.restore, () => this.applyRestoreTarget())) {
       return;
     }
     // Who owns the position? A gesture SmartScroll saw, or a
@@ -1167,6 +1222,7 @@ export class SmartScroll {
     // The baseline is now current again — every write up to this
     // point has been accounted for by an event.
     this._writesSinceScrollEvent = 0;
+    this._keptTop = scrollTop;
     this._lastScrollEventHeight = this._container.scrollHeight;
 
     // Sample into the flip ring. `clientHeight` rides on the layout the

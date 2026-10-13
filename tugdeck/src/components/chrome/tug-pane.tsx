@@ -114,6 +114,7 @@ import {
   resolveContentWidthPx,
   type ContentWidth,
 } from "@/lib/layout-imposer";
+import { adoptColumnProperties } from "./place-properties";
 import { motionKeyframes, velocityAlongTravel } from "@/lib/imposer-motion";
 import { DRAG_MOVE_THRESHOLD_PX } from "@/lib/press-travel";
 import { isSecondaryPress } from "@/lib/whole-entity-press";
@@ -2837,6 +2838,18 @@ function TugPaneImpl({
     frameRef.current = el;
     setFrameEl(el);
   }, []);
+  // The slot this frame reads its column's seams, offset and strip from. They
+  // stand on the frame itself rather than on an ancestor
+  // (`place-properties.ts`), so a frame that comes to stand in a slot adopts
+  // the slot's standing values before paint — its `var()` fallback is the
+  // equal division, not the one the hand set.
+  const imposedSlot =
+    imposed && placement !== undefined && !bullseye ? placement.slot : null;
+  useLayoutEffect(() => {
+    const el = frameRef.current;
+    if (el === null || imposedSlot === null) return;
+    adoptColumnProperties(el, imposedSlot);
+  }, [imposedSlot]);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const cardsRef = useRef(cards);

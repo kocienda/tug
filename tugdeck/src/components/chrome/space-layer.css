@@ -20,8 +20,9 @@
  * was zeroed the moment it was hidden. Every re-show was therefore a rebuild:
  * the first unavoidable style resolve of a switch, the compositing rebuild of
  * the arriving tree in the frames after it, and a scroll position that had to
- * be put back by hand. A hidden workspace is now laid out exactly as it was,
- * and what hides it is three things that each answer one question:
+ * be put back by hand. A hidden workspace's FRAMES are now laid out exactly
+ * as they were, and what hides them is three things that each answer one
+ * question:
  *
  *   - `visibility: hidden` on the wrapper takes it off screen and out of
  *     hit-testing and focus — the property's own contract — and inherits, so
@@ -32,7 +33,11 @@
  *     more: it does NOT skip the contents' layout and does NOT still their
  *     animations, which is why the other two lines exist and why a hidden
  *     pane still has a real box (below). The measurements are in
- *     `briefs/workspace-switch-cheap-readings.md`.
+ *     `briefs/workspace-switch-cheap-readings.md`; the layout it does not
+ *     skip was priced by a forced layout over the whole document, of which
+ *     the parked content was 20–24 ms of 100 on the user's deck
+ *     (`briefs/engine-time-in-the-motion-readings.md`), and that is why the
+ *     panes' CONTENT is taken out by the rule after this one.
  *   - `pointer-events: none` says in the rule what the other two already
  *     imply, so a reader does not have to derive it.
  *
@@ -46,7 +51,8 @@
  * absolute positions now resolve against it rather than the canvas — land on
  * the same pixels they would have landed on shown.
  *
- * **A hidden pane HAS a box now, and every sweep has to know it.** Under
+ * **A hidden pane HAS a box now, and every sweep has to know it.** Its frame
+ * does; its content does not (the content rule below). Under
  * `display: none` a hidden layer's frames had no rects, so a sweep that caught
  * one measured zeros at the origin. Now it would measure the pane's REAL rect
  * — a place a card could snap to, occlude, or settle against, on a workspace
@@ -112,6 +118,24 @@
   pointer-events: auto;
 }
 
+/* A PARKED workspace's pane content is out of the render tree. The frames
+   stay — the imposer sizes them absolutely, so a frame's box never depended
+   on what is in it, and `SHOWN_PANE_FRAMES` and every sweep still find a
+   parked pane standing where its reveal will find it — but what is inside
+   them generates no box, so no forced layout and no rendering update lays
+   it out. `content-visibility: hidden` above does not do that on this
+   engine: a forced layout over the whole document laid the parked content
+   out every time, 20–24 ms of a 100 ms layout on the user's deck at 16.6k
+   elements (`deck motion walk --arms parked-content-hidden`). The React tree
+   stays mounted, so a reveal mounts nothing; what it rebuilds is the
+   content's boxes, inside the switch's set-up. A scroller with no box keeps
+   no offset, so `CardHost` captures each one at the hide and puts it back
+   when the content has a box again, and a transcript re-lands through its
+   own reveal seam. */
+.tug-space-layer:not([data-space-shown]) .tug-pane-content {
+  display: none;
+}
+
 /* A PARKED rail member: its rail was hidden whole, and its frame stays
    mounted at its pinned box rather than closing, so the show that brings it
    back mounts nothing. Hidden for the same reasons a hidden workspace is —
@@ -124,10 +148,18 @@
    `data-settle-departing` and the frame's own box shows, sliding off its
    edge. Its CONTENTS stay skipped the whole time — what leaves is a tile in
    the pane's ground, edge and radius (the rule below), and the card inside
-   is never laid out or painted for its exit. Un-skipping them cost the card
-   a re-layout the next show then paid for (the rail show's commit census read a list
-   re-render at the show while it did). The land takes the mark off and the
-   frame hides again. */
+   is never painted for its exit. Skipped means painted, not laid out:
+   `content-visibility: hidden` keeps the contents' layout here as it does
+   on a parked workspace, and a forced layout over the whole document still
+   lays them out. Priced on the harness, a parked Layout rail of 697 elements
+   was 0.5 ms of a 17 ms forced layout, at the walk's own moved floor, so a
+   rail's content is NOT taken out of the render tree the way a parked
+   workspace's is: its show would rebuild the content's boxes inside a slide
+   for a saving the instrument cannot tell from noise
+   (`briefs/engine-time-in-the-motion-readings.md`). Un-skipping them cost
+   the card a re-layout the next show then paid for (the rail show's commit
+   census read a list re-render at the show while it did). The land takes
+   the mark off and the frame hides again. */
 .tug-pane[data-rail-parked] {
   content-visibility: hidden;
 }

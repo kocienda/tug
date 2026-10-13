@@ -225,6 +225,17 @@ export interface RestReading {
   floorMs: number;
 }
 
+/**
+ * An at-rest reading with the chain's own stamps, for a profiler to file its
+ * samples by: each fire's time from the window's start, and the start on the
+ * wall clock (`performance.timeOrigin + start`), which is the clock a trace's
+ * samples carry.
+ */
+export interface StampedRestReading extends RestReading {
+  stamps: number[];
+  t0Epoch: number;
+}
+
 /** Summary statistics over a set of readings. */
 export interface RenderCostSummary {
   p50: number;
@@ -333,17 +344,26 @@ export function restFromGaps(
  *
  * The chain writes no style and touches no element; what it perturbs is the
  * timer queue, by about six hundred one-millisecond fires. See the module
- * docblock for why it hops through a `MessageChannel`.
+ * docblock for why it hops through a `MessageChannel`. With `stamps` it also
+ * hands back each fire's time, which `deck motion rest --frame-phases` files
+ * a Time Profiler trace by.
  */
-export function sampleRest(windowMs = REST_WINDOW_MS): Promise<RestReading> {
+export function sampleRest(windowMs?: number): Promise<RestReading>;
+export function sampleRest(windowMs: number | undefined, options: { stamps: true }): Promise<StampedRestReading>;
+export function sampleRest(
+  windowMs: number = REST_WINDOW_MS,
+  options?: { stamps?: boolean },
+): Promise<RestReading | StampedRestReading> {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     const gaps: number[] = [];
+    const stamps: number[] | null = options?.stamps === true ? [] : null;
     const started = performance.now();
     let last = started;
     const step = (): void => {
       const now = performance.now();
       gaps.push(now - last);
+      stamps?.push(now - started);
       last = now;
       if (now - started < windowMs) {
         channel.port2.postMessage(0);
@@ -351,7 +371,10 @@ export function sampleRest(windowMs = REST_WINDOW_MS): Promise<RestReading> {
         channel.port1.onmessage = null;
         channel.port1.close();
         channel.port2.close();
-        resolve(restFromGaps(gaps, now - started));
+        const reading = restFromGaps(gaps, now - started);
+        resolve(
+          stamps === null ? reading : { ...reading, stamps, t0Epoch: performance.timeOrigin + started },
+        );
       }
     };
     channel.port1.onmessage = () => {

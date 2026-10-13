@@ -74,6 +74,7 @@
  */
 
 import { layoutPxOf } from "@/lib/page-zoom-store";
+import { smartScrollForElement } from "@/lib/smart-scroll";
 
 /** Stamped on the frame for the length of a crossing. Observable to tests; not React state ([L06]). */
 export const FOLD_CROSSING_ATTR = "data-fold-crossing";
@@ -131,12 +132,70 @@ export interface StillCrossingEventDetail {
 export const STILL_SETTLED_ATTR = "data-still-settled";
 
 /**
- * Dispatched on the frame when a still crossing is settled — in the set-up,
- * before the first frame — so the interior pays what it would otherwise owe
- * to the land: the pin, the restore, the extent rebase and the re-window, all
- * against the geometry it lands at. Not cancelable, and does not bubble.
+ * What a crossing interior reads of itself in the Last pass's read phase: its
+ * scrollport's size and its scroll geometry, against the layout the set-up's
+ * commit produced. A list view's; `floor` is present only when it owes an
+ * extent rebase, and carries the two reads the rebase would otherwise make
+ * after somebody's write.
  */
-export const STILL_CROSSING_SETTLED = "tug-still-crossing-settled";
+export interface Measured {
+  readonly w: number;
+  readonly h: number;
+  readonly scrollTop: number;
+  readonly scrollHeight: number;
+  readonly clientHeight: number;
+  readonly floor?: { readonly bottomEdge: number | null; readonly inset: number };
+}
+
+/**
+ * An interior a settled crossing holds — a list view, beside the scroller it
+ * serves — split into the half that reads and the half that writes, so the
+ * settle engine can read every interior before it writes any.
+ *
+ * This is why the interior is reached through a registry rather than told by
+ * an event: an event can only be asked to act, and acting is a read and a
+ * write together. Each list view's read over the previous one's pins was a
+ * whole-document layout per settled frame in the set-up ([P03] of the
+ * engine-time plan).
+ */
+export interface CrossingInterior {
+  readonly el: HTMLElement;
+  /** Reads only. Called in the Last pass's read phase, before any write. */
+  measure(): Measured;
+  /** Writes only, from the record. Called in the Last pass's apply phase. */
+  apply(measured: Measured): void;
+}
+
+const interiors = new Set<CrossingInterior>();
+
+/**
+ * Register `el` as a crossing interior, with its two halves; returns its
+ * release ([L27]). Registered in the layout effect beside the scroller it
+ * serves ([L03]) and released by that effect's cleanup.
+ *
+ * Nothing caches which frame the interior sits in: `CardPortal` carries a
+ * list view to another pane without remounting it ([L26]), so the engine asks
+ * {@link interiorsOf} live, by containment, on every pass.
+ */
+export function registerCrossingInterior(
+  el: HTMLElement,
+  hooks: Pick<CrossingInterior, "measure" | "apply">,
+): () => void {
+  const entry: CrossingInterior = { el, measure: hooks.measure, apply: hooks.apply };
+  interiors.add(entry);
+  return () => {
+    interiors.delete(entry);
+  };
+}
+
+/** The registered interiors `frame` holds right now. A tree walk, no layout. */
+export function interiorsOf(frame: HTMLElement): CrossingInterior[] {
+  const out: CrossingInterior[] = [];
+  for (const interior of interiors) {
+    if (interior.el.isConnected && frame.contains(interior.el)) out.push(interior);
+  }
+  return out;
+}
 
 /**
  * The height the interior is held at under the still crossing, written where
@@ -310,43 +369,40 @@ export function markStillCrossing(
  * final height at once. Never for a fold, whose interior must stay laid out
  * open while it folds.
  *
- * The interior hears of it only through
- * {@link announceStillCrossingSettled}, which the caller makes once the
- * frame's own holds are written, so what the interior reads is the geometry
- * of the first frame.
+ * Writes only. A settled hold written where no hold stood is the height the
+ * commit already laid the interior out at, so it moves nothing, and the
+ * interior's measure taken before it is the geometry of the first frame. One
+ * that moves a standing hold — `arm`'s hold at the First height, a retarget's
+ * — does move the interior ({@link settledHoldMoves}), and the caller keeps
+ * the bottom across it: {@link bottomDistancesOf} in its read phase, and
+ * {@link restoreBottoms} once every hold is written. The interior hears of
+ * it through its registered halves ({@link interiorsOf}), never from here.
  */
 export function settleStillCrossing(
   frame: HTMLElement,
   finalHeightPx: number,
 ): number {
-  let id = 0;
-  // A retarget that lowers a standing hold changes the interior's height in
-  // this task, so the bottom is kept across it as the release keeps it.
-  preserveBottomAcross(frame, () => {
-    // The standing record goes first so the mark below starts from nothing.
-    STILL_KIND.held.delete(frame);
-    frame.removeAttribute(STILL_CROSSING_ATTR);
-    id = markKind(STILL_KIND, frame, finalHeightPx);
-    frame.setAttribute(STILL_SETTLED_ATTR, "");
-  });
+  // The standing record goes first so the mark below starts from nothing.
+  STILL_KIND.held.delete(frame);
+  frame.removeAttribute(STILL_CROSSING_ATTR);
+  const id = markKind(STILL_KIND, frame, finalHeightPx);
+  frame.setAttribute(STILL_SETTLED_ATTR, "");
   return id;
 }
 
 /**
- * Tell `frame`'s interior that its still crossing is settled, so it pays
- * what it would otherwise owe to the land now. A no-op on a frame that is not
- * settled.
+ * Whether settling `frame` at `finalHeightPx` moves its interior: a still
+ * hold standing at another height, or a standing width hold the settle's mark
+ * takes off. Read before the settle is written; no layout.
  */
-export function announceStillCrossingSettled(frame: HTMLElement): void {
-  const stamp = frame.getAttribute(STILL_CROSSING_ATTR);
-  if (stamp === null || !frame.hasAttribute(STILL_SETTLED_ATTR)) return;
-  frame.dispatchEvent(
-    new CustomEvent<StillCrossingEventDetail>(STILL_CROSSING_SETTLED, {
-      detail: { id: Number(stamp) },
-      cancelable: false,
-      bubbles: false,
-    }),
-  );
+export function settledHoldMoves(
+  frame: HTMLElement,
+  finalHeightPx: number,
+): boolean {
+  if (!frame.hasAttribute(STILL_CROSSING_ATTR)) return false;
+  if (frame.hasAttribute(STILL_WIDTH_ATTR)) return true;
+  const standing = STILL_KIND.held.get(frame)?.heightPx;
+  return standing !== undefined && Math.abs(standing - finalHeightPx) >= 0.5;
 }
 
 /**
@@ -597,26 +653,51 @@ function bottomAnchoredScrollers(content: HTMLElement): HTMLElement[] {
  * hidden by the change — has no bottom to keep and is skipped.
  */
 function preserveBottomAcross(frame: HTMLElement, change: () => void): void {
+  const distances = bottomDistancesOf(frame);
+  change();
+  restoreBottoms(distances);
+}
+
+/** Each bottom-anchored scroller under a frame, and how far it stood from its bottom. */
+export type BottomDistances = ReadonlyArray<{
+  readonly el: HTMLElement;
+  readonly distance: number | null;
+}>;
+
+/**
+ * The first half of {@link preserveBottomAcross}: every bottom-anchored
+ * scroller under `frame` and its distance from its bottom, read now. Reads
+ * only, so the settle engine takes it in its read phase.
+ */
+export function bottomDistancesOf(frame: HTMLElement): BottomDistances {
   // The box the hold stands on, read before `change` can forget it.
   const content = STILL_KIND.held.get(frame)?.box ?? contentBoxOf(frame);
   const scrollers = content === null ? [] : bottomAnchoredScrollers(content);
-  if (scrollers.length === 0) {
-    change();
-    return;
-  }
-  const distances = scrollers.map((el) => {
+  return scrollers.map((el) => {
     const h = el.clientHeight;
-    return h === 0 ? null : Math.max(0, el.scrollHeight - el.scrollTop - h);
+    return {
+      el,
+      distance: h === 0 ? null : Math.max(0, el.scrollHeight - el.scrollTop - h),
+    };
   });
-  change();
-  scrollers.forEach((el, i) => {
-    const distance = distances[i];
-    if (distance === null || !el.isConnected) return;
+}
+
+/**
+ * The second half of {@link preserveBottomAcross}: put each scroller back at
+ * the distance from its bottom it stood at before the change. The write is
+ * outside SmartScroll, so it is declared to the scroller's own SmartScroll,
+ * whose kept top is otherwise stale until the `scroll` event a task later.
+ */
+export function restoreBottoms(distances: BottomDistances): void {
+  for (const { el, distance } of distances) {
+    if (distance === null || !el.isConnected) continue;
     const h = el.clientHeight;
-    if (h === 0) return;
+    if (h === 0) continue;
     const top = Math.max(0, el.scrollHeight - h - distance);
-    if (el.scrollTop !== top) el.scrollTop = top;
-  });
+    if (el.scrollTop === top) continue;
+    el.scrollTop = top;
+    smartScrollForElement(el)?.noteExternalWrite();
+  }
 }
 
 /** Take one kind's mark and held height off `frame`; the caller has checked it is open. */

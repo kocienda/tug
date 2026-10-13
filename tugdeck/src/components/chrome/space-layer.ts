@@ -113,9 +113,14 @@ export const SPACE_SWITCHING_ATTRIBUTE = "data-space-switching";
  * parked pane's rects are real and equal to the ones it will have on screen —
  * every layer is arranged from its own deck, so a parked pane already stands
  * where the reveal will find it (`LayerArrangement` in `deck-canvas.tsx`) — and a
- * `ResizeObserver` under a hidden layer is silent until the layer is shown
- * and then delivers before the first shown frame paints. So a measurement
- * that is observer-backed needs no gate at all. The one gate that still reads
+ * `ResizeObserver` on a parked frame is silent until the layer is shown and
+ * then delivers before the first shown frame paints. A pane's CONTENT is the
+ * exception, and a deliberate one: it is `display: none` while parked
+ * (`space-layer.css`), so an observer under it delivers a zero box at the hide
+ * and the real one before the reveal paints — the shape an inactive tab and a
+ * folded body already have. So a measurement that is observer-backed needs no
+ * gate at all, provided it reads a zero box as "no box" rather than as a size.
+ * The one gate that still reads
  * a pane's position — `tug-sheet.tsx`'s clamps — is a re-arm for the case a
  * window was resized while the workspace was parked: the swap commit
  * re-solves the arriving arrangement against the new canvas, a pane may move

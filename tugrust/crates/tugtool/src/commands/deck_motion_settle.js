@@ -23,6 +23,13 @@
 // settle window and keeps the commits inside it, so that reduction is
 // unit-tested in Rust.
 //
+// `t0Epoch` is the drive's instant on the wall clock (`performance.timeOrigin`
+// plus the drive's `performance.now()`), and `clockDriftMs` is how far that
+// sum had drifted from `Date.now()` at the drive: a page's monotonic clock
+// does not advance while the machine sleeps, so on an aged deck the sum can
+// run behind the wall clock by the sleeps since load. `--frame-phases` files
+// the trace's samples, which carry wall-clock times, by these two.
+//
 // The drive is made from a task (a zero timeout), never from inside a frame
 // callback, for the reason `slide` gives: a gesture delivered during a
 // rendering update is a different gesture. With `tasks` it runs inside
@@ -136,6 +143,8 @@
     var sheds = [];
     var done = false;
     var t0 = 0;
+    var t0Epoch = 0;
+    var clockDriftMs = 0;
     // The deck trace is enabled for the drive alone, so its `settle-beat` rows
     // are recorded, and put back as it was found.
     var traceWasOn = trace ? trace.isEnabled() : false;
@@ -305,16 +314,18 @@
         // place a chain in the land's frame.
         landChains: chains && chains.chainTimes
           ? chains.chainTimes.map(function (c) {
-              // The first frame, named by the nearest named function when the
-              // frame itself is anonymous: a name outlives the rebuild that
-              // moves every minified position.
+              // The first frame, led by the nearest named function — the frame
+              // itself when it is named — so every site reads `in <fn>: …`: a
+              // name outlives the rebuild that moves every minified position.
               var first = String(c.site || "").split("\n")[0].trim();
               var named = c.functions && c.functions.length > 0 ? c.functions[0] : null;
-              var site = named && first.indexOf(named + "@") !== 0 ? "in " + named + ": " + first : first;
-              return { t: rel(c.t), ms: c.ms, site: site };
+              var site = named ? "in " + named + ": " + first : first;
+              return { t: rel(c.t), ms: c.ms, site: site, name: c.name };
             })
           : null,
         paneId: paneId,
+        t0Epoch: t0Epoch,
+        clockDriftMs: clockDriftMs,
         visibility: document.visibilityState,
         tasks: tasks && tasks.map(function (e) {
           return {
@@ -368,6 +379,8 @@
           if (args.chains) motion.chains("arm", { stacks: !!args.chainStacks });
           if (quiet && commitCensus && typeof commitCensus.quiet === "function") commitCensus.quiet(true);
           t0 = performance.now();
+          t0Epoch = performance.timeOrigin + t0;
+          clockDriftMs = t0Epoch - Date.now();
           var drive = function () { return lab.drive(args.gesture, args.args); };
           var outcome;
           if (args.tasks) {

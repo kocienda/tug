@@ -213,6 +213,11 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
         DeckMotionCommands::Record { state, reload, .. } => {
             run_record(port, state.as_deref(), reload, json_output)
         }
+        DeckMotionCommands::Rest {
+            window,
+            frame_phases: true,
+            ..
+        } => run_rest_phases(port, window, json_output),
         DeckMotionCommands::Slide {
             from,
             to,
@@ -245,6 +250,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             tasks,
             chains,
             sample,
+            frame_phases,
             streaming,
             quiet_instruments,
             full_census,
@@ -264,6 +270,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             tasks,
             chains,
             sample,
+            frame_phases,
             streaming,
             crate::commands::deck_motion_settle::Quiet {
                 instruments: quiet_instruments,
@@ -382,6 +389,75 @@ fn set_eval_opt_in(port: u16, on: bool, json_output: bool) -> Result<i32, String
         );
     } else {
         println!("eval {state} on port {port}");
+    }
+    Ok(0)
+}
+
+/// `rest --frame-phases`: the rest window, recorded with the Time Profiler and
+/// filed by the rest chain's own stamps.
+fn run_rest_phases(port: u16, window: Option<u32>, json_output: bool) -> Result<i32, String> {
+    use crate::commands::deck_motion_phases as phases;
+    let Some(xctrace) = phases::xctrace() else {
+        eprintln!("frame-phases needs xcrun xctrace (Xcode's Instruments); not found");
+        return Ok(EXIT_GATED);
+    };
+    let pid = phases::deck_web_content(port)?;
+    // A generous ceiling: the reading stops the recording itself.
+    let seconds = window.unwrap_or(1000).div_ceil(1000) + 30;
+    if !json_output {
+        eprintln!("recording WebContent {pid} with xctrace's Time Profiler");
+    }
+    let recorder = phases::record(&xctrace, pid, seconds)?;
+    let code = match window {
+        Some(window) => format!("window.__tugMotion.rest({window}, {{stamps: true}})"),
+        None => "window.__tugMotion.rest(undefined, {stamps: true})".to_string(),
+    };
+    let wall = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0)
+    };
+    let sent = wall();
+    let outcome = post_eval(port, &code);
+    let answered = wall();
+    let rss_kb = phases::resident_kb(pid);
+    let (_, samples) = recorder.finish()?;
+    let mut value = match outcome? {
+        EvalOutcome::Gated => return Ok(eval_gated("deck motion rest", json_output)),
+        EvalOutcome::Ok(value) => value,
+    };
+    let stamps: Option<Vec<f64>> = value
+        .get("stamps")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    // A page that predates the stamps is filed as one row, from the request
+    // to its answer on the wall clock: the window plus the eval's round trip,
+    // with no stall rows.
+    let (stamps, t0, filed_by) = match (stamps, value.get("t0Epoch").and_then(|v| v.as_f64())) {
+        (Some(stamps), Some(t0)) => (stamps, t0, "the rest chain's stamps"),
+        _ => (
+            vec![answered - sent],
+            sent,
+            "the wall clock around the eval (this page hands back no stamps)",
+        ),
+    };
+    let mut rp = phases::rest_phases(&samples, &stamps, t0, num_at(&value, "floorMs"));
+    rp.rss_kb = rss_kb;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("stamps");
+    }
+    if json_output {
+        print_ok(
+            "deck motion rest",
+            serde_json::json!({"rest": value, "frame_phases": rp, "filed_by": filed_by}),
+        );
+    } else {
+        println!(
+            "note: the Time Profiler stops WebContent every 1 ms to read its stack, so the count below is perturbed — take it from a run without --frame-phases"
+        );
+        render_rest(&value);
+        println!("filed by {filed_by}");
+        print!("{}", phases::print_rest_phases(&rp));
     }
     Ok(0)
 }
@@ -767,6 +843,28 @@ pub(crate) fn chains_text(mode: &str, value: &serde_json::Value) -> Option<Strin
             }
         }
     }
+    // The reads that paid, chained or not: at rest, where nothing chains,
+    // these are the readers a forced layout is paid by.
+    if let Some(paid) = value.get("paid").and_then(|p| p.as_array())
+        && !paid.is_empty()
+    {
+        let _ = writeln!(out, "reads that paid for a layout, by site:");
+        for site in paid {
+            let _ = writeln!(
+                out,
+                "  {:>5} reads   {:>7.1} ms  [{}]",
+                num_at(site, "reads") as i64,
+                num_at(site, "ms"),
+                joined(site, "names")
+            );
+            if let Some(functions) = site.get("functions").and_then(|f| f.as_array())
+                && !functions.is_empty()
+            {
+                let names: Vec<&str> = functions.iter().filter_map(|f| f.as_str()).collect();
+                let _ = writeln!(out, "      in    {}", names.join(" ← "));
+            }
+        }
+    }
     Some(out)
 }
 
@@ -1098,6 +1196,7 @@ mod tests {
     fn rest_omits_a_window_it_was_not_given() {
         let bare = DeckMotionCommands::Rest {
             window: None,
+            frame_phases: false,
             target: target(),
         };
         assert_eq!(
@@ -1106,6 +1205,7 @@ mod tests {
         );
         let windowed = DeckMotionCommands::Rest {
             window: Some(2000),
+            frame_phases: false,
             target: target(),
         };
         assert_eq!(
@@ -1288,6 +1388,39 @@ mod tests {
             .find("      in    pin ← effect\n")
             .expect("the names are printed");
         assert!(names < text.find("      read  ").unwrap(), "{text}");
+    }
+
+    /// A reading at rest, where nothing chains, still names the readers that
+    /// paid for a layout, by their functions.
+    #[test]
+    fn chains_read_names_the_reads_that_paid_with_no_chain() {
+        let value = serde_json::json!({
+            "entries": 300,
+            "tasks": 40,
+            "chains": 0,
+            "longestChainMs": 0.0,
+            "totalChainMs": 0.0,
+            "chainTimes": [],
+            "truncated": false,
+            "ranked": [],
+            "paid": [{
+                "site": "follow@x.js:1:2",
+                "functions": ["follow", "onRows"],
+                "reads": 12,
+                "ms": 40.25,
+                "names": ["scrollTop"],
+            }],
+        });
+        let text = chains_text("read", &value).expect("a read value renders");
+        assert!(
+            text.contains("reads that paid for a layout, by site:\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("     12 reads      40.2 ms  [scrollTop]\n"),
+            "{text}"
+        );
+        assert!(text.contains("      in    follow ← onRows\n"), "{text}");
     }
 
     #[test]

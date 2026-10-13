@@ -12,12 +12,21 @@
 //! the driven burst toggles one style property on a hidden fixed 1px element
 //! inside every sampled frame, which makes every one of those frames walk.
 //! Each arm — the Overview's unseen rows skipped, the Overview removed, the
-//! parked workspaces removed, the largest Session transcript removed, or that
+//! parked workspaces removed, their panes' content removed, a parked rail's
+//! content removed, the largest Session transcript removed, or that
 //! transcript's skipped rows forced to render — is read paired with a baseline
 //! taken just before it and repeated over rounds, so a live deck's drift
 //! cancels instead of reading as a price. The deck's running loops are paused
 //! for each burst and played again after it, so a loop that dirties style every
 //! frame cannot make the floor walk too.
+//!
+//! The parked arms also read what a FORCED LAYOUT costs — the read a set-up's
+//! script makes — because a parked subtree the engine still lays out is priced
+//! there and not in the walk. Two writes are timed by the read after each: a
+//! hidden fixed element's width (the floor of any forced layout) and an
+//! inherited `word-spacing` on `body` (every text box on the document, parked
+//! or shown, unless the engine skips it). The parked share is the baseline's
+//! forced layout minus the arm's.
 //!
 //! It runs on the release deck the user already has, through the eval door,
 //! with no new deck build: the page half is `deck_motion_walk.js`, embedded
@@ -48,16 +57,22 @@ const SETTLE_FRAMES: u32 = 10;
 /// agree more closely than this.
 const MOVED_FLOOR_MS: f64 = 0.5;
 
+/// Forced-layout cycles per measure, when a requested arm reads them. Each
+/// cycle is one frame, so the deck paints between the reads.
+const FORCED_CYCLES: u32 = 20;
+
 /// How far the page's mirrored predicates may drift from
 /// `__tugMotion.layers()` before the census says so, as a fraction.
 const DRIFT_WARN: f64 = 0.01;
 
 /// The arms, in the order a default run reads them and the names `--arms`
 /// accepts.
-pub const ARM_NAMES: [&str; 5] = [
+pub const ARM_NAMES: [&str; 7] = [
     "overview-skip",
     "overview-absent",
     "parked-absent",
+    "parked-content-hidden",
+    "rail-parked-content-hidden",
     "transcript-absent",
     "transcript-unskipped",
 ];
@@ -72,6 +87,13 @@ pub enum WalkArm {
     OverviewAbsent,
     /// Every parked workspace layer, `display: none`.
     ParkedAbsent,
+    /// The content of every pane in a parked workspace layer, `display:
+    /// none`, the frames left standing — the rule `space-layer.css` carries
+    /// if this arm reads a share.
+    ParkedContentHidden,
+    /// The content of every parked rail member in the shown workspace,
+    /// `display: none`, the frames left standing.
+    RailParkedContentHidden,
     /// The largest Session transcript in the shown workspace, `display: none`.
     TranscriptAbsent,
     /// That transcript's skipped cells forced to render — the control for
@@ -80,10 +102,12 @@ pub enum WalkArm {
 }
 
 impl WalkArm {
-    pub const ALL: [WalkArm; 5] = [
+    pub const ALL: [WalkArm; 7] = [
         WalkArm::OverviewSkip,
         WalkArm::OverviewAbsent,
         WalkArm::ParkedAbsent,
+        WalkArm::ParkedContentHidden,
+        WalkArm::RailParkedContentHidden,
         WalkArm::TranscriptAbsent,
         WalkArm::TranscriptUnskipped,
     ];
@@ -109,9 +133,20 @@ impl WalkArm {
                 int(&subjects["overview"]["columns"])
             }
             WalkArm::ParkedAbsent => int(&subjects["parked"]["layers"]),
+            WalkArm::ParkedContentHidden => int(&subjects["parked"]["contents"]),
+            WalkArm::RailParkedContentHidden => int(&subjects["railParked"]["contents"]),
             WalkArm::TranscriptAbsent => i64::from(!subjects["transcript"].is_null()),
             WalkArm::TranscriptUnskipped => int(&subjects["transcript"]["skippedCells"]),
         }
+    }
+
+    /// Whether this arm's reading carries the forced layout: the parked arms,
+    /// whose subject a layout may walk without the compositing walk seeing it.
+    pub fn reads_forced_layout(self) -> bool {
+        matches!(
+            self,
+            WalkArm::ParkedAbsent | WalkArm::ParkedContentHidden | WalkArm::RailParkedContentHidden
+        )
     }
 }
 
@@ -122,13 +157,14 @@ pub fn page_call(args: &Value) -> String {
 }
 
 /// The argument object for one `measure` op.
-pub fn measure_args(arm: &str, frames: u32, driver: &str) -> Value {
+pub fn measure_args(arm: &str, frames: u32, driver: &str, forced: u32) -> Value {
     json!({
         "op": "measure",
         "arm": arm,
         "frames": frames,
         "settle": SETTLE_FRAMES,
         "driver": driver,
+        "forced": forced,
     })
 }
 
@@ -160,6 +196,10 @@ pub struct Measured {
     pub floor: Vec<f64>,
     #[serde(default)]
     pub driven: Vec<f64>,
+    #[serde(default)]
+    pub forced_fixed: Vec<f64>,
+    #[serde(default)]
+    pub forced_inherited: Vec<f64>,
     #[serde(default)]
     pub scroll_mismatches: Vec<String>,
 }
@@ -276,6 +316,49 @@ pub fn prices(median: f64, removed: &Population) -> Prices {
     }
 }
 
+/// What a parked arm saved on the forced layout, against its paired baselines.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForcedReading {
+    /// The paired baselines' median forced layout by mean, ms: the fixed
+    /// element's and the inherited `word-spacing`'s.
+    pub baseline_fixed: f64,
+    pub baseline_inherited: f64,
+    /// Per round, the baseline's mean forced layout minus the arm's; moved
+    /// against the spread of the baselines' own means.
+    pub fixed: ArmStats,
+    pub inherited: ArmStats,
+}
+
+/// Reduce an arm's forced-layout readings over its `(baseline, arm)` rounds,
+/// by means (the page clock ticks in whole milliseconds). `None` when any
+/// round carries none — the arm was not one that reads them.
+pub fn reduce_forced(rounds: &[(&Measured, &Measured)]) -> Option<ForcedReading> {
+    if rounds.is_empty()
+        || rounds.iter().any(|(b, m)| {
+            b.forced_fixed.is_empty() || b.forced_inherited.is_empty() || m.forced_fixed.is_empty()
+        })
+    {
+        return None;
+    }
+    let term = |f: fn(&Measured) -> &Vec<f64>| {
+        let bases: Vec<f64> = rounds.iter().map(|(b, _)| mean(f(b))).collect();
+        let pairs: Vec<(f64, f64)> = rounds
+            .iter()
+            .map(|(b, m)| (mean(f(b)), mean(f(m))))
+            .collect();
+        (p50(&bases), reduce_arm(&pairs, spread(&bases)))
+    };
+    let (baseline_fixed, fixed) = term(|m| &m.forced_fixed);
+    let (baseline_inherited, inherited) = term(|m| &m.forced_inherited);
+    Some(ForcedReading {
+        baseline_fixed,
+        baseline_inherited,
+        fixed,
+        inherited,
+    })
+}
+
 /// The per-term median of an arm's removed populations over its rounds; the
 /// skip arm's varies with what the engine decided to skip each time.
 fn median_population(removed: &[Population]) -> Population {
@@ -341,8 +424,14 @@ fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
     })
 }
 
-fn measure(port: u16, arm: &str, frames: u32, driver: &str) -> Result<Option<Measured>, String> {
-    let Some(value) = page(port, measure_args(arm, frames, driver))? else {
+fn measure(
+    port: u16,
+    arm: &str,
+    frames: u32,
+    driver: &str,
+    forced: u32,
+) -> Result<Option<Measured>, String> {
+    let Some(value) = page(port, measure_args(arm, frames, driver, forced))? else {
         return Ok(None);
     };
     serde_json::from_value(value)
@@ -365,6 +454,9 @@ struct ArmReading {
     /// mean spread.
     by_mean: ArmStats,
     price_by_mean: Prices,
+    /// The forced layout the arm saved, for the arms that read it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    forced: Option<ForcedReading>,
 }
 
 /// Only the `restore` op: put back whatever an interrupted reading left.
@@ -487,6 +579,7 @@ pub fn run_walk(
                 .map(|(b, _, m)| (b.walk_mean(), m.walk_mean()))
                 .collect();
             let by_mean = reduce_arm(&mean_pairs, baseline_mean_spread);
+            let forced = reduce_forced(&of_arm.iter().map(|(b, _, m)| (b, m)).collect::<Vec<_>>());
             ArmReading {
                 arm: arm.as_str(),
                 subjects: of_arm.first().map(|(_, _, m)| m.subjects).unwrap_or(0),
@@ -498,6 +591,7 @@ pub fn run_walk(
                 price: prices(stats.median, &removed),
                 price_by_mean: prices(by_mean.median, &removed),
                 by_mean,
+                forced,
                 removed,
                 stats,
             }
@@ -568,10 +662,15 @@ fn take_readings(
     let mut readings = Vec::new();
     for _ in 0..rounds {
         for arm in arms {
-            let Some(base) = measure(port, "baseline", frames, driver)? else {
+            let forced = if arm.reads_forced_layout() {
+                FORCED_CYCLES
+            } else {
+                0
+            };
+            let Some(base) = measure(port, "baseline", frames, driver, forced)? else {
                 return Ok(None);
             };
-            let Some(m) = measure(port, arm.as_str(), frames, driver)? else {
+            let Some(m) = measure(port, arm.as_str(), frames, driver, forced)? else {
                 return Ok(None);
             };
             readings.push((base, *arm, m));
@@ -633,6 +732,11 @@ fn print_census(census: &Value) {
         "parked: {} layer(s) — {}",
         int(&s["parked"]["layers"]),
         population_line(&s["parked"]["population"])
+    );
+    println!(
+        "rail-parked: {} content(s) in the shown workspace — {}",
+        int(&s["railParked"]["contents"]),
+        population_line(&s["railParked"]["population"])
     );
     let t = &s["transcript"];
     if t.is_null() {
@@ -716,6 +820,21 @@ fn print_arms(arms: &[ArmReading]) {
             println!(
                 "  {} cell(s) already skipped by the deck",
                 a.already_skipped
+            );
+        }
+        if let Some(f) = &a.forced {
+            println!(
+                "  forced layout saved by mean: fixed {:.2} ({:.2}..{:.2}) of {:.2} ms, moved {}; inherited {:.2} ({:.2}..{:.2}) of {:.2} ms, moved {}",
+                f.fixed.median,
+                f.fixed.min,
+                f.fixed.max,
+                f.baseline_fixed,
+                if f.fixed.moved { "yes" } else { "no" },
+                f.inherited.median,
+                f.inherited.min,
+                f.inherited.max,
+                f.baseline_inherited,
+                if f.inherited.moved { "yes" } else { "no" },
             );
         }
     }
@@ -814,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn arms_default_to_all_five_in_table_order() {
+    fn arms_default_to_all_seven_in_table_order() {
         let DeckMotionCommands::Walk {
             arms,
             rounds,
@@ -855,7 +974,7 @@ mod tests {
 
     #[test]
     fn the_measure_call_carries_arm_frames_settle_and_driver_as_json() {
-        let call = page_call(&measure_args("overview-skip", 30, "transform"));
+        let call = page_call(&measure_args("overview-skip", 30, "transform", 0));
         // The whole script, parenthesized, applied to the JSON object — no
         // argument is interpolated into the script's own text.
         assert_eq!(
@@ -863,7 +982,7 @@ mod tests {
             format!(
                 "({})({})",
                 PAGE.trim_end(),
-                r#"{"arm":"overview-skip","driver":"transform","frames":30,"op":"measure","settle":10}"#
+                r#"{"arm":"overview-skip","driver":"transform","forced":0,"frames":30,"op":"measure","settle":10}"#
             )
         );
         assert!(PAGE.trim_end().ends_with("})"));
@@ -895,14 +1014,66 @@ mod tests {
     fn an_arm_with_no_subject_on_the_deck_is_not_measured() {
         let census = json!({"subjects": {
             "overview": {"columns": 1},
-            "parked": {"layers": 0},
+            "parked": {"layers": 0, "contents": 0},
+            "railParked": {"contents": 2},
             "transcript": {"skippedCells": 0},
         }});
         assert_eq!(WalkArm::OverviewSkip.subjects_in(&census), 1);
         assert_eq!(WalkArm::ParkedAbsent.subjects_in(&census), 0);
+        assert_eq!(WalkArm::ParkedContentHidden.subjects_in(&census), 0);
+        assert_eq!(WalkArm::RailParkedContentHidden.subjects_in(&census), 2);
         assert_eq!(WalkArm::TranscriptAbsent.subjects_in(&census), 1);
         assert_eq!(WalkArm::TranscriptUnskipped.subjects_in(&census), 0);
         let no_transcript = json!({"subjects": {"transcript": null}});
         assert_eq!(WalkArm::TranscriptAbsent.subjects_in(&no_transcript), 0);
+    }
+
+    #[test]
+    fn only_the_parked_arms_read_the_forced_layout() {
+        let forcing: Vec<&str> = WalkArm::ALL
+            .iter()
+            .filter(|a| a.reads_forced_layout())
+            .map(|a| a.as_str())
+            .collect();
+        assert_eq!(
+            forcing,
+            vec![
+                "parked-absent",
+                "parked-content-hidden",
+                "rail-parked-content-hidden"
+            ]
+        );
+    }
+
+    fn forced(fixed: &[f64], inherited: &[f64]) -> Measured {
+        Measured {
+            forced_fixed: fixed.to_vec(),
+            forced_inherited: inherited.to_vec(),
+            ..Measured::default()
+        }
+    }
+
+    #[test]
+    fn the_forced_share_is_the_paired_baseline_mean_minus_the_arm_mean() {
+        // Whole-millisecond samples. The fixed write lays out nothing parked,
+        // so the arm saves nothing there; the inherited write's layout drops
+        // by 9 ms and then 10 under the arm, against baselines 1 ms apart.
+        let b1 = forced(&[1.0, 1.0], &[30.0, 32.0]);
+        let a1 = forced(&[1.0, 1.0], &[22.0, 22.0]);
+        let b2 = forced(&[1.0, 2.0], &[32.0, 32.0]);
+        let a2 = forced(&[1.0, 2.0], &[22.0, 22.0]);
+        let r = reduce_forced(&[(&b1, &a1), (&b2, &a2)]).unwrap();
+        assert_eq!(r.inherited.deltas, vec![9.0, 10.0]);
+        assert_eq!(r.baseline_inherited, 31.0);
+        assert!(r.inherited.moved);
+        assert_eq!(r.fixed.deltas, vec![0.0, 0.0]);
+        assert!(!r.fixed.moved);
+    }
+
+    #[test]
+    fn an_arm_that_read_no_forced_layout_has_none() {
+        let walk_only = Measured::default();
+        assert_eq!(reduce_forced(&[(&walk_only, &walk_only)]), None);
+        assert_eq!(reduce_forced(&[]), None);
     }
 }

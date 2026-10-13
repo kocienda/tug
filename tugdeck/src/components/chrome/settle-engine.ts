@@ -50,14 +50,21 @@ import {
   contentBoxWidth,
   adoptFoldCrossing,
   adoptStillCrossing,
-  announceStillCrossingSettled,
+  bottomDistancesOf,
   FOLD_CROSSING_ATTR,
   holdStillWidth,
+  interiorsOf,
   markFoldCrossing,
   markStillCrossing,
+  restoreBottoms,
+  settledHoldMoves,
   settleStillCrossing,
   STILL_SETTLED_ATTR,
+  type BottomDistances,
+  type CrossingInterior,
+  type Measured,
 } from "@/lib/fold-crossing";
+import { beginSetUp, endSetUp, isSetUpPending } from "@/lib/set-up-apply";
 import {
   getTugTiming,
   isTugMotionEnabled,
@@ -1761,6 +1768,10 @@ export function useSettleEngine({
       // the damage used to happen rather than a second condition. Every Last
       // pass clears on every path out, so nothing accumulates.
       if (measure) firstRects.clear();
+      // The set-up is open from here to the Last pass's apply phase: a reader
+      // that wants the commit's geometry waits for it there
+      // (`lib/set-up-apply.ts`).
+      if (measure) beginSetUp();
       const firstFolds = settleFirstFoldsRef.current;
       firstFolds.clear();
       const firstRailSides = settleFirstRailSidesRef.current;
@@ -2549,6 +2560,7 @@ export function useSettleEngine({
       // And a departure with nothing to carry it is over now, for the same
       // reason: no beat will run here, and no later pass collects it ([P06]).
       landSettledDeparturesRef.current();
+      endSetUp();
       return;
     }
     // Reduced motion: the layout has already snapped, and that IS the settle.
@@ -2593,8 +2605,112 @@ export function useSettleEngine({
       // mark this pass found standing.
       drainArrivalsRef.current();
       landSettledDeparturesRef.current();
+      endSetUp();
       return;
     }
+    // THE READ PHASE ([P03] of the engine-time plan). Every geometry this pass
+    // will ask of the committed layout is read here, in one loop, before any
+    // write below: each carried frame's Last rect, its content box, the
+    // bottom distance of each bottom-anchored scroller in it, and the measure
+    // of every crossing interior it holds; every departing frame's and shadow
+    // strip's rect; the canvas's. The first read pays the commit's one layout
+    // and every other reads it clean. The planning below reads only this
+    // record, so a hold written for one frame never makes the next frame's
+    // read a layout of its own — a whole-document layout per carried frame on
+    // a real deck, paid inside the set-up.
+    //
+    // Every interior under a carried frame is measured, not only those whose
+    // crossing will settle, because which settle is planning's answer; a
+    // measure is a handful of reads on a clean layout.
+    const lastRects = new Map<Element, DOMRect>();
+    const lastContent = new Map<HTMLElement, { height: number | null; width: number | null }>();
+    const lastBottoms = new Map<HTMLElement, BottomDistances>();
+    const lastInteriors = new Map<
+      HTMLElement,
+      Array<{ interior: CrossingInterior; measured: Measured }>
+    >();
+    const measureInteriors = (frame: HTMLElement): void => {
+      lastInteriors.set(
+        frame,
+        interiorsOf(frame).map((interior) => ({ interior, measured: interior.measure() })),
+      );
+    };
+    {
+      lastRects.set(el, layoutRectOf(el));
+      const shownIds = new Set<string>();
+      for (const frame of el.querySelectorAll<HTMLElement>(SHOWN_PANE_FRAMES)) {
+        const paneId = frame.getAttribute("data-pane-id");
+        if (paneId === null) continue;
+        shownIds.add(paneId);
+        if (frame.hasAttribute("data-pointer-owned")) continue;
+        if (frame.hasAttribute("data-arriving")) continue;
+        lastRects.set(frame, layoutRectOf(frame));
+        // An arrival has no First rect and plans nothing from its box; only
+        // a rail's slide reads its rect, at its arrive beat.
+        if (!firstRects.has(paneId)) continue;
+        lastContent.set(frame, {
+          height: contentBoxHeight(frame),
+          width: contentBoxWidth(frame),
+        });
+        lastBottoms.set(frame, bottomDistancesOf(frame));
+        measureInteriors(frame);
+      }
+      for (const paneId of firstRects.keys()) {
+        if (shownIds.has(paneId)) continue;
+        const frame = el.querySelector<HTMLElement>(
+          `.tug-pane[data-pane-id="${CSS.escape(paneId)}"]`,
+        );
+        if (frame !== null) lastRects.set(frame, layoutRectOf(frame));
+      }
+      for (const strip of el.querySelectorAll<HTMLElement>("[data-rail-shadow]")) {
+        lastRects.set(strip, layoutRectOf(strip));
+      }
+    }
+    // The record's rect, or — for a target the read phase did not foresee —
+    // a live read, which is correct and costs the layout the record exists to
+    // spare.
+    const lastRectOf = (target: Element): DOMRect =>
+      lastRects.get(target) ?? layoutRectOf(target);
+    const lastContentHeightOf = (frame: HTMLElement): number | null => {
+      const known = lastContent.get(frame);
+      return known !== undefined ? known.height : contentBoxHeight(frame);
+    };
+    const lastContentWidthOf = (frame: HTMLElement): number | null => {
+      const known = lastContent.get(frame);
+      return known !== undefined ? known.width : contentBoxWidth(frame);
+    };
+    /**
+     * The frames whose settled hold MOVED a standing one — `arm`'s hold at the
+     * First height, a retarget's — so their interiors' measures are stale by
+     * the time the hold is written. The apply phase keeps their bottoms and
+     * measures them again, together, after every write.
+     */
+    const movedFrames = new Set<HTMLElement>();
+    const settle = (frame: HTMLElement, finalHeightPx: number): number => {
+      if (settledHoldMoves(frame, finalHeightPx)) movedFrames.add(frame);
+      return settleStillCrossing(frame, finalHeightPx);
+    };
+    /**
+     * THE APPLY PHASE: each settled interior pays its pin, its restore, its
+     * extent rebase and its re-window from its record, writes only.
+     *
+     * A moved interior is first put back at the bottom distance it stood at,
+     * then measured again, and those reads come first, together, so the
+     * first pays one layout and the rest read it clean.
+     */
+    const applySettledInteriors = (frames: readonly HTMLElement[]): void => {
+      for (const frame of frames) {
+        if (!movedFrames.has(frame)) continue;
+        restoreBottoms(lastBottoms.get(frame) ?? []);
+        measureInteriors(frame);
+      }
+      for (const frame of frames) {
+        if (!lastInteriors.has(frame)) measureInteriors(frame);
+        for (const { interior, measured } of lastInteriors.get(frame) ?? []) {
+          interior.apply(measured);
+        }
+      }
+    };
     const clearFlip = clearFlipRef.current;
     const duration = settleDurationRef.current;
     const holdPlan = settleHoldPlanRef.current;
@@ -2934,7 +3050,7 @@ export function useSettleEngine({
         arrivals.push({ paneId, frame, restores });
         continue;
       }
-      const lastRect = layoutRectOf(frame);
+      const lastRect = lastRectOf(frame);
       traveled.push({
         paneId,
         firstY: Math.round(firstRect.top),
@@ -3018,9 +3134,9 @@ export function useSettleEngine({
           // and a settled still mark beside a standing fold would leave the
           // fold's held height on the card after the land.
           crossingsRef.current.yieldFold(frame);
-          const tileContentHeight = contentBoxHeight(frame);
+          const tileContentHeight = lastContentHeightOf(frame);
           if (tileContentHeight !== null && tileContentHeight > 0) {
-            stillCrossingId = settleStillCrossing(frame, tileContentHeight);
+            stillCrossingId = settle(frame, tileContentHeight);
             settledFrames.push(frame);
           }
         }
@@ -3062,21 +3178,19 @@ export function useSettleEngine({
         // handler below, which is also where the crossing's end is announced
         // — the imposer's spring is the crossing's only clock ([B03], [B05]).
         const firstFold = firstFolds.get(paneId);
-        // The far side's content height, read ONCE for both marks below. The
+        // The far side's content height, from the read phase's record: the
         // fold's mark writes the held height onto the content box's children
-        // and the mark onto the frame, so a second `contentBoxHeight` after it
-        // is a forced layout of the card at its far-side height — 3–4ms on a
-        // 1630px session card, paid in the frame that launches the motion.
-        const lastContentHeight = heightTweens ? contentBoxHeight(frame) : null;
-        // A width term holds the interior too, so its height is read here
-        // whether or not it tweens, and its width beside it — both before any
-        // mark below is written.
+        // and the mark onto the frame, so a read after it would be a forced
+        // layout of the card at its far-side height.
+        const lastContentHeight = heightTweens ? lastContentHeightOf(frame) : null;
+        // A width term holds the interior too, so its height is taken whether
+        // or not it tweens, and its width beside it.
         const heldContentHeight = heightTweens
           ? lastContentHeight
           : widthTweens
-            ? contentBoxHeight(frame)
+            ? lastContentHeightOf(frame)
             : null;
-        const lastContentWidth = widthTweens ? contentBoxWidth(frame) : null;
+        const lastContentWidth = widthTweens ? lastContentWidthOf(frame) : null;
         if (
           heightTweens &&
           firstFold !== undefined &&
@@ -3166,7 +3280,7 @@ export function useSettleEngine({
             heldContentHeight !== null &&
             heldContentHeight > 0
           ) {
-            stillCrossingId = settleStillCrossing(frame, heldContentHeight);
+            stillCrossingId = settle(frame, heldContentHeight);
             settledFrames.push(frame);
           } else {
             const stillHeight = Math.max(
@@ -3375,7 +3489,7 @@ export function useSettleEngine({
       }
       const firstRect = firstRailShadows.get(side);
       if (firstRect === undefined) continue;
-      const dx = firstRect.left - layoutRectOf(strip).left;
+      const dx = firstRect.left - lastRectOf(strip).left;
       if (Math.abs(dx) < 0.5) continue;
       const beats = planSettleBeats({ dx, dy: 0, sx: 1 }, { fused });
       if (beats.length === 0) continue;
@@ -3421,10 +3535,8 @@ export function useSettleEngine({
     // site. A target is in no record `arm` walks, so a generation check there
     // would strand its holds for the life of the canvas.
     //
-    // Every read here is behind a departure. The survivors' holds are already
-    // written by this point, so a geometry read is a forced layout, and one
-    // paid on a settle with nothing leaving lands in the lead of every
-    // arrival and every walk across the band.
+    // Every rect here is the read phase's: the survivors' holds are already
+    // written by this point, so a live read would be a forced layout.
     for (const [paneId, firstRect] of firstRects) {
       if (survivors.has(paneId)) continue;
       endEpisode(paneId);
@@ -3438,7 +3550,7 @@ export function useSettleEngine({
           ? "parked"
           : null;
       if (kind === null) continue;
-      const lastRect = layoutRectOf(frame);
+      const lastRect = lastRectOf(frame);
       const { dx, dy } = flipDelta(firstRect, lastRect);
       const restores: Array<() => void> = [
         inlineRestorer(frame, "transform"),
@@ -3486,7 +3598,7 @@ export function useSettleEngine({
     // inboard, so measuring it against the edge separately would give it a
     // longer journey and the two would drift apart over the crossing.
     if (railSideOfDeparture.size > 0) {
-      const canvasRect = layoutRectOf(el);
+      const canvasRect = lastRectOf(el);
       const travelBySide = new Map<SidebarSide, number>();
       for (const departure of departures) {
         const side = railSideOfDeparture.get(departure.paneId);
@@ -3521,7 +3633,7 @@ export function useSettleEngine({
           inlineRestorer(strip, "opacity"),
           () => strip.removeAttribute(SETTLE_DEPARTING_ATTR),
         ];
-        const dx = firstRect.left - layoutRectOf(strip).left;
+        const dx = firstRect.left - lastRectOf(strip).left;
         strip.setAttribute(SETTLE_DEPARTING_ATTR, key);
         applyHolds(strip, { transform: { dx, dy: 0, sx: 1 } });
         // In the same registry as the frames, so the teardown's "take them
@@ -3580,9 +3692,9 @@ export function useSettleEngine({
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up
       // commit, against the geometry the first frame paints — so the land
-      // owes nothing. Before the gate closes, because what it commits is
-      // the set-up's.
-      for (const frame of settledFrames) announceStillCrossingSettled(frame);
+      // owes nothing. Then whatever the set-up queued for this phase. Before
+      // the gate closes, because what it commits is the set-up's.
+      endSetUp(() => applySettledInteriors(settledFrames));
       // The motion gate closes behind the beats ([B05]): this pass is the
       // set-up commit's layout effect, so that commit is in, and nothing
       // after it may tell React before the land. The cap is the hold's, a
@@ -3732,14 +3844,14 @@ export function useSettleEngine({
           // the mirror of it, and it is here too now ([B10]): a rail's parked
           // frames slide off the edge they came in by, on this beat, with its
           // shadow strip beside them on the same keyframes.
-          const canvasRect = layoutRectOf(el);
+          const canvasRect = lastRectOf(el);
           // **One travel per side, and the shadow takes the pane's** — the
           // exit's rule, for the exit's reason.
           const railTravelBySide = new Map<SidebarSide, number>();
           const travelFor = (el2: HTMLElement, side: SidebarSide): number => {
             const known = railTravelBySide.get(side);
             if (known !== undefined) return known;
-            const px = railTravelPx(layoutRectOf(el2), side, canvasRect);
+            const px = railTravelPx(lastRectOf(el2), side, canvasRect);
             railTravelBySide.set(side, px);
             return px;
           };
@@ -4189,6 +4301,8 @@ export function useSettleEngine({
         endEpisode(c.paneId);
       }
     }
+    // A pass that launched nothing still closes the set-up it was the end of.
+    if (isSetUpPending()) endSetUp();
     // Nothing this pass launched is left to finish — a settle whose every
     // frame was gesture-owned, or moved nowhere — so the hold comes off now
     // rather than at the sweep.

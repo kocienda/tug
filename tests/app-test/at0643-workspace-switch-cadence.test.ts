@@ -343,11 +343,20 @@ const LOOPS_INSTALL = `(function () {
   var targets = document.querySelectorAll(
     "[data-space-layer] .tug-pane[data-pane-id], [data-space-layer] [data-card-host]");
   for (var i = 0; i < targets.length; i++) targets[i].classList.add(${JSON.stringify(LOOP_CLASS)});
+  // A target inside a parked workspace's pane content has no box — that
+  // content is out of the render tree while it is parked (\`space-layer.css\`)
+  // — and a CSS animation on an element with no box does not run. It runs
+  // again the moment the switch shows it, which is the arrival this file
+  // measures; until then it is not on the timeline, by design.
+  var boxed = 0;
+  for (var j = 0; j < targets.length; j++) {
+    if (targets[j].closest(".tug-space-layer:not([data-space-shown]) .tug-pane-content") === null) boxed += 1;
+  }
   var running = 0;
   document.getAnimations().forEach(function (a) {
     if (a.playState === "running") running += 1;
   });
-  return { marked: targets.length, running: running };
+  return { marked: targets.length, boxed: boxed, running: running };
 })()`;
 
 const LOOPS_REMOVE = `(function () {
@@ -651,7 +660,7 @@ for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(
           await grow(app, SESSIONS_ONE, arm.size);
           await settle(2500);
 
-          const loops = await app.evalJS<{ marked: number; running: number }>(
+          const loops = await app.evalJS<{ marked: number; boxed: number; running: number }>(
             LOOPS_INSTALL,
           );
           await settle(600);
@@ -660,7 +669,7 @@ for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(
             `at0643 fixture: ${census.elements} elements ` +
               `(${census.layerElements} under layers), ${census.shownFrames} ` +
               `shown pane frames, ${census.animations} animations ` +
-              `(${loops.marked} loop targets marked, ${loops.running} running ` +
+              `(${loops.marked} loop targets marked, ${loops.boxed} with a box, ${loops.running} running ` +
               `at install)`,
           );
 
@@ -674,11 +683,19 @@ for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(
             `the grown fixture reached a deck big enough to show the cost ` +
               `(${census.layerElements} elements under the workspace layers)`,
           ).toBeGreaterThan(2000);
+          // Dozens of loops, counted where they are: every pane and card host
+          // on the deck is marked, and every one with a box is on the timeline.
+          // The parked workspace's card hosts join it when the switch shows
+          // them; they are not running beforehand, by design.
+          expect(
+            loops.marked,
+            `dozens of loop targets across both workspaces (${loops.marked} marked)`,
+          ).toBeGreaterThanOrEqual(24);
           expect(
             census.animations,
-            `dozens of animations were running across the switch ` +
-              `(${census.animations} on the timeline)`,
-          ).toBeGreaterThanOrEqual(24);
+            `every loop target with a box is running across the switch ` +
+              `(${census.animations} on the timeline, ${loops.boxed} targets with a box)`,
+          ).toBeGreaterThanOrEqual(loops.boxed);
 
           // ---- The measured switches. -----------------------------------
           await app.evalJS<null>(

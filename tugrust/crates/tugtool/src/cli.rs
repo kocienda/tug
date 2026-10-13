@@ -1171,6 +1171,14 @@ pub enum DeckMotionCommands {
         /// How long to watch, in milliseconds.
         #[arg(long)]
         window: Option<u32>,
+        /// Record the window with Instruments' Time Profiler at 1 ms and
+        /// price it by phase: style, layout and compositing split engine from
+        /// forced with the forcing API named, the GC's share of the busy
+        /// samples, each stall row the count read, and WebContent's resident
+        /// size. An instrument: the sampler stops WebContent every 1 ms, so
+        /// take the update count from a run without it.
+        #[arg(long)]
+        frame_phases: bool,
         #[command(flatten)]
         target: DeckTarget,
     },
@@ -1426,8 +1434,17 @@ pub enum DeckMotionCommands {
         /// stilled, so the frames are the gesture's alone. The reading of
         /// record is taken this way; attribution comes from a second drive
         /// with the instruments on.
-        #[arg(long, conflicts_with_all = ["tasks", "chains", "sample"])]
+        #[arg(long, conflicts_with_all = ["tasks", "chains", "sample", "frame_phases"])]
         quiet_instruments: bool,
+        /// Record the deck's WebContent process with Instruments' Time
+        /// Profiler (`xctrace`, 1 ms) across the drives and print, per frame of
+        /// each reading, its samples by phase — style, layout and compositing
+        /// split into the engine's own and forced from script — with the
+        /// forcing API, and with `--chains` the JavaScript caller, named. The
+        /// read drives' chain probe carries stacks under it. An instrument:
+        /// it perturbs the frames it reads. Needs Xcode's `xctrace`.
+        #[arg(long, conflicts_with = "sample")]
+        frame_phases: bool,
         /// Take the deck line from `__tugMotion.layers()` — a
         /// `getComputedStyle` over every element, seconds of forced style on a
         /// large deck — and print what it cost. Without it the line is built
@@ -1447,6 +1464,13 @@ pub enum DeckMotionCommands {
     /// for each burst; the report is the walk each arm saved, per thousand
     /// elements, stacking contexts and render-layer candidates it removed,
     /// beside a census of the deck.
+    ///
+    /// The parked arms (`parked-absent`, `parked-content-hidden`,
+    /// `rail-parked-content-hidden`) also time a forced layout — a hidden
+    /// fixed element's width and an inherited `word-spacing` on `body`, each
+    /// read back by `offsetHeight` once a frame — and report what the arm
+    /// saved on it, because a parked subtree the engine still lays out is
+    /// priced there rather than in the walk.
     ///
     /// Every arm is an inline-style write restored when its reading ends, and
     /// every run ends by checking nothing was left behind. Removing a parked
@@ -1734,5 +1758,35 @@ mod tests {
         assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
 
         Cli::try_parse_from(["tugtool", "arc", "run", "demo"]).expect("the bare verb still parses");
+    }
+
+    /// **`--frame-phases` is an instrument**, so it refuses the quiet reading
+    /// of record, and a second sampler attached to the same process.
+    #[test]
+    fn settle_frame_phases_refuses_quiet_instruments_and_sample() {
+        let base = [
+            "tugtool",
+            "deck",
+            "motion",
+            "settle",
+            "--gesture",
+            "fold",
+            "--frame-phases",
+        ];
+        for other in ["--quiet-instruments", "--sample"] {
+            let mut argv = base.to_vec();
+            argv.push(other);
+            let err = Cli::try_parse_from(argv)
+                .err()
+                .unwrap_or_else(|| panic!("--frame-phases beside {other} must not parse"));
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{other}"
+            );
+        }
+        let mut with_chains = base.to_vec();
+        with_chains.extend(["--chains", "--tasks"]);
+        Cli::try_parse_from(with_chains).expect("--frame-phases sits beside --chains and --tasks");
     }
 }

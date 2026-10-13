@@ -51,6 +51,7 @@ import { getFocusManager } from "./components/tugways/focus-manager";
 import { currentGesture } from "./gesture-interpreter";
 import { gestureScope } from "./lib/gesture-scope";
 import { tearDownSettleForTest } from "./components/chrome/settle-engine";
+import { writeCanvasColumnProperty } from "./components/chrome/place-properties";
 import {
   _ingestOverviewFrameForTest,
   _ingestOverviewPageForTest,
@@ -3536,7 +3537,9 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           "[data-deck-canvas-background]",
         );
         if (el === null) return;
-        el.style.setProperty(
+        writeCanvasColumnProperty(
+          el,
+          slot,
           columnOffsetProperty(slot),
           `${Math.round(offset)}px`,
         );

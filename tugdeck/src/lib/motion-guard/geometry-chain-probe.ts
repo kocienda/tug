@@ -57,6 +57,17 @@ export const CHAIN_STACK_FRAMES = 6;
 /** How many writing sites are named beneath each ranked reading site. */
 export const CHAIN_WRITE_SITES_PER_READ = 4;
 
+/**
+ * A read this long paid for a style or layout of its own, chain or not: the
+ * dirt it flushed may have come from a React commit, a class flip or a
+ * mutation the probe does not wrap, which no read→write→read chain can see.
+ * At rest that is the only shape there is, so the reading ranks these apart.
+ */
+export const PAID_READ_MS = 0.5;
+
+/** How many paying sites the reading names. */
+export const PAID_READ_SITES = 8;
+
 export interface ChainLogEntry {
   readonly seq: number;
   /** `performance.now()` at the call. */
@@ -131,8 +142,24 @@ export interface GeometryChainReading {
   }[];
   /** Ranked by `chains`, descending. */
   readonly ranked: readonly RankedReadSite[];
+  /**
+   * Every read of at least {@link PAID_READ_MS}, chained or not, grouped by
+   * site and ranked by summed ms: the readers that paid for a layout, which
+   * is what a deck at rest pays for when nothing chains.
+   */
+  readonly paid: readonly PaidReadSite[];
   /** The log hit {@link CHAIN_LOG_CAP}; the reading is a lower bound. */
   readonly truncated: boolean;
+}
+
+/** A site whose reads paid, ranked by their summed time. */
+export interface PaidReadSite {
+  readonly site: string;
+  /** The site's named functions, innermost first ({@link functionsOf}). */
+  readonly functions: readonly string[];
+  readonly reads: number;
+  readonly ms: number;
+  readonly names: readonly string[];
 }
 
 /**
@@ -437,6 +464,29 @@ export function classifyGeometryChains(
     }))
     .sort((a, b) => b.chains - a.chains);
 
+  const paidBySite = new Map<string, { reads: number; ms: number; names: Set<string> }>();
+  for (const entry of entries) {
+    if (entry.kind !== "read" || entry.ms < PAID_READ_MS) continue;
+    let group = paidBySite.get(entry.stack);
+    if (group === undefined) {
+      group = { reads: 0, ms: 0, names: new Set() };
+      paidBySite.set(entry.stack, group);
+    }
+    group.reads += 1;
+    group.ms += entry.ms;
+    group.names.add(entry.name);
+  }
+  const paid: PaidReadSite[] = [...paidBySite.entries()]
+    .map(([site, group]) => ({
+      site,
+      functions: functionsOf(site),
+      reads: group.reads,
+      ms: group.ms,
+      names: [...group.names],
+    }))
+    .sort((a, b) => b.ms - a.ms)
+    .slice(0, PAID_READ_SITES);
+
   return {
     entries: entries.length,
     tasks: byTask.size,
@@ -453,6 +503,7 @@ export function classifyGeometryChains(
       writes: chain.writes,
     })),
     ranked,
+    paid,
     truncated: wasTruncated,
   };
 }

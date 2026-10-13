@@ -182,6 +182,9 @@ pub const TMP_PREFIXES: &[TmpPrefix] = &[
     dir("tug-probe-"),
     // `tugtool deck motion sample`'s per-process `sample` output directory.
     dir("tug-slide-sample-"),
+    // `tugtool deck motion settle|rest --frame-phases`' per-run directory of
+    // `xctrace` traces; the run prints the trace's path for a second reading.
+    dir("tug-frame-phases-"),
     // `testTmpDir()` in the app-test harness.
     dir("tug-scratch-"),
     dir("tugcast-capture-"),

@@ -179,6 +179,7 @@ import {
   writeCanvasFlowOffset,
   writeLayerFlowOffset,
 } from "./flow-offset";
+import { columnWriter, writeCanvasColumnProperty } from "./place-properties";
 import {
   SHOWN_PANE_FRAMES,
   SPACE_LAYER_CLASS,
@@ -878,7 +879,18 @@ function PlaceSeam({
       const shownLayer = container.querySelector<HTMLElement>(
         `.${SPACE_LAYER_CLASS}[${SPACE_SHOWN_ATTRIBUTE}]`,
       );
+      // A column's properties stand on its readers (`place-properties.ts`),
+      // resolved once for the drag: nothing joins or leaves the slot under
+      // the hand. A rail's still stand on the canvas and the shown layer.
+      const columnWrite =
+        place.kind === "column"
+          ? columnWriter(container, place.slot, true)
+          : null;
       const setArrangement = (name: string, value: string): void => {
+        if (columnWrite !== null) {
+          columnWrite(name, value);
+          return;
+        }
         container.style.setProperty(name, value);
         shownLayer?.style.setProperty(name, value);
       };
@@ -1582,6 +1594,11 @@ function arrangementOfParkedDeck(
  * and through the shown wrapper's `display: contents` alike. The shown
  * wrapper's values equal the canvas's, so nothing is written on a switch.
  *
+ * A COLUMN's seams, offset and strip are the exception: they are written on
+ * the slot's readers alone (`place-properties.ts`) — the frames standing in
+ * it, and on the canvas its seams — because a column's values changing on an
+ * ancestor re-resolved the style of everything under it on every fold.
+ *
  * `columnRun` is the column run's measured height, for the offset gauge; the
  * gauges themselves (`publish*`) are the deck's and are published by the
  * canvas alone.
@@ -1658,38 +1675,38 @@ function writeArrangementVariables(
   );
   for (let slot = 0; slot <= COLUMN_SEAM_MAX_SLOT; slot += 1) {
     const seams = seamsBySlot.get(slot) ?? [];
+    // On the slot's readers rather than on `el` (`place-properties.ts`): a
+    // column's seams written here inherited into every descendant, and a fold
+    // that moved them re-resolved the whole deck's style.
+    const write = columnWriter(el, slot, publish);
+    const set = (name: string, value: string): void => write(name, value);
+    const remove = (name: string): void => write(name, null);
     seams.forEach((fraction, index) => {
-      el.style.setProperty(columnSeamProperty(slot, index), String(fraction));
+      set(columnSeamProperty(slot, index), String(fraction));
     });
     for (
       let index = seams.length;
       index <= COLUMN_SEAM_MAX_INDEX;
       index += 1
     ) {
-      el.style.removeProperty(columnSeamProperty(slot, index));
+      remove(columnSeamProperty(slot, index));
     }
     const offset = offsetBySlot.get(slot);
     if (offset === undefined) {
-      el.style.removeProperty(columnOffsetProperty(slot));
+      remove(columnOffsetProperty(slot));
     } else {
-      el.style.setProperty(
-        columnOffsetProperty(slot),
-        `${Math.round(offset)}px`,
-      );
+      set(columnOffsetProperty(slot), `${Math.round(offset)}px`);
     }
     const columnStrip = stripBySlot.get(slot) ?? [];
     columnStrip.forEach((coordinate, index) => {
-      el.style.setProperty(
-        columnStripProperty(slot, index),
-        `${Math.round(coordinate)}px`,
-      );
+      set(columnStripProperty(slot, index), `${Math.round(coordinate)}px`);
     });
     for (
       let index = columnStrip.length;
       index <= COLUMN_SEAM_MAX_INDEX + 1;
       index += 1
     ) {
-      el.style.removeProperty(columnStripProperty(slot, index));
+      remove(columnStripProperty(slot, index));
     }
     if (publish) {
       publishColumnOffset(
@@ -3945,11 +3962,18 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         if (el === null) return;
         if (target.kind === "flow") {
           writeCanvasFlowOffset(el, Math.round(offset));
+        } else if (target.kind === "column") {
+          // On the column's readers, canvas seams and shown frames alike
+          // (`place-properties.ts`).
+          const slot = target.slot ?? 0;
+          writeCanvasColumnProperty(
+            el,
+            slot,
+            columnOffsetProperty(slot),
+            `${Math.round(offset)}px`,
+          );
         } else {
-          const property =
-            target.kind === "column"
-              ? columnOffsetProperty(target.slot ?? 0)
-              : railOffsetProperty(target.side ?? "left");
+          const property = railOffsetProperty(target.side ?? "left");
           const value = `${Math.round(offset)}px`;
           el.style.setProperty(property, value);
           // The shown layer carries its own copy of every arrangement

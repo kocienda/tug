@@ -78,6 +78,7 @@ import {
   type RenderCostSample,
   type RenderCostSummary,
   type RestReading,
+  type StampedRestReading,
 } from "./render-cost-probe";
 import {
   clearInputLatency,
@@ -212,7 +213,7 @@ export interface TugMotionDiagnostics {
   /** Take `frames` readings now, and hand back the probe's recent ones too. */
   cost(frames?: number): Promise<RenderCostReading>;
   /** Watch the main thread for `windowMs` and count the updates over the floor. */
-  rest(windowMs?: number): Promise<RestReading>;
+  rest(windowMs?: number, options?: { stamps?: boolean }): Promise<RestReading | StampedRestReading>;
   /** Pause everything, wake one family at a time, and price each alone. */
   bisect(options?: { frames?: number; cap?: number }): Promise<BisectReading>;
   /** The population the compositing walk pays for ([F04]). */
@@ -573,8 +574,8 @@ export const tugMotion: TugMotionDiagnostics = {
     };
   },
 
-  rest(windowMs) {
-    return sampleRest(windowMs);
+  rest(windowMs, options) {
+    return options?.stamps === true ? sampleRest(windowMs, { stamps: true }) : sampleRest(windowMs);
   },
 
   async bisect(options) {

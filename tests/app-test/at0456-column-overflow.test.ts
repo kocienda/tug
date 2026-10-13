@@ -54,6 +54,7 @@
  * @covers tugdeck/src/layout-imposition.ts
  * @covers tugdeck/src/lib/layout-imposer.ts
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
+ * @covers tugdeck/src/components/chrome/place-properties.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -209,12 +210,13 @@ async function columnOffset(app: App): Promise<number> {
 }
 
 /** Slot 0's published offset property, in px — what the frames' `calc()`s
- *  actually read. Asserted beside the stored number so a commit that never
- *  reached the DOM cannot pass. */
+ *  actually read, off a slot-0 frame, where a column's properties stand
+ *  (`place-properties.ts`). Asserted beside the stored number so a commit that
+ *  never reached the DOM cannot pass. */
 async function offsetProperty(app: App): Promise<string> {
   return app.evalJS<string>(
     `getComputedStyle(
-       document.querySelector("[data-deck-canvas-background]")
+       document.querySelector('.tug-space-layer[data-space-shown] .tug-pane[data-imposed="0"]')
      ).getPropertyValue("--tug-slot-0-column-offset").trim()`,
   );
 }
@@ -227,13 +229,13 @@ async function seamCount(app: App): Promise<number> {
 }
 
 /** Slot 0's published strip coordinates, in px — the `n + 1` numbers the
- *  overflowing frames' `calc()`s actually pin to. Read off the canvas, so a
- *  coordinate the allocator resolved but never published cannot pass. */
+ *  overflowing frames' `calc()`s actually pin to. Read off a slot-0 frame, so
+ *  a coordinate the allocator resolved but never published cannot pass. */
 async function stripProperties(app: App, count: number): Promise<number[]> {
   return app.evalJS<number[]>(
     `(function () {
       var style = getComputedStyle(
-        document.querySelector("[data-deck-canvas-background]"),
+        document.querySelector('.tug-space-layer[data-space-shown] .tug-pane[data-imposed="0"]'),
       );
       var out = [];
       for (var i = 0; i <= ${count}; i += 1) {

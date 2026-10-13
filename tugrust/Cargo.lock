@@ -3075,6 +3075,7 @@ dependencies = [
  "glob",
  "libc",
  "parking_lot",
+ "roxmltree",
  "rusqlite",
  "serde",
  "serde_json",

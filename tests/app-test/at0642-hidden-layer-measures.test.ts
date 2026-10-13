@@ -10,13 +10,25 @@
  * effects, `tug-prompt-entry.tsx`'s line-box re-arm) need to come back, and
  * this file is what says so.
  *
+ * **Half of the first fact was reversed, on purpose.** A parked pane's FRAME
+ * keeps its layout; its CONTENT does not any more. `content-visibility:
+ * hidden` skips paint but not layout, and a forced layout over the whole
+ * document laid the parked content out every time — a fifth of a 100 ms
+ * layout on the user's deck (`briefs/engine-time-in-the-motion-readings.md`)
+ * — so `space-layer.css` takes a parked layer's `.tug-pane-content` out of the
+ * render tree. The frame-side gates stay retired, because the frame-side
+ * facts below still hold; the content-side one came back in the narrow form
+ * the reversal needs (`line-box-metric.ts` re-measures on the geometry change
+ * that returns a box, only while its rows have none).
+ *
  * ## The two facts
  *
- *  1. **A hidden measurement is real.** Every pane under a hidden layer has a
- *     title bar whose controls read a non-zero `offsetWidth`, and every editor
- *     row in it has a non-zero rect height. And the row height read in the
- *     dark is the row height read on screen — a measurement that does not
- *     depend on where the pane stands is the same measurement either way.
+ *  1. **A hidden frame's measurement is real, and its content has no box.**
+ *     Every pane under a hidden layer has a title bar whose controls read a
+ *     non-zero `offsetWidth`; every editor row in its content measures zero.
+ *     And the row height read on screen after the round trip is the one read
+ *     on screen before the park — what the content rebuilt at the reveal is
+ *     the same measurement it had.
  *  2. **A `ResizeObserver` under a hidden layer is silent, and catches up on
  *     show.** A probe observed inside a hidden pane, then grown, delivers
  *     nothing for as long as the layer is hidden; the moment the layer is
@@ -244,6 +256,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await settle(800);
           const home = await app.evalJS<string>(ACTIVE_SPACE);
+          // The rows as they stand on screen, before the park: the content has
+          // no box while it is parked, so the reveal's rows are compared with
+          // these rather than with a reading in the dark.
+          const before = await app.evalJS<PaneMeasure[]>(measureRead(SHOWN_LAYER));
+          note(`at0642 before the park: ${JSON.stringify(before)}`);
 
           // Park the home workspace behind a new one, through the real verb
           // the Window menu sends. From here the new workspace is shown and
@@ -255,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await settle(800);
 
-          // ---- 1. A hidden measurement is real. ---------------------------
+          // ---- 1. A hidden frame measures; its content has no box. --------
           const dark = await app.evalJS<PaneMeasure[]>(measureRead(HIDDEN_LAYER));
           note(`at0642 dark: ${JSON.stringify(dark)}`);
           expect(dark.length, "the hidden workspace's panes are standing").toBeGreaterThan(0);
@@ -265,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)(
           const darkRows = dark.filter((p) => p.rowHeight !== null);
           expect(darkRows.length, "at least one hidden pane has an editor row to measure").toBeGreaterThan(0);
           for (const p of darkRows) {
-            expect(p.rowHeight as number, `hidden pane ${p.id}: the row has a height`).toBeGreaterThan(0);
+            expect(p.rowHeight as number, `hidden pane ${p.id}: the row is out of the render tree`).toBe(0);
           }
 
           // ---- 2. The observer is silent in the dark. ---------------------
@@ -339,12 +356,14 @@ describe.skipIf(!SHOULD_RUN)(
               `pane ${p.id}: the title bar rendered the same controls hidden and shown`,
             ).toBe(p.controlsWidth);
           }
-          for (const p of darkRows) {
+          const beforeRows = before.filter((p) => p.rowHeight !== null);
+          expect(beforeRows.length, "a pane had an editor row on screen before the park").toBeGreaterThan(0);
+          for (const p of beforeRows) {
             const s = byId.get(p.id);
             expect(s, `pane ${p.id} is still on screen`).toBeDefined();
             expect(
               s!.rowHeight,
-              `pane ${p.id}: the row height read in the dark is the one read on screen`,
+              `pane ${p.id}: the row height after the reveal is the one read before the park`,
             ).toBe(p.rowHeight);
           }
         } finally {

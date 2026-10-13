@@ -170,6 +170,19 @@
     return all(".tug-space-layer:not([data-space-shown])");
   }
 
+  // The content of every pane in a parked workspace layer: the subject of
+  // `parked-content-hidden`, the rule `space-layer.css` would carry.
+  function parkedContents() {
+    return all(".tug-space-layer:not([data-space-shown]) .tug-pane-content");
+  }
+
+  // The content of every parked rail member in the shown workspace that the
+  // settle is not carrying out — `rail-parked-content-hidden`'s subject. A
+  // parked rail inside a parked layer is the layer arm's, not this one's.
+  function railParkedContents() {
+    return all(".tug-pane[data-rail-parked]:not([data-settle-departing]) .tug-pane-content").filter(inShownLayer);
+  }
+
   function cellsOf(list) {
     return all(".tug-list-view-cell", list).filter(function (cell) {
       return cell.closest('[data-slot="tug-list-view"]') === list;
@@ -237,6 +250,10 @@
     var parkedPopulation = zero();
     parked.forEach(function (layer) { add(parkedPopulation, populationOf(layer), 1); });
 
+    var railParked = railParkedContents();
+    var railParkedPopulation = zero();
+    railParked.forEach(function (content) { add(railParkedPopulation, populationOf(content), 1); });
+
     var list = largestTranscript();
     var transcript = null;
     if (list) {
@@ -270,7 +287,8 @@
           stackingHistogram: topOf(histograms.stacking),
           stickyHistogram: topOf(histograms.sticky),
         },
-        parked: { layers: parked.length, population: parkedPopulation },
+        parked: { layers: parked.length, contents: parkedContents().length, population: parkedPopulation },
+        railParked: { contents: railParked.length, population: railParkedPopulation },
         transcript: transcript,
       },
       panes: panes,
@@ -340,17 +358,20 @@
     return marks.length;
   }
 
-  // Run `fn` with every parked layer that holds a scroll subject lifted to
-  // `content-visibility: visible`. A parked layer is `content-visibility:
-  // hidden`, which skips its layout, so a `scrollTop` written into it after
-  // `parked-absent`'s re-show has no box to land in and reads back 0. The
-  // layer stays `visibility: hidden` throughout, so nothing shows; the lift is
-  // put back in the same turn, and `hidden` keeps the layout it was given.
+  // Run `fn` with every parked layer, and every parked rail frame, that holds
+  // a scroll subject lifted to `content-visibility: visible`. Both are
+  // `content-visibility: hidden`, which keeps the layout a subtree already
+  // has but lays out none it is newly given, so a `scrollTop` written into one
+  // after a `display: none` arm's re-show has no box to land in and reads back
+  // 0. Both stay `visibility: hidden` throughout, so nothing shows; the lift
+  // is put back in the same turn, and `hidden` keeps the layout it was given.
   function withParkedLifted(pending, fn) {
     var lifted = [];
     pending.scrolls.forEach(function (s) {
-      var layer = s.el.closest(".tug-space-layer:not([data-space-shown])");
-      if (layer && lifted.indexOf(layer) < 0) lifted.push(layer);
+      [".tug-space-layer:not([data-space-shown])", ".tug-pane[data-rail-parked]"].forEach(function (selector) {
+        var skipped = s.el.closest(selector);
+        if (skipped && lifted.indexOf(skipped) < 0) lifted.push(skipped);
+      });
     });
     var prior = lifted.map(function (layer) {
       var p = [layer.style.getPropertyValue("content-visibility"), layer.style.getPropertyPriority("content-visibility"), layer.hasAttribute("style")];
@@ -451,6 +472,56 @@
         else d.style.width = flip ? "2px" : "1px";
       },
     };
+  }
+
+  // ---- Forced layout -------------------------------------------------------
+  //
+  // What one script read costs when it has to lay the document out, the way a
+  // set-up's geometry read does. The walk above prices the compositing pass;
+  // this prices the layout a read forces, which is where a parked subtree's
+  // cost would show if the engine still lays it out. Two writes, each timed by
+  // the `offsetHeight` read straight after it, once per cycle in the task after
+  // a frame, so the deck paints between cycles and nothing is dirty but the
+  // write:
+  //
+  //   fixed     — a hidden fixed 1px element's width: the read lays out what
+  //               that one write dirtied, the floor of any forced layout
+  //   inherited — `word-spacing` on `body`, which no rule sets and every text
+  //               run inherits, so the read lays out every box that holds
+  //               text, parked or shown, unless the engine skips it. Put back
+  //               in the same task, before anything paints it.
+  function forcedLayouts(n) {
+    var probe = document.createElement("div");
+    probe.setAttribute(DRIVER, "");
+    probe.style.cssText = "position: fixed; left: 0; top: 0; width: 1px; height: 1px; visibility: hidden; pointer-events: none;";
+    document.body.appendChild(probe);
+    var out = { fixed: [], inherited: [] };
+    var body = document.body;
+    var prior = [body.style.getPropertyValue("word-spacing"), body.style.getPropertyPriority("word-spacing"), body.hasAttribute("style")];
+    function cycle(i) {
+      if (i >= n) return Promise.resolve(out);
+      return frame()
+        .then(function () { return new Promise(function (ok) { setTimeout(ok, 0); }); })
+        .then(function () {
+          alive();
+          probe.style.width = i % 2 === 0 ? "2px" : "1px";
+          var t = performance.now();
+          void probe.offsetHeight;
+          out.fixed.push(performance.now() - t);
+          body.style.setProperty("word-spacing", "0.01px");
+          t = performance.now();
+          void body.offsetHeight;
+          out.inherited.push(performance.now() - t);
+          if (prior[0] === "") body.style.removeProperty("word-spacing");
+          else body.style.setProperty("word-spacing", prior[0], prior[1]);
+          if (!prior[2] && body.getAttribute("style") === "") body.removeAttribute("style");
+          return cycle(i + 1);
+        });
+    }
+    return cycle(0).then(
+      function (r) { probe.remove(); return r; },
+      function (e) { probe.remove(); throw e; },
+    );
   }
 
   // ---- Arms ----------------------------------------------------------------
@@ -560,6 +631,8 @@
     var subjects = [];
     if (arm === "overview-absent") subjects = overviewColumns();
     else if (arm === "parked-absent") subjects = parkedLayers();
+    else if (arm === "parked-content-hidden") subjects = parkedContents();
+    else if (arm === "rail-parked-content-hidden") subjects = railParkedContents();
     else if (arm === "transcript-absent") {
       var list = largestTranscript();
       subjects = list ? [list] : [];
@@ -636,6 +709,15 @@
         })
         .then(function (driven) {
           result.driven = driven;
+          if (args.forced > 0) {
+            return forcedLayouts(args.forced).then(function (forced) {
+              result.forcedFixed = forced.fixed;
+              result.forcedInherited = forced.inherited;
+            });
+          }
+          return null;
+        })
+        .then(function () {
           result.subjects = applied.subjects;
           result.alreadySkipped = applied.alreadySkipped;
           result.removed = applied.removed();

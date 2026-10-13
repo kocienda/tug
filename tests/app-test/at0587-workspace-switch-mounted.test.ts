@@ -420,6 +420,28 @@ describe.skipIf(!SHOULD_RUN)(
           const mark = await app.evalJS<number>(
             `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
           );
+          // A further scroll, made just before the switch and inside the
+          // save debounce, so the bag still holds an older position: a parked
+          // workspace's content has no box while it is hidden and keeps no
+          // offset, and leg 5 can then only pass if the reveal puts back
+          // where the reader LEFT, not the bag's last save. The bag's offset
+          // is read with it and must differ, or the clause could not fail.
+          const lastScroll = await app.evalJS<{ top: number; bagY: number | null }>(
+            `(function(){
+              var el = document.querySelector(${JSON.stringify(SCROLLER)});
+              el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
+              el.scrollTop = Math.floor(el.scrollTop / 2);
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+              var bag = window.__tug.getCardStateBag("A");
+              var region = bag && bag.regionScroll && bag.regionScroll["session-card-transcript"];
+              return { top: el.scrollTop, bagY: region ? region.y : null };
+            })()`,
+          );
+          note(`the last scroll before the switch: ${JSON.stringify(lastScroll)}`);
+          if (lastScroll.bagY !== null) {
+            expect(Math.abs(lastScroll.bagY - lastScroll.top)).toBeGreaterThan(RESTORE_TOL_PX);
+          }
+          await settle(120);
           // The position the user LEAVES at, read at the switch rather than
           // taken from `savedTop`: a transcript still measuring its rows grows
           // above the anchor and the list keeps the anchored row in place, so

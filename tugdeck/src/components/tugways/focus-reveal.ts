@@ -38,6 +38,7 @@
 import { scrollerForElement } from "./internal/scroller-context";
 import { smartScrollForElement } from "@/lib/smart-scroll";
 import { layoutRectOf } from "@/lib/page-zoom-store";
+import { deferToSetUp } from "@/lib/set-up-apply";
 
 /**
  * Air left between the revealed target's leading edge and the scrollport (or a
@@ -55,10 +56,18 @@ const EPSILON_PX = 1;
  * Self-gating: an element already fully visible in each of its scrollports
  * produces no writes at all, so callers may invoke it unconditionally on every
  * keyboard focus move.
+ *
+ * A reveal asked for while a settle is in its set-up waits for the Last
+ * pass's apply phase (`lib/set-up-apply.ts`): it reads the scrollports' boxes
+ * and writes their `scrollTop`, and in the set-up those reads would land over
+ * the settle's own writes, each a whole-document layout. In the apply phase
+ * it reads the geometry the motion lands at, which is what it should reveal
+ * against anyway.
  */
 export function revealFocusTarget(el: HTMLElement): void {
   if (typeof window === "undefined") return;
   if (!el.isConnected) return;
+  if (deferToSetUp(el, () => revealFocusTarget(el))) return;
   for (let node = el.parentElement; node !== null; node = node.parentElement) {
     if (!isScrollable(node)) continue;
     revealWithin(node, el);

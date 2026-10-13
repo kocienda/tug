@@ -34,6 +34,11 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
      *  document had to settle for. Only a real row is allowed to refuse a
      *  later, taller reading — an estimate is replaced by the first row seen. */
     private measured = false;
+    /** Whether the last measure found rows with no box at all: a composer in
+     *  a parked workspace, whose pane content is `display: none`. The box
+     *  coming back is a geometry change, and it is the one geometry change
+     *  this metric re-asks on, and only while the last measure found none. */
+    private boxless = false;
 
     constructor(view: EditorView) {
       this.publish(view);
@@ -51,15 +56,18 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
       // revision) — so that, and a document edit that may have introduced the
       // first plain row, are the only two things worth measuring for.
       //
-      // There used to be a third: the surface saying its workspace had just
-      // been shown. A composer mounted inside a hidden workspace layer once
-      // had no row with a box — the layer was `display: none` — so its first
-      // measure fell back to the estimate and never re-asked. A hidden layer
-      // keeps its layout now ([B02] of workspace-switch-cheap), a parked
-      // composer's rows have real rects, and the first measure reads them; the
-      // re-arm that occasion carried is retired with the reason for it.
+      // And a third, narrower than the geometry rule it is an exception to:
+      // the editor getting its box back. A parked workspace's pane content is
+      // `display: none` (`space-layer.css`), so a composer that mounts in one
+      // finds rows with no box, falls back to the estimate, and would never
+      // re-ask. While — and only while — the last measure found no box, a
+      // geometry change is re-measured: the first one after the reveal reads
+      // a real row, `boxless` goes false, and the rule above holds again. It
+      // cannot cycle: a boxless editor has no layout to change, and a boxed
+      // one never takes this branch.
       const retyped = update.transactions.some((tr) => tr.reconfigured);
-      if (!retyped && !update.docChanged) return;
+      const regained = this.boxless && update.geometryChanged;
+      if (!retyped && !update.docChanged && !regained) return;
       if (retyped) {
         this.published = 0;
         this.measured = false;
@@ -72,7 +80,8 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
       // during an update would force a layout mid-write.
       view.requestMeasure({
         read: (measured) => measuredLineBox(measured),
-        write: (row, view) => {
+        write: ({ row, boxless }, view) => {
+          this.boxless = boxless;
           const fromRow = row > 0;
           // CSS px for the property: `defaultLineHeight` is viewport px
           // under a zoom, like the rect `measuredLineBox` reads.
@@ -111,19 +120,28 @@ export const lineBoxMetric: Extension = ViewPlugin.fromClass(
  * behind `viewportLineBlocks`: both are CodeMirror's own accounting, and both
  * read 25px in this composer where a line occupies 30. Close enough for its
  * scrolling arithmetic; one line wrong in ten for a cap that means to count
- * them. `0` when there is no row to measure (an empty document); the caller
- * falls back to the estimate, and remembers that it did.
+ * them. `row` is `0` when there is no row to measure (an empty document, or
+ * rows with no box); the caller falls back to the estimate, and remembers
+ * that it did. `boxless` says which: a line with a glyph whose block measures
+ * no height at all is a line in a subtree that is not rendered.
  *
  * In layout px: the rect is divided by CodeMirror's own `scaleY`, so the
  * ratchet above compares the same row at every View › Zoom factor.
  */
-function measuredLineBox(view: EditorView): number {
+function measuredLineBox(view: EditorView): { row: number; boxless: boolean } {
   let shortest = Infinity;
+  let candidates = 0;
+  let unboxed = 0;
   for (const line of view.contentDOM.children) {
     if (!(line instanceof HTMLElement) || !line.classList.contains("cm-line")) continue;
     if (line.textContent === null || line.textContent.length === 0) continue;
     const height = line.getBoundingClientRect().height / view.scaleY;
+    candidates += 1;
+    if (height === 0) unboxed += 1;
     if (height > 1 && height < shortest) shortest = height;
   }
-  return Number.isFinite(shortest) ? shortest : 0;
+  return {
+    row: Number.isFinite(shortest) ? shortest : 0,
+    boxless: candidates > 0 && unboxed === candidates,
+  };
 }

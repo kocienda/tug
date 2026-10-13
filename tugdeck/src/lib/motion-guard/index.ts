@@ -55,6 +55,7 @@ export {
   type RenderCostSample,
   type RenderCostSummary,
   type RestReading,
+  type StampedRestReading,
 } from "./render-cost-probe";
 export {
   inputLatency,

@@ -703,6 +703,12 @@ export interface LaunchOptions {
   readonly resumeCards?: readonly string[];
   /** Environment beside the tugbank path, for the app and everything it spawns. */
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Take the screen. An occluded window reports nothing intersecting, so the
+   * off-screen rule stills every loop on the deck; a reading of what the
+   * loops cost needs the deck seen.
+   */
+  readonly foreground?: boolean;
 }
 
 /** The whale arm's default subjects: the first column's two members. */
@@ -741,6 +747,7 @@ export async function launch(
     skipAccessibilityPreflight: true,
     persistInTestMode: true,
     restoreInTestMode: true,
+    ...(opts.foreground === true ? { foreground: true } : {}),
   });
   await app.evalJS<null>(
     `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", ` +

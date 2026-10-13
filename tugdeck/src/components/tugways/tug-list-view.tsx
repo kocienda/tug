@@ -111,9 +111,12 @@ import { SmartScroll } from "@/lib/smart-scroll";
 import { layoutRectFrom, layoutRectOf, pageZoomStore } from "@/lib/page-zoom-store";
 import {
   isInteriorHeld,
+  registerCrossingInterior,
   STILL_CROSSING_END,
-  STILL_CROSSING_SETTLED,
+  type Measured,
 } from "@/lib/fold-crossing";
+import { planCrossingApply } from "@/lib/crossing-apply";
+import { deferToSetUp } from "@/lib/set-up-apply";
 import {
   anchorDepthFromEnd,
   anchorRowIndexInWindow,
@@ -2054,12 +2057,18 @@ function settleExtentFloor(args: {
   scrollTop: number;
   scrollHeight: number;
   clientHeight: number;
+  /** The bottom edge and trailing pad, when a measure half already read them. */
+  measured?: { bottomEdge: number | null; inset: number };
 }): number {
   const { el, floorEl, floorState, bottom, ss, scrollHeight, clientHeight } = args;
   let scrollTop = args.scrollTop;
   const bottomEdge =
-    bottom === null ? null : bottom.offsetTop + bottom.offsetHeight;
-  floorState.inset = trailingPadOf(el);
+    args.measured !== undefined
+      ? args.measured.bottomEdge
+      : bottom === null
+        ? null
+        : bottom.offsetTop + bottom.offsetHeight;
+  floorState.inset = args.measured?.inset ?? trailingPadOf(el);
   const extent =
     bottomEdge === null ? scrollHeight : bottomEdge + floorState.inset;
   const nextFloor = Math.max(0, Math.round(extent) - 1);
@@ -3069,15 +3078,6 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       };
     }, [inline, evictModeEnabled, scrollTick]);
 
-    // Read scroll geometry from the live DOM at render time. On the
-    // first render `scrollContainerRef.current` is null (the ref
-    // attaches in the same commit), producing a degenerate window
-    // until the post-mount tick. The mount-tick effect below pokes
-    // `scrollTick` so the second render sees a real viewport height.
-    const scrollEl = scrollContainerRef.current;
-    const scrollTop = scrollEl?.scrollTop ?? 0;
-    const viewportHeight = scrollEl?.clientHeight ?? 0;
-
     // Resolve the per-index height closure. Measured heights from
     // the `HeightIndex` win; unmeasured indices fall back to
     // `delegate.estimatedHeightForKind`. The composed accessor flows
@@ -3085,6 +3085,38 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
     // and the imperative-handle `scrollToIndex` so every height read
     // sees the same fallback chain.
     const itemCount = dataSource.numberOfItems();
+
+    // Scroll geometry for the window, from what is KEPT rather than the
+    // live DOM ([P03] of the engine-time plan). A render reads ahead of
+    // its own commit's writes, so a live `scrollTop` or `clientHeight`
+    // here made the list view's commit bracket, which reads after them, a
+    // forced layout in every set-up.
+    //
+    // The height is the scrollport size last answered (the container
+    // observer's, or a crossing door's). The top is SmartScroll's
+    // `keptScrollTop`: the value its last `scroll` event delivered or its
+    // own last write left, which a pin knows exactly. A commit whose item
+    // count fell reads both from the DOM, because the browser may have
+    // clamped the top with no write anybody counted. On the first render
+    // the ref is still null (it attaches in the same commit), producing a
+    // degenerate window until the post-mount tick, whose render reads the
+    // DOM once: nothing is answered yet.
+    const scrollEl = scrollContainerRef.current;
+    const keptScroll = smartScrollRef.current;
+    const keptSize = answeredSizeRef.current;
+    const itemCountFell = itemCount < prevRenderedCountRef.current;
+    const scrollTop =
+      scrollEl === null
+        ? 0
+        : keptScroll !== null && keptScroll.keptScrollTop !== null && !itemCountFell
+          ? keptScroll.keptScrollTop
+          : scrollEl.scrollTop;
+    const viewportHeight =
+      scrollEl === null
+        ? 0
+        : keptSize !== null && !itemCountFell
+          ? keptSize.h
+          : scrollEl.clientHeight;
 
     // Seed the list-internal batch-freeze once: a list that mounts with
     // content is rendering a batch (cold-restore reveal), so freeze the
@@ -4217,38 +4249,80 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // use (`closest` is a tree walk, no layout).
       const resolveHeldFrame = (): HTMLElement | null =>
         el.closest<HTMLElement>(".tug-pane[data-pane-id]");
-      const onStillCrossingEnd = (): void => {
-        smartScroll.catchUp();
-        if (!owedRebaseRef.current) return;
-        owedRebaseRef.current = false;
-        const floorEl = extentFloorRef.current;
-        if (floorEl === null || el.clientHeight === 0) return;
-        settleExtentFloor({
-          el,
-          floorEl,
-          floorState: extentFloorStateRef.current,
-          bottom: bottomSpacerRef.current,
-          ss: smartScroll,
+      // Both doors are split into a half that READS and a half that WRITES
+      // ([P03] of the engine-time plan), so the settle engine can read every
+      // interior in its read phase before it writes any: each list view's
+      // read over the previous one's pins was a whole-document layout per
+      // settled frame in the set-up. `measureCrossing` is every read a door
+      // makes; `applyCrossing` acts only on its record, and which writes it
+      // makes is `planCrossingApply`'s answer.
+      const measureCrossing = (): Measured => {
+        const clientHeight = el.clientHeight;
+        const bottom = bottomSpacerRef.current;
+        return {
+          w: el.clientWidth,
+          h: clientHeight,
           scrollTop: el.scrollTop,
           scrollHeight: el.scrollHeight,
-          clientHeight: el.clientHeight,
+          clientHeight,
+          ...(owedRebaseRef.current && extentFloorRef.current !== null
+            ? {
+                floor: {
+                  bottomEdge:
+                    bottom === null ? null : bottom.offsetTop + bottom.offsetHeight,
+                  inset: trailingPadOf(el),
+                },
+              }
+            : {}),
+        };
+      };
+      const applyCrossing = (door: "settled" | "closed", m: Measured): void => {
+        const plan = planCrossingApply(door, m, {
+          owedRebase: owedRebaseRef.current,
+          answered: answeredSizeRef.current,
         });
+        // What the hold owed so far, first.
+        smartScroll.catchUp();
+        if (owedRebaseRef.current) {
+          owedRebaseRef.current = false;
+          const floorEl = extentFloorRef.current;
+          if (plan.rebase && floorEl !== null) {
+            settleExtentFloor({
+              el,
+              floorEl,
+              floorState: extentFloorStateRef.current,
+              bottom: bottomSpacerRef.current,
+              ss: smartScroll,
+              scrollTop: m.scrollTop,
+              scrollHeight: m.scrollHeight,
+              clientHeight: m.clientHeight,
+              ...(m.floor !== undefined ? { measured: m.floor } : {}),
+            });
+          }
+        }
+        if (plan.pin) smartScroll.maybePinToBottom();
+        if (plan.restore) smartScroll.applyRestoreTarget();
+        if (plan.answer !== null) {
+          settledSizeRef.current = plan.answer;
+          answeredSizeRef.current = plan.answer;
+        }
+        if (plan.tick) {
+          pinRequestedRef.current = true;
+          scrollTick();
+        }
       };
       // A SETTLED crossing holds the interior at the height it lands at, so
-      // the land is paid here, in the set-up, before the first frame: what
-      // the hold owed so far, then what the container observer would do
-      // with the new scrollport — pin, restore, re-window — against the
-      // geometry the first frame paints. The size it answered is kept, so
-      // that frame's own delivery of it re-windows nothing mid-motion.
-      const onStillCrossingSettled = (): void => {
-        onStillCrossingEnd();
-        smartScroll.maybePinToBottom();
-        smartScroll.applyRestoreTarget();
-        settledSizeRef.current = { w: el.clientWidth, h: el.clientHeight };
-        answeredSizeRef.current = settledSizeRef.current;
-        pinRequestedRef.current = true;
-        scrollTick();
-      };
+      // the land is paid in the set-up, before the first frame: what the hold
+      // owed so far, then what the container observer would do with the new
+      // scrollport — pin, restore, re-window — against the geometry the first
+      // frame paints. The size it answered is kept, so that frame's own
+      // delivery of it re-windows nothing mid-motion. The engine reaches this
+      // door through the registry: it measures in its read phase and applies
+      // in its apply phase.
+      const releaseInterior = registerCrossingInterior(el, {
+        measure: measureCrossing,
+        apply: (m) => applyCrossing("settled", m),
+      });
       // A crossing that was NOT settled — a shrink, held at its starting
       // size for the motion — lands here, in the land's task, with the hold
       // just dropped: the scroller is at its landed size and nothing has
@@ -4274,21 +4348,13 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // came for cannot swallow a later resize to the same box. Queued behind
       // the gate's held deliveries, so the first frame's own delivery of that
       // size — held until the gate opens — is still answered by it.
+      //
+      // An end announced inside a set-up — a retarget yielding a crossing, a
+      // hold `arm` predicted that the commit did not need — waits for the
+      // Last pass's apply phase rather than reading over the set-up's writes.
       const onStillCrossingClosed = (): void => {
-        onStillCrossingEnd();
-        const answered = answeredSizeRef.current;
-        if (answered !== null) {
-          const w = el.clientWidth;
-          const h = el.clientHeight;
-          if (answered.w !== w || answered.h !== h) {
-            smartScroll.maybePinToBottom();
-            smartScroll.applyRestoreTarget();
-            settledSizeRef.current = { w, h };
-            answeredSizeRef.current = settledSizeRef.current;
-            pinRequestedRef.current = true;
-            scrollTick();
-          }
-        }
+        if (deferToSetUp(onStillCrossingClosed, onStillCrossingClosed)) return;
+        applyCrossing("closed", measureCrossing());
         afterGesture(() => {
           settledSizeRef.current = null;
         });
@@ -4309,11 +4375,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       const onCrossingClosedCapture = (e: Event): void => {
         if (forThisScroller(e)) onStillCrossingClosed();
       };
-      const onCrossingSettledCapture = (e: Event): void => {
-        if (forThisScroller(e)) onStillCrossingSettled();
-      };
       crossingRoot.addEventListener(STILL_CROSSING_END, onCrossingClosedCapture, true);
-      crossingRoot.addEventListener(STILL_CROSSING_SETTLED, onCrossingSettledCapture, true);
       // Surface the initial follow-bottom intent: `onFollowBottomChanged`
       // fires only on transitions, so a consumer's observer would
       // otherwise miss the mount-time state.
@@ -4795,7 +4857,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         revealObserver.disconnect();
         revealSeamRef.current = null;
         crossingRoot.removeEventListener(STILL_CROSSING_END, onCrossingClosedCapture, true);
-        crossingRoot.removeEventListener(STILL_CROSSING_SETTLED, onCrossingSettledCapture, true);
+        releaseInterior();
         smartScroll.dispose();
         smartScrollRef.current = null;
       };

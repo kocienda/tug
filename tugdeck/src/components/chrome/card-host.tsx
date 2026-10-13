@@ -54,6 +54,16 @@
  *      late-mounting engine bumps `engineHooksVersion` via the
  *      `subscribeEngineHooksChange` channel, which joins the
  *      effect's dep array and re-runs the one-shot `applyBagFocus`.
+ *   3. **The parked restore** puts back what a parked workspace took. A
+ *      parked layer's pane content is `display: none` (`space-layer.css`),
+ *      which zeroes every scroller under it, so the offsets the reader left
+ *      are captured from the layer's shown source the moment it turns
+ *      hidden — the store change, before the commit that hides it — and
+ *      re-applied by a `ResizeObserver` on `hostContentEl` when the
+ *      content has a box again, after layout and before the reveal paints.
+ *      A card that mounts into a parked layer seeds the same restore from
+ *      its bag, because the mount restore above writes into a box that is
+ *      not there.
  * Cross-pane-move focus restore is no longer a CardHost concern —
  * it lives in `focus-transfer.ts#transferFocusAfterMove`, called
  * from `deck-manager.ts#_detachCard` / `_moveCardToPane` (the
@@ -115,6 +125,7 @@ import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
 import { holdFoldedBody } from "@/lib/folded-body";
+import { useSpaceLayerShownSource } from "./space-layer";
 
 /**
  * How long the pre-restore opacity mask may wait for the child commit that
@@ -559,6 +570,25 @@ export function applyRegionScrolls(
       el.scrollTop = pos.y;
     }
   }
+}
+
+/**
+ * A region snapshot less the regions a list view owns. A list view re-lands
+ * itself when its box comes back (`list-view-reveal.ts`), so the parked
+ * restore leaves it out; everything else in the snapshot rides as captured.
+ */
+function withoutListViews(
+  root: HTMLElement,
+  snapshot: RegionScrollSnapshot | null | undefined,
+): RegionScrollSnapshot | undefined {
+  if (snapshot === undefined || snapshot === null) return undefined;
+  const kept: RegionScrollSnapshot = {};
+  for (const [key, pos] of Object.entries(snapshot)) {
+    const el = root.querySelector<HTMLElement>(`[data-tug-scroll-key="${CSS.escape(key)}"]`);
+    if (el?.matches('[data-slot="tug-list-view"]') === true) continue;
+    kept[key] = pos;
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
 }
 
 /**
@@ -1698,6 +1728,67 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
     if (rootEl === null || hostPaneFrameEl === null || ownsFoldedForm) return;
     return holdFoldedBody(hostPaneFrameEl, rootEl);
   }, [rootEl, hostPaneFrameEl, ownsFoldedForm]);
+
+  // The parked restore ([L22], [L23], [L03], [L27]). A parked workspace's
+  // pane content is `display: none` — out of style, layout and the walk —
+  // and a scroller with no box reads 0 and keeps nothing. The offsets that
+  // matter are the ones the reader left at the hide, not the bag's last save
+  // (which may predate a scroll made since), so they are read from the DOM
+  // in the store change that parks the layer: the shown source notifies
+  // before React commits the attribute that hides it, so the content still
+  // has its boxes, and every host reads before any of them writes. They go
+  // back when the content has a box again — a `ResizeObserver` delivery,
+  // after the reveal's layout and before it paints — through the same
+  // appliers the mount restore uses. A list view is left out: it keeps its
+  // own memory of the box it lost (`list-view-reveal.ts`, the seam an
+  // inactive tab and a folded body already ride) and re-lands itself, follow
+  // intent included, which a region-scroll event on top of it would release.
+  // Subscribed directly, never through
+  // `useSpaceLayerShown()`: a re-render of every card host on a switch is
+  // the cost the source object exists to remove. Only the active card of a
+  // pane captures: an inactive tab's root is already `display: none`.
+  const layerShownSource = useSpaceLayerShownSource();
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+  useLayoutEffect(() => {
+    if (hostContentEl === null || rootEl === null) return;
+    let shown = layerShownSource.get();
+    let parked: Pick<CardStateBag, "scroll" | "regionScroll"> | null = null;
+    if (!shown && isActiveRef.current) {
+      const bag = store.getCardState(cardId);
+      if (bag !== undefined) {
+        parked = { scroll: bag.scroll, regionScroll: withoutListViews(rootEl, bag.regionScroll) };
+      }
+    }
+    const unsubscribe = layerShownSource.subscribe(() => {
+      const now = layerShownSource.get();
+      if (now === shown) return;
+      shown = now;
+      if (now || !isActiveRef.current) return;
+      parked = {
+        scroll: { x: hostContentEl.scrollLeft, y: hostContentEl.scrollTop },
+        regionScroll: withoutListViews(rootEl, captureRegionScrolls(rootEl)),
+      };
+    });
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.contentRect;
+      if (parked === null || !shown || box === undefined || box.height === 0) return;
+      const restore = parked;
+      parked = null;
+      if (restore.scroll !== undefined) {
+        hostContentEl.scrollLeft = restore.scroll.x;
+        hostContentEl.scrollTop = restore.scroll.y;
+      }
+      if (restore.regionScroll !== undefined && restore.regionScroll !== null) {
+        applyRegionScrolls(rootEl, restore.regionScroll);
+      }
+    });
+    observer.observe(hostContentEl);
+    return () => {
+      unsubscribe();
+      observer.disconnect();
+    };
+  }, [cardId, hostContentEl, rootEl, layerShownSource, store]);
 
   // No focusin listener here — the assembler preserves the previous
   // bag's `focus` axis when `document.activeElement` is outside this

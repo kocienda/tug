@@ -68,6 +68,19 @@
 //! drive with the instruments on, and it refuses `--tasks`, `--chains` and
 //! `--sample` rather than reading as quiet beside them.
 //!
+//! **Frame phases.** `--frame-phases` records the deck's WebContent process
+//! with Instruments' Time Profiler across the drives and files every 1 ms
+//! sample under the frame of the reading it fell in and the phase it was in
+//! (`deck_motion_phases.rs`), so a reading says which phase each frame paid
+//! for — the set-up's included — and, for style and layout the deck's script
+//! forced, which API forced it and, with `--chains`, which function called it.
+//! It is an instrument like the samplers, so it refuses `--quiet-instruments`.
+//!
+//! **Chains in the set-up.** With `--chains` each reading counts the chains
+//! whose paying read fell after the settle mark went on and at or before the
+//! motion gate's last close — the Last pass's own close, in the task that
+//! launches the beats — and names each one. The set-up's bar is one.
+//!
 //! **The census forces nothing.** The deck line is built from counts that
 //! force no style; `--full-census` adds `__tugMotion.layers()`, a
 //! `getComputedStyle` over every element that held a 25,714-element deck's
@@ -620,11 +633,7 @@ pub fn motion(
     tasks: Option<&[RawTask]>,
     ingest: Option<&[(f64, usize, bool)]>,
 ) -> Option<Motion> {
-    let at = gates
-        .iter()
-        .filter(|(t, phase)| phase == "close" && *t <= off)
-        .map(|(t, _)| *t)
-        .reduce(f64::max)?;
+    let at = gate_close(gates, off)?;
     let longest_gap_ms = frames
         .windows(2)
         .filter(|pair| pair[0] >= at && pair[1] <= off)
@@ -645,6 +654,36 @@ pub fn motion(
         deliveries,
         ingest_batches,
     })
+}
+
+/// The motion gate's last close at or before the settle mark's `off`: where
+/// the set-up ends and the motion begins. `None` with no close.
+fn gate_close(gates: &[(f64, String)], off: f64) -> Option<f64> {
+    gates
+        .iter()
+        .filter(|(t, phase)| phase == "close" && *t <= off)
+        .map(|(t, _)| *t)
+        .reduce(f64::max)
+}
+
+/// The chains paid in the set-up: after the settle mark's `on` and at or
+/// before the gate's last close before `off`. `None` when no close came — a
+/// deck that predates the gate, or a settle that launched nothing — which is
+/// not a set-up of no chains.
+pub fn set_up_chains(
+    chains: &[LandSite],
+    on: f64,
+    gates: &[(f64, String)],
+    off: f64,
+) -> Option<Vec<LandSite>> {
+    let close = gate_close(gates, off)?;
+    Some(
+        chains
+            .iter()
+            .filter(|c| c.t > on && c.t <= close)
+            .cloned()
+            .collect(),
+    )
 }
 
 /// One `settle-beat` row the deck trace recorded in the window.
@@ -901,6 +940,18 @@ pub struct Reading {
     pub verdict: Option<crate::commands::deck_motion_verdict::Verdict>,
     /// The sessions mid-turn when the drive was made, with `--streaming`.
     pub streams: Option<StreamCount>,
+    /// With `--chains`, how many chains the set-up paid ([`set_up_chains`]);
+    /// `None` without `--chains` and when no gate close came.
+    pub set_up_chains: Option<usize>,
+    /// Those chains, each with its time, ms and site.
+    pub set_up_chain_sites: Option<Vec<LandSite>>,
+    /// The drive on the wall clock, `performance.timeOrigin + t0`; `None` on
+    /// a page that predates it.
+    pub t0_epoch_ms: Option<f64>,
+    /// How far that sum had drifted from `Date.now()` at the drive.
+    pub clock_drift_ms: Option<f64>,
+    /// With `--frame-phases`, every frame of the drive by phase.
+    pub frame_phases: Option<crate::commands::deck_motion_phases::FramePhases>,
 }
 
 /// Reduce one `record` op's raw result to a reading.
@@ -952,6 +1003,12 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         (Some(commits), Some(window)) => window_commits(commits, &tells, window),
         _ => Vec::new(),
     };
+    let set_up = match (&land_chains, window_of(&marks)) {
+        (Some(chains), Some((on, off))) if drive.gesture != "switch" => {
+            set_up_chains(chains, on, &gates, off)
+        }
+        _ => None,
+    };
     let main_thread_reading = match (&raw_commits, window) {
         (Some(commits), Some(window)) => Some(main_thread(commits, land_chains.as_deref(), window)),
         _ => None,
@@ -973,6 +1030,11 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         pane_id: str_of(raw, "paneId"),
         verdict: crate::commands::deck_motion_verdict::verdict_of(raw.get("engine")),
         streams: None,
+        set_up_chains: set_up.as_ref().map(Vec::len),
+        set_up_chain_sites: set_up,
+        t0_epoch_ms: raw.get("t0Epoch").and_then(Value::as_f64),
+        clock_drift_ms: raw.get("clockDriftMs").and_then(Value::as_f64),
+        frame_phases: None,
     }
 }
 
@@ -1016,7 +1078,7 @@ pub fn record_args(
     drive_args: Value,
     tasks: bool,
     chains: bool,
-    is_census: bool,
+    chain_stacks: bool,
     quiet: bool,
 ) -> Value {
     json!({
@@ -1025,7 +1087,7 @@ pub fn record_args(
         "args": drive_args,
         "tasks": !quiet && tasks && drive.read,
         "chains": !quiet && chains && drive.read,
-        "chainStacks": !quiet && is_census,
+        "chainStacks": !quiet && chain_stacks,
         "quiet": quiet,
         "tailMs": TAIL_MS,
         "capMs": CAP_MS,
@@ -1042,12 +1104,24 @@ pub fn run_settle(
     tasks: bool,
     chains: bool,
     sample: bool,
+    frame_phases: bool,
     streaming: Option<u32>,
     quiet: Quiet,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || Ok(eval_gated("deck motion settle", json_output));
     check_args(gesture, &args)?;
+    let xctrace = if frame_phases {
+        match crate::commands::deck_motion_phases::xctrace() {
+            Some(path) => Some(path),
+            None => {
+                eprintln!("frame-phases needs xcrun xctrace (Xcode's Instruments); not found");
+                return Ok(2);
+            }
+        }
+    } else {
+        None
+    };
     if drives_once(gesture) && count > 1 && !json_output {
         let what = if gesture == "close" {
             "a pane closes once"
@@ -1135,6 +1209,11 @@ pub fn run_settle(
                 "note: the samplers stop WebContent to read its stacks, so the frame numbers below are perturbed — take frames from a run without --sample"
             );
         }
+        if frame_phases {
+            println!(
+                "note: the Time Profiler stops WebContent every 1 ms to read its stack, so the frame numbers below are perturbed — take frames from a --quiet-instruments run"
+            );
+        }
         if quiet.instruments {
             println!(
                 "note: quiet instruments — the frame pump alone, the commit census stilled; these frames are the gesture's, and no commit is attributed"
@@ -1149,6 +1228,7 @@ pub fn run_settle(
 
     let mut readings = Vec::new();
     let mut chains_census: Option<Value> = None;
+    let mut census_set_up: Option<Vec<LandSite>> = None;
     let mut last_pane: Option<String> = None;
     let samplers = if sample {
         let targets = crate::commands::deck_motion_sample::targets(port)?;
@@ -1163,6 +1243,26 @@ pub fn run_settle(
     } else {
         None
     };
+    let recorder = match &xctrace {
+        Some(xctrace) => {
+            let pid = crate::commands::deck_motion_phases::deck_web_content(port)?;
+            // A generous ceiling: the run stops the recording itself.
+            let seconds = sample_seconds(plan.len()) * 2 + 30;
+            if !json_output {
+                eprintln!("recording WebContent {pid} with xctrace's Time Profiler");
+            }
+            Some(crate::commands::deck_motion_phases::record(
+                xctrace, pid, seconds,
+            )?)
+        }
+        None => None,
+    };
+    // Each reading's frames and chain spans, for filing the trace's samples
+    // once it is exported.
+    let mut phase_inputs: Vec<(
+        Vec<f64>,
+        Option<Vec<crate::commands::deck_motion_phases::ChainSpan>>,
+    )> = Vec::new();
     for (index, drive) in plan.iter().enumerate() {
         let is_census = census_index == Some(index);
         let drive_args = close_target(drive, last_pane.as_deref())?;
@@ -1190,7 +1290,7 @@ pub fn run_settle(
                 drive_args,
                 tasks,
                 chains,
-                is_census,
+                is_census || frame_phases,
                 quiet.instruments,
             ),
         )?;
@@ -1203,8 +1303,10 @@ pub fn run_settle(
         last_pane = str_of(&raw, "paneId");
         if is_census {
             chains_census = raw.get("chains").filter(|v| !v.is_null()).cloned();
+            census_set_up = reduce(drive, &raw).set_up_chain_sites;
             if !json_output {
                 print_chains_census(chains_census.as_ref());
+                print!("{}", set_up_text(true, census_set_up.as_deref()));
             }
         }
         if drive.read && (!is_census || census_read) {
@@ -1212,6 +1314,15 @@ pub fn run_settle(
             reading.streams = streams_at_drive;
             if !json_output {
                 print_reading(readings.len() + 1, &reading);
+            }
+            if recorder.is_some() {
+                let list = |key: &str| raw.get(key).filter(|v| !v.is_null()).cloned();
+                phase_inputs.push((
+                    list("frames")
+                        .and_then(|v| serde_json::from_value(v).ok())
+                        .unwrap_or_default(),
+                    list("landChains").and_then(|v| serde_json::from_value(v).ok()),
+                ));
             }
             readings.push(reading);
         }
@@ -1227,6 +1338,52 @@ pub fn run_settle(
         }
         None => None,
     };
+    if let Some(recorder) = recorder {
+        if !json_output {
+            eprintln!("stopping the recording and exporting the trace");
+        }
+        let (trace, samples) = recorder.finish()?;
+        if !json_output {
+            println!();
+            println!("frame phases — {}", trace.display());
+        }
+        for (i, (reading, (frames, spans))) in readings.iter_mut().zip(&phase_inputs).enumerate() {
+            let Some(t0) = reading.t0_epoch_ms else {
+                if !json_output {
+                    println!(
+                        "#{}: this deck's page reports no t0Epoch, so its samples cannot be filed",
+                        i + 1
+                    );
+                }
+                continue;
+            };
+            let (t0, skew) = crate::commands::deck_motion_phases::drive_epoch(
+                t0,
+                reading.clock_drift_ms.unwrap_or(0.0),
+            );
+            let mut fp = crate::commands::deck_motion_phases::file_by_frame(
+                &samples,
+                frames,
+                t0,
+                spans.as_deref(),
+            );
+            fp.skew_ms = skew;
+            if !json_output {
+                println!();
+                println!("#{} {}", i + 1, reading.gesture);
+                if samples.first().is_none_or(|s| s.epoch_ms > t0) {
+                    println!(
+                        "   note: the trace began after this drive, so its set-up is not all here"
+                    );
+                }
+                print!(
+                    "{}",
+                    crate::commands::deck_motion_phases::print_frame_phases(&fp)
+                );
+            }
+            reading.frame_phases = Some(fp);
+        }
+    }
     if json_output {
         crate::output::print_ok(
             "deck motion settle",
@@ -1243,6 +1400,7 @@ pub fn run_settle(
                 "framesPerturbedBySampling": sample,
                 "quietInstruments": quiet.instruments,
                 "chainsCensus": chains_census,
+                "chainsCensusSetUp": census_set_up,
                 "readings": readings,
                 "samples": processes,
             }),
@@ -1423,6 +1581,9 @@ pub fn reading_extras(r: &Reading) -> String {
             );
         }
     }
+    if r.chains.is_some() {
+        out.push_str(&set_up_text(false, r.set_up_chain_sites.as_deref()));
+    }
     for beat in &r.settle_beats {
         let declares = if beat.declares.is_empty() {
             "nothing".to_string()
@@ -1472,6 +1633,30 @@ pub fn reading_extras(r: &Reading) -> String {
                 out,
                 "   no verdict: the deck wrote no rows of its own — 'tugtool deck motion record on' arms them"
             );
+        }
+    }
+    out
+}
+
+/// The `chains in the set-up` line and one line per chain beneath it; `—`
+/// when no gate close came, which is not a set-up of no chains.
+pub fn set_up_text(census: bool, sites: Option<&[LandSite]>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let lead = if census { "census drive: " } else { "" };
+    match sites {
+        None => {
+            let _ = writeln!(out, "   {lead}chains in the set-up: — (no gate close)");
+        }
+        Some(sites) => {
+            let _ = writeln!(out, "   {lead}chains in the set-up: {}", sites.len());
+            for c in sites {
+                let _ = writeln!(
+                    out,
+                    "     chain  t {:>7.1}  {:>6.1} ms  {}",
+                    c.t, c.ms, c.site
+                );
+            }
         }
     }
     out
@@ -1875,6 +2060,32 @@ mod tests {
             frame_gaps(&[8.0, 24.7, 41.4, 90.0, 400.0], None),
             (Some(8.0), Some(310.0))
         );
+    }
+
+    #[test]
+    fn the_set_up_counts_chains_from_the_mark_to_the_last_gate_close() {
+        let chain = |t: f64| LandSite {
+            t,
+            ms: 12.0,
+            site: format!("in reader{t}: x.ts:1:1"),
+        };
+        // Before the mark, inside the set-up (two), after the close.
+        let chains = [chain(2.0), chain(8.0), chain(40.0), chain(95.0)];
+        let gates = vec![
+            (6.0, "open".to_string()),
+            (40.0, "close".to_string()),
+            (300.0, "close".to_string()),
+        ];
+        let sites = set_up_chains(&chains, 5.0, &gates, 200.0).unwrap();
+        assert_eq!(
+            sites.iter().map(|c| c.t).collect::<Vec<_>>(),
+            vec![8.0, 40.0],
+            "after the on, at or before the close"
+        );
+        assert!(set_up_text(false, Some(&sites)).contains("chains in the set-up: 2"));
+        // No close: not a set-up of no chains.
+        assert_eq!(set_up_chains(&chains, 5.0, &[], 200.0), None);
+        assert!(set_up_text(false, None).contains("— (no gate close)"));
     }
 
     #[test]
