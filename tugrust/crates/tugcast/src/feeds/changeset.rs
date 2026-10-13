@@ -3204,7 +3204,7 @@ mod tests {
         ledger.mark_closed("sess-seated").unwrap();
         super::super::deck_seatings::set_deck_seatings(
             7,
-            std::iter::once("sess-seated".to_string()).collect(),
+            std::iter::once((None, "sess-seated".to_string())).collect(),
         );
 
         let snapshot = compose_snapshot(&root, Some(&ledger)).await.expect("repo");
@@ -4704,7 +4704,7 @@ Some context.
         )];
         super::super::deck_seatings::set_deck_seatings(
             11,
-            std::iter::once("sess-seated-closed".to_string()).collect(),
+            std::iter::once((None, "sess-seated-closed".to_string())).collect(),
         );
         apply_session_rows(&mut snapshot, &rows);
         super::super::deck_seatings::drop_deck_seatings(11);

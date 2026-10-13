@@ -86,7 +86,7 @@
 //! `getComputedStyle` over every element that held a 25,714-element deck's
 //! main thread 3.3 s, and prints what it cost.
 
-use crate::commands::deck_motion::eval_gated;
+use crate::commands::deck_motion::{EvalDoor, eval_gated};
 use crate::commands::deck_motion_slide::{
     RawCommit, RawTask, RawTell, census, commit_timings, ensure_recorder, origins_label,
     print_census, script_page,
@@ -1039,8 +1039,8 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
 }
 
 /// Post one page op. `None` when the eval door is shut.
-fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
-    script_page(port, PAGE, args)
+fn page(door: EvalDoor<'_>, args: Value) -> Result<Option<Value>, String> {
+    script_page(door, PAGE, args)
 }
 
 fn str_of(value: &Value, key: &str) -> Option<String> {
@@ -1049,8 +1049,8 @@ fn str_of(value: &Value, key: &str) -> Option<String> {
 
 /// Ask the page how many sessions are mid-turn. `None` when the eval door is
 /// shut.
-fn streams(port: u16) -> Result<Option<StreamCount>, String> {
-    let Some(raw) = page(port, json!({"op": "streams"}))? else {
+fn streams(door: EvalDoor<'_>) -> Result<Option<StreamCount>, String> {
+    let Some(raw) = page(door, json!({"op": "streams"}))? else {
         return Ok(None);
     };
     if let Some(error) = raw.get("error").and_then(|e| e.as_str()) {
@@ -1097,7 +1097,7 @@ pub fn record_args(
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_settle(
-    port: u16,
+    door: EvalDoor<'_>,
     gesture: &str,
     args: GestureArgs,
     count: u32,
@@ -1131,16 +1131,16 @@ pub fn run_settle(
         eprintln!("note: {what}; --count {count} reads one {gesture}");
     }
 
-    if tasks && !ensure_recorder(port, json_output)? {
+    if tasks && !ensure_recorder(door, json_output)? {
         return gated();
     }
-    let Some(census) = census(port, quiet.full_census)? else {
+    let Some(census) = census(door, quiet.full_census)? else {
         return gated();
     };
-    let Some(rest) = page(port, json!({"op": "rest"}))? else {
+    let Some(rest) = page(door, json!({"op": "rest"}))? else {
         return gated();
     };
-    let Some(home) = page(port, json!({"op": "where", "card": args.card}))? else {
+    let Some(home) = page(door, json!({"op": "where", "card": args.card}))? else {
         return gated();
     };
     let home = Home {
@@ -1164,7 +1164,7 @@ pub fn run_settle(
     let budget = rest.get("budgetPerSecond").and_then(|v| v.as_f64());
     let streams_at_start = match streaming {
         Some(required) => {
-            let Some(count) = streams(port)? else {
+            let Some(count) = streams(door)? else {
                 return gated();
             };
             let (line, enough) = stream_verdict(required, &count);
@@ -1231,7 +1231,7 @@ pub fn run_settle(
     let mut census_set_up: Option<Vec<LandSite>> = None;
     let mut last_pane: Option<String> = None;
     let samplers = if sample {
-        let targets = crate::commands::deck_motion_sample::targets(port)?;
+        let targets = crate::commands::deck_motion_sample::targets(door.port)?;
         let seconds = sample_seconds(plan.len());
         let samplers = crate::commands::deck_motion_sample::start(&targets, seconds)?;
         if !json_output {
@@ -1245,7 +1245,7 @@ pub fn run_settle(
     };
     let recorder = match &xctrace {
         Some(xctrace) => {
-            let pid = crate::commands::deck_motion_phases::deck_web_content(port)?;
+            let pid = crate::commands::deck_motion_phases::deck_web_content(door.port)?;
             // A generous ceiling: the run stops the recording itself.
             let seconds = sample_seconds(plan.len()) * 2 + 30;
             if !json_output {
@@ -1268,7 +1268,7 @@ pub fn run_settle(
         let drive_args = close_target(drive, last_pane.as_deref())?;
         let streams_at_drive = match streaming {
             Some(required) if drive.read => {
-                let Some(count) = streams(port)? else {
+                let Some(count) = streams(door)? else {
                     return gated();
                 };
                 let (line, enough) = stream_verdict(required, &count);
@@ -1284,7 +1284,7 @@ pub fn run_settle(
             _ => None,
         };
         let raw = page(
-            port,
+            door,
             record_args(
                 drive,
                 drive_args,

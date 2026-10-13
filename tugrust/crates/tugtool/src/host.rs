@@ -45,7 +45,8 @@ pub fn dispatch(cmd: HostCommands, json: bool, quiet: bool) -> ExitCode {
             port,
             instance,
             param,
-        } => commands::run_tell(action, port, instance, param, json),
+            card,
+        } => commands::run_tell(action, port, instance, param, card, json),
         HostCommands::Instance(cmd) => commands::run_instance(cmd, json),
         HostCommands::Gate(cmd) => Ok(commands::run_gate(cmd, json, quiet)),
         HostCommands::Sweep {

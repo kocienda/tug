@@ -1,6 +1,6 @@
 # Ingest and render
 
-*How session data reaches the deck: who reduces the wire, how its results cross to the page, when they are allowed to land, who renders a row's markdown, and how many rows the page keeps mounted. The law lines are [L34], [L35] and [L36] in [tuglaws.md](tuglaws.md); the reversals that shaped them are [D208], [D209] and [D210] in [design-decisions.md](design-decisions.md).*
+*How session data reaches the deck: who reduces the wire, how its results cross to the page, when they are allowed to land, who renders a row's markdown, how many rows the page keeps mounted, and how many pages share the wire. The law lines are [L34], [L35] and [L36] in [tuglaws.md](tuglaws.md); the reversals that shaped them are [D208], [D209], [D210] and [D213] in [design-decisions.md](design-decisions.md).*
 
 The main thread is the one thread that draws, so this page is about keeping work off it. Four rules carry that. The wire is reduced somewhere else. What crosses to the page arrives at most once per display period, and never while a motion is held. A streamed row's markdown is rendered by tugcast, not by the page. And the page mounts only the rows near the viewport. Each rule below names the code that is its single source and the tests that hold it.
 
@@ -33,7 +33,7 @@ The render feed has its own pair of types, `tugproto/src/rendered.ts` for the pa
 | Where | What it holds | Its cap |
 |---|---|---|
 | The Worker's host | Every patch except `wire-state` and `disconnect-state`, which are page state rather than pixels and post through the hold in a batch of their own. The engines keep reducing while held. | The latest cap any hold asked for, floored at `MIN_HOLD_CAP_MS` (1,000 ms). The release posts everything as one batch, and so does the host's own deadline if the release never comes. |
-| tugcast's render bridge | Every render, merged into one bundle per holder (`RENDER_INPUT` `motion`, under a holder id the host mints). | The same floor, `MIN_HOLD_CAP_MS` in `render_bridge.rs`. The release, or the last holder's expiry, publishes the bundle. |
+| tugcast's render bridge | Every render for the page that asked, merged into one bundle per holder (`RENDER_INPUT` `motion`, under a holder id the host mints). Holds are per page: one page's hold parks no other page's renders ([many pages](#many-pages)). | The same floor, `MIN_HOLD_CAP_MS` in `render_bridge.rs`. The release, or the last holder's expiry, publishes the bundle. |
 | The page's connection | A batch that was already in flight when the gate closed, which the host posted before it heard of the hold. It is parked, unless it holds wire state alone. | The gate's own cap, which releases the parked batches with the gate. |
 
 A gate that never opens therefore cannot strand the deck's data ([L23], [L32], [L33]). The page-side gate in `gesture-scope.ts` still holds the page's own tells and observer deliveries. What moved to the Worker is the wire.
@@ -43,6 +43,47 @@ A gate that never opens therefore cannot strand the deck's data ([L23], [L32], [
 **No ingest batch is applied inside a motion.** This is the invariant the hold exists for, and it is asserted rather than assumed. Every applied batch is a deck-trace `ingest-batch` row. `at0725-streaming-settle-reading` drives each gesture with three sessions streaming and asserts that the motion window's `ingest_batches` is empty, on the quiet drives and the instrumented ones alike. `TugConnection.deliverHeldWire` lets a test push the wire through a closed gate on purpose. It exists so that a test of what a surface does with data that changed mid-motion can fail. It is test-surface only.
 
 Streaming text needs no React commit to reach the page. A `stream` patch writes the session's `PropertyStore` path, and `TugMarkdownView` draws from that path by observing the store directly ([L22]). The streaming block's own frame flush (`tugdeck/src/lib/markdown/streaming-flush.ts`) checks `isMotionHeld()`. If the gate is closed it re-arms for the release instead of reconciling, so a streaming row's content pops once at the release, which is the pop the animation doctrine's [D9](animation-doctrine.md#d9-compositor-only-settle) accepts. A structural publish (new turn, phase, tool call or result, error, rewind, restore) is what React hears, once per batch ([D209]).
+
+## Many pages {#many-pages}
+
+**tugcast serves each connection as the page it says it is, and addresses every frame that is meant for some pages and not others.** [D213]
+
+**The hello and the registry.** A connection names itself in its handshake hello: a `role` (`shell`, `body` or `tool`), a `page_id` minted once per page load, and for a body the `card_id` it renders. A hello that names no role is a tool, which is how the harness's Workers, test clients and curl are served, exactly as every connection was before pages had names. A malformed identity closes the socket with `CLOSE_BAD_HANDSHAKE` before the wire opens. The parse is `parse_page_hello` (`tugrust/crates/tugcast-core/src/pages.rs`), and the handshake reply echoes the identity and the `client_id`. The deck's connection (`tugdeck/src/connection.ts`) says it is one shell page, with a `pageId` minted once per connection object, so a reconnect is the same page. Every live connection is one record in one `PageRegistry` (`tugrust/crates/tugcast/src/pages.rs`), shared by the router, the supervisor, the file-watch service and the render bridge. `GET /api/pages` and `tugtool deck pages` list it.
+
+**Addressed delivery, resolved when a frame is published.** A frame meant for some pages rides an addressed lane as an `AddressedFrame`: the frame's bytes unchanged, and a `Delivery` (`All`, `Client`, `Clients` or `AllExcept`) beside them. Each connection's forwarder (`forward_addressed` in `tugrust/crates/tugcast/src/router.rs`) passes only what admits its own id. A target (`shell`, `body`, a card, a page, or `all`) becomes a delivery once, at publish time, in `PageRegistry::resolve`, and a target no live page answers resolves to nothing, which the publisher reports. **Where two live pages answer one target**, two shells or a card's old and new page during a reload, **the newest connection is addressed**: the one with the highest `client_id`, since ids only count up. A tool is reached only by `All` or `AllExcept`, never by name. Every page-addressed CONTROL frame (tells, evals, asks and `ask-rescind`) and every bus delivery rides one page lane, so the frames on it reach each connection in the order they were published. tugcast's own internal CONTROL broadcasts stay on the CONTROL stream, to every connection.
+
+**Who answers a tell, an eval and an ask.** A tell from the host (UDS or `POST /api/tell`) goes to the shell unless its `to` names another target (`tugtool host tell --card`). An eval goes to the shell unless the request names a card (`--card` on the `tugtool deck motion` verbs that run one), and an eval no page answers fails at once with a 503 instead of waiting out its timeout. An ask goes to the shell alone. A tell one connection sends on its own CONTROL goes to every connection unless it names a target. The defaults are `ActionContext::default_to` (`tugrust/crates/tugcast/src/actions.rs`) and the handlers in `tugrust/crates/tugcast/src/server.rs`.
+
+**Inputs are owned per page, and replies go to the asker.** `PER_PAGE_INPUTS` (`router.rs`) lists the inputs any number of pages may write at once. Only the terminal pair and `CODE_INPUT` still have one writer, because there is one tmux pane and one writer per session.
+
+| Input | Owner | Reply delivery |
+|---|---|---|
+| `CODE_INPUT` | one writer per session; a page whose card seats it takes over | the session subscription |
+| `TERMINAL_INPUT`, `TERMINAL_RESIZE` | one writer per feed | every connection |
+| `RENDER_INPUT` | per page | the page's own pacer; a find answer and the hello batch to the asker |
+| `SHELL_INPUT`, `REFS_INPUT` | per page | the session subscription |
+| `FILETREE_QUERY`, `GIT_DIFF_QUERY`, `GIT_LOG_QUERY`, `GIT_COMMIT_FILES_QUERY`, `USAGE_QUERY` | per page | the asker |
+| `FILE_WATCH_QUERY` | per page; `reset` and departure clear only that page's watches | every page watching the path |
+| `OVERVIEW_INPUT` | per page | every connection, a shared channel by design |
+
+An input that answers a page reaches its service as a `ClientFrame` carrying the sender's `client_id`, set by the router so a page cannot answer as another. A page's departure is published on `PageRegistry::departures()`, and each service that keeps per-page state drops that page's. A service whose departures receiver lags reconciles instead of guessing: it keeps only the pages the registry's snapshot still lists, so a missed departure cannot leak a page's watches or pacer.
+
+**Session-scoped frames go to the pages that subscribe to the session.** `subscribe_feeds` may carry `sessions`, an array of ids or `"all"`; absent means all. A frame on a session-scoped feed (`CODE_OUTPUT`, `SHELL_OUTPUT`, `REFS_OUTPUT`, `SESSION_STATE`, `SESSION_SIDEBAND`, `ACTIVITY`) reaches a page only for a session it subscribes to. `session_of` (`router.rs`) reads the id from the spliced leading `tug_session_id` without a parse when it can, and a frame that names no session is admitted. CONTROL is never session-filtered.
+
+**The render bridge paces and holds per page.** Every shell and body page has its own `PagePacer` (`tugrust/crates/tugcast/src/feeds/render_bridge.rs`): its display period, its motion holders and its buffer. The stage renders once per tick, at the shortest period any page asked for. Each tick's batch is cut to the page's sessions and sent to that page alone, or merged into its buffer while the page is held or not yet due, so one page's hold parks only its own renders. A tool takes every batch whole through `AllExcept` the paced pages.
+
+**A session is held by its card's seating, not by a socket.** A page may write `CODE_INPUT` for a session it spawned, or for one its card seats: the session's ledger entry names that card, or a deck's `deck_seatings` report pairs the card with it (`card_seats_session` in `tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs`, over `feeds/deck_seatings.rs`). A body page whose card seats the session takes the claim over from whichever page holds it, so a reloaded body is not refused by its own previous socket. Any other second writer is still `input_claimed`, and a page whose card does not seat the session is `session_not_owned` (`authorize_and_claim_input` in `router.rs`). The orphan sweep (`reap_orphan_bridges`) spares a session the seating board seats, and one whose card has a live page or a page that departed less than `BRIDGE_ORPHAN_SETTLE` (60 s) ago, because a body reload is a reconnect and not an orphan.
+
+**Pages talk to each other over the deck bus.** `DECK_BUS` (0xD0) carries one JSON envelope per frame in both directions. A shell or body page sends a target and a message, and tugcast delivers it on the page lane with `from` stamped from the sender's registered identity, so a `from` the page wrote is ignored (`route_bus` in `router.rs`). A tool's bus frame is `bus_refused`, one outside the vocabulary is `bus_malformed`, and a target no live page answers is `bus_undeliverable`, each a CONTROL error to the sender. Bus frames are exempt from the feed filter, as CONTROL is, because addressing already scopes them. The vocabulary is closed:
+
+| `kind` | Documented direction | `payload` |
+|---|---|---|
+| `card-facts` | body → shell | `title`, `mastheadLine`, `activity`, `telemetry` |
+| `card-command` | shell → body | `command` (`find`, `focus-prompt`, `interrupt`, `turn-previous`, `turn-next`, `chord`), with `query` or `chord` |
+| `card-advice` | body → shell | tagged by `advice`: `fold-guard`, `close-advice`, `sheet-reservation`, `opening-bid` |
+| `deck-facts` | shell → bodies | `theme`, `zoom`, `keyboardAccess`, `modifierLatch`, `appActive` |
+
+The router does not enforce a kind's direction. The Rust half is `tugrust/crates/tugcast-core/src/bus.rs` and the TypeScript half is `tugproto/src/bus.ts`, held to one fixture, `tugproto/src/__tests__/fixtures/bus-parity.json`, so a field added on one side only fails a parity test.
 
 ## The render feed {#render-feed}
 
@@ -96,3 +137,10 @@ Under a closed motion gate the mounted set is held. The surfaces' observers are 
 | The display rule and the finishers | `render-tracker.test.ts`; `ingest-host.rendered.test.ts` |
 | One barrier, under a script-free policy | `tugmark_invariant.rs`, `sanitize-invariant.test.ts`, `just tugmark-fuzz`, `at0732-tugcast-hostile-render` |
 | The population ceiling | `at0727-population-ceiling-reading` |
+| A page's identity and the registry | the tests in `tugcast-core/src/pages.rs` and `tugcast/src/pages.rs`; `many-pages.test.ts` "identity" |
+| Addressed delivery and the newest page | `pages.rs`'s `resolve_*` and `delivery_admits_only_whom_it_names`; `many-pages.test.ts` "addressed control" and "eval" |
+| Inputs per page, replies to the asker | `router.rs`'s ownership tests, `file_watch.rs`'s tests; `many-pages.test.ts` "replies" |
+| Session-scoped frames by subscription | `router.rs`'s `session_of_*` tests; `many-pages.test.ts` "session subscription" |
+| The render bridge's per-page pacing and hold | `render_bridge.rs`'s tests; `many-pages.test.ts` "render input" |
+| Seating ownership and the sweep | `router.rs`'s `code_input_follows_the_cards_seating`; the sweep tests in `agent_supervisor/mod.rs`; `agent_supervisor/tests/arc.rs`; `many-pages.test.ts` "seating" |
+| The bus's routing and its two halves | `bus.rs`'s and `router.rs`'s bus tests; `bus-parity.test.ts`; `many-pages.test.ts` "bus" |

@@ -1,8 +1,9 @@
 //! The running deck (`tugtool deck …`) — dispatch to the command modules,
 //! preserving their `Result<i32, _>` → exit-code contract.
 //!
-//! One family so far: `deck motion`, which reads the page's own render-cost
-//! and animation census off `window.__tugMotion` through `POST /api/eval`.
+//! `deck motion` reads the page's own render-cost and animation census off
+//! `window.__tugMotion` through `POST /api/eval`; `deck pages` lists the
+//! pages tugcast's WebSockets carry, off `GET /api/pages`.
 
 use std::process::ExitCode;
 
@@ -13,9 +14,13 @@ use crate::commands;
 pub fn dispatch(cmd: DeckCommands, json: bool) -> ExitCode {
     let command = match &cmd {
         DeckCommands::Motion(cmd) => commands::deck_motion::command_name(cmd),
+        DeckCommands::Pages { .. } => "deck pages",
     };
     let result = match cmd {
         DeckCommands::Motion(cmd) => commands::run_deck_motion(cmd, json),
+        DeckCommands::Pages { target } => {
+            commands::run_deck_pages(target.port, target.instance, json)
+        }
     };
 
     match result {

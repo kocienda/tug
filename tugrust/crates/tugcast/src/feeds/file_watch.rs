@@ -23,8 +23,14 @@
 //! same-directory rename as two bare `Modify(Name(Any))` events — no create,
 //! no pairing — so a list built from `EventKind::Create` alone would be
 //! empty exactly when the card's rename ladder needs it.
+//!
+//! **A watch belongs to the page that made it.** Each watched path keeps the
+//! set of client ids watching it; `watch`, `unwatch` and `reset` act on the
+//! sender's own entries, a page's departure is its `reset`, and a path's
+//! frame goes to the pages watching it. A body opening its socket and
+//! sending `reset` cannot blind any other page.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,6 +47,7 @@ use tracing::{error, warn};
 use tugcast_core::protocol::{FeedId, Frame};
 
 use crate::fs_read::{MAX_READ_BYTES, guard_absolute_path, read_stable, sha256_hex};
+use crate::pages::{AddressedFrame, ClientFrame, Delivery, PageRegistry, deliver_to};
 use crate::path_resolver::resolve_to_claude_form;
 
 /// How long a file sits dirty before it is looked at. One window collects a
@@ -111,6 +118,9 @@ struct Watched {
     /// The next frame goes out even if nothing changed — a `watch` always
     /// answers.
     force: bool,
+    /// The pages watching this path. The path is released when the last
+    /// one leaves.
+    watchers: HashSet<u64>,
 }
 
 /// What one look at a path found.
@@ -153,22 +163,27 @@ impl Identity {
 /// parent directory, and a set of watched files keyed by the client's own
 /// path string.
 pub(crate) struct FileWatchService {
-    out: broadcast::Sender<Frame>,
-    requests: mpsc::Receiver<Frame>,
+    out: broadcast::Sender<AddressedFrame>,
+    requests: mpsc::Receiver<ClientFrame>,
+    pages: Arc<PageRegistry>,
     files: HashMap<String, Watched>,
     dirs: HashMap<PathBuf, usize>,
     seq: Arc<AtomicU64>,
 }
 
 impl FileWatchService {
-    /// Build the service over the broadcast sender its frames go out on.
-    /// The returned sink is what `main.rs` registers as the
-    /// `FILE_WATCH_QUERY` input feed.
-    pub(crate) fn new(out: broadcast::Sender<Frame>) -> (Self, mpsc::Sender<Frame>) {
-        let (tx, rx) = mpsc::channel::<Frame>(REQUEST_BUFFER);
+    /// Build the service over the addressed sender its frames go out on and
+    /// the registry whose departures release a page's watches. The returned
+    /// sink is what the router registers as the `FILE_WATCH_QUERY` input.
+    pub(crate) fn new(
+        out: broadcast::Sender<AddressedFrame>,
+        pages: Arc<PageRegistry>,
+    ) -> (Self, mpsc::Sender<ClientFrame>) {
+        let (tx, rx) = mpsc::channel::<ClientFrame>(REQUEST_BUFFER);
         let service = Self {
             out,
             requests: rx,
+            pages,
             files: HashMap::new(),
             dirs: HashMap::new(),
             seq: Arc::new(AtomicU64::new(0)),
@@ -194,14 +209,35 @@ impl FileWatchService {
         };
 
         let (look_tx, mut look_rx) = mpsc::unbounded_channel::<(String, Look)>();
+        let mut departures = self.pages.departures();
 
         loop {
             let due = self.next_deadline();
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 request = self.requests.recv() => match request {
-                    Some(frame) => self.handle_request(&frame, &mut watcher, &look_tx),
+                    Some(request) => self.handle_request(&request, &mut watcher, &look_tx),
                     None => break,
+                },
+                departure = departures.recv() => match departure {
+                    Ok(client) => self.reset(client, &mut watcher),
+                    // A missed departure would leak that page's watches for
+                    // the life of the process, so reconcile against the
+                    // pages that are still live instead of guessing.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let live: HashSet<u64> =
+                            self.pages.snapshot().iter().map(|p| p.client_id).collect();
+                        let gone: HashSet<u64> = self
+                            .files
+                            .values()
+                            .flat_map(|f| f.watchers.iter().copied())
+                            .filter(|id| !live.contains(id))
+                            .collect();
+                        for client in gone {
+                            self.reset(client, &mut watcher);
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 },
                 event = event_rx.recv() => match event {
                     Some(event) => self.handle_event(event),
@@ -219,10 +255,11 @@ impl FileWatchService {
 
     fn handle_request(
         &mut self,
-        frame: &Frame,
+        request: &ClientFrame,
         watcher: &mut notify::RecommendedWatcher,
         look_tx: &mpsc::UnboundedSender<(String, Look)>,
     ) {
+        let (client, frame) = (request.client_id, &request.frame);
         let Ok(value) = serde_json::from_slice::<Value>(&frame.payload) else {
             warn!(
                 payload_len = frame.payload.len(),
@@ -232,31 +269,34 @@ impl FileWatchService {
         };
         match value.get("type").and_then(Value::as_str) {
             Some("watch") => match value.get("path").and_then(Value::as_str) {
-                Some(path) => self.watch(path.to_string(), watcher, look_tx),
+                Some(path) => self.watch(client, path.to_string(), watcher, look_tx),
                 None => warn!("FILE_WATCH_QUERY: watch with no path"),
             },
             Some("unwatch") => match value.get("path").and_then(Value::as_str) {
-                Some(path) => self.unwatch(path, watcher),
+                Some(path) => self.unwatch(client, path, watcher),
                 None => warn!("FILE_WATCH_QUERY: unwatch with no path"),
             },
-            Some("reset") => self.reset(watcher),
+            Some("reset") => self.reset(client, watcher),
             other => warn!(r#type = ?other, "FILE_WATCH_QUERY: unknown request type"),
         }
     }
 
-    /// Add a path if it is new, and answer — always — with its current state.
+    /// Add `client` as a watcher of a path, registering the path if it is
+    /// new, and answer — always — with its current state. The answer goes to
+    /// every page watching the path, which is harmless: each page keeps its
+    /// own last `seq` per path.
     fn watch(
         &mut self,
+        client: u64,
         client_path: String,
         watcher: &mut notify::RecommendedWatcher,
         look_tx: &mpsc::UnboundedSender<(String, Look)>,
     ) {
-        if self.files.contains_key(&client_path) {
+        if let Some(file) = self.files.get_mut(&client_path) {
             // Already watched: the answer is still owed, so force the next
             // frame and look now.
-            if let Some(file) = self.files.get_mut(&client_path) {
-                file.force = true;
-            }
+            file.watchers.insert(client);
+            file.force = true;
             self.start_look(&client_path, look_tx);
             return;
         }
@@ -272,7 +312,7 @@ impl FileWatchService {
                     .and_then(Value::as_str)
                     .unwrap_or("bad_path")
                     .to_string();
-                self.emit_error(&client_path, &reason);
+                self.emit_error(&client_path, &reason, Delivery::Client(client));
                 return;
             }
         };
@@ -280,7 +320,7 @@ impl FileWatchService {
             resolved.parent().map(Path::to_path_buf),
             resolved.file_name().map(std::ffi::OsStr::to_os_string),
         ) else {
-            self.emit_error(&client_path, "bad_path");
+            self.emit_error(&client_path, "bad_path", Delivery::Client(client));
             return;
         };
         // Both sides of every later comparison route through the gateway:
@@ -313,7 +353,7 @@ impl FileWatchService {
                 for done in &taken {
                     self.release_dir(done, watcher);
                 }
-                self.emit_error(&client_path, "io");
+                self.emit_error(&client_path, "io", Delivery::Client(client));
                 return;
             }
         };
@@ -336,14 +376,29 @@ impl FileWatchService {
                 looking: false,
                 pending: false,
                 force: true,
+                watchers: HashSet::from([client]),
             },
         );
         self.start_look(&client_path, look_tx);
     }
 
-    /// Drop one path, releasing its directory watch when it was the last
-    /// file in it. An unknown path is a no-op.
-    fn unwatch(&mut self, client_path: &str, watcher: &mut notify::RecommendedWatcher) {
+    /// Drop `client`'s watch on one path. The path itself is released —
+    /// and with it its directory watches, when it was the last file in
+    /// them — only when no page watches it any more. An unknown path, or
+    /// one this client does not watch, is a no-op.
+    fn unwatch(
+        &mut self,
+        client: u64,
+        client_path: &str,
+        watcher: &mut notify::RecommendedWatcher,
+    ) {
+        let Some(file) = self.files.get_mut(client_path) else {
+            return;
+        };
+        file.watchers.remove(&client);
+        if !file.watchers.is_empty() {
+            return;
+        }
         let Some(file) = self.files.remove(client_path) else {
             return;
         };
@@ -352,14 +407,18 @@ impl FileWatchService {
         }
     }
 
-    /// Drop every subscription — what a client sends on a fresh connection,
-    /// so a client that vanished cannot leak watches.
-    fn reset(&mut self, watcher: &mut notify::RecommendedWatcher) {
-        for dir in self.dirs.keys() {
-            let _ = watcher.unwatch(dir);
+    /// Drop every watch `client` holds — what a page sends on a fresh
+    /// connection, and what its departure does. Other pages' watches stay.
+    fn reset(&mut self, client: u64, watcher: &mut notify::RecommendedWatcher) {
+        let paths: Vec<String> = self
+            .files
+            .iter()
+            .filter(|(_, f)| f.watchers.contains(&client))
+            .map(|(path, _)| path.clone())
+            .collect();
+        for path in paths {
+            self.unwatch(client, &path, watcher);
         }
-        self.dirs.clear();
-        self.files.clear();
     }
 
     fn release_dir(&mut self, dir: &Path, watcher: &mut notify::RecommendedWatcher) {
@@ -623,6 +682,7 @@ impl FileWatchService {
         if let Look::Present { size, .. } = &look {
             file.last_size = *size;
         }
+        let to = deliver_to(file.watchers.iter().copied());
 
         let mut payload = json!({
             "type": "state",
@@ -662,12 +722,12 @@ impl FileWatchService {
             // Unreachable: the `reported` match above returns on it.
             Look::Unchanged => {}
         }
-        self.send(payload);
+        self.send(payload, to);
     }
 
     /// An error the service never got far enough to look past — a refused
-    /// path, a directory it could not watch.
-    fn emit_error(&mut self, key: &str, reason: &str) {
+    /// path, a directory it could not watch. It goes to the page that asked.
+    fn emit_error(&mut self, key: &str, reason: &str, to: Delivery) {
         let payload = json!({
             "type": "state",
             "path": key,
@@ -675,10 +735,10 @@ impl FileWatchService {
             "state": "error",
             "error": reason,
         });
-        self.send(payload);
+        self.send(payload, to);
     }
 
-    fn send(&self, payload: Value) {
+    fn send(&self, payload: Value, to: Delivery) {
         let bytes = match serde_json::to_vec(&payload) {
             Ok(bytes) => bytes,
             Err(err) => {
@@ -687,7 +747,10 @@ impl FileWatchService {
             }
         };
         // No subscriber is the ordinary case at startup, not a failure.
-        let _ = self.out.send(Frame::new(FeedId::FILE_WATCH, bytes));
+        let _ = self.out.send(AddressedFrame {
+            to,
+            frame: Frame::new(FeedId::FILE_WATCH, bytes),
+        });
     }
 }
 
@@ -972,15 +1035,34 @@ mod tests {
 
     /// A running service plus the two ends a client holds.
     struct Harness {
-        requests: mpsc::Sender<Frame>,
-        frames: broadcast::Receiver<Frame>,
+        requests: mpsc::Sender<ClientFrame>,
+        frames: broadcast::Receiver<AddressedFrame>,
         cancel: CancellationToken,
+    }
+
+    /// The client id every harness request is sent as.
+    const CLIENT: u64 = 1;
+
+    /// A service over a fresh registry, driven directly rather than run.
+    fn service() -> (
+        FileWatchService,
+        mpsc::Sender<ClientFrame>,
+        broadcast::Receiver<AddressedFrame>,
+    ) {
+        let (out, frames) = broadcast::channel::<AddressedFrame>(256);
+        let (service, requests) = FileWatchService::new(out, Arc::new(PageRegistry::new()));
+        (service, requests, frames)
+    }
+
+    /// A watcher whose events go nowhere: the tests that drive the maps
+    /// directly measure the maps, not the events.
+    fn quiet_watcher() -> notify::RecommendedWatcher {
+        notify::recommended_watcher(|_res: notify::Result<notify::Event>| {}).unwrap()
     }
 
     impl Harness {
         fn start() -> Self {
-            let (out, frames) = broadcast::channel::<Frame>(256);
-            let (service, requests) = FileWatchService::new(out);
+            let (service, requests, frames) = service();
             let cancel = CancellationToken::new();
             tokio::spawn(service.run(cancel.clone()));
             Self {
@@ -992,10 +1074,13 @@ mod tests {
 
         async fn send(&self, payload: Value) {
             self.requests
-                .send(Frame::new(
-                    FeedId::FILE_WATCH_QUERY,
-                    serde_json::to_vec(&payload).unwrap(),
-                ))
+                .send(ClientFrame {
+                    client_id: CLIENT,
+                    frame: Frame::new(
+                        FeedId::FILE_WATCH_QUERY,
+                        serde_json::to_vec(&payload).unwrap(),
+                    ),
+                })
                 .await
                 .unwrap();
         }
@@ -1008,11 +1093,15 @@ mod tests {
         async fn next_for(&mut self, path: &str) -> Value {
             let deadline = StdDuration::from_secs(10);
             loop {
-                let frame = timeout(deadline, self.frames.recv())
+                let addressed = timeout(deadline, self.frames.recv())
                     .await
                     .unwrap_or_else(|_| panic!("no FILE_WATCH frame for {path} within 10s"))
                     .unwrap();
-                let value: Value = serde_json::from_slice(&frame.payload).unwrap();
+                assert!(
+                    addressed.to.admits(CLIENT),
+                    "a frame for a path this client watches is addressed to it"
+                );
+                let value: Value = serde_json::from_slice(&addressed.frame.payload).unwrap();
                 if value["path"] == json!(path) {
                     return value;
                 }
@@ -1220,42 +1309,183 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn two_files_share_one_directory_watch_and_reset_clears_everything() {
+    async fn two_files_share_one_directory_watch_and_reset_clears_the_clients_whole_set() {
         let dir = TempDir::new().unwrap();
         let one = dir.path().join("one.md");
         let two = dir.path().join("two.md");
         write(&one, "one\n");
         write(&two, "two\n");
-        let (out, mut frames) = broadcast::channel::<Frame>(256);
-        let (mut service, requests) = FileWatchService::new(out);
-        let cancel = CancellationToken::new();
+        let (mut service, _requests, _frames) = service();
 
         // Drive the maps directly rather than through the loop: the refcount
         // is the claim under test, and it is not visible on the wire.
         let (look_tx, _look_rx) = mpsc::unbounded_channel::<(String, Look)>();
-        let (event_tx, _event_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
-        let mut watcher = notify::recommended_watcher(move |res| {
-            let _ = event_tx.send(res);
-        })
-        .unwrap();
+        let mut watcher = quiet_watcher();
 
-        service.watch(one.to_str().unwrap().to_string(), &mut watcher, &look_tx);
-        service.watch(two.to_str().unwrap().to_string(), &mut watcher, &look_tx);
+        service.watch(
+            CLIENT,
+            one.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
+        service.watch(
+            CLIENT,
+            two.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
         assert_eq!(service.dirs.len(), 1, "one directory, one watch");
         assert_eq!(service.dirs.values().next(), Some(&2));
 
-        service.unwatch(one.to_str().unwrap(), &mut watcher);
+        service.unwatch(CLIENT, one.to_str().unwrap(), &mut watcher);
         assert_eq!(service.dirs.values().next(), Some(&1));
-        service.unwatch(two.to_str().unwrap(), &mut watcher);
+        service.unwatch(CLIENT, two.to_str().unwrap(), &mut watcher);
         assert!(service.dirs.is_empty(), "the last file out releases it");
 
-        service.watch(one.to_str().unwrap().to_string(), &mut watcher, &look_tx);
-        service.reset(&mut watcher);
+        service.watch(
+            CLIENT,
+            one.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
+        service.watch(
+            CLIENT,
+            two.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
+        service.reset(CLIENT, &mut watcher);
         assert!(service.files.is_empty() && service.dirs.is_empty());
+    }
 
-        drop(requests);
+    #[tokio::test]
+    async fn a_path_two_pages_watch_is_released_only_when_both_have_left() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("shared.md");
+        write(&file, "shared\n");
+        let key = file.to_str().unwrap().to_string();
+        let (mut service, _requests, _frames) = service();
+        let (look_tx, _look_rx) = mpsc::unbounded_channel::<(String, Look)>();
+        let mut watcher = quiet_watcher();
+        let (a, b) = (1, 2);
+
+        service.watch(a, key.clone(), &mut watcher, &look_tx);
+        service.watch(b, key.clone(), &mut watcher, &look_tx);
+        assert_eq!(
+            service.dirs.len(),
+            1,
+            "two pages on one path share one directory watch"
+        );
+
+        service.unwatch(a, &key, &mut watcher);
+        assert!(service.files.contains_key(&key), "b still watches it");
+        assert_eq!(service.dirs.len(), 1);
+
+        service.reset(b, &mut watcher);
+        assert!(
+            service.files.is_empty() && service.dirs.is_empty(),
+            "the last page out releases it"
+        );
+    }
+
+    #[tokio::test]
+    async fn one_pages_reset_leaves_anothers_watches_in_place() {
+        let dir = TempDir::new().unwrap();
+        let mine = dir.path().join("mine.md");
+        let theirs = dir.path().join("theirs.md");
+        write(&mine, "mine\n");
+        write(&theirs, "theirs\n");
+        let (mut service, _requests, _frames) = service();
+        let (look_tx, _look_rx) = mpsc::unbounded_channel::<(String, Look)>();
+        let mut watcher = quiet_watcher();
+        let (a, b) = (1, 2);
+
+        service.watch(
+            a,
+            mine.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
+        service.watch(
+            b,
+            theirs.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
+        service.watch(
+            b,
+            mine.to_str().unwrap().to_string(),
+            &mut watcher,
+            &look_tx,
+        );
+        service.reset(a, &mut watcher);
+
+        assert_eq!(service.files.len(), 2, "b's two watches survive a's reset");
+        assert!(
+            service
+                .files
+                .values()
+                .all(|f| f.watchers == HashSet::from([b]))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_departure_releases_that_pages_watches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("f.md");
+        write(&file, "f\n");
+        let pages = Arc::new(PageRegistry::new());
+        let (a, b) = (11, 12);
+        pages.register(a, &tugcast_core::PageIdentity::tool());
+        pages.register(b, &tugcast_core::PageIdentity::tool());
+        let (out, mut frames) = broadcast::channel::<AddressedFrame>(256);
+        let (service, requests) = FileWatchService::new(out, Arc::clone(&pages));
+        let cancel = CancellationToken::new();
+        tokio::spawn(service.run(cancel.clone()));
+        let request = |client: u64, payload: Value| ClientFrame {
+            client_id: client,
+            frame: Frame::new(
+                FeedId::FILE_WATCH_QUERY,
+                serde_json::to_vec(&payload).unwrap(),
+            ),
+        };
+        let path = file.to_str().unwrap();
+        // Every `watch` forces one answer, so each send below is paired with
+        // the frame it produces.
+        let mut answer = async |client: u64| {
+            requests
+                .send(request(client, json!({"type": "watch", "path": path})))
+                .await
+                .unwrap();
+            timeout(StdDuration::from_secs(10), frames.recv())
+                .await
+                .unwrap()
+                .unwrap()
+                .to
+        };
+
+        assert_eq!(answer(a).await, deliver_to([a]));
+        assert_eq!(
+            answer(b).await,
+            deliver_to([a, b]),
+            "a forced answer reaches every watcher"
+        );
+        pages.depart(a);
+        // The departure rides its own channel, so it may land after the next
+        // request; ask until it has, and fail if it never does.
+        let mut to = answer(b).await;
+        for _ in 0..50 {
+            if to == deliver_to([b]) {
+                break;
+            }
+            to = answer(b).await;
+        }
+        assert_eq!(
+            to,
+            deliver_to([b]),
+            "a departed page is no longer a watcher"
+        );
         cancel.cancel();
-        let _ = frames.try_recv();
     }
 
     #[tokio::test]
@@ -1329,16 +1559,11 @@ mod tests {
         let file = ours.join("f.txt");
         write(&file, "mine\n");
 
-        let (out, _frames) = broadcast::channel::<Frame>(16);
-        let (mut service, _requests) = FileWatchService::new(out);
+        let (mut service, _requests, _frames) = service();
         let (look_tx, _look_rx) = mpsc::unbounded_channel::<(String, Look)>();
-        let (event_tx, _event_rx) = mpsc::unbounded_channel::<notify::Result<notify::Event>>();
-        let mut watcher = notify::recommended_watcher(move |res| {
-            let _ = event_tx.send(res);
-        })
-        .unwrap();
+        let mut watcher = quiet_watcher();
         let key = file.to_str().unwrap().to_string();
-        service.watch(key.clone(), &mut watcher, &look_tx);
+        service.watch(CLIENT, key.clone(), &mut watcher, &look_tx);
         // The `watch` itself schedules the answer it always owes; clear it
         // so what is measured below is the event's effect alone.
         service.files.get_mut(&key).unwrap().deadline = None;

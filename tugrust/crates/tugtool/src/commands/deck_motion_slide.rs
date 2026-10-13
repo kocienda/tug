@@ -23,7 +23,7 @@
 //! the gesture stamp `deck motion gesture` waits for, which a dispatched click
 //! never reaches (`[F08]`).
 
-use crate::commands::deck_motion::{EvalOutcome, eval_gated, post_eval};
+use crate::commands::deck_motion::{EvalDoor, EvalOutcome, eval_gated, post_eval};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -277,8 +277,8 @@ pub fn summarize(readings: &[ClickReading]) -> Summary {
 }
 
 /// Post one page op. `None` when the eval door is shut.
-fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
-    script_page(port, PAGE, args)
+fn page(door: EvalDoor<'_>, args: Value) -> Result<Option<Value>, String> {
+    script_page(door, PAGE, args)
 }
 
 /// The deck's census — its size and its panes — that every reading carries
@@ -286,15 +286,19 @@ fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
 /// stacking contexts and render-layer candidates of `__tugMotion.layers()`
 /// too, a `getComputedStyle` over every element, and what that cost. `None`
 /// when the eval door is shut.
-pub(crate) fn census(port: u16, full: bool) -> Result<Option<Value>, String> {
-    page(port, json!({"op": "census", "full": full}))
+pub(crate) fn census(door: EvalDoor<'_>, full: bool) -> Result<Option<Value>, String> {
+    page(door, json!({"op": "census", "full": full}))
 }
 
 /// Post one op of an embedded page script. `None` when the eval door is shut;
 /// a page `{error}` comes back as `Err`, carrying the row titles when the page
 /// sent them.
-pub(crate) fn script_page(port: u16, script: &str, args: Value) -> Result<Option<Value>, String> {
-    match post_eval(port, &script_call(script, &args))? {
+pub(crate) fn script_page(
+    door: EvalDoor<'_>,
+    script: &str,
+    args: Value,
+) -> Result<Option<Value>, String> {
+    match post_eval(door.port, door.card, &script_call(script, &args))? {
         EvalOutcome::Gated => Ok(None),
         EvalOutcome::Ok(value) => {
             if let Some(error) = value.get("error").and_then(|e| e.as_str()) {
@@ -309,8 +313,8 @@ pub(crate) fn script_page(port: u16, script: &str, args: Value) -> Result<Option
 }
 
 /// Resolve a name to exactly one row title, or say why it does not.
-fn resolve(port: u16, name: &str) -> Result<Option<String>, String> {
-    let Some(found) = page(port, json!({"op": "resolve", "name": name}))? else {
+fn resolve(door: EvalDoor<'_>, name: &str) -> Result<Option<String>, String> {
+    let Some(found) = page(door, json!({"op": "resolve", "name": name}))? else {
         return Ok(None);
     };
     let matches: Vec<&str> = found
@@ -339,9 +343,14 @@ struct Recorded {
     click_task: ClickTask,
 }
 
-fn record(port: u16, title: &str, queries: bool, tasks: bool) -> Result<Option<Recorded>, String> {
+fn record(
+    door: EvalDoor<'_>,
+    title: &str,
+    queries: bool,
+    tasks: bool,
+) -> Result<Option<Recorded>, String> {
     let raw = page(
-        port,
+        door,
         json!({
             "op": "record",
             "name": title,
@@ -880,9 +889,9 @@ const RELOAD_SETTLE_MS: u64 = 8000;
 
 /// Make sure the page carries the lead recorder, reloading the deck to install
 /// it when it does not. `Ok(false)` when the eval door is shut.
-pub(crate) fn ensure_recorder(port: u16, quiet: bool) -> Result<bool, String> {
+pub(crate) fn ensure_recorder(door: EvalDoor<'_>, quiet: bool) -> Result<bool, String> {
     let installed = |value: &Value| value.get("installed").and_then(|v| v.as_bool()) == Some(true);
-    match page(port, json!({"op": "recorder"}))? {
+    match page(door, json!({"op": "recorder"}))? {
         None => return Ok(false),
         Some(value) if installed(&value) => return Ok(true),
         Some(_) => {}
@@ -893,12 +902,12 @@ pub(crate) fn ensure_recorder(port: u16, quiet: bool) -> Result<bool, String> {
         );
     }
     // The reload can take the reply with it; what matters is what comes back.
-    let _ = page(port, json!({"op": "install"}));
+    let _ = page(door, json!({"op": "install"}));
     for _ in 0..RELOAD_WAIT_S {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        if let Ok(Some(value)) = page(port, json!({"op": "recorder"}))
+        if let Ok(Some(value)) = page(door, json!({"op": "recorder"}))
             && installed(&value)
-            && let Ok(Some(census)) = page(port, json!({"op": "census"}))
+            && let Ok(Some(census)) = page(door, json!({"op": "census"}))
             && census
                 .get("panes")
                 .and_then(|p| p.as_array())
@@ -915,7 +924,7 @@ pub(crate) fn ensure_recorder(port: u16, quiet: bool) -> Result<bool, String> {
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_slide(
-    port: u16,
+    door: EvalDoor<'_>,
     from: &str,
     to: &str,
     count: u32,
@@ -927,13 +936,13 @@ pub fn run_slide(
 ) -> Result<i32, String> {
     let gated = || Ok(eval_gated("deck motion slide", json_output));
 
-    if tasks && !ensure_recorder(port, json_output)? {
+    if tasks && !ensure_recorder(door, json_output)? {
         return gated();
     }
-    let Some(census) = census(port, full_census)? else {
+    let Some(census) = census(door, full_census)? else {
         return gated();
     };
-    let (Some(from), Some(to)) = (resolve(port, from)?, resolve(port, to)?) else {
+    let (Some(from), Some(to)) = (resolve(door, from)?, resolve(door, to)?) else {
         return gated();
     };
     if from == to {
@@ -970,7 +979,7 @@ pub fn run_slide(
 
     // One unrecorded click onto the starting card, so the first recorded click
     // is a real slide rather than a click on the card already focused.
-    if record(port, &from, false, false)?.is_none() {
+    if record(door, &from, false, false)?.is_none() {
         return gated();
     }
     std::thread::sleep(std::time::Duration::from_millis(REST_BETWEEN_MS));
@@ -978,7 +987,7 @@ pub fn run_slide(
     // The samplers start after the warm-up click, so it is not in their
     // reports, and run long enough to cover every recorded click.
     let samplers = if sample {
-        let targets = crate::commands::deck_motion_sample::targets(port)?;
+        let targets = crate::commands::deck_motion_sample::targets(door.port)?;
         let per_click_ms = u64::from(WINDOW_MS) + REST_BETWEEN_MS + CLICK_OVERHEAD_MS;
         let total_ms = u64::from(count) * 2 * per_click_ms + SAMPLER_ATTACH_MS + 1000;
         let seconds = total_ms.div_ceil(1000) as u32;
@@ -1002,7 +1011,7 @@ pub fn run_slide(
     let mut click_task = ClickTask::default();
     for _ in 0..count {
         for title in [&to, &from] {
-            let Some(recorded) = record(port, title, queries, tasks)? else {
+            let Some(recorded) = record(door, title, queries, tasks)? else {
                 return gated();
             };
             if !json_output {

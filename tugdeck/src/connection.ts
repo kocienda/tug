@@ -201,6 +201,12 @@ export class TugConnection {
   private connectWanted = false;
   /** The display period last posted, which a rebuilt host starts at. */
   private periodMs: number = FALLBACK_FRAME_PERIOD_MS;
+  /**
+   * This page's id, minted once per connection object. Every socket the
+   * connection opens says it in its hello, so tugcast lists the deck as one
+   * shell page across reconnects and host rebuilds.
+   */
+  private readonly pageId: string = crypto.randomUUID();
   /** What each open session's engine was opened with, so a rebuilt host can open it again. */
   private readonly sessionOpens = new Map<string, SessionOpenOptions>();
   /** Set by `dispose`: no channel is built after it, and nothing more is posted. */
@@ -382,6 +388,7 @@ export class TugConnection {
       kind: "init",
       wsUrl: this.url,
       periodMs: this.periodMs,
+      page: { role: "shell", pageId: this.pageId },
     });
     // Last, and read back: a channel that had already failed reports it here,
     // and its replacement is the channel to use.

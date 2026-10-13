@@ -23,11 +23,11 @@ use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{info, warn};
 use tugbank_core::TugbankClient;
-use tugcast_core::FeedId;
 
 use crate::auth::SharedAuthState;
-use crate::control::{control_frame, send_control};
+use crate::control::control_frame;
 use crate::dev::SharedDevState;
+use crate::pages::{AddressedFrame, PageTarget};
 use crate::router::FeedRouter;
 
 /// Request payload for /api/tell endpoint
@@ -165,7 +165,7 @@ async fn tell_handler(
     }
 
     // Dispatch action
-    crate::actions::dispatch_action(action, &body, &router.action_context()).await;
+    crate::actions::dispatch_action(action, &body, &router.action_context(PageTarget::Shell)).await;
 
     (
         StatusCode::OK,
@@ -212,6 +212,27 @@ async fn changesets_handler(
         )
             .into_response(),
     }
+}
+
+/// `GET /api/pages`: every live connection and the page it says it is,
+/// sorted by `client_id`. A connection whose hello named no role is listed as
+/// a `tool`. Loopback-only, like every diagnostic read.
+async fn pages_handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(router): State<FeedRouter>,
+) -> Response {
+    if !addr.ip().is_loopback() {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({ "status": "error", "message": "forbidden" })),
+        )
+            .into_response();
+    }
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "pages": router.pages.snapshot(),
+    }))
+    .into_response()
 }
 
 /// Handle GET /api/ink-census — what the shell ledger holds per session.
@@ -1542,6 +1563,24 @@ async fn eval_handler(
         }
     };
 
+    // The shell evaluates unless the body names a card. Resolved before
+    // anything is registered, so an eval nobody can answer fails at once
+    // rather than waiting out the timeout.
+    let target = match payload.get("card").and_then(|c| c.as_str()) {
+        Some(card) => PageTarget::Card(card.to_owned()),
+        None => PageTarget::Shell,
+    };
+    let Some(delivery) = router.pages.resolve(&target) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({
+                "status": "error",
+                "message": format!("no page answers {target}"),
+            })),
+        )
+            .into_response();
+    };
+
     // Generate request ID and create oneshot channel
     let request_id = uuid::Uuid::new_v4().to_string();
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1552,15 +1591,16 @@ async fn eval_handler(
         pending.insert(request_id.clone(), tx);
     }
 
-    // Broadcast eval request to browser
+    // Send the eval to the one page that answers it.
     let eval_frame = serde_json::json!({
         "action": "eval",
         "requestId": request_id,
         "code": code,
     });
-    if let Some((broadcast_tx, _)) = router.stream_outputs.get(&FeedId::CONTROL) {
-        send_control(broadcast_tx, eval_frame);
-    }
+    let _ = router.page_lane.send(AddressedFrame {
+        to: delivery,
+        frame: control_frame(eval_frame),
+    });
 
     // Await response with timeout
     match timeout(std::time::Duration::from_secs(30), rx).await {
@@ -1815,14 +1855,21 @@ async fn ask_handler(
         "countdownSecs": unattended.as_ref().map(|_| secs),
     });
 
-    // Nobody listening is a distinct answer from nobody deciding. `send` reports
-    // zero receivers, and a caller that would otherwise sit out the full timeout
-    // in front of a deck that was never there deserves to hear so immediately —
-    // the CLI reads this as "no route" and proceeds rather than treating it as a
-    // refusal. Answering every blocked caller on every path is the invariant the
-    // deck-side store keeps too; this is its other end.
-    let delivered = match router.stream_outputs.get(&FeedId::CONTROL) {
-        Some((broadcast_tx, _)) => broadcast_tx.send(control_frame(ask_frame)).is_ok(),
+    // Nobody listening is a distinct answer from nobody deciding. No live shell
+    // page, or a lane with no receiver, means no deck, and a caller that would
+    // otherwise sit out the full timeout in front of a deck that was never there
+    // deserves to hear so immediately — the CLI reads this as "no route" and
+    // proceeds rather than treating it as a refusal. Answering every blocked
+    // caller on every path is the invariant the deck-side store keeps too; this
+    // is its other end. An ask is the shell's: it is a dialog in the deck.
+    let delivered = match router.pages.resolve(&PageTarget::Shell) {
+        Some(to) => router
+            .page_lane
+            .send(AddressedFrame {
+                to,
+                frame: control_frame(ask_frame),
+            })
+            .is_ok(),
         None => false,
     };
     if !delivered {
@@ -1884,9 +1931,12 @@ async fn ask_handler(
 /// been answered (or told) by the server, so the dialog must come down.
 /// Best-effort: a deck that is gone has no dialog to take down.
 fn broadcast_ask_rescind(router: &FeedRouter, request_id: &str) {
-    if let Some((broadcast_tx, _)) = router.stream_outputs.get(&FeedId::CONTROL) {
+    if let Some(to) = router.pages.resolve(&PageTarget::Shell) {
         let frame = serde_json::json!({"action": "ask-rescind", "requestId": request_id});
-        send_control(broadcast_tx, frame);
+        let _ = router.page_lane.send(AddressedFrame {
+            to,
+            frame: control_frame(frame),
+        });
     }
 }
 
@@ -1990,6 +2040,7 @@ pub(crate) fn build_app(
         .route("/api/tell", post(tell_handler))
         .route("/api/eval", post(eval_handler))
         .route("/api/ask", post(ask_handler))
+        .route("/api/pages", get(pages_handler))
         .route("/api/host", get(crate::host::get_host))
         .route("/api/changesets", get(changesets_handler))
         .route("/api/ink-census", get(ink_census_handler))
@@ -2138,7 +2189,6 @@ pub async fn run_server(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tugcast_core::Frame;
 
     // ── /api/session `resolve` — the identity chokepoint ──────────────────
 
@@ -2515,14 +2565,19 @@ mod tests {
     //
     // These run the real axum app over a real loopback socket, so what is under
     // test is the route as it is actually served — including the loopback guard
-    // and the CONTROL broadcast the deck subscribes to.
+    // and the page lane the deck's connection forwards from.
 
-    /// A live app on an ephemeral loopback port, plus a CONTROL receiver
-    /// standing in for the deck's subscription and the router's ask map.
+    /// A live app on an ephemeral loopback port with one shell page
+    /// registered, plus a page-lane receiver standing in for the deck's
+    /// connection and the router's ask map.
     struct AskFixture {
         base_url: String,
-        control_rx: tokio::sync::broadcast::Receiver<Frame>,
+        lane_rx: tokio::sync::broadcast::Receiver<AddressedFrame>,
         pending_asks: crate::router::PendingAsks,
+        pending_evals: crate::router::PendingEvals,
+        pages: Arc<crate::pages::PageRegistry>,
+        dev_state: SharedDevState,
+        shell_id: u64,
     }
 
     /// POST a JSON body and read back `(status, parsed body)`. Spelled out
@@ -2550,11 +2605,27 @@ mod tests {
             shutdown_tx,
             dev_state.clone(),
         );
-        let (control_tx, control_rx) = tokio::sync::broadcast::channel(16);
-        router.register_stream(FeedId::CONTROL, control_tx, crate::router::LagPolicy::Warn);
+        let (control_tx, _control_rx) = tokio::sync::broadcast::channel(16);
+        router.register_stream(
+            tugcast_core::FeedId::CONTROL,
+            control_tx,
+            crate::router::LagPolicy::Warn,
+        );
+        let shell_id = 1;
+        router.pages.register(
+            shell_id,
+            &tugcast_core::PageIdentity {
+                role: tugcast_core::PageRole::Shell,
+                page_id: Some("shell".into()),
+                card_id: None,
+            },
+        );
+        let lane_rx = router.page_lane.subscribe();
         let pending_asks = router.pending_asks.clone();
+        let pending_evals = router.pending_evals.clone();
+        let pages = Arc::clone(&router.pages);
 
-        let app = build_app(router, dev_state, None, None, None);
+        let app = build_app(router, dev_state.clone(), None, None, None);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         tokio::spawn(async move {
@@ -2568,8 +2639,12 @@ mod tests {
 
         AskFixture {
             base_url: format!("http://127.0.0.1:{port}"),
-            control_rx,
+            lane_rx,
             pending_asks,
+            pending_evals,
+            pages,
+            dev_state,
+            shell_id,
         }
     }
 
@@ -2765,8 +2840,14 @@ mod tests {
 
         let request = tokio::spawn(async move { post_json(&url, &ask_body(30)).await });
 
-        // Stand in for the deck: read the broadcast question, answer it.
-        let frame = fx.control_rx.recv().await.unwrap();
+        // Stand in for the deck: read the question off the lane, answer it.
+        let addressed = fx.lane_rx.recv().await.unwrap();
+        assert_eq!(
+            addressed.to,
+            crate::pages::Delivery::Client(fx.shell_id),
+            "an ask is the shell's alone"
+        );
+        let frame = addressed.frame;
         let payload: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(payload["action"], "ask");
         assert_eq!(payload["title"], "3 of 12 app-tests will take the screen");
@@ -2804,7 +2885,7 @@ mod tests {
 
         let request = tokio::spawn(async move { post_json(&url, &body).await });
 
-        let frame = fx.control_rx.recv().await.unwrap();
+        let frame = fx.lane_rx.recv().await.unwrap().frame;
         let payload: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(payload["unattendedChoice"], "run-all");
         assert_eq!(payload["countdownSecs"], 30);
@@ -2879,15 +2960,37 @@ mod tests {
     #[tokio::test]
     async fn test_ask_with_no_deck_answers_immediately() {
         let fx = serve_ask_fixture().await;
-        // Drop the stand-in deck's subscription: the broadcast now has zero
-        // receivers, which is exactly the "app running, no browser" case.
-        drop(fx.control_rx);
+        // The shell departs: no page answers an ask, which is exactly the
+        // "app running, no browser" case.
+        fx.pages.depart(fx.shell_id);
 
         let (status, body) = post_json(&format!("{}/api/ask", fx.base_url), &ask_body(600)).await;
 
         assert_eq!(status, 503);
         assert_eq!(body["message"], "no deck is connected");
         assert!(fx.pending_asks.lock().is_empty());
+    }
+
+    /// An eval nobody can answer fails at once — no shell, or a card with no
+    /// page — and leaves nothing waiting.
+    #[tokio::test]
+    async fn test_eval_with_no_page_answers_immediately() {
+        let fx = serve_ask_fixture().await;
+        fx.dev_state.store(Arc::new(Some(crate::dev::DevState {
+            source_tree: std::path::PathBuf::new(),
+        })));
+
+        let url = format!("{}/api/eval", fx.base_url);
+        let (status, body) =
+            post_json(&url, &serde_json::json!({"code": "1", "card": "nobody"})).await;
+        assert_eq!(status, 503);
+        assert_eq!(body["message"], "no page answers card nobody");
+
+        fx.pages.depart(fx.shell_id);
+        let (status, body) = post_json(&url, &serde_json::json!({"code": "1"})).await;
+        assert_eq!(status, 503);
+        assert_eq!(body["message"], "no page answers shell");
+        assert!(fx.pending_evals.lock().is_empty());
     }
 
     /// More options than a person can weigh is a malformed question, not a long
@@ -2921,7 +3024,7 @@ mod tests {
         });
         let request = tokio::spawn(async move { post_json(&url, &body).await });
 
-        let frame = fx.control_rx.recv().await.unwrap();
+        let frame = fx.lane_rx.recv().await.unwrap().frame;
         let payload: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(
             payload["title"].as_str().unwrap().chars().count(),

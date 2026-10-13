@@ -76,6 +76,8 @@ export const FeedId = {
   // answers down; motion hold, display period, resync and find queries up)
   RENDERED: 0xb0,
   RENDER_INPUT: 0xb1,
+  // Deck bus (addressed messages between pages, both directions)
+  DECK_BUS: 0xd0,
   // Router-internal
   CONTROL: 0xc0,
   HEARTBEAT: 0xff,

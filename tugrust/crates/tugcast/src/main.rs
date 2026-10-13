@@ -27,6 +27,7 @@ mod ink_backfill;
 mod jots;
 mod ledger_handle;
 mod ledger_integrity;
+mod pages;
 mod panic_hook;
 /// Crate-root path utilities (firmlink/synthetic/symlink resolution). Lives
 /// at the root, not under `feeds/`, because both `feeds` (file watching) and

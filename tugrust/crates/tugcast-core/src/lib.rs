@@ -6,21 +6,30 @@
 //!
 //! ## Modules
 //!
+//! - [`bus`] - The deck bus vocabulary carried between pages
 //! - [`control`] - The CONTROL request action vocabulary
 //! - [`protocol`] - Binary frame protocol and FeedId definitions
 //! - [`feed`] - Feed traits for stream and snapshot feeds
 //! - [`lag`] - Lag-recovery policy and replay buffer for stream feeds
+//! - [`pages`] - Page identity carried by the handshake hello
 //! - [`types`] - Data structures for snapshot feeds (FsEvent, GitStatus)
 
+pub mod bus;
 pub mod control;
 pub mod feed;
 pub mod lag;
+pub mod pages;
 pub mod protocol;
 pub mod types;
 
+pub use bus::{
+    BusChord, BusDelivered, BusFrom, BusMessage, BusOutbound, BusRole, BusTarget, CardAdvice,
+    CardCommand, CardCommandKind, CardFacts, DeckFacts,
+};
 pub use control::{ControlAction, DECK_ONLY_ACTIONS, RUST_ONLY_ACTIONS, UnknownControlAction};
 pub use feed::{DEFAULT_BROADCAST_CAPACITY, SnapshotFeed, StreamFeed, spawn_snapshot_feed};
 pub use lag::{LagPolicy, ReplayBuffer};
+pub use pages::{MAX_PAGE_FIELD_LEN, PageIdentity, PageRole, parse_page_hello};
 pub use protocol::{
     // Handshake constants
     CLOSE_BAD_HANDSHAKE,

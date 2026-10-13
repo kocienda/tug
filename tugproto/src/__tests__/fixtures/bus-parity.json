@@ -1,0 +1,58 @@
+{
+  "delivered": [
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-facts",
+      "payload": { "title": "Dev", "mastheadLine": null, "activity": "idle", "telemetry": { "turns": 4, "costUsd": 0.25 } }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "find", "query": "needle" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "page": "body-c2" },
+      "kind": "card-command",
+      "payload": { "command": "chord", "chord": { "key": "k", "modifiers": ["meta", "shift"] } }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "interrupt" }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "fold-guard", "guarded": true }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "close-advice", "confirm": true, "message": "A turn is running." }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "sheet-reservation", "reserved": false }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "opening-bid", "widthPx": 640, "heightPx": null }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": "body",
+      "kind": "deck-facts",
+      "payload": { "theme": "ironclad", "zoom": 1.25, "keyboardAccess": true, "modifierLatch": ["shift"], "appActive": true }
+    }
+  ]
+}

@@ -106,7 +106,10 @@ test-ts:
     # The app-test selection tests drive the real `tugtool apptest reach`
     # verb from `tugrust/target/debug/`, so the binary is built here rather
     # than assumed — a CI cache that happens to hold one is not a dependency.
-    (cd tugrust && cargo build -p tugtool) || exit 1
+    # The many-pages suite spawns a real `tugcast` from the same directory;
+    # it builds one itself, and building it here keeps a cold compile out of
+    # a bun hook.
+    (cd tugrust && cargo build -p tugtool -p tugcast) || exit 1
     TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
     [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
     [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" test run --help >/dev/null 2>&1 || TUGTOOL_BIN=""

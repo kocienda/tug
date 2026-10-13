@@ -38,7 +38,7 @@
 //! anything to put back fails, so a green run is the proof the deck was left
 //! as found.
 
-use crate::commands::deck_motion::eval_gated;
+use crate::commands::deck_motion::{EvalDoor, eval_gated};
 #[cfg(test)]
 use crate::commands::deck_motion_slide::script_call;
 use crate::commands::deck_motion_slide::script_page;
@@ -414,8 +414,8 @@ const WATCHDOG_MESSAGE: &str = "the reading's 20 s watchdog fired: requestAnimat
 const RESTORE_COMMAND: &str = "tugtool deck motion walk --restore";
 
 /// Post one page op; a watchdog stop is translated into its cause.
-fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
-    script_page(port, PAGE, args).map_err(|e| {
+fn page(door: EvalDoor<'_>, args: Value) -> Result<Option<Value>, String> {
+    script_page(door, PAGE, args).map_err(|e| {
         if e == "watchdog" {
             WATCHDOG_MESSAGE.to_string()
         } else {
@@ -425,13 +425,13 @@ fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
 }
 
 fn measure(
-    port: u16,
+    door: EvalDoor<'_>,
     arm: &str,
     frames: u32,
     driver: &str,
     forced: u32,
 ) -> Result<Option<Measured>, String> {
-    let Some(value) = page(port, measure_args(arm, frames, driver, forced))? else {
+    let Some(value) = page(door, measure_args(arm, frames, driver, forced))? else {
         return Ok(None);
     };
     serde_json::from_value(value)
@@ -460,8 +460,8 @@ struct ArmReading {
 }
 
 /// Only the `restore` op: put back whatever an interrupted reading left.
-pub fn run_restore(port: u16, json_output: bool) -> Result<i32, String> {
-    let Some(answer) = page(port, json!({"op": "restore"}))? else {
+pub fn run_restore(door: EvalDoor<'_>, json_output: bool) -> Result<i32, String> {
+    let Some(answer) = page(door, json!({"op": "restore"}))? else {
         return Ok(eval_gated("deck motion walk", json_output));
     };
     if json_output {
@@ -479,14 +479,14 @@ pub fn run_restore(port: u16, json_output: bool) -> Result<i32, String> {
 }
 
 pub fn run_walk(
-    port: u16,
+    door: EvalDoor<'_>,
     arms: &[WalkArm],
     rounds: u32,
     frames: u32,
     driver: &str,
     json_output: bool,
 ) -> Result<i32, String> {
-    let Some(census) = page(port, json!({"op": "census"}))? else {
+    let Some(census) = page(door, json!({"op": "census"}))? else {
         return Ok(eval_gated("deck motion walk", json_output));
     };
     let touched = census["touched"].as_i64().unwrap_or(0);
@@ -525,8 +525,8 @@ pub fn run_walk(
 
     // Rounds × arms, each arm paired with a baseline taken just before it. Any
     // failure still runs the closing restore before it is reported.
-    let readings = take_readings(port, &read, rounds, frames, driver);
-    let closing = page(port, json!({"op": "restore"}));
+    let readings = take_readings(door, &read, rounds, frames, driver);
+    let closing = page(door, json!({"op": "restore"}));
     let readings = match readings? {
         Some(r) => r,
         None => return Ok(eval_gated("deck motion walk", json_output)),
@@ -653,7 +653,7 @@ pub fn run_walk(
 type Round = (Measured, WalkArm, Measured);
 
 fn take_readings(
-    port: u16,
+    door: EvalDoor<'_>,
     arms: &[WalkArm],
     rounds: u32,
     frames: u32,
@@ -667,10 +667,10 @@ fn take_readings(
             } else {
                 0
             };
-            let Some(base) = measure(port, "baseline", frames, driver, forced)? else {
+            let Some(base) = measure(door, "baseline", frames, driver, forced)? else {
                 return Ok(None);
             };
-            let Some(m) = measure(port, arm.as_str(), frames, driver, forced)? else {
+            let Some(m) = measure(door, arm.as_str(), frames, driver, forced)? else {
                 return Ok(None);
             };
             readings.push((base, *arm, m));

@@ -28,7 +28,7 @@
 //! remedy printed), `1` for everything else.
 
 use crate::changes::AppError;
-use crate::cli::{DeckMotionCommands, DeckTarget};
+use crate::cli::{DeckEvalTarget, DeckMotionCommands, DeckTarget};
 use crate::commands::tell::{Remedy, resolve_port};
 use crate::output::{print_error, print_ok};
 
@@ -174,8 +174,27 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
     })
 }
 
-/// The `--port` / `--instance` pair each subcommand carries.
-fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
+/// Where an eval goes: the deck's tugcast port, and the card whose body page
+/// evaluates, or `None` for the shell.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EvalDoor<'a> {
+    pub port: u16,
+    pub card: Option<&'a str>,
+}
+
+impl EvalDoor<'_> {
+    /// The shell of the deck on `port`.
+    pub(crate) fn shell(port: u16) -> EvalDoor<'static> {
+        EvalDoor { port, card: None }
+    }
+}
+
+/// The `--port` / `--instance` pair each subcommand carries, and the
+/// `--card` of a verb that evaluates in a chosen page.
+fn target_of(cmd: &DeckMotionCommands) -> (&DeckTarget, Option<&str>) {
+    fn eval(t: &DeckEvalTarget) -> (&DeckTarget, Option<&str>) {
+        (&t.target, t.card.as_deref())
+    }
     match cmd {
         DeckMotionCommands::List { target, .. }
         | DeckMotionCommands::Cost { target, .. }
@@ -192,32 +211,37 @@ fn target_of(cmd: &DeckMotionCommands) -> &DeckTarget {
         | DeckMotionCommands::Chains { target, .. }
         | DeckMotionCommands::Gesture { target, .. }
         | DeckMotionCommands::Slide { target, .. }
-        | DeckMotionCommands::Settle { target, .. }
-        | DeckMotionCommands::Walk { target, .. }
+        | DeckMotionCommands::Walk { target, .. } => eval(target),
+        DeckMotionCommands::Settle { target, .. }
         | DeckMotionCommands::Enable { target }
-        | DeckMotionCommands::Disable { target } => target,
+        | DeckMotionCommands::Disable { target } => (target, None),
     }
 }
 
 pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32, String> {
-    let target = target_of(&cmd);
+    let (target, card) = target_of(&cmd);
+    let card: Option<String> = card.map(str::to_owned);
     // Strict ambiguity: the verb reads one specific deck, and a reading taken
     // from a different instance than the one the user is looking at is worse
     // than no reading at all.
     let port = resolve_port(target.port, target.instance.clone())
         .map_err(|e| e.describe(Remedy::Flags))?;
+    let door = EvalDoor {
+        port,
+        card: card.as_deref(),
+    };
 
     match cmd {
         DeckMotionCommands::Enable { .. } => set_eval_opt_in(port, true, json_output),
         DeckMotionCommands::Disable { .. } => set_eval_opt_in(port, false, json_output),
         DeckMotionCommands::Record { state, reload, .. } => {
-            run_record(port, state.as_deref(), reload, json_output)
+            run_record(door, state.as_deref(), reload, json_output)
         }
         DeckMotionCommands::Rest {
             window,
             frame_phases: true,
             ..
-        } => run_rest_phases(port, window, json_output),
+        } => run_rest_phases(door, window, json_output),
         DeckMotionCommands::Slide {
             from,
             to,
@@ -228,7 +252,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             full_census,
             ..
         } => crate::commands::deck_motion_slide::run_slide(
-            port,
+            door,
             &from,
             &to,
             count,
@@ -256,7 +280,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             full_census,
             ..
         } => crate::commands::deck_motion_settle::run_settle(
-            port,
+            EvalDoor::shell(port),
             &gesture,
             crate::commands::deck_motion_settle::GestureArgs {
                 card,
@@ -279,7 +303,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             json_output,
         ),
         DeckMotionCommands::Walk { restore: true, .. } => {
-            crate::commands::deck_motion_walk::run_restore(port, json_output)
+            crate::commands::deck_motion_walk::run_restore(door, json_output)
         }
         DeckMotionCommands::Walk {
             arms,
@@ -296,7 +320,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
                 })
                 .collect();
             crate::commands::deck_motion_walk::run_walk(
-                port,
+                door,
                 &arms,
                 rounds,
                 frames,
@@ -307,7 +331,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
         other => {
             let command = command_name(&other);
             let code = eval_code_for(&other).expect("only enable/disable have no eval code");
-            let result = match post_eval(port, &code)? {
+            let result = match post_eval(port, door.card, &code)? {
                 EvalOutcome::Gated => return Ok(eval_gated(command, json_output)),
                 EvalOutcome::Ok(value) => value,
             };
@@ -326,9 +350,15 @@ pub(crate) enum EvalOutcome {
     Gated,
 }
 
-pub(crate) fn post_eval(port: u16, code: &str) -> Result<EvalOutcome, String> {
+/// Post `code` to the deck's `/api/eval`. With a `card` it is evaluated in that
+/// card's body page; without one, in the shell.
+pub(crate) fn post_eval(port: u16, card: Option<&str>, code: &str) -> Result<EvalOutcome, String> {
     let url = format!("http://127.0.0.1:{port}/api/eval");
-    let response = ureq::post(&url).send_json(serde_json::json!({ "code": code }));
+    let mut body = serde_json::json!({ "code": code });
+    if let Some(card) = card {
+        body["card"] = card.into();
+    }
+    let response = ureq::post(&url).send_json(body);
     let mut response = match response {
         Ok(response) => response,
         Err(ureq::Error::StatusCode(403)) => return Ok(EvalOutcome::Gated),
@@ -395,13 +425,17 @@ fn set_eval_opt_in(port: u16, on: bool, json_output: bool) -> Result<i32, String
 
 /// `rest --frame-phases`: the rest window, recorded with the Time Profiler and
 /// filed by the rest chain's own stamps.
-fn run_rest_phases(port: u16, window: Option<u32>, json_output: bool) -> Result<i32, String> {
+fn run_rest_phases(
+    door: EvalDoor<'_>,
+    window: Option<u32>,
+    json_output: bool,
+) -> Result<i32, String> {
     use crate::commands::deck_motion_phases as phases;
     let Some(xctrace) = phases::xctrace() else {
         eprintln!("frame-phases needs xcrun xctrace (Xcode's Instruments); not found");
         return Ok(EXIT_GATED);
     };
-    let pid = phases::deck_web_content(port)?;
+    let pid = phases::deck_web_content(door.port)?;
     // A generous ceiling: the reading stops the recording itself.
     let seconds = window.unwrap_or(1000).div_ceil(1000) + 30;
     if !json_output {
@@ -419,7 +453,7 @@ fn run_rest_phases(port: u16, window: Option<u32>, json_output: bool) -> Result<
             .unwrap_or(0.0)
     };
     let sent = wall();
-    let outcome = post_eval(port, &code);
+    let outcome = post_eval(door.port, door.card, &code);
     let answered = wall();
     let rss_kb = phases::resident_kb(pid);
     let (_, samples) = recorder.finish()?;
@@ -468,7 +502,7 @@ const RECORD_RELOAD_WAIT_S: u64 = 90;
 /// `record`: throw the deck's switch, and with `--reload` bring in what only a
 /// load can install, then report.
 fn run_record(
-    port: u16,
+    door: EvalDoor<'_>,
     state: Option<&str>,
     reload: bool,
     json_output: bool,
@@ -477,7 +511,7 @@ fn run_record(
         Some(state) => format!("window.__tugMotion.record({})", state == "on"),
         None => "window.__tugMotion.record()".to_string(),
     };
-    let mut value = match post_eval(port, &code)? {
+    let mut value = match post_eval(door.port, door.card, &code)? {
         EvalOutcome::Gated => return Ok(eval_gated("deck motion record", json_output)),
         EvalOutcome::Ok(value) => value,
     };
@@ -491,13 +525,15 @@ fn run_record(
         }
         // The reload can take the reply with it; what matters is what comes back.
         let _ = post_eval(
-            port,
+            door.port,
+            door.card,
             "(setTimeout(function () { window.location.reload(); }, 50), null)",
         );
         let mut back = None;
         for _ in 0..RECORD_RELOAD_WAIT_S {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            if let Ok(EvalOutcome::Ok(v)) = post_eval(port, "window.__tugMotion.record()")
+            if let Ok(EvalOutcome::Ok(v)) =
+                post_eval(door.port, door.card, "window.__tugMotion.record()")
                 && v.get("recording").and_then(|r| r.as_bool()) == Some(true)
                 && record_next_load(&v).is_empty()
             {
@@ -1149,11 +1185,10 @@ pub(crate) fn gaps_text(value: &serde_json::Value) -> Option<String> {
 mod tests {
     use super::*;
 
-    fn target() -> DeckTarget {
-        DeckTarget {
-            port: None,
-            instance: None,
-        }
+    /// No port, no instance and no card: a `DeckTarget` or a
+    /// `DeckEvalTarget`, whichever the verb takes.
+    fn target<T: Default>() -> T {
+        T::default()
     }
 
     #[test]

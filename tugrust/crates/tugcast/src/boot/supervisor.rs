@@ -30,6 +30,7 @@ use crate::feeds::agent_supervisor::{
     SpawnerFactory, SupervisorDeps, default_spawner_factory,
 };
 use crate::jots;
+use crate::pages::{AddressedFrame, ClientFrame};
 use crate::router::{FeedRouter, LagPolicy};
 use crate::scribe;
 use crate::shared_agent;
@@ -87,6 +88,7 @@ pub(crate) async fn supervisor(
         shutdown_rx,
         ctl_shutdown_tx,
         client_action_tx,
+        pages,
         shared_dev_state,
         control_writer,
         control_reader,
@@ -219,6 +221,7 @@ pub(crate) async fn supervisor(
             arc_tick_tx: Some(arc_tick_tx),
             wheel_tick_tx: Some(wheel_tick_tx),
             wheel: Some(Arc::clone(&wheel_state)),
+            pages: Arc::clone(&pages),
         },
     );
     // Give the supervisor the shell ledger so `list_shell_exchanges` can read
@@ -464,17 +467,17 @@ pub(crate) async fn supervisor(
 
     // RENDERED — tugcast's native markdown renders. The bridge taps the same
     // CODE_OUTPUT frames for assistant text and thinking prose, renders what
-    // changed off the async workers, paces the flush to the deck's display
-    // period and holds it while the deck's motion is open. It taps
-    // SESSION_STATE so a closed session's text is dropped, and reads the
-    // deck's controls from RENDER_INPUT, whose sink is registered below.
-    let (render_input_tx, render_input_rx) = mpsc::channel::<Frame>(64);
-    let render_bridge =
-        feeds::render_bridge::RenderBridge::new(feeds::render_bridge::RenderBridgeConfig {
-            code_tx: code_output_feed.sender(),
-            session_state_tx: session_state_feed.sender(),
-            input_rx: render_input_rx,
-        });
+    // changed off the async workers, and paces and holds each page's renders
+    // on its own: its display period, its motion hold, its sessions. It taps
+    // SESSION_STATE so a closed session's text is dropped, and reads each
+    // page's controls from RENDER_INPUT, whose sink is registered below.
+    let (render_input_tx, render_input_rx) = mpsc::channel::<ClientFrame>(64);
+    let render_bridge_config = feeds::render_bridge::RenderBridgeConfig {
+        code_tx: code_output_feed.sender(),
+        session_state_tx: session_state_feed.sender(),
+        input_rx: render_input_rx,
+        pages: Arc::clone(&pages),
+    };
 
     let supervisor = Arc::new(supervisor);
 
@@ -568,6 +571,7 @@ pub(crate) async fn supervisor(
         shared_dev_state.clone(),
     );
     feed_router.shared_agent = Some(Arc::clone(&haiku_agent));
+    feed_router.pages = Arc::clone(&pages);
 
     // Register stream feeds through the trait-mediated path — each feed
     // self-describes its id, lag policy, and channel capacity, and the
@@ -577,9 +581,19 @@ pub(crate) async fn supervisor(
     // a reconnecting deck needs comes from the `list_digest_lines`
     // CONTROL read, not feed replay ([P09]).
     feed_router.register_stream_feed(Box::new(digest_bridge), cancel.clone());
-    // RENDERED batches fan out to every connected deck; a reconnecting deck
-    // asks for the HTML it lacks with a `resync` control, not feed replay.
-    feed_router.register_stream_feed(Box::new(render_bridge), cancel.clone());
+    // RENDERED is an addressed lane: each page is sent its own batches, and
+    // a tool takes every batch whole. A reconnecting deck asks for the HTML
+    // it lacks with a `resync` control, not feed replay. A hold's release is
+    // a burst of uncompressed JSON, and a lost frame is answered by the
+    // deck's `resync`, which re-sends whole messages, so the channel is
+    // sized for a deck that lags once not to lag again for the answer.
+    let (rendered_tx, _) = tokio::sync::broadcast::channel::<AddressedFrame>(256);
+    feed_router.register_addressed_stream(rendered_tx.clone(), None);
+    tokio::spawn(feeds::render_bridge::run_render_bridge(
+        render_bridge_config,
+        rendered_tx,
+        cancel.clone(),
+    ));
     // OVERVIEW posts fan out to every connected deck; the tail a reconnecting
     // deck needs comes from the `list_overview_posts` CONTROL read. This call's
     // return value is the only source of the OVERVIEW sender, so the Operator
@@ -691,14 +705,16 @@ pub(crate) async fn supervisor(
     feed_router.register_input(FeedId::CODE_INPUT, code_input_relay_tx);
     feed_router.register_input(FeedId::SHELL_INPUT, shell_input_tx);
     feed_router.register_input(FeedId::REFS_INPUT, refs_input_tx);
-    feed_router.register_input(FeedId::FILETREE_QUERY, ft_input_tx);
-    feed_router.register_input(FeedId::FILE_WATCH_QUERY, file_watch_input_tx);
-    feed_router.register_input(FeedId::GIT_DIFF_QUERY, gd_input_tx);
-    feed_router.register_input(FeedId::GIT_LOG_QUERY, gl_input_tx);
-    feed_router.register_input(FeedId::GIT_COMMIT_FILES_QUERY, gcf_input_tx);
-    feed_router.register_input(FeedId::USAGE_QUERY, usage_input_tx);
+    // The query inputs answer the page that asked, so each frame reaches
+    // its backend with the sender's client id.
+    feed_router.register_addressed_input(FeedId::FILETREE_QUERY, ft_input_tx);
+    feed_router.register_addressed_input(FeedId::FILE_WATCH_QUERY, file_watch_input_tx);
+    feed_router.register_addressed_input(FeedId::GIT_DIFF_QUERY, gd_input_tx);
+    feed_router.register_addressed_input(FeedId::GIT_LOG_QUERY, gl_input_tx);
+    feed_router.register_addressed_input(FeedId::GIT_COMMIT_FILES_QUERY, gcf_input_tx);
+    feed_router.register_addressed_input(FeedId::USAGE_QUERY, usage_input_tx);
     feed_router.register_input(FeedId::OVERVIEW_INPUT, gz_input_tx);
-    feed_router.register_input(FeedId::RENDER_INPUT, render_input_tx);
+    feed_router.register_addressed_input(FeedId::RENDER_INPUT, render_input_tx);
 
     // Attach the supervisor to the router so `handle_client` can intercept
     // session-lifecycle CONTROL frames and cross-check CODE_INPUT P5
@@ -721,12 +737,10 @@ pub(crate) async fn supervisor(
     // history, so clients connecting after the initial publish miss
     // the empty snapshot.
     //
-    // Bootstrap's *subsequent* responses (when a card is bound to the
-    // tugtool repo) are written to BOTH the watch and the broadcast,
-    // so JS receives them twice. Idempotent — the second parse
-    // produces the same snapshot. Per-card workspaces write only to
-    // the broadcast (their watches are never registered with the
-    // router), so they don't double-publish.
+    // The watch holds that seed and nothing else. A query's answer goes
+    // only to the page that asked, on the addressed FILETREE lane, and is
+    // never written to the watch: a retained answer would be handed to
+    // every page that connected later.
     // Account-global aggregate changeset feed (CHANGESET_ALL, 0x24). One
     // process-level feed composing every open project into a single frame,
     // delivered like the other snapshot feeds (registered once, retained
@@ -841,19 +855,23 @@ pub(crate) async fn supervisor(
     snapshot_watches.push(jots_rx);
     // SESSION_SIDEBAND and session_init snapshots moved to supervisor (Step 8).
     feed_router.add_snapshot_watches(snapshot_watches);
-    // Multi-workspace FILETREE response stream — registered once. Every
-    // connected client subscribes its own broadcast receiver in
-    // `ClientState::Live` and forwards every frame to the socket. JS
-    // filters by `workspace_key` to dispatch responses to the right
-    // card. Per `arc/dev-atoms.md#step-pre-4`.
-    feed_router.add_broadcast_senders(vec![
+    // The query reply lanes — registered once. Every connected client
+    // subscribes its own receiver in `ClientState::Live` and forwards only
+    // the frames addressed to it, so a page receives its own answers and
+    // no other page's. Within the page, JS filters by `workspace_key` or
+    // `request_id` to reach the right card.
+    for lane in [
         ft_response_tx,
         gd_response_tx,
         gl_response_tx,
-        gh_response_tx,
         gcf_response_tx,
         usage_response_tx,
-    ]);
+    ] {
+        feed_router.register_addressed_stream(lane, None);
+    }
+    // GIT_HEAD is a signal every page's history client wants, so it stays
+    // a plain broadcast.
+    feed_router.add_broadcast_senders(vec![gh_response_tx]);
     // The two streams whose consumers must KNOW when they missed frames.
     // An empty `workspace_key` means every workspace: a client that lagged
     // cannot tell which project's events it lost, so it re-asks for all.
@@ -864,9 +882,12 @@ pub(crate) async fn supervisor(
             br#"{"workspace_key":"","resync":true,"events":[]}"#.to_vec(),
         ),
     );
-    feed_router.add_broadcast_sender_with_lag_frame(
+    feed_router.register_addressed_stream(
         file_watch_tx,
-        Frame::new(FeedId::FILE_WATCH, br#"{"type":"resync"}"#.to_vec()),
+        Some(Frame::new(
+            FeedId::FILE_WATCH,
+            br#"{"type":"resync"}"#.to_vec(),
+        )),
     );
 
     // Filesystem, filetree, and git feed tasks are owned by the

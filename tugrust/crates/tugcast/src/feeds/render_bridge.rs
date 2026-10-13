@@ -14,40 +14,50 @@
 //! since that emission; hashes are FNV-1a 64 as decimal strings.
 //!
 //! The bridge task is the impure half around [`RenderStage`]: it taps
-//! `CODE_OUTPUT` and `SESSION_STATE`, reads the deck's controls, and owns the
-//! clock. It flushes at most once per display period, with a timer armed only
-//! while something is dirty, and the parse runs on a blocking thread so the
-//! loop keeps reading frames while it renders. While any holder holds the
-//! deck's motion, renders merge into a buffer that the release, or the last
-//! holder's expiry, publishes as one bundle.
+//! `CODE_OUTPUT` and `SESSION_STATE`, reads the pages' controls, and owns the
+//! clock. The stage renders at most once per the shortest display period any
+//! page asked for, with a timer armed only while something is dirty, and the
+//! parse runs on a blocking thread so the loop keeps reading frames while it
+//! renders.
 //!
-//! A `find` control is answered at once and never held: the stage hands
-//! over each asked unit's text, `find_index` answers on a blocking thread,
-//! and the rendered texts it had to extract come back to the stage.
+//! Every shell and body page, and any connection that has sent a control, has
+//! its own pacer: its display period, its motion holders and its buffer. Each
+//! render's batch is cut to the sessions the page subscribes to and sent to
+//! that page alone, at most once per its period. While any of a page's
+//! holders holds, its renders merge into its buffer, which the release, or
+//! the last holder's expiry, sends as one bundle; one page's hold parks no
+//! other page's renders. A connection with no pacer — a tool — takes every
+//! batch whole.
+//!
+//! A `find` control is answered at once, to the page that asked, and never
+//! held: the stage hands over each asked unit's text, `find_index` answers
+//! on a blocking thread, and the rendered texts it had to extract come back
+//! to the stage.
 //!
 //! Both directions carry the feed's version, [`RENDERED_FEED_VERSION`]: a
 //! `render-batch` names the version it was written at, and a control the
 //! bridge cannot read at its own version is refused. A deck's handshake
-//! asks for a resync of every message, and the bridge answers it at once
-//! with an empty `render-batch`, so a deck learns that this tugcast renders,
-//! and at which version, before any Message streams; a deck that hears no
-//! such answer draws its own.
+//! asks for a resync of every message, and the bridge answers that page at
+//! once with an empty `render-batch`, so a deck learns that this tugcast
+//! renders, and at which version, before any Message streams; a deck that
+//! hears no such answer draws its own.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
-use tugcast_core::{FeedId, Frame, StreamFeed};
+use tugcast_core::{FeedId, Frame, PageRole};
 
 use super::find_index::{FindAnswer, FindJob};
 use super::render_stage::{RenderOutput, RenderStage};
 use super::session_digest::SCOPE_IDLE_SWEEP_MS;
+use crate::pages::{AddressedFrame, ClientFrame, Delivery, PageRegistry, SessionSubscription};
 
 /// One top-level block of a rendered message, without its HTML.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -229,98 +239,80 @@ pub const MIN_HOLD_CAP_MS: u64 = 1_000;
 /// never a timer of its own, so a quiet process keeps no clock for it.
 const SWEEP_EVERY: Duration = Duration::from_secs(60);
 
-/// Everything the bridge task needs. The `RENDERED` sender is not part of
-/// it: the bridge is a [`StreamFeed`], so the router hands it the channel at
-/// `run`.
-pub struct RenderBridgeConfig {
+/// Everything the bridge task needs besides the `RENDERED` lane it publishes
+/// on.
+pub(crate) struct RenderBridgeConfig {
     /// The shared `CODE_OUTPUT` broadcast, tapped for assistant text,
     /// thinking prose and the replay brackets.
     pub code_tx: broadcast::Sender<Frame>,
     /// `SESSION_STATE`, tapped for `closed`: a closed session's state is
     /// dropped whole.
     pub session_state_tx: broadcast::Sender<Frame>,
-    /// The `RENDER_INPUT` sink the router feeds.
-    pub input_rx: mpsc::Receiver<Frame>,
+    /// The `RENDER_INPUT` sink the router feeds, each control with the
+    /// connection that sent it.
+    pub input_rx: mpsc::Receiver<ClientFrame>,
+    /// The live pages: who is paced, which sessions each takes, who left.
+    pub pages: Arc<PageRegistry>,
 }
 
-/// The `RENDERED` feed.
-pub struct RenderBridge {
+/// Run the bridge until `cancel`, publishing on `rendered_tx`, the addressed
+/// `RENDERED` lane.
+pub(crate) async fn run_render_bridge(
     config: RenderBridgeConfig,
+    rendered_tx: broadcast::Sender<AddressedFrame>,
+    cancel: CancellationToken,
+) {
+    let RenderBridgeConfig {
+        code_tx,
+        session_state_tx,
+        input_rx,
+        pages,
+    } = config;
+    let taps = Taps {
+        code_rx: code_tx.subscribe(),
+        state_rx: session_state_tx.subscribe(),
+        input_rx,
+        departures: pages.departures(),
+    };
+    render_bridge_task(taps, pages, rendered_tx, cancel).await;
 }
 
-impl RenderBridge {
-    pub fn new(config: RenderBridgeConfig) -> Self {
-        Self { config }
-    }
-}
-
-#[async_trait]
-impl StreamFeed for RenderBridge {
-    fn feed_id(&self) -> FeedId {
-        FeedId::RENDERED
-    }
-
-    fn name(&self) -> &str {
-        "rendered"
-    }
-
-    /// One frame per period at most, but a hold's release is a burst and the
-    /// feed is uncompressed JSON; a lost frame is answered by the deck's
-    /// `resync`, which re-sends whole messages, so a deck that lags once
-    /// should not lag again for the size of the answer.
-    fn channel_capacity(&self) -> usize {
-        256
-    }
-
-    async fn run(self: Box<Self>, tx: broadcast::Sender<Frame>, cancel: CancellationToken) {
-        let RenderBridgeConfig {
-            code_tx,
-            session_state_tx,
-            input_rx,
-        } = self.config;
-        let taps = Taps {
-            code_rx: code_tx.subscribe(),
-            state_rx: session_state_tx.subscribe(),
-            input_rx,
-        };
-        render_bridge_task(taps, tx, cancel).await;
-    }
-}
-
-/// The three wires the bridge reads.
+/// The wires the bridge reads.
 struct Taps {
     code_rx: broadcast::Receiver<Frame>,
     state_rx: broadcast::Receiver<Frame>,
-    input_rx: mpsc::Receiver<Frame>,
+    input_rx: mpsc::Receiver<ClientFrame>,
+    departures: broadcast::Receiver<u64>,
 }
 
-/// The pace and the hold ([P07]).
-struct Pacer {
+/// One page's pace and hold ([P07]).
+struct PagePacer {
     period: Duration,
-    /// When the last render started.
-    last_tick: Option<Instant>,
+    /// When this page was last sent a batch.
+    last_flush: Option<Instant>,
     /// Each holder's expiry.
     holders: HashMap<String, Instant>,
-    /// What renders produced while held, merged.
+    /// What this page has not been sent yet, merged.
     buffer: Vec<RenderedSessionWire>,
 }
 
-impl Pacer {
+impl PagePacer {
     fn new() -> Self {
         Self {
             period: DEFAULT_PERIOD,
-            last_tick: None,
+            last_flush: None,
             holders: HashMap::new(),
             buffer: Vec::new(),
         }
     }
 
-    /// When the next render may start.
-    fn next_tick(&self, now: Instant) -> Instant {
-        match self.last_tick {
+    /// When the buffer is due: only while unheld and holding something, a
+    /// period after the last batch this page was sent.
+    fn flush_at(&self, now: Instant) -> Option<Instant> {
+        (self.holders.is_empty() && !self.buffer.is_empty()).then(|| match self.last_flush {
             Some(last) => (last + self.period).max(now),
             None => now,
-        }
+        })
     }
 
     fn next_expiry(&self) -> Option<Instant> {
@@ -333,17 +325,31 @@ impl Pacer {
         }
     }
 
-    /// A render's emission: published now, or merged into the buffer while
-    /// held.
-    fn deliver(&mut self, batch: Vec<RenderedSessionWire>) -> Option<Vec<RenderedSessionWire>> {
+    fn take(&mut self, now: Instant) -> Vec<RenderedSessionWire> {
+        self.last_flush = Some(now);
+        std::mem::take(&mut self.buffer)
+    }
+
+    /// A render's emission for this page: sent now when the page is unheld
+    /// and due, merged into its buffer otherwise.
+    fn deliver(
+        &mut self,
+        batch: Vec<RenderedSessionWire>,
+        now: Instant,
+    ) -> Option<Vec<RenderedSessionWire>> {
         if batch.is_empty() {
             return None;
         }
-        if self.holders.is_empty() {
-            return Some(batch);
-        }
         merge_batch(&mut self.buffer, batch);
-        None
+        self.flush_due(now)
+    }
+
+    /// The buffer, when it is due.
+    fn flush_due(&mut self, now: Instant) -> Option<Vec<RenderedSessionWire>> {
+        match self.flush_at(now) {
+            Some(at) if at <= now => Some(self.take(now)),
+            _ => None,
+        }
     }
 
     /// A holder's `motion` control. Returns the bundle when it ended the hold.
@@ -361,7 +367,7 @@ impl Pacer {
             return None;
         }
         self.holders.remove(&holder);
-        self.release()
+        self.release(now)
     }
 
     /// Drop every holder whose cap has run out. Returns the bundle when the
@@ -369,20 +375,22 @@ impl Pacer {
     fn expire(&mut self, now: Instant) -> Option<Vec<RenderedSessionWire>> {
         let before = self.holders.len();
         self.holders.retain(|_, expiry| *expiry > now);
-        if self.holders.len() < before {
-            warn!(
-                expired = before - self.holders.len(),
-                "render bridge: a motion hold ran out without a release"
-            );
+        if self.holders.len() == before {
+            return None;
         }
-        self.release()
+        warn!(
+            expired = before - self.holders.len(),
+            "render bridge: a motion hold ran out without a release"
+        );
+        self.release(now)
     }
 
-    fn release(&mut self) -> Option<Vec<RenderedSessionWire>> {
+    /// A hold's end sends the bundle at once, whatever the period.
+    fn release(&mut self, now: Instant) -> Option<Vec<RenderedSessionWire>> {
         if !self.holders.is_empty() || self.buffer.is_empty() {
             return None;
         }
-        Some(std::mem::take(&mut self.buffer))
+        Some(self.take(now))
     }
 
     fn drop_session(&mut self, session: &str) {
@@ -450,15 +458,78 @@ fn merge_batch(into: &mut Vec<RenderedSessionWire>, batch: Vec<RenderedSessionWi
     }
 }
 
+/// The stage renders as often as the fastest page asks to be sent.
+fn render_period(pacers: &HashMap<u64, PagePacer>) -> Duration {
+    pacers
+        .values()
+        .map(|p| p.period)
+        .min()
+        .unwrap_or(DEFAULT_PERIOD)
+}
+
 /// When the loop should start a render: only while something is dirty and
 /// no render is in flight, so a quiet stage arms no timer.
 fn next_render_at(
     stage: &RenderStage,
-    pacer: &Pacer,
+    last_tick: Option<Instant>,
+    period: Duration,
     rendering: bool,
     now: Instant,
 ) -> Option<Instant> {
-    (!rendering && stage.is_dirty()).then(|| pacer.next_tick(now))
+    (!rendering && stage.is_dirty()).then(|| match last_tick {
+        Some(last) => (last + period).max(now),
+        None => now,
+    })
+}
+
+/// The part of a batch a page's session subscription takes.
+fn for_sessions(
+    batch: &[RenderedSessionWire],
+    sessions: &SessionSubscription,
+) -> Vec<RenderedSessionWire> {
+    batch
+        .iter()
+        .filter(|s| sessions.admits(&s.tug_session_id))
+        .cloned()
+        .collect()
+}
+
+/// Hand one render's batch to every page. Shell and body pages are paced
+/// and cut to their sessions from the first batch, whether or not they have
+/// sent a control; a page the registry does not list takes every session.
+/// The connections with no pacer take the batch whole, and it is sent only
+/// when one is live.
+fn hand_out(
+    batch: Vec<RenderedSessionWire>,
+    pacers: &mut HashMap<u64, PagePacer>,
+    pages: &PageRegistry,
+    tx: &broadcast::Sender<AddressedFrame>,
+    now: Instant,
+) {
+    if batch.is_empty() {
+        return;
+    }
+    let live = pages.snapshot();
+    for page in &live {
+        if page.role != PageRole::Tool {
+            pacers.entry(page.client_id).or_insert_with(PagePacer::new);
+        }
+    }
+    let every = SessionSubscription::All;
+    for (&id, pacer) in pacers.iter_mut() {
+        let sessions = live
+            .iter()
+            .find(|p| p.client_id == id)
+            .map_or(&every, |p| &p.sessions);
+        if let Some(out) = pacer.deliver(for_sessions(&batch, sessions), now) {
+            publish(tx, Delivery::Client(id), out);
+        }
+    }
+    if live.iter().any(|p| !pacers.contains_key(&p.client_id)) {
+        let mut paced: Vec<u64> = pacers.keys().copied().collect();
+        paced.sort_unstable();
+        publish(tx, Delivery::AllExcept(paced.into()), batch);
+    }
 }
 
 /// The session a `SESSION_STATE` frame reports closed.
@@ -484,11 +555,12 @@ struct Applied {
     hello: bool,
 }
 
-/// Apply one `RENDER_INPUT` control.
+/// Apply one page's `RENDER_INPUT` control. The resync it asks for is the
+/// stage's, so every page's next emission carries the blocks it names.
 fn apply_input(
     payload: &[u8],
     stage: &mut RenderStage,
-    pacer: &mut Pacer,
+    pacer: &mut PagePacer,
     now: Instant,
 ) -> Applied {
     let input = match serde_json::from_slice::<RenderInputFrame>(payload) {
@@ -566,9 +638,14 @@ fn apply_input(
     }
 }
 
-fn publish(tx: &broadcast::Sender<Frame>, sessions: Vec<RenderedSessionWire>) {
+fn publish(
+    tx: &broadcast::Sender<AddressedFrame>,
+    to: Delivery,
+    sessions: Vec<RenderedSessionWire>,
+) {
     publish_frame(
         tx,
+        to,
         &RenderedFrame::RenderBatch {
             v: RENDERED_FEED_VERSION,
             sessions,
@@ -576,11 +653,14 @@ fn publish(tx: &broadcast::Sender<Frame>, sessions: Vec<RenderedSessionWire>) {
     );
 }
 
-fn publish_frame(tx: &broadcast::Sender<Frame>, frame: &RenderedFrame) {
+fn publish_frame(tx: &broadcast::Sender<AddressedFrame>, to: Delivery, frame: &RenderedFrame) {
     match serde_json::to_vec(frame) {
         // No subscriber is not an error: nobody is drawing.
         Ok(bytes) => {
-            let _ = tx.send(Frame::new(FeedId::RENDERED, bytes));
+            let _ = tx.send(AddressedFrame {
+                to,
+                frame: Frame::new(FeedId::RENDERED, bytes),
+            });
         }
         Err(e) => warn!(error = %e, "render bridge: a frame did not serialize"),
     }
@@ -614,21 +694,30 @@ fn take_frame(
     }
 }
 
+/// The earliest of `instants`, if any.
+fn earliest(instants: impl Iterator<Item = Option<Instant>>) -> Option<Instant> {
+    instants.flatten().min()
+}
+
 async fn render_bridge_task(
     taps: Taps,
-    rendered_tx: broadcast::Sender<Frame>,
+    pages: Arc<PageRegistry>,
+    rendered_tx: broadcast::Sender<AddressedFrame>,
     cancel: CancellationToken,
 ) {
     let Taps {
         mut code_rx,
         mut state_rx,
         mut input_rx,
+        mut departures,
     } = taps;
-    let (mut code_closed, mut state_closed, mut input_closed) = (false, false, false);
+    let (mut code_closed, mut state_closed, mut input_closed, mut departures_closed) =
+        (false, false, false, false);
     let mut stage = RenderStage::new();
-    let mut pacer = Pacer::new();
+    let mut pacers: HashMap<u64, PagePacer> = HashMap::new();
+    let mut last_tick: Option<Instant> = None;
     let mut rendering: Option<JoinHandle<RenderOutput>> = None;
-    let mut finds: JoinSet<FindAnswer> = JoinSet::new();
+    let mut finds: JoinSet<(u64, FindAnswer)> = JoinSet::new();
     let start = Instant::now();
     let clock_ms = move |now: Instant| now.duration_since(start).as_millis() as u64;
     let mut last_sweep = start;
@@ -636,11 +725,21 @@ async fn render_bridge_task(
     let never = || Instant::now() + Duration::from_secs(3_600);
 
     loop {
-        let render_at = next_render_at(&stage, &pacer, rendering.is_some(), Instant::now());
-        let expiry = pacer.next_expiry();
+        let now = Instant::now();
+        let render_at = next_render_at(
+            &stage,
+            last_tick,
+            render_period(&pacers),
+            rendering.is_some(),
+            now,
+        );
+        let expiry = earliest(pacers.values().map(PagePacer::next_expiry));
+        let flush = earliest(pacers.values().map(|p| p.flush_at(now)));
 
         // Biased, controls first: a hold or a close read in the same pass as
-        // the frames it governs applies before them.
+        // the frames it governs applies before them. A page's controls are
+        // read before its departure, which the router publishes after its
+        // last forwarded frame, so a departed page leaves no pacer behind.
         tokio::select! {
             biased;
             _ = cancel.cancelled() => {
@@ -653,27 +752,43 @@ async fn render_bridge_task(
             input = input_rx.recv(), if !input_closed => {
                 match input {
                     None => input_closed = true,
-                    Some(frame) => {
-                        let applied = apply_input(&frame.payload, &mut stage, &mut pacer, Instant::now());
+                    Some(ClientFrame { client_id, frame }) => {
+                        let pacer = pacers.entry(client_id).or_insert_with(PagePacer::new);
+                        let applied = apply_input(&frame.payload, &mut stage, pacer, Instant::now());
                         if let Some(batch) = applied.batch {
-                            publish(&rendered_tx, batch);
+                            publish(&rendered_tx, Delivery::Client(client_id), batch);
                         }
                         if applied.hello {
-                            publish(&rendered_tx, Vec::new());
+                            publish(&rendered_tx, Delivery::Client(client_id), Vec::new());
                         }
                         if let Some(job) = applied.find {
-                            finds.spawn_blocking(move || job.answer());
+                            finds.spawn_blocking(move || (client_id, job.answer()));
                         }
                     }
                 }
             }
+            departed = departures.recv(), if !departures_closed => {
+                match departed {
+                    Ok(client_id) => {
+                        pacers.remove(&client_id);
+                    }
+                    // Departures were missed: keep only the pacers of pages
+                    // the registry still lists ([P06]).
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let live: HashSet<u64> =
+                            pages.snapshot().iter().map(|p| p.client_id).collect();
+                        pacers.retain(|id, _| live.contains(id));
+                    }
+                    Err(broadcast::error::RecvError::Closed) => departures_closed = true,
+                }
+            }
             Some(answered) = finds.join_next(), if !finds.is_empty() => {
                 match answered {
-                    Ok(FindAnswer { frame, extracted }) => {
+                    Ok((asker, FindAnswer { frame, extracted })) => {
                         if let RenderedFrame::FindResult { tug_session_id, .. } = &frame {
                             stage.keep_find_texts(tug_session_id, extracted);
                         }
-                        publish_frame(&rendered_tx, &frame);
+                        publish_frame(&rendered_tx, Delivery::Client(asker), &frame);
                     }
                     Err(e) => warn!(error = %e, "render bridge: a find task failed"),
                 }
@@ -683,7 +798,9 @@ async fn render_bridge_task(
                     && let Some(session) = closed_session(&frame.payload)
                 {
                     stage.drop_session(&session);
-                    pacer.drop_session(&session);
+                    for pacer in pacers.values_mut() {
+                        pacer.drop_session(&session);
+                    }
                 }
             }
             recv = code_rx.recv(), if !code_closed => {
@@ -696,21 +813,30 @@ async fn render_bridge_task(
                 match joined {
                     Ok(output) => {
                         let batch = stage.settle(output);
-                        if let Some(batch) = pacer.deliver(batch) {
-                            publish(&rendered_tx, batch);
-                        }
+                        hand_out(batch, &mut pacers, &pages, &rendered_tx, Instant::now());
                     }
                     Err(e) => warn!(error = %e, "render bridge: a render task failed"),
                 }
             }
             _ = tokio::time::sleep_until(expiry.unwrap_or_else(never)), if expiry.is_some() => {
-                if let Some(batch) = pacer.expire(Instant::now()) {
-                    publish(&rendered_tx, batch);
+                let now = Instant::now();
+                for (&id, pacer) in pacers.iter_mut() {
+                    if let Some(batch) = pacer.expire(now) {
+                        publish(&rendered_tx, Delivery::Client(id), batch);
+                    }
+                }
+            }
+            _ = tokio::time::sleep_until(flush.unwrap_or_else(never)), if flush.is_some() => {
+                let now = Instant::now();
+                for (&id, pacer) in pacers.iter_mut() {
+                    if let Some(batch) = pacer.flush_due(now) {
+                        publish(&rendered_tx, Delivery::Client(id), batch);
+                    }
                 }
             }
             _ = tokio::time::sleep_until(render_at.unwrap_or_else(never)), if render_at.is_some() => {
                 let now = Instant::now();
-                pacer.last_tick = Some(now);
+                last_tick = Some(now);
                 if now.duration_since(last_sweep) >= SWEEP_EVERY {
                     last_sweep = now;
                     stage.sweep_idle(clock_ms(now), SCOPE_IDLE_SWEEP_MS);
@@ -910,65 +1036,85 @@ mod tests {
     // ── the bridge, under a paused clock ──────────────────────────────────
 
     use serde_json::json;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
+    use tugcast_core::PageIdentity;
 
-    /// Every published batch, with the (virtual) instant it arrived.
-    type Published = Arc<Mutex<Vec<(Instant, Vec<RenderedSessionWire>)>>>;
+    /// The page the single-page tests speak as: a tool, so it takes every
+    /// batch whole until it sends a control and is paced.
+    const A: u64 = 1;
 
-    /// A running bridge and the wires around it. Every published frame is
-    /// recorded with the (virtual) instant it arrived.
+    /// One frame the bridge published, with the (virtual) instant it left.
+    #[derive(Clone, Debug)]
+    struct Sent {
+        at: Instant,
+        to: Delivery,
+        frame: RenderedFrame,
+    }
+
+    /// A running bridge and the wires around it.
     struct Harness {
         code_tx: broadcast::Sender<Frame>,
         state_tx: broadcast::Sender<Frame>,
-        input_tx: mpsc::Sender<Frame>,
-        frames: Published,
-        finds: Arc<Mutex<Vec<RenderedFrame>>>,
-        /// Empty batches: the answers to whole resyncs.
-        hellos: Arc<Mutex<Vec<u32>>>,
+        input_tx: mpsc::Sender<ClientFrame>,
+        pages: Arc<PageRegistry>,
+        sent: Arc<Mutex<Vec<Sent>>>,
         cancel: CancellationToken,
     }
 
+    fn identity(role: PageRole, card: Option<&str>) -> PageIdentity {
+        PageIdentity {
+            role,
+            page_id: Some(format!("page-{role:?}-{card:?}")),
+            card_id: card.map(str::to_owned),
+        }
+    }
+
     impl Harness {
+        /// A bridge with page [`A`] registered as a tool.
         fn start() -> Self {
+            let h = Self::bare();
+            h.pages.register(A, &PageIdentity::tool());
+            h
+        }
+
+        /// A bridge with no pages.
+        fn bare() -> Self {
             let (code_tx, _) = broadcast::channel(4096);
             let (state_tx, _) = broadcast::channel(64);
             let (input_tx, input_rx) = mpsc::channel(16);
-            let (rendered_tx, mut rendered_rx) = broadcast::channel::<Frame>(64);
+            let (rendered_tx, mut rendered_rx) = broadcast::channel::<AddressedFrame>(64);
+            let pages = Arc::new(PageRegistry::new());
             let taps = Taps {
                 code_rx: code_tx.subscribe(),
                 state_rx: state_tx.subscribe(),
                 input_rx,
+                departures: pages.departures(),
             };
             let cancel = CancellationToken::new();
-            tokio::spawn(render_bridge_task(taps, rendered_tx, cancel.clone()));
-            let frames: Published = Arc::new(Mutex::new(Vec::new()));
-            let sink = Arc::clone(&frames);
-            let finds = Arc::new(Mutex::new(Vec::new()));
-            let find_sink = Arc::clone(&finds);
-            let hellos = Arc::new(Mutex::new(Vec::new()));
-            let hello_sink = Arc::clone(&hellos);
+            tokio::spawn(render_bridge_task(
+                taps,
+                Arc::clone(&pages),
+                rendered_tx,
+                cancel.clone(),
+            ));
+            let sent = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&sent);
             tokio::spawn(async move {
-                while let Ok(frame) = rendered_rx.recv().await {
-                    match serde_json::from_slice(&frame.payload).unwrap() {
-                        RenderedFrame::RenderBatch { v, sessions } if sessions.is_empty() => {
-                            hello_sink.lock().unwrap().push(v);
-                        }
-                        RenderedFrame::RenderBatch { sessions, .. } => {
-                            sink.lock().unwrap().push((Instant::now(), sessions));
-                        }
-                        found @ RenderedFrame::FindResult { .. } => {
-                            find_sink.lock().unwrap().push(found);
-                        }
-                    }
+                while let Ok(AddressedFrame { to, frame }) = rendered_rx.recv().await {
+                    let frame = serde_json::from_slice(&frame.payload).unwrap();
+                    sink.lock().unwrap().push(Sent {
+                        at: Instant::now(),
+                        to,
+                        frame,
+                    });
                 }
             });
             Self {
                 code_tx,
                 state_tx,
                 input_tx,
-                frames,
-                finds,
-                hellos,
+                pages,
+                sent,
                 cancel,
             }
         }
@@ -988,15 +1134,27 @@ mod tests {
                 .unwrap();
         }
 
-        /// Send a control, stamped at this tugcast's version unless it
-        /// carries one.
-        async fn control(&self, mut control: Value) {
+        /// Send a control as [`A`].
+        async fn control(&self, control: Value) {
+            self.control_from(A, control).await;
+        }
+
+        /// Send a control as `client`, stamped at this tugcast's version
+        /// unless it carries one.
+        async fn control_from(&self, client: u64, mut control: Value) {
             if control.get("v").is_none() {
                 control["v"] = json!(RENDERED_FEED_VERSION);
             }
-            let bytes = serde_json::to_vec(&control).unwrap();
+            self.raw_from(client, serde_json::to_vec(&control).unwrap())
+                .await;
+        }
+
+        async fn raw_from(&self, client_id: u64, bytes: Vec<u8>) {
             self.input_tx
-                .send(Frame::new(FeedId::RENDER_INPUT, bytes))
+                .send(ClientFrame {
+                    client_id,
+                    frame: Frame::new(FeedId::RENDER_INPUT, bytes),
+                })
                 .await
                 .unwrap();
         }
@@ -1013,15 +1171,52 @@ mod tests {
                 .unwrap();
         }
 
-        fn frames(&self) -> Vec<(Instant, Vec<RenderedSessionWire>)> {
-            self.frames.lock().unwrap().clone()
+        fn sent(&self) -> Vec<Sent> {
+            self.sent.lock().unwrap().clone()
         }
 
-        /// Wait for the next find answer.
-        async fn find_result(&self) -> RenderedFrame {
+        /// Every non-empty batch `client` was sent, with when.
+        fn batches_for(&self, client: u64) -> Vec<(Instant, Vec<RenderedSessionWire>)> {
+            self.sent()
+                .into_iter()
+                .filter(|s| s.to.admits(client))
+                .filter_map(|s| match s.frame {
+                    RenderedFrame::RenderBatch { sessions, .. } if !sessions.is_empty() => {
+                        Some((s.at, sessions))
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// The batches [`A`] was sent.
+        fn frames(&self) -> Vec<(Instant, Vec<RenderedSessionWire>)> {
+            self.batches_for(A)
+        }
+
+        /// The empty batches — the answers to whole resyncs — with their
+        /// delivery and version.
+        fn hellos(&self) -> Vec<(Delivery, u32)> {
+            self.sent()
+                .into_iter()
+                .filter_map(|s| match s.frame {
+                    RenderedFrame::RenderBatch { v, sessions } if sessions.is_empty() => {
+                        Some((s.to, v))
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// Wait for the next find answer, with its delivery.
+        async fn find_result(&self) -> (Delivery, RenderedFrame) {
             for _ in 0..1_000 {
-                if let Some(found) = self.finds.lock().unwrap().pop() {
-                    return found;
+                let found = self
+                    .sent()
+                    .into_iter()
+                    .find(|s| matches!(s.frame, RenderedFrame::FindResult { .. }));
+                if let Some(Sent { to, frame, .. }) = found {
+                    return (to, frame);
                 }
                 self.wait(1).await;
             }
@@ -1040,18 +1235,27 @@ mod tests {
         }
     }
 
-    /// A deck's whole resync is answered at once with an empty batch at
-    /// this tugcast's version; a narrower one is not.
+    fn session_ids(batch: &[RenderedSessionWire]) -> Vec<&str> {
+        let mut ids: Vec<&str> = batch.iter().map(|s| s.tug_session_id.as_str()).collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// A deck's whole resync is answered at once, to that page alone, with
+    /// an empty batch at this tugcast's version; a narrower one is not.
     #[tokio::test(start_paused = true)]
     async fn a_whole_resync_is_answered_with_the_feeds_version() {
         let h = Harness::start();
         h.control(json!({"kind": "resync", "tugSessionId": "s1"}))
             .await;
         h.wait(5).await;
-        assert!(h.hellos.lock().unwrap().is_empty());
+        assert!(h.hellos().is_empty());
         h.control(json!({"kind": "resync"})).await;
         h.wait(5).await;
-        assert_eq!(*h.hellos.lock().unwrap(), vec![RENDERED_FEED_VERSION]);
+        assert_eq!(
+            h.hellos(),
+            vec![(Delivery::Client(A), RENDERED_FEED_VERSION)]
+        );
         assert!(h.frames().is_empty());
     }
 
@@ -1063,20 +1267,17 @@ mod tests {
         h.control(json!({"v": RENDERED_FEED_VERSION + 1, "kind": "resync"}))
             .await;
         h.wait(5).await;
-        assert!(h.hellos.lock().unwrap().is_empty());
-        let bytes = serde_json::to_vec(&json!({"kind": "resync"})).unwrap();
-        h.input_tx
-            .send(Frame::new(FeedId::RENDER_INPUT, bytes))
-            .await
-            .unwrap();
+        assert!(h.hellos().is_empty());
+        h.raw_from(A, serde_json::to_vec(&json!({"kind": "resync"})).unwrap())
+            .await;
         h.wait(5).await;
-        assert!(h.hellos.lock().unwrap().is_empty());
+        assert!(h.hellos().is_empty());
     }
 
-    /// A find over replayed and live text alike, answered at once: the
-    /// replayed Message's rendered text is extracted for it, a unit the
-    /// stage never saw comes back missing, and a mounted unit carries its
-    /// text.
+    /// A find over replayed and live text alike, answered at once and to
+    /// the page that asked: the replayed Message's rendered text is
+    /// extracted for it, a unit the stage never saw comes back missing, and
+    /// a mounted unit carries its text.
     #[tokio::test(start_paused = true)]
     async fn a_find_is_answered_over_replayed_and_live_text() {
         let h = Harness::start();
@@ -1108,16 +1309,20 @@ mod tests {
             "limit": 100, "units": ["m0-b1", "m1-b1", "nope-b1"], "mountedUnits": ["m1-b1"],
         }))
         .await;
-        let RenderedFrame::FindResult {
-            request_id,
-            matches,
-            texts,
-            missing,
-            ..
-        } = h.find_result().await
+        let (
+            to,
+            RenderedFrame::FindResult {
+                request_id,
+                matches,
+                texts,
+                missing,
+                ..
+            },
+        ) = h.find_result().await
         else {
             panic!("a find result");
         };
+        assert_eq!(to, Delivery::Client(A));
         assert_eq!(request_id, "q1");
         let matches: Vec<(String, u32, u32)> = matches
             .unwrap()
@@ -1177,16 +1382,38 @@ mod tests {
     #[test]
     fn nothing_dirty_arms_no_timer() {
         let mut stage = RenderStage::new();
-        let pacer = Pacer::new();
         let now = Instant::now();
-        assert_eq!(next_render_at(&stage, &pacer, false, now), None);
+        let at = |stage: &RenderStage, rendering| {
+            next_render_at(stage, None, DEFAULT_PERIOD, rendering, now)
+        };
+        assert_eq!(at(&stage, false), None);
         let frame = br#"{"type":"assistant_text","tug_session_id":"s1","msg_id":"m","block_index":0,"is_partial":true,"text":"x"}"#;
         stage.ingest(frame, 0);
-        assert_eq!(next_render_at(&stage, &pacer, false, now), Some(now));
+        assert_eq!(at(&stage, false), Some(now));
         // A render in flight holds the next one back.
-        assert_eq!(next_render_at(&stage, &pacer, true, now), None);
+        assert_eq!(at(&stage, true), None);
+        // The clock waits a period after the last tick.
+        assert_eq!(
+            next_render_at(&stage, Some(now), DEFAULT_PERIOD, false, now),
+            Some(now + DEFAULT_PERIOD)
+        );
         stage.take_dirty();
-        assert_eq!(next_render_at(&stage, &pacer, false, now), None);
+        assert_eq!(at(&stage, false), None);
+    }
+
+    /// The stage renders as often as the fastest page asks.
+    #[test]
+    fn the_render_clock_follows_the_fastest_page() {
+        let mut pacers = HashMap::new();
+        assert_eq!(render_period(&pacers), DEFAULT_PERIOD);
+        let mut slow = PagePacer::new();
+        slow.set_period(50.0);
+        pacers.insert(1, slow);
+        assert_eq!(render_period(&pacers), Duration::from_millis(50));
+        let mut fast = PagePacer::new();
+        fast.set_period(8.0);
+        pacers.insert(2, fast);
+        assert_eq!(render_period(&pacers), Duration::from_millis(8));
     }
 
     #[tokio::test(start_paused = true)]
@@ -1339,5 +1566,156 @@ mod tests {
             .await;
         h.wait(50).await;
         assert_eq!(h.frames().len(), 3);
+    }
+
+    // ── many pages ────────────────────────────────────────────────────────
+
+    /// One page's hold parks only its own renders: the other page is sent
+    /// each tick at once, and the held page's release sends it one merged
+    /// bundle, to it alone.
+    #[tokio::test(start_paused = true)]
+    async fn one_pages_hold_parks_only_its_own_renders() {
+        const B: u64 = 2;
+        let h = Harness::bare();
+        h.pages.register(A, &identity(PageRole::Shell, None));
+        h.pages.register(B, &identity(PageRole::Body, Some("cB")));
+        h.control_from(
+            A,
+            json!({"kind": "motion", "holder": "h1", "held": true, "capMs": 5000}),
+        )
+        .await;
+        h.text("s1", true, "# Title\n\n");
+        h.wait(40).await;
+        h.text("s1", true, "First.");
+        h.wait(40).await;
+        assert!(h.batches_for(A).is_empty(), "A is held");
+        let b_before = h.batches_for(B).len();
+        assert_eq!(b_before, 2, "B is sent each tick at once");
+
+        let released_at = Instant::now();
+        h.control_from(A, json!({"kind": "motion", "holder": "h1", "held": false}))
+            .await;
+        h.wait(1).await;
+        let a = h.batches_for(A);
+        assert_eq!(a.len(), 1, "one bundle");
+        assert!(a[0].0 >= released_at);
+        assert_eq!(only_message(&a[0].1).blocks.len(), 2);
+        assert_eq!(h.batches_for(B).len(), b_before, "the release is A's alone");
+        // Every batch went to one page; with no tool live, none went whole.
+        for sent in h.sent() {
+            assert!(matches!(sent.to, Delivery::Client(_)), "{:?}", sent.to);
+        }
+    }
+
+    /// A page with a 50 ms period is sent one merged emission for two
+    /// ticks the faster page takes 16 ms apart, read against the base it
+    /// already holds.
+    #[tokio::test(start_paused = true)]
+    async fn a_slower_page_takes_one_merged_emission_for_two_ticks() {
+        const B: u64 = 2;
+        let h = Harness::bare();
+        h.pages.register(A, &identity(PageRole::Shell, None));
+        h.pages.register(B, &identity(PageRole::Body, Some("cB")));
+        h.control_from(A, json!({"kind": "display-period", "periodMs": 50.0}))
+            .await;
+        h.text("s1", true, "One.\n\n");
+        h.wait(20).await;
+        h.text("s1", true, "Two.\n\n");
+        // Ingested well before the next tick, 16 ms after this one.
+        h.wait(10).await;
+        h.text("s1", true, "Three.");
+        h.wait(100).await;
+
+        let b = h.batches_for(B);
+        assert_eq!(b.len(), 3, "B takes every tick");
+        let a = h.batches_for(A);
+        assert_eq!(a.len(), 2, "A takes the first and one merged emission");
+        assert!(a[1].0 - a[0].0 >= Duration::from_millis(50));
+        let (first, merged) = (only_message(&a[0].1), only_message(&a[1].1));
+        assert_eq!(merged.seq, only_message(&b[2].1).seq);
+        assert!(
+            merged.blocks_from == 0 || merged.base_seq == first.seq,
+            "{merged:?} reads against {first:?}"
+        );
+        assert_eq!(merged.text_hash, only_message(&b[2].1).text_hash);
+    }
+
+    /// Each page is sent only its sessions — one that has spoken on
+    /// `RENDER_INPUT` and a body that never has — and a tool takes the
+    /// batch whole.
+    #[tokio::test(start_paused = true)]
+    async fn each_page_takes_only_its_sessions_and_a_tool_takes_all() {
+        const QUIET_BODY: u64 = 2;
+        const TOOL: u64 = 3;
+        let h = Harness::bare();
+        let only_s1 = || SessionSubscription::Only(["s1".to_string()].into());
+        h.pages.register(A, &identity(PageRole::Shell, None));
+        h.pages.set_sessions(A, only_s1());
+        h.pages
+            .register(QUIET_BODY, &identity(PageRole::Body, Some("c1")));
+        h.pages.set_sessions(QUIET_BODY, only_s1());
+        h.pages.register(TOOL, &PageIdentity::tool());
+        h.control_from(A, json!({"kind": "display-period", "periodMs": 16.0}))
+            .await;
+        h.text("s1", false, "One.");
+        h.text("s2", false, "Two.");
+        h.wait(50).await;
+
+        for page in [A, QUIET_BODY] {
+            let batches = h.batches_for(page);
+            assert!(!batches.is_empty(), "page {page} was sent its session");
+            for (_, batch) in batches {
+                assert_eq!(session_ids(&batch), vec!["s1"], "page {page}");
+            }
+        }
+        let whole = h.batches_for(TOOL);
+        assert!(
+            whole
+                .iter()
+                .any(|(_, batch)| session_ids(batch) == vec!["s1", "s2"]),
+            "{whole:?}"
+        );
+        let to_tools: Vec<Delivery> = h
+            .sent()
+            .into_iter()
+            .map(|s| s.to)
+            .filter(|to| matches!(to, Delivery::AllExcept(_)))
+            .collect();
+        assert!(!to_tools.is_empty());
+        for to in to_tools {
+            assert_eq!(to, Delivery::AllExcept(vec![A, QUIET_BODY].into()));
+        }
+    }
+
+    /// A departed page's pacer goes with it: its held renders are never
+    /// sent, and the batch tools take no longer names it.
+    #[tokio::test(start_paused = true)]
+    async fn a_departure_drops_the_pacer() {
+        const TOOL: u64 = 3;
+        let h = Harness::start();
+        h.pages.register(TOOL, &PageIdentity::tool());
+        h.control(json!({"kind": "motion", "holder": "h1", "held": true, "capMs": 5000}))
+            .await;
+        h.text("s1", true, "Held.");
+        h.wait(50).await;
+        assert!(
+            h.sent()
+                .iter()
+                .any(|s| s.to == Delivery::AllExcept(vec![A].into()))
+        );
+
+        h.pages.depart(A);
+        h.wait(1).await;
+        h.text("s1", true, " More.");
+        h.wait(6_000).await;
+        let sent = h.sent();
+        assert!(
+            sent.iter().all(|s| s.to != Delivery::Client(A)),
+            "a departed page is sent nothing, not even its expired hold"
+        );
+        assert_eq!(
+            sent.last().map(|s| s.to.clone()),
+            Some(Delivery::AllExcept(Vec::new().into()))
+        );
     }
 }

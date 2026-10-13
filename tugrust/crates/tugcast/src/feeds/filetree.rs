@@ -21,6 +21,7 @@ use tracing::{debug, info, warn};
 use tugcast_core::types::{FsEvent, ScoredResult};
 use tugcast_core::{FeedId, FileTreeSnapshot, Frame, SnapshotFeed};
 
+use crate::pages::{AddressedFrame, Delivery};
 use crate::path_resolver::CanonicalPath;
 
 use super::code::splice_workspace_key;
@@ -35,6 +36,9 @@ const MAX_RESULTS: usize = 8;
 pub struct FileTreeQuery {
     pub query: String,
     pub root: Option<PathBuf>,
+    /// The client the answer goes to, set by the router's adapter from the
+    /// frame's sender. `None` answers every connection.
+    pub reply_to: Option<u64>,
 }
 
 /// File tree feed that maintains an index and responds to scored queries.
@@ -71,19 +75,17 @@ pub struct FileTreeFeed {
     /// to the existing `.gitignore` re-walk). Per
     /// `arc/dev-atoms.md#step-4` and [D06].
     secret_filter: SecretFilter,
-    /// Shared FILETREE-response broadcast channel. Every workspace's
-    /// `FileTreeFeed` publishes its response frames here; the router
-    /// subscribes once at the process level and forwards every frame to
-    /// every connected client. JS-side filtering by `workspace_key`
-    /// (spliced into each frame's JSON via `splice_workspace_key`)
-    /// routes the response to the right card.
+    /// Shared FILETREE-response lane. Every workspace's `FileTreeFeed`
+    /// publishes its response frames here, each addressed to the page that
+    /// asked; the router registers it once and each connection forwards
+    /// the frames addressed to it. JS-side filtering by `workspace_key`
+    /// (spliced into each frame's JSON via `splice_workspace_key`) routes
+    /// the response to the right card within that page.
     ///
-    /// This is the multi-workspace response path. The per-workspace
-    /// `watch_tx` (the `watch_tx` argument to `run`) is still written
-    /// for back-compat / test introspection, but the router no longer
-    /// consumes it — see `main.rs`'s FILETREE wiring and
-    /// `arc/dev-atoms.md#step-pre-4`.
-    ft_response_tx: broadcast::Sender<Frame>,
+    /// The per-workspace `watch_tx` (the `watch_tx` argument to `run`)
+    /// carries only the initial empty snapshot: the bootstrap's watch is
+    /// what a fresh connection is seeded from.
+    ft_response_tx: broadcast::Sender<AddressedFrame>,
 }
 
 impl FileTreeFeed {
@@ -94,7 +96,7 @@ impl FileTreeFeed {
         event_tx: broadcast::Sender<Vec<FsEvent>>,
         query_rx: mpsc::Receiver<FileTreeQuery>,
         workspace_key: Arc<str>,
-        ft_response_tx: broadcast::Sender<Frame>,
+        ft_response_tx: broadcast::Sender<AddressedFrame>,
     ) -> Self {
         // Build the secret-file matcher first so we can sweep the
         // freshly-walked initial set through it. The `walk_directory`
@@ -143,13 +145,14 @@ impl SnapshotFeed for FileTreeFeed {
     async fn run(mut self: Box<Self>, watch_tx: watch::Sender<Frame>, cancel: CancellationToken) {
         let mut event_rx = self.event_tx.subscribe();
 
-        // Send empty initial response.
+        // Send empty initial response, to every connection and into the
+        // watch that seeds every later one.
         let initial = FileTreeSnapshot {
             query: String::new(),
             results: vec![],
             truncated: self.truncated,
         };
-        let _ = self.send_response(&watch_tx, &initial);
+        let _ = self.send_response(Some(&watch_tx), &initial, Delivery::All);
 
         loop {
             tokio::select! {
@@ -202,7 +205,8 @@ impl SnapshotFeed for FileTreeFeed {
                 // Query input.
                 Some(query) = self.query_rx.recv() => {
                     let response = self.handle_query(&query);
-                    let _ = self.send_response(&watch_tx, &response);
+                    let to = query.reply_to.map_or(Delivery::All, Delivery::Client);
+                    let _ = self.send_response(None, &response, to);
                 }
             }
         }
@@ -485,38 +489,35 @@ impl FileTreeFeed {
         }
     }
 
-    /// Serialize and broadcast a response frame.
+    /// Serialize and publish a response frame.
     ///
     /// Splices `workspace_key` as the first field of the serialized
-    /// `FileTreeSnapshot` payload, per [D03]. Publishes to two places:
-    ///   - The shared `ft_response_tx` broadcast channel — the
-    ///     production path. The router subscribes once at the process
-    ///     level, fans out to every connected client; JS filters by
-    ///     `workspace_key`.
-    ///   - The per-workspace `watch_tx` argument — back-compat with the
-    ///     pre-multi-workspace test surface (`test_workspace_key_spliced_into_filetree_frame`
-    ///     inspects this watch). The router stopped reading per-workspace
-    ///     watches at Step pre-4; this write is now test-only and can
-    ///     be removed in a follow-on cleanup.
+    /// `FileTreeSnapshot` payload, per [D03], and publishes it on the shared
+    /// `ft_response_tx` lane addressed `to`. `watch_tx` is given only for
+    /// the initial empty snapshot: a query's answer belongs to the page
+    /// that asked, and a retained watch would re-deliver it to every page
+    /// that connects later.
     fn send_response(
         &self,
-        watch_tx: &watch::Sender<Frame>,
+        watch_tx: Option<&watch::Sender<Frame>>,
         snapshot: &FileTreeSnapshot,
+        to: Delivery,
     ) -> Result<(), ()> {
         let json = serde_json::to_vec(snapshot).map_err(|_| ())?;
         let json = splice_workspace_key(&json, &self.workspace_key);
         let frame = Frame::new(FeedId::FILETREE, json.clone());
-        // Broadcast first: this is the production path. Send errors
-        // (no active subscribers) are non-fatal — clients may not be
-        // connected yet (e.g., bootstrap publishes its empty initial
-        // snapshot before any client connects). Workspace responses
-        // arrive on demand, so missing-subscriber here is the same
-        // shape as before.
-        let _ = self.ft_response_tx.send(frame.clone());
-        // Vestigial: per-workspace watch. Kept for tests.
-        watch_tx.send_modify(|f| {
-            *f = frame;
+        // Send errors (no active subscribers) are non-fatal — clients may
+        // not be connected yet (e.g., bootstrap publishes its empty initial
+        // snapshot before any client connects).
+        let _ = self.ft_response_tx.send(AddressedFrame {
+            to,
+            frame: frame.clone(),
         });
+        if let Some(watch_tx) = watch_tx {
+            watch_tx.send_modify(|f| {
+                *f = frame;
+            });
+        }
         Ok(())
     }
 }
@@ -613,7 +614,7 @@ mod tests {
     fn test_feed(files: BTreeSet<String>) -> FileTreeFeed {
         let (tx, _) = broadcast::channel(16);
         let (_qtx, qrx) = mpsc::channel(16);
-        let (ft_response_tx, _) = broadcast::channel::<Frame>(16);
+        let (ft_response_tx, _) = broadcast::channel::<AddressedFrame>(16);
         FileTreeFeed::new(
             PathBuf::from("/unused-in-this-test"),
             files,
@@ -634,7 +635,7 @@ mod tests {
     fn test_feed_rooted(workspace_root: PathBuf, files: BTreeSet<String>) -> FileTreeFeed {
         let (tx, _) = broadcast::channel(16);
         let (_qtx, qrx) = mpsc::channel(16);
-        let (ft_response_tx, _) = broadcast::channel::<Frame>(16);
+        let (ft_response_tx, _) = broadcast::channel::<AddressedFrame>(16);
         FileTreeFeed::new(
             workspace_root,
             files,
@@ -912,6 +913,7 @@ mod tests {
         feed.handle_query(&FileTreeQuery {
             query: "plan.md".to_string(),
             root: Some(real.clone()),
+            reply_to: None,
         });
 
         assert!(
@@ -939,6 +941,7 @@ mod tests {
         let response = feed.handle_query(&FileTreeQuery {
             query: "beta".to_string(),
             root: Some(b),
+            reply_to: None,
         });
 
         assert!(!feed.watcher_aligned, "a foreign root unaligns the watcher");
@@ -960,7 +963,7 @@ mod tests {
 
         let (event_tx, _) = broadcast::channel(16);
         let (_qtx, qrx) = mpsc::channel(16);
-        let (ft_response_tx, _) = broadcast::channel::<Frame>(16);
+        let (ft_response_tx, mut ft_response_rx) = broadcast::channel::<AddressedFrame>(16);
         let feed = FileTreeFeed::new(
             PathBuf::from("/unused-in-this-test"),
             BTreeSet::new(),
@@ -971,16 +974,18 @@ mod tests {
             ft_response_tx,
         );
 
-        let (watch_tx, mut watch_rx) = watch::channel(Frame::new(FeedId::FILETREE, vec![]));
+        let (watch_tx, _watch_rx) = watch::channel(Frame::new(FeedId::FILETREE, vec![]));
         let cancel = CancellationToken::new();
         let feed_cancel = cancel.clone();
         let feed_task = tokio::spawn(async move {
             Box::new(feed).run(watch_tx, feed_cancel).await;
         });
 
-        // The initial snapshot is published as the first action of run().
-        watch_rx.changed().await.unwrap();
-        let frame = watch_rx.borrow_and_update().clone();
+        // The initial snapshot is published as the first action of run(),
+        // to every connection.
+        let addressed = ft_response_rx.recv().await.unwrap();
+        assert_eq!(addressed.to, Delivery::All);
+        let frame = addressed.frame;
 
         // Field ordering check is done on the raw bytes because
         // `serde_json::Value` normalizes object key order (BTreeMap).
@@ -992,6 +997,53 @@ mod tests {
         );
         let parsed: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(parsed["workspace_key"], fixture_key.as_ref());
+
+        cancel.cancel();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), feed_task).await;
+    }
+
+    /// A query's answer goes to the page that asked and is not retained: the
+    /// watch a fresh connection is seeded from still holds the empty seed.
+    #[tokio::test]
+    async fn a_query_is_answered_to_its_asker_and_the_watch_keeps_the_seed() {
+        let (event_tx, _) = broadcast::channel(16);
+        let (qtx, qrx) = mpsc::channel(16);
+        let (ft_response_tx, mut ft_response_rx) = broadcast::channel::<AddressedFrame>(16);
+        let mut files = BTreeSet::new();
+        files.insert("src/main.rs".to_string());
+        let feed = FileTreeFeed::new(
+            PathBuf::from("/unused-in-this-test"),
+            files,
+            false,
+            event_tx,
+            qrx,
+            Arc::from("test-workspace"),
+            ft_response_tx,
+        );
+        let (watch_tx, watch_rx) = watch::channel(Frame::new(FeedId::FILETREE, vec![]));
+        let cancel = CancellationToken::new();
+        let feed_cancel = cancel.clone();
+        let feed_task = tokio::spawn(async move {
+            Box::new(feed).run(watch_tx, feed_cancel).await;
+        });
+        let seed = ft_response_rx.recv().await.unwrap().frame;
+
+        qtx.send(FileTreeQuery {
+            query: "main".to_string(),
+            root: None,
+            reply_to: Some(3),
+        })
+        .await
+        .unwrap();
+        let answer = ft_response_rx.recv().await.unwrap();
+        assert_eq!(answer.to, Delivery::Client(3));
+        let parsed: serde_json::Value = serde_json::from_slice(&answer.frame.payload).unwrap();
+        assert_eq!(parsed["query"], "main");
+        assert_eq!(
+            watch_rx.borrow().payload,
+            seed.payload,
+            "the watch still holds the seed, not the answer"
+        );
 
         cancel.cancel();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), feed_task).await;

@@ -70,7 +70,7 @@
  * them itself rather than waiting out its finisher.
  */
 
-import type { IngestPatch } from "@tugproto/ingest";
+import type { IngestPageIdentity, IngestPatch } from "@tugproto/ingest";
 import {
   RENDERED_FEED_VERSION,
   renderInputFrame,
@@ -227,6 +227,8 @@ export class IngestHost {
   private readonly holderId = mintHolderId();
   /** The display period last posted, re-sent to tugcast on every handshake. */
   private periodMs: number = FALLBACK_FRAME_PERIOD_MS;
+  /** The sessions `init` named, sent with every subscription. */
+  private sessions: "all" | string[] = "all";
 
   constructor(
     private readonly sink: BatchSink,
@@ -265,7 +267,7 @@ export class IngestHost {
   private apply(control: SessionControl): void {
     switch (control.kind) {
       case "init":
-        this.init(control.wsUrl, control.periodMs);
+        this.init(control.wsUrl, control.periodMs, control.page, control.sessions);
         return;
       case "connect":
         this.socketFor("connect")?.connect();
@@ -354,10 +356,16 @@ export class IngestHost {
     }
   }
 
-  private init(wsUrl: string, periodMs: number): void {
+  private init(
+    wsUrl: string,
+    periodMs: number,
+    page: IngestPageIdentity | undefined,
+    sessions: "all" | string[] | undefined,
+  ): void {
     if (this.socket !== null) return;
     this.policy.setPeriod(periodMs);
     this.periodMs = periodMs;
+    this.sessions = sessions ?? "all";
     this.socket = new WireSocket(
       wsUrl,
       {
@@ -376,7 +384,7 @@ export class IngestHost {
         bytes: (chunk) => this.absorb(chunk),
         handshakeComplete: () => {
           // Unconditional: a fresh socket knows nothing, whatever the last one carried.
-          this.socket?.sendSubscription(this.wireSubscription());
+          this.socket?.sendSubscription(this.wireSubscription(), this.sessions);
           // tugcast's render bridge paces to the deck's period, and re-sends
           // every block's HTML, since this page may hold none of it.
           this.sendRenderControl({ kind: "display-period", periodMs: this.periodMs });
@@ -385,6 +393,13 @@ export class IngestHost {
         endOfEvent: () => this.policy.endOfMessage(),
       },
       this.options.timers ?? GLOBAL_TIMERS,
+      page === undefined
+        ? null
+        : {
+            role: page.role,
+            page_id: page.pageId,
+            ...(page.cardId === undefined ? {} : { card_id: page.cardId }),
+          },
     );
   }
 
@@ -409,7 +424,7 @@ export class IngestHost {
     const known = new Set(this.wireSubscription());
     const grew = feeds.some((f) => !known.has(f));
     this.subscribed = [...feeds];
-    if (grew && this.socket?.connected) this.socket.sendSubscription(this.wireSubscription());
+    if (grew && this.socket?.connected) this.socket.sendSubscription(this.wireSubscription(), this.sessions);
   }
 
   /** The set the wire is told: the page's, with the host's own feeds folded in, in feed order. */
@@ -423,7 +438,7 @@ export class IngestHost {
     const before = new Set(this.wireSubscription());
     for (const f of feeds) this.ownFeeds.add(f);
     if (!feeds.some((f) => !before.has(f))) return;
-    if (this.socket?.connected) this.socket.sendSubscription(this.wireSubscription());
+    if (this.socket?.connected) this.socket.sendSubscription(this.wireSubscription(), this.sessions);
   }
 
   private absorb(chunk: Uint8Array): void {

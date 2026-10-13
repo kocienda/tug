@@ -192,7 +192,7 @@ impl WorkspaceEntry {
         project_dir: PathBuf,
         workspace_key: WorkspaceKey,
         parent_cancel: CancellationToken,
-        ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
+        ft_response_tx: tokio::sync::broadcast::Sender<crate::pages::AddressedFrame>,
         changeset_all_bump: Arc<tokio::sync::Notify>,
         gh_response_tx: tokio::sync::broadcast::Sender<Frame>,
         fs_event_tx: tokio::sync::broadcast::Sender<Frame>,
@@ -318,11 +318,11 @@ pub struct WorkspaceRegistry {
     /// set of spawned tasks. `WorkspaceEntry::new` is synchronous and
     /// never `.await`s while holding the lock.
     inner: Mutex<HashMap<WorkspaceKey, Arc<WorkspaceEntry>>>,
-    /// Shared FILETREE-response broadcast channel. Cloned into each
+    /// Shared FILETREE-response lane. Cloned into each
     /// `WorkspaceEntry::new` call so every workspace's `FileTreeFeed`
     /// publishes responses to one place. The router subscribes once
     /// at the process level. Per `arc/dev-atoms.md#step-pre-4`.
-    ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
+    ft_response_tx: tokio::sync::broadcast::Sender<crate::pages::AddressedFrame>,
     /// Process-global recompute signal for the account-global CHANGESET_ALL
     /// feed. Pinged whenever the open-project set changes (`get_or_create`
     /// inserts a fresh entry, `release` tears one down) so a project's
@@ -356,7 +356,7 @@ impl WorkspaceRegistry {
     /// `gh_response_tx` is the shared GIT_HEAD signal channel each workspace's
     /// git watch broadcasts HEAD moves on.
     pub fn new(
-        ft_response_tx: tokio::sync::broadcast::Sender<Frame>,
+        ft_response_tx: tokio::sync::broadcast::Sender<crate::pages::AddressedFrame>,
         changeset_all_bump: Arc<tokio::sync::Notify>,
         gh_response_tx: tokio::sync::broadcast::Sender<Frame>,
         fs_event_tx: tokio::sync::broadcast::Sender<Frame>,
@@ -1020,6 +1020,7 @@ mod tests {
         let ftq = FileTreeQuery {
             query: "match-me".to_string(),
             root: Some(card_dir.path().to_path_buf()),
+            reply_to: None,
         };
         registry.route_filetree_query(ftq, &bootstrap_tx).await;
 
@@ -1049,6 +1050,7 @@ mod tests {
         let ftq = FileTreeQuery {
             query: "anywhere".to_string(),
             root: Some(PathBuf::from("/nonexistent/path/xyz-123")),
+            reply_to: None,
         };
         registry.route_filetree_query(ftq, &bootstrap_tx).await;
 
@@ -1069,6 +1071,7 @@ mod tests {
         let ftq = FileTreeQuery {
             query: "bare-query".to_string(),
             root: None,
+            reply_to: None,
         };
         registry.route_filetree_query(ftq, &bootstrap_tx).await;
 

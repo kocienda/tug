@@ -1137,6 +1137,13 @@ pub enum DeckCommands {
     /// Read and steer the deck's motion — census, render cost, bisect.
     #[command(subcommand)]
     Motion(DeckMotionCommands),
+
+    /// List the pages on tugcast's WebSockets — each connection's role,
+    /// page id, card, and session subscription.
+    Pages {
+        #[command(flatten)]
+        target: DeckTarget,
+    },
 }
 
 /// `tugtool deck motion …` — every reading rides `POST /api/eval` and the
@@ -1156,7 +1163,7 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         within: Option<String>,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Measure the frame's style-layout-compositing cost, now.
     Cost {
@@ -1164,7 +1171,7 @@ pub enum DeckMotionCommands {
         #[arg(long, default_value_t = 30)]
         frames: u32,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Count the rendering updates per second that hold the main thread at rest.
     Rest {
@@ -1180,26 +1187,26 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         frame_phases: bool,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// The element population the compositing walk pays for.
     Layers {
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Pause every animation whose target matches a selector.
     Pause {
         /// CSS selector. Matched against each animation's target and its ancestors.
         selector: String,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Resume them.
     Resume {
         /// CSS selector. Matched against each animation's target and its ancestors.
         selector: String,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Pause each loop group in turn and report whose absence is felt.
     Bisect {
@@ -1210,17 +1217,17 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         cap: Option<u32>,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Input-to-next-paint, where the engine reports it.
     Input {
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// What the render-cost probe is doing right now.
     Probe {
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// The late frames every settle has recorded: each frame that arrived
     /// more than one display period after the one before it while the
@@ -1230,7 +1237,7 @@ pub enum DeckMotionCommands {
     /// read over. Always recorded, so it answers on a deck nobody armed.
     Gaps {
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Still every long-running loop, or let them run again.
     Demote {
@@ -1238,7 +1245,7 @@ pub enum DeckMotionCommands {
         #[arg(value_parser = ["on", "off"])]
         state: String,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Switch the deck's motion instruments on or off; bare, report them.
     ///
@@ -1263,7 +1270,7 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         reload: bool,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// The read→write→read chains under a gesture, by call site.
     ///
@@ -1280,7 +1287,7 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         no_stacks: bool,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// The frames a gesture actually delivered, recorded from outside it.
     ///
@@ -1297,7 +1304,7 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         window: Option<u32>,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Drive the flow slide and read what it delivered.
     ///
@@ -1346,7 +1353,7 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         full_census: bool,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Drive one settle gesture and name every React commit in its window.
     ///
@@ -1501,7 +1508,7 @@ pub enum DeckMotionCommands {
         #[arg(long)]
         restore: bool,
         #[command(flatten)]
-        target: DeckTarget,
+        target: DeckEvalTarget,
     },
     /// Open the `diag/eval` door on this instance (loopback only).
     Enable {
@@ -1516,7 +1523,7 @@ pub enum DeckMotionCommands {
 }
 
 /// Which deck to talk to. Every `deck motion` subcommand takes these.
-#[derive(clap::Args)]
+#[derive(clap::Args, Default)]
 pub struct DeckTarget {
     /// tugcast port (skips instance discovery).
     #[arg(long)]
@@ -1524,6 +1531,19 @@ pub struct DeckTarget {
     /// Instance id to resolve the port from.
     #[arg(long)]
     pub instance: Option<String>,
+}
+
+/// Which deck to talk to, and which of its pages evaluates. Every
+/// `deck motion` verb that runs an eval takes these; `enable`, `disable` and
+/// `settle` (whose own `--card` names the card its gesture acts on) take a
+/// plain [`DeckTarget`] and evaluate in the shell.
+#[derive(clap::Args, Default)]
+pub struct DeckEvalTarget {
+    #[command(flatten)]
+    pub target: DeckTarget,
+    /// Evaluate in this card's body page rather than the shell.
+    #[arg(long)]
+    pub card: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -1608,6 +1628,10 @@ pub enum HostCommands {
         /// Parameters as KEY=VALUE pairs (repeatable)
         #[arg(short = 'p', long = "param", value_name = "KEY=VALUE")]
         param: Vec<String>,
+
+        /// Deliver the tell to this card's body page rather than the shell.
+        #[arg(long)]
+        card: Option<String>,
     },
 
     /// Per-instance discovery and lifecycle management.

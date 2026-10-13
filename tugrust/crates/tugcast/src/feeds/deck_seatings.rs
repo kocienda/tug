@@ -9,7 +9,9 @@
 //! reading `closed` as *abandoned*, offers the user their own files back.
 //! Seatedness is the missing fact, and only the deck holds it, so the deck
 //! reports it: a `deck_seatings` CONTROL frame carries the full replacement
-//! set for that client, and the supervisor writes it here.
+//! set for that client, and the supervisor writes it here. Each seating is a
+//! (card, session) pair, so the board also answers which card seats a
+//! session — what lets a card's own page write that session's input.
 //!
 //! Ephemeral by design, mirroring the fact it describes: the board is keyed
 //! by WebSocket client id, a disconnect drops its entry, and a reconnect is
@@ -31,8 +33,12 @@ use std::sync::OnceLock;
 
 #[derive(Default)]
 struct SeatingBoard {
-    by_client: Mutex<HashMap<u64, HashSet<String>>>,
+    by_client: Mutex<HashMap<u64, HashSet<Seating>>>,
 }
+
+/// One reported seating: the card (when the report named one) and the
+/// session it is seated on.
+pub type Seating = (Option<String>, String);
 
 static BOARD: OnceLock<SeatingBoard> = OnceLock::new();
 
@@ -44,14 +50,14 @@ fn board() -> &'static SeatingBoard {
 /// full replacement, so a missed delta can never wedge the set). Returns
 /// whether the report changed anything — the caller bumps the aggregate
 /// recompute on `true`.
-pub fn set_deck_seatings(client_id: u64, session_ids: HashSet<String>) -> bool {
+pub fn set_deck_seatings(client_id: u64, seatings: HashSet<Seating>) -> bool {
     let mut by_client = board().by_client.lock();
-    if session_ids.is_empty() {
+    if seatings.is_empty() {
         by_client.remove(&client_id).is_some()
-    } else if by_client.get(&client_id) == Some(&session_ids) {
+    } else if by_client.get(&client_id) == Some(&seatings) {
         false
     } else {
-        by_client.insert(client_id, session_ids);
+        by_client.insert(client_id, seatings);
         true
     }
 }
@@ -69,5 +75,49 @@ pub fn drop_deck_seatings(client_id: u64) -> bool {
 /// Empty when no deck is connected, which is the truth in that case.
 pub fn seated_session_ids() -> HashSet<String> {
     let by_client = board().by_client.lock();
-    by_client.values().flatten().cloned().collect()
+    by_client
+        .values()
+        .flatten()
+        .map(|(_, session)| session.clone())
+        .collect()
+}
+
+/// Whether any connected deck reports `card` seated on `session`.
+pub fn card_seats(card: &str, session: &str) -> bool {
+    let by_client = board().by_client.lock();
+    by_client
+        .values()
+        .flatten()
+        .any(|(c, s)| c.as_deref() == Some(card) && s == session)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The board is process-global, so each test uses client ids and names
+    /// no other test does.
+    #[test]
+    fn pairs_round_trip_and_a_card_seats_only_what_was_reported() {
+        let pairs: HashSet<Seating> = [
+            (Some("seat-card-1".to_string()), "seat-s1".to_string()),
+            (None, "seat-s2".to_string()),
+        ]
+        .into();
+        assert!(set_deck_seatings(9_101, pairs.clone()));
+        assert!(
+            !set_deck_seatings(9_101, pairs),
+            "the same report changes nothing"
+        );
+        let seated = seated_session_ids();
+        assert!(seated.contains("seat-s1") && seated.contains("seat-s2"));
+        assert!(card_seats("seat-card-1", "seat-s1"));
+        assert!(
+            !card_seats("seat-card-1", "seat-s2"),
+            "a pair, not a card and a session apart"
+        );
+        assert!(!card_seats("seat-card-2", "seat-s1"));
+        assert!(drop_deck_seatings(9_101));
+        assert!(!card_seats("seat-card-1", "seat-s1"));
+    }
 }

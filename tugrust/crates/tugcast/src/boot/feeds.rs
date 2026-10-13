@@ -25,6 +25,7 @@ use crate::feeds::filetree::FileTreeQuery;
 use crate::feeds::session_scoped::SessionScopedFeed;
 use crate::feeds::terminal::TerminalFeed;
 use crate::feeds::workspace_registry::{WorkspaceEntry, WorkspaceRegistry};
+use crate::pages::{AddressedFrame, ClientFrame, Delivery, PageRegistry};
 use crate::router::{BROADCAST_CAPACITY, LagPolicy};
 
 /// The session-scoped streams, the terminal feed, and the bootstrap watch
@@ -155,24 +156,24 @@ pub(crate) struct Feeds {
     pub(crate) defaults_rx: Option<watch::Receiver<Frame>>,
     /// The process-wide token every background task runs under.
     pub(crate) cancel: CancellationToken,
-    pub(crate) ft_response_tx: broadcast::Sender<Frame>,
+    pub(crate) ft_response_tx: broadcast::Sender<AddressedFrame>,
     pub(crate) fs_event_tx: broadcast::Sender<Frame>,
-    pub(crate) file_watch_tx: broadcast::Sender<Frame>,
-    pub(crate) file_watch_input_tx: mpsc::Sender<Frame>,
-    pub(crate) gd_response_tx: broadcast::Sender<Frame>,
-    pub(crate) gl_response_tx: broadcast::Sender<Frame>,
+    pub(crate) file_watch_tx: broadcast::Sender<AddressedFrame>,
+    pub(crate) file_watch_input_tx: mpsc::Sender<ClientFrame>,
+    pub(crate) gd_response_tx: broadcast::Sender<AddressedFrame>,
+    pub(crate) gl_response_tx: broadcast::Sender<AddressedFrame>,
     pub(crate) gh_response_tx: broadcast::Sender<Frame>,
-    pub(crate) gcf_response_tx: broadcast::Sender<Frame>,
-    pub(crate) usage_response_tx: broadcast::Sender<Frame>,
+    pub(crate) gcf_response_tx: broadcast::Sender<AddressedFrame>,
+    pub(crate) usage_response_tx: broadcast::Sender<AddressedFrame>,
     /// The CHANGESET_ALL recompute signal.
     pub(crate) changeset_all_bump: Arc<tokio::sync::Notify>,
     pub(crate) registry: Arc<WorkspaceRegistry>,
     pub(crate) bootstrap: Arc<WorkspaceEntry>,
-    pub(crate) ft_input_tx: mpsc::Sender<Frame>,
-    pub(crate) gd_input_tx: mpsc::Sender<Frame>,
-    pub(crate) gl_input_tx: mpsc::Sender<Frame>,
-    pub(crate) gcf_input_tx: mpsc::Sender<Frame>,
-    pub(crate) usage_input_tx: mpsc::Sender<Frame>,
+    pub(crate) ft_input_tx: mpsc::Sender<ClientFrame>,
+    pub(crate) gd_input_tx: mpsc::Sender<ClientFrame>,
+    pub(crate) gl_input_tx: mpsc::Sender<ClientFrame>,
+    pub(crate) gcf_input_tx: mpsc::Sender<ClientFrame>,
+    pub(crate) usage_input_tx: mpsc::Sender<ClientFrame>,
     /// The router's handle on the shutdown channel.
     pub(crate) shutdown_tx: mpsc::Sender<u8>,
     pub(crate) shutdown_rx: mpsc::Receiver<u8>,
@@ -180,6 +181,9 @@ pub(crate) struct Feeds {
     pub(crate) ctl_shutdown_tx: mpsc::Sender<u8>,
     /// Client-bound CONTROL frames.
     pub(crate) client_action_tx: broadcast::Sender<Frame>,
+    /// The one page registry: which page is on each connection. Shared by
+    /// the router and every service that keeps per-page state.
+    pub(crate) pages: Arc<PageRegistry>,
     pub(crate) shared_dev_state: SharedDevState,
     pub(crate) control_writer: Option<control::ControlWriter>,
     pub(crate) control_reader: Option<control::ControlReader>,
@@ -214,15 +218,18 @@ pub(crate) fn feeds(
     // to the feed tasks it spawns internally.
     let cancel = CancellationToken::new();
 
-    // Shared FILETREE-response broadcast channel. Every workspace's
-    // `FileTreeFeed` publishes responses here; the router subscribes
-    // once (via `add_broadcast_senders`) and fans out to every
-    // connected client. JS-side filtering by `workspace_key` routes the
-    // response to the right card. Buffer of 64 frames is comfortable
-    // for FILETREE traffic (one frame per typed character, deduplicated
-    // by JS) — a Lagged slow client drops some completions but doesn't
-    // crash. Per `arc/dev-atoms.md#step-pre-4`.
-    let (ft_response_tx, _) = broadcast::channel::<Frame>(64);
+    // The page registry, made once and handed to everything that asks which
+    // page a connection is — the file-watch service below among them.
+    let pages = Arc::new(PageRegistry::new());
+
+    // Shared FILETREE-response lane. Every workspace's `FileTreeFeed`
+    // publishes responses here, each addressed to the page that asked; the
+    // router registers it once (via `register_addressed_stream`). JS-side
+    // filtering by `workspace_key` routes the response to the right card.
+    // Buffer of 64 frames is comfortable for FILETREE traffic (one frame
+    // per typed character, deduplicated by JS) — a Lagged slow client
+    // drops some completions but doesn't crash.
+    let (ft_response_tx, _) = broadcast::channel::<AddressedFrame>(64);
 
     // The one FILESYSTEM stream, shared by every workspace. It replaces a
     // per-workspace `watch` channel of which only the bootstrap entry's was
@@ -235,27 +242,27 @@ pub(crate) fn feeds(
     // The per-file watch pair (FILE_WATCH 0x13 / FILE_WATCH_QUERY 0x14).
     // One service for the process: a Text card watches whatever file it has
     // open, wherever that file lives, and the workspace FILESYSTEM feed
-    // stops being the only way a card hears about disk. Frames are
-    // broadcast to every client and filtered client-side by path, the same
-    // shape `ft_response_tx` uses.
-    let (file_watch_tx, _) = broadcast::channel::<Frame>(256);
+    // stops being the only way a card hears about disk. Each path's frames
+    // go to the pages watching it, and a page's departure releases its
+    // watches.
+    let (file_watch_tx, _) = broadcast::channel::<AddressedFrame>(256);
     let (file_watch_service, file_watch_input_tx) =
-        feeds::file_watch::FileWatchService::new(file_watch_tx.clone());
+        feeds::file_watch::FileWatchService::new(file_watch_tx.clone(), Arc::clone(&pages));
     tokio::spawn(file_watch_service.run(cancel.clone()));
 
-    // Shared GIT_DIFF-response broadcast channel ([#step-10a]). The
-    // GIT_DIFF_QUERY adapter (below) publishes one single-shot
-    // `GitDiffSnapshot` here per `/diff` request; the router fans it out to
-    // every client and JS filters by `request_id` + `workspace_key`. A small
-    // buffer suffices — `/diff` is a user-initiated, infrequent action.
-    let (gd_response_tx, _) = broadcast::channel::<Frame>(16);
+    // Shared GIT_DIFF-response lane ([#step-10a]). The GIT_DIFF_QUERY
+    // adapter (below) publishes one single-shot `GitDiffSnapshot` here per
+    // `/diff` request, addressed to the page that asked; JS filters by
+    // `request_id` + `workspace_key`. A small buffer suffices — `/diff` is a
+    // user-initiated, infrequent action.
+    let (gd_response_tx, _) = broadcast::channel::<AddressedFrame>(16);
 
-    // Shared GIT_LOG-response broadcast channel. The GIT_LOG_QUERY adapter
-    // (below) publishes one single-shot `GitLogSnapshot` here per Git History
-    // request; the router fans it out to every client and JS filters by
-    // `request_id`. A small buffer suffices — history is refreshed on mount and
+    // Shared GIT_LOG-response lane. The GIT_LOG_QUERY adapter (below)
+    // publishes one single-shot `GitLogSnapshot` here per Git History
+    // request, addressed to the page that asked; JS filters by `request_id`.
+    // A small buffer suffices — history is refreshed on mount and
     // followed-project change, not per keystroke.
-    let (gl_response_tx, _) = broadcast::channel::<Frame>(16);
+    let (gl_response_tx, _) = broadcast::channel::<AddressedFrame>(16);
 
     // Shared GIT_HEAD-signal broadcast channel. Each workspace's event-driven
     // git watch broadcasts a `GitHeadSignal` here when that workspace's HEAD
@@ -263,19 +270,19 @@ pub(crate) fn feeds(
     // the git-history client re-requests its log. Cloned into the registry.
     let (gh_response_tx, _) = broadcast::channel::<Frame>(16);
 
-    // Shared GIT_COMMIT_FILES-response broadcast channel. The
-    // GIT_COMMIT_FILES_QUERY adapter (below) publishes one single-shot
-    // `GitCommitFilesSnapshot` here per History-row expand; the router fans it
-    // out and JS filters by `request_id`. User-initiated and infrequent (one
-    // per commit expand), so a small buffer suffices.
-    let (gcf_response_tx, _) = broadcast::channel::<Frame>(16);
+    // Shared GIT_COMMIT_FILES-response lane. The GIT_COMMIT_FILES_QUERY
+    // adapter (below) publishes one single-shot `GitCommitFilesSnapshot` here
+    // per History-row expand, addressed to the page that asked; JS filters by
+    // `request_id`. User-initiated and infrequent (one per commit expand), so
+    // a small buffer suffices.
+    let (gcf_response_tx, _) = broadcast::channel::<AddressedFrame>(16);
 
-    // Shared USAGE-response broadcast channel. The USAGE_QUERY adapter (below)
-    // publishes one single-shot `UsageSnapshot` here per `/usage` request; the
-    // router fans it out and JS filters by `request_id`. Account-global (one
+    // Shared USAGE-response lane. The USAGE_QUERY adapter (below) publishes
+    // one single-shot `UsageSnapshot` here per `/usage` request, addressed to
+    // the page that asked; JS filters by `request_id`. Account-global (one
     // `claude -p "/usage"` per request, no workspace scoping), user-initiated
     // and infrequent, so a small buffer suffices.
-    let (usage_response_tx, _) = broadcast::channel::<Frame>(16);
+    let (usage_response_tx, _) = broadcast::channel::<AddressedFrame>(16);
 
     // Create the bootstrap WorkspaceRegistry. In W1 this holds exactly one
     // entry (the startup `--source-tree`); W2 adds per-session `get_or_create`
@@ -305,8 +312,9 @@ pub(crate) fn feeds(
         .get_or_create(&streams.watch_dir, cancel.clone())
         .expect("bootstrap workspace must be a valid directory");
 
-    // Adapter: router sends raw Frames on FILETREE_QUERY; parse JSON into
-    // FileTreeQuery and forward to the workspace's FileTreeFeed.
+    // Adapter: router sends each FILETREE_QUERY frame with its sender's id;
+    // parse JSON into a FileTreeQuery that answers that sender, and forward
+    // it to the workspace's FileTreeFeed.
     //
     // Routing strategy (`arc/dev-atoms.md#step-pre-4`): if the JS payload
     // carries a `root` field that resolves to a registered workspace, send
@@ -316,11 +324,11 @@ pub(crate) fn feeds(
     // session has registered a project yet. A `root` that does not match
     // any registered workspace falls through to bootstrap as a defensive
     // default (the legacy `[D09]` retarget machinery still works there).
-    let (ft_input_tx, mut ft_input_rx) = mpsc::channel::<Frame>(16);
+    let (ft_input_tx, mut ft_input_rx) = mpsc::channel::<ClientFrame>(16);
     let ft_adapter_registry = Arc::clone(&registry);
     let bootstrap_ft_query_tx = bootstrap.ft_query_tx.clone();
     tokio::spawn(async move {
-        while let Some(frame) = ft_input_rx.recv().await {
+        while let Some(ClientFrame { client_id, frame }) = ft_input_rx.recv().await {
             #[derive(serde::Deserialize)]
             struct RawQuery {
                 query: String,
@@ -331,6 +339,7 @@ pub(crate) fn feeds(
                     let ftq = FileTreeQuery {
                         query: raw.query,
                         root: raw.root.map(PathBuf::from),
+                        reply_to: Some(client_id),
                     };
                     ft_adapter_registry
                         .route_filetree_query(ftq, &bootstrap_ft_query_tx)
@@ -347,14 +356,14 @@ pub(crate) fn feeds(
         }
     });
 
-    // Adapter: router sends raw Frames on GIT_DIFF_QUERY ([#step-10a]). Parse
+    // Adapter: router sends each GIT_DIFF_QUERY frame with its sender's id ([#step-10a]). Parse
     // `{root, requestId}`, resolve the workspace the diff belongs to (the
     // card's project dir — the Z4B chip's dir — falling back to bootstrap
     // exactly like the FILETREE adapter), then run a single `git diff HEAD`
-    // there and broadcast the `GitDiffSnapshot` on GIT_DIFF. Each request is
-    // serviced in its own task so a slow git invocation for one card never
-    // head-of-line-blocks another's `/diff`.
-    let (gd_input_tx, mut gd_input_rx) = mpsc::channel::<Frame>(16);
+    // there and publish the `GitDiffSnapshot` on GIT_DIFF to the page that
+    // asked. Each request is serviced in its own task so a slow git
+    // invocation for one card never head-of-line-blocks another's `/diff`.
+    let (gd_input_tx, mut gd_input_rx) = mpsc::channel::<ClientFrame>(16);
     let gd_registry = Arc::clone(&registry);
     let gd_bootstrap = Arc::clone(&bootstrap);
     let gd_response_tx_loop = gd_response_tx.clone();
@@ -383,7 +392,7 @@ pub(crate) fn feeds(
             /// expandable file rows.
             sha: Option<String>,
         }
-        while let Some(frame) = gd_input_rx.recv().await {
+        while let Some(ClientFrame { client_id, frame }) = gd_input_rx.recv().await {
             let raw = match serde_json::from_slice::<RawDiffQuery>(&frame.payload) {
                 Ok(raw) => raw,
                 Err(e) => {
@@ -444,7 +453,10 @@ pub(crate) fn feeds(
                 };
                 match serde_json::to_vec(&snapshot) {
                     Ok(json) => {
-                        let _ = response_tx.send(Frame::new(FeedId::GIT_DIFF, json));
+                        let _ = response_tx.send(AddressedFrame {
+                            to: Delivery::Client(client_id),
+                            frame: Frame::new(FeedId::GIT_DIFF, json),
+                        });
                     }
                     Err(e) => {
                         warn!(error = %e, "GIT_DIFF: failed to serialize response");
@@ -454,12 +466,11 @@ pub(crate) fn feeds(
         }
     });
 
-    // Adapter: router sends raw Frames on GIT_LOG_QUERY. Parse `{root,
-    // requestId, offset, limit}`, then run one `git log` there and broadcast the
-    // `GitLogSnapshot` on GIT_LOG. Each request runs in its own task so a slow
-    // git invocation never head-of-line-blocks another card's history; the
-    // response is a broadcast every client sees, so correlation is entirely
-    // client-side by `request_id`.
+    // Adapter: router sends each GIT_LOG_QUERY frame with its sender's id. Parse `{root,
+    // requestId, offset, limit}`, then run one `git log` there and publish the
+    // `GitLogSnapshot` on GIT_LOG to the page that asked. Each request runs in
+    // its own task so a slow git invocation never head-of-line-blocks another
+    // card's history; within the page, correlation is by `request_id`.
     //
     // Unlike GIT_DIFF, an explicit valid `root` is read DIRECTLY — no bootstrap
     // fallback. A read-only log needs only the path, and a followed card's
@@ -468,7 +479,7 @@ pub(crate) fn feeds(
     // The `workspace_key` is the canonical path (the same key a registered
     // workspace carries), so a later GIT_HEAD from that workspace's watch
     // correlates. Only an absent/invalid `root` (the dev-loop) uses bootstrap.
-    let (gl_input_tx, mut gl_input_rx) = mpsc::channel::<Frame>(16);
+    let (gl_input_tx, mut gl_input_rx) = mpsc::channel::<ClientFrame>(16);
     let gl_bootstrap = Arc::clone(&bootstrap);
     let gl_response_tx_loop = gl_response_tx.clone();
     tokio::spawn(async move {
@@ -482,7 +493,7 @@ pub(crate) fn feeds(
             offset: Option<u32>,
             limit: Option<u32>,
         }
-        while let Some(frame) = gl_input_rx.recv().await {
+        while let Some(ClientFrame { client_id, frame }) = gl_input_rx.recv().await {
             let raw = match serde_json::from_slice::<RawLogQuery>(&frame.payload) {
                 Ok(raw) => raw,
                 Err(e) => {
@@ -532,7 +543,10 @@ pub(crate) fn feeds(
                 .await;
                 match serde_json::to_vec(&snapshot) {
                     Ok(json) => {
-                        let _ = response_tx.send(Frame::new(FeedId::GIT_LOG, json));
+                        let _ = response_tx.send(AddressedFrame {
+                            to: Delivery::Client(client_id),
+                            frame: Frame::new(FeedId::GIT_LOG, json),
+                        });
                     }
                     Err(e) => {
                         warn!(error = %e, "GIT_LOG: failed to serialize response");
@@ -542,15 +556,15 @@ pub(crate) fn feeds(
         }
     });
 
-    // Adapter: router sends raw Frames on GIT_COMMIT_FILES_QUERY. Parse `{root,
+    // Adapter: router sends each GIT_COMMIT_FILES_QUERY frame with its sender's id. Parse `{root,
     // requestId, sha}`, then run `git show --numstat/--name-status` there and
-    // broadcast the `GitCommitFilesSnapshot` on GIT_COMMIT_FILES. Each request
-    // runs in its own task; the response is a broadcast every client sees, so
-    // correlation is entirely client-side by `request_id`. Root resolution
+    // publish the `GitCommitFilesSnapshot` on GIT_COMMIT_FILES to the page
+    // that asked. Each request runs in its own task; within the page,
+    // correlation is by `request_id`. Root resolution
     // mirrors GIT_LOG_QUERY: a valid `root` is read directly (no bootstrap
     // fallback — a followed card's workspace may not be registered yet on
     // restore), only an absent/invalid `root` uses bootstrap.
-    let (gcf_input_tx, mut gcf_input_rx) = mpsc::channel::<Frame>(16);
+    let (gcf_input_tx, mut gcf_input_rx) = mpsc::channel::<ClientFrame>(16);
     let gcf_bootstrap = Arc::clone(&bootstrap);
     let gcf_response_tx_loop = gcf_response_tx.clone();
     tokio::spawn(async move {
@@ -561,7 +575,7 @@ pub(crate) fn feeds(
             request_id: Option<String>,
             sha: Option<String>,
         }
-        while let Some(frame) = gcf_input_rx.recv().await {
+        while let Some(ClientFrame { client_id, frame }) = gcf_input_rx.recv().await {
             let raw = match serde_json::from_slice::<RawCommitFilesQuery>(&frame.payload) {
                 Ok(raw) => raw,
                 Err(e) => {
@@ -599,7 +613,10 @@ pub(crate) fn feeds(
                 .await;
                 match serde_json::to_vec(&snapshot) {
                     Ok(json) => {
-                        let _ = response_tx.send(Frame::new(FeedId::GIT_COMMIT_FILES, json));
+                        let _ = response_tx.send(AddressedFrame {
+                            to: Delivery::Client(client_id),
+                            frame: Frame::new(FeedId::GIT_COMMIT_FILES, json),
+                        });
                     }
                     Err(e) => {
                         warn!(error = %e, "GIT_COMMIT_FILES: failed to serialize response");
@@ -609,12 +626,12 @@ pub(crate) fn feeds(
         }
     });
 
-    // Adapter: router sends raw Frames on USAGE_QUERY. Parse `{requestId}`, run
-    // one `claude -p "/usage"` (account-global — no workspace resolution), and
-    // broadcast the `UsageSnapshot` on USAGE. Each request runs in its own task
-    // so a slow `claude` invocation never head-of-line-blocks another card's
-    // `/usage`.
-    let (usage_input_tx, mut usage_input_rx) = mpsc::channel::<Frame>(16);
+    // Adapter: router sends each USAGE_QUERY frame with its sender's id. Parse
+    // `{requestId}`, run one `claude -p "/usage"` (account-global — no
+    // workspace resolution), and publish the `UsageSnapshot` on USAGE to the
+    // page that asked. Each request runs in its own task so a slow `claude`
+    // invocation never head-of-line-blocks another card's `/usage`.
+    let (usage_input_tx, mut usage_input_rx) = mpsc::channel::<ClientFrame>(16);
     let usage_response_tx_loop = usage_response_tx.clone();
     tokio::spawn(async move {
         #[derive(serde::Deserialize)]
@@ -622,7 +639,7 @@ pub(crate) fn feeds(
             #[serde(rename = "requestId")]
             request_id: Option<String>,
         }
-        while let Some(frame) = usage_input_rx.recv().await {
+        while let Some(ClientFrame { client_id, frame }) = usage_input_rx.recv().await {
             let request_id = serde_json::from_slice::<RawUsageQuery>(&frame.payload)
                 .ok()
                 .and_then(|r| r.request_id)
@@ -654,7 +671,10 @@ pub(crate) fn feeds(
                 };
                 match serde_json::to_vec(&snapshot) {
                     Ok(json) => {
-                        let _ = response_tx.send(Frame::new(FeedId::USAGE, json));
+                        let _ = response_tx.send(AddressedFrame {
+                            to: Delivery::Client(client_id),
+                            frame: Frame::new(FeedId::USAGE, json),
+                        });
                     }
                     Err(e) => {
                         warn!(error = %e, "USAGE: failed to serialize response");
@@ -762,6 +782,7 @@ pub(crate) fn feeds(
         shutdown_rx,
         ctl_shutdown_tx,
         client_action_tx,
+        pages,
         shared_dev_state,
         control_writer,
         control_reader,

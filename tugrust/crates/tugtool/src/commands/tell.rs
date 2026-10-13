@@ -226,6 +226,7 @@ pub fn run_tell(
     port: Option<u16>,
     instance: Option<String>,
     params: Vec<String>,
+    card: Option<String>,
     json_output: bool,
 ) -> Result<i32, String> {
     let port = match resolve_port(port, instance).map_err(|e| e.describe(Remedy::Flags)) {
@@ -254,6 +255,10 @@ pub fn run_tell(
     let mut body = serde_json::json!({ "action": action });
     for (key, value) in parsed_params {
         body[key] = value;
+    }
+    // Addressed to the card's page; tugcast sends a tell with no `to` to the shell.
+    if let Some(card) = card {
+        body["to"] = serde_json::json!({ "card": card });
     }
 
     // Build URL

@@ -109,11 +109,29 @@ export interface IngestLocalStateChange {
 // Page → sender: controls
 // ---------------------------------------------------------------------------
 
+/**
+ * Which page a socket belongs to, as its handshake hello states it. tugcast
+ * lists every connection by it and addresses frames by it. `pageId` is minted
+ * once per page load; `cardId` names the card a `body` page renders.
+ */
+export interface IngestPageIdentity {
+  role: "shell" | "body" | "tool";
+  pageId: string;
+  cardId?: string;
+}
+
 /** Sent once, before anything else. */
 export interface IngestInitControl {
   kind: "init";
   wsUrl: string;
   periodMs: number;
+  /** The page's identity; absent, the socket's hello names no role and tugcast takes it for a tool. */
+  page?: IngestPageIdentity;
+  /**
+   * The sessions whose session-scoped frames this page receives: an array is
+   * exactly those ids, `[]` none. Absent, or `"all"`, is every session.
+   */
+  sessions?: "all" | string[];
 }
 
 /** Open the socket (and clear a previous close's intentional latch). */

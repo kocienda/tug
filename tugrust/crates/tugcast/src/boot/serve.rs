@@ -118,6 +118,8 @@ pub(crate) async fn serve(runtime: Runtime) -> Shutdown {
         let ctl_pending_evals = feed_router.pending_evals.clone();
         let ctl_pending_asks = feed_router.pending_asks.clone();
         let ctl_shared_agent = feed_router.shared_agent.clone();
+        let ctl_page_lane = feed_router.page_lane.clone();
+        let ctl_pages = Arc::clone(&feed_router.pages);
         tokio::spawn(reader.run_recv_loop(
             ctl_shutdown_tx,
             ctl_stream_outputs,
@@ -127,6 +129,8 @@ pub(crate) async fn serve(runtime: Runtime) -> Shutdown {
             ctl_pending_evals,
             ctl_pending_asks,
             ctl_shared_agent,
+            ctl_page_lane,
+            ctl_pages,
         ));
     }
 

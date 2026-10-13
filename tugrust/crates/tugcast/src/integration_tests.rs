@@ -19,6 +19,21 @@ use crate::router::{BROADCAST_CAPACITY, FeedRouter, LagPolicy};
 use crate::server::build_app;
 use tugcast_core::FeedId;
 
+/// Register a shell page on `router` — the deck a host tell is for — and
+/// subscribe to the page lane it is delivered on.
+fn register_shell(router: &FeedRouter) -> (u64, broadcast::Receiver<crate::pages::AddressedFrame>) {
+    let shell_id = 1;
+    router.pages.register(
+        shell_id,
+        &tugcast_core::PageIdentity {
+            role: tugcast_core::PageRole::Shell,
+            page_id: Some("shell".into()),
+            card_id: None,
+        },
+    );
+    (shell_id, router.page_lane.subscribe())
+}
+
 /// Helper to build a test app with fresh auth state
 fn build_test_app(port: u16) -> (axum::Router, String) {
     let auth = auth::new_shared_auth_state(port);
@@ -404,7 +419,7 @@ async fn test_tell_reload() {
     let (code_tx, _) = broadcast::channel(1024);
     let (code_input_tx, _) = tokio::sync::mpsc::channel(256);
     let (shutdown_tx, _) = tokio::sync::mpsc::channel::<u8>(1);
-    let (client_action_tx, mut client_action_rx) = broadcast::channel(BROADCAST_CAPACITY);
+    let (client_action_tx, _client_action_rx) = broadcast::channel(BROADCAST_CAPACITY);
 
     let dev_state = dev::new_shared_dev_state();
     let mut feed_router = FeedRouter::new(
@@ -419,6 +434,7 @@ async fn test_tell_reload() {
     feed_router.register_input(FeedId::TERMINAL_INPUT, input_tx.clone());
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
+    let (shell_id, mut lane_rx) = register_shell(&feed_router);
 
     let app = build_app(feed_router, dev_state, None, None, None);
 
@@ -439,9 +455,10 @@ async fn test_tell_reload() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Verify client_action_tx was broadcast
-    let frame = client_action_rx.try_recv().unwrap();
-    assert_eq!(frame.feed_id, FeedId::CONTROL);
+    // The tell reached the deck: the shell, on the page lane.
+    let addressed = lane_rx.try_recv().unwrap();
+    assert_eq!(addressed.to, crate::pages::Delivery::Client(shell_id));
+    assert_eq!(addressed.frame.feed_id, FeedId::CONTROL);
 }
 
 #[tokio::test]
@@ -456,7 +473,7 @@ async fn test_tell_client_action_round_trip() {
     let (code_tx, _) = broadcast::channel(1024);
     let (code_input_tx, _) = tokio::sync::mpsc::channel(256);
     let (shutdown_tx, _) = tokio::sync::mpsc::channel::<u8>(1);
-    let (client_action_tx, mut client_action_rx) = broadcast::channel(BROADCAST_CAPACITY);
+    let (client_action_tx, _client_action_rx) = broadcast::channel(BROADCAST_CAPACITY);
 
     let dev_state = dev::new_shared_dev_state();
     let mut feed_router = FeedRouter::new(
@@ -471,6 +488,7 @@ async fn test_tell_client_action_round_trip() {
     feed_router.register_input(FeedId::TERMINAL_INPUT, input_tx.clone());
     feed_router.register_input(FeedId::TERMINAL_RESIZE, input_tx);
     feed_router.register_input(FeedId::CODE_INPUT, code_input_tx);
+    let (shell_id, mut lane_rx) = register_shell(&feed_router);
 
     let app = build_app(feed_router, dev_state, None, None, None);
 
@@ -499,8 +517,10 @@ async fn test_tell_client_action_round_trip() {
     let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
     assert!(body_str.contains(r#""status":"ok""#));
 
-    // Verify client_action_rx receives the frame
-    let frame = client_action_rx.recv().await.unwrap();
+    // The deck's shell receives the frame on the page lane.
+    let addressed = lane_rx.recv().await.unwrap();
+    assert_eq!(addressed.to, crate::pages::Delivery::Client(shell_id));
+    let frame = addressed.frame;
     assert_eq!(frame.feed_id, FeedId::CONTROL);
 
     // Verify payload contains the original JSON body

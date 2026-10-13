@@ -85,6 +85,8 @@ impl ControlReader {
         pending_evals: crate::router::PendingEvals,
         pending_asks: crate::router::PendingAsks,
         shared_agent: crate::shared_agent::SharedAgentHandle,
+        page_lane: broadcast::Sender<crate::pages::AddressedFrame>,
+        pages: std::sync::Arc<crate::pages::PageRegistry>,
     ) {
         // Extract the CONTROL broadcast sender for use throughout the recv loop.
         let client_action_tx = stream_outputs
@@ -130,6 +132,11 @@ impl ControlReader {
                                             pending_evals: &pending_evals,
                                             pending_asks: &pending_asks,
                                             shared_agent: &shared_agent,
+                                            page_lane: &page_lane,
+                                            pages: &pages,
+                                            // A host tell is for the deck
+                                            // the user sees: the shell.
+                                            default_to: crate::pages::PageTarget::Shell,
                                         },
                                     )
                                     .await;

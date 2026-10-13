@@ -5,6 +5,7 @@ use tracing::info;
 use tugcast_core::{ControlAction as A, FeedId, Frame};
 
 use crate::control::send_control;
+use crate::pages::{AddressedFrame, PageRegistry, PageTarget, parse_target};
 use crate::router::LagPolicy;
 
 /// Broadcast a `claude_auth_result` CONTROL frame from a resolved auth state.
@@ -225,6 +226,13 @@ pub struct ActionContext<'a> {
     pub pending_evals: &'a crate::router::PendingEvals,
     pub pending_asks: &'a crate::router::PendingAsks,
     pub shared_agent: &'a crate::shared_agent::SharedAgentHandle,
+    /// The page lane every tell the catch-all forwards is published on.
+    pub page_lane: &'a broadcast::Sender<AddressedFrame>,
+    /// The live pages a tell's target is resolved against.
+    pub pages: &'a PageRegistry,
+    /// Where a tell with no `to` goes: the shell for the host and HTTP
+    /// ingresses, every connection for one client reaching the others.
+    pub default_to: PageTarget,
 }
 
 /// Dispatch an action received from any ingress path (HTTP tell, WebSocket control frame, UDS tell).
@@ -244,6 +252,9 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
         pending_evals,
         pending_asks,
         shared_agent,
+        page_lane,
+        pages,
+        default_to: _,
     } = *ctx;
     match action.parse::<A>() {
         Ok(A::Relaunch) => {
@@ -505,22 +516,42 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
                 None => info!("dispatch_action: shared_agent_classify missing text"),
             }
         }
-        // Everything else goes out on CONTROL unchanged: an action the
-        // supervisor or router owns that reached here without them, and an
-        // action string tugcast does not know at all — the second is how one
-        // client reaches another, so it is logged by name rather than refused.
+        // Everything else goes out on the page lane unchanged, addressed: an
+        // action the supervisor or router owns that reached here without
+        // them, and an action string tugcast does not know at all — the
+        // second is how one client reaches another, so it is logged by name
+        // rather than refused. The payload's own `to` names the target; a
+        // tell without one goes to the ingress's default. A target no live
+        // page answers is dropped and logged, never broadcast to nobody.
         parsed => {
             if parsed.is_err() {
                 info!(
                     action,
-                    "dispatch_action: unmatched action string, broadcasting"
+                    "dispatch_action: unmatched action string, forwarding"
                 );
             } else {
-                info!("dispatch_action: broadcasting client action: {}", action);
+                info!("dispatch_action: forwarding client action: {}", action);
             }
-            if let Some((tx, _)) = stream_outputs.get(&FeedId::CONTROL) {
-                let frame = Frame::new(FeedId::CONTROL, raw_payload.to_vec());
-                let _ = tx.send(frame);
+            let to = serde_json::from_slice::<serde_json::Value>(raw_payload)
+                .ok()
+                .and_then(|v| v.get("to").cloned());
+            let target = match to {
+                None | Some(serde_json::Value::Null) => Some(ctx.default_to.clone()),
+                Some(to) => parse_target(&to),
+            };
+            let Some(target) = target else {
+                info!(action, "dispatch_action: unreadable `to`; dropped");
+                return;
+            };
+            match pages.resolve(&target) {
+                Some(delivery) => {
+                    let frame = Frame::new(FeedId::CONTROL, raw_payload.to_vec());
+                    let _ = page_lane.send(AddressedFrame {
+                        to: delivery,
+                        frame,
+                    });
+                }
+                None => info!(action, "dispatch_action: no page answers {target}; dropped"),
             }
         }
     }
@@ -529,22 +560,27 @@ pub async fn dispatch_action(action: &str, raw_payload: &[u8], ctx: &ActionConte
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pages::Delivery;
 
-    #[tokio::test]
-    async fn test_dispatch_action_unknown() {
+    /// Dispatch `payload` through the catch-all with `pages` and `default_to`,
+    /// and return what reached the page lane and what reached CONTROL.
+    async fn catch_all(
+        payload: &[u8],
+        pages: &PageRegistry,
+        default_to: PageTarget,
+    ) -> (Vec<AddressedFrame>, usize) {
         let (shutdown_tx, _) = mpsc::channel(1);
-        let (client_action_tx, mut client_action_rx) = broadcast::channel(16);
+        let (client_action_tx, mut control_rx) = broadcast::channel(16);
         let dev_state = crate::dev::new_shared_dev_state();
-
+        let (page_lane, mut lane_rx) = broadcast::channel::<AddressedFrame>(16);
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
-
         let pending_evals = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
         let pending_asks = std::sync::Arc::new(parking_lot::Mutex::new(HashMap::new()));
 
         dispatch_action(
             "show-card",
-            br#"{"action":"show-card"}"#,
+            payload,
             &ActionContext {
                 shutdown_tx: &shutdown_tx,
                 stream_outputs: &stream_outputs,
@@ -552,13 +588,101 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                page_lane: &page_lane,
+                pages,
+                default_to,
             },
         )
         .await;
 
-        let frame = client_action_rx.recv().await.unwrap();
-        assert_eq!(frame.feed_id, FeedId::CONTROL);
-        assert_eq!(frame.payload, br#"{"action":"show-card"}"#);
+        let mut lane = Vec::new();
+        while let Ok(frame) = lane_rx.try_recv() {
+            lane.push(frame);
+        }
+        let mut control = 0;
+        while control_rx.try_recv().is_ok() {
+            control += 1;
+        }
+        (lane, control)
+    }
+
+    fn registry_with_shell_and_body() -> PageRegistry {
+        let pages = PageRegistry::new();
+        pages.register(
+            4,
+            &tugcast_core::PageIdentity {
+                role: tugcast_core::PageRole::Shell,
+                page_id: Some("s".into()),
+                card_id: None,
+            },
+        );
+        pages.register(
+            6,
+            &tugcast_core::PageIdentity {
+                role: tugcast_core::PageRole::Body,
+                page_id: Some("b".into()),
+                card_id: Some("c1".into()),
+            },
+        );
+        pages
+    }
+
+    /// A host tell with no `to` reaches the shell alone, on the page lane,
+    /// with its payload untouched; nothing goes out on CONTROL.
+    #[tokio::test]
+    async fn an_unknown_tell_goes_to_the_shell_on_the_page_lane() {
+        let pages = registry_with_shell_and_body();
+        let (lane, control) =
+            catch_all(br#"{"action":"show-card"}"#, &pages, PageTarget::Shell).await;
+        assert_eq!(lane.len(), 1);
+        assert_eq!(lane[0].to, Delivery::Client(4));
+        assert_eq!(lane[0].frame.feed_id, FeedId::CONTROL);
+        assert_eq!(lane[0].frame.payload, br#"{"action":"show-card"}"#);
+        assert_eq!(control, 0);
+    }
+
+    /// A payload's own `to` outranks the ingress default.
+    #[tokio::test]
+    async fn a_tell_names_its_own_target() {
+        let pages = registry_with_shell_and_body();
+        let (lane, _) = catch_all(
+            br#"{"action":"show-card","to":"all"}"#,
+            &pages,
+            PageTarget::Shell,
+        )
+        .await;
+        assert_eq!(lane[0].to, Delivery::All);
+        let (lane, _) = catch_all(
+            br#"{"action":"show-card","to":{"card":"c1"}}"#,
+            &pages,
+            PageTarget::Shell,
+        )
+        .await;
+        assert_eq!(lane[0].to, Delivery::Client(6));
+    }
+
+    /// A target no live page answers is dropped, not broadcast to nobody.
+    #[tokio::test]
+    async fn a_tell_with_no_shell_is_dropped() {
+        let (lane, control) = catch_all(
+            br#"{"action":"show-card"}"#,
+            &PageRegistry::new(),
+            PageTarget::Shell,
+        )
+        .await;
+        assert!(lane.is_empty());
+        assert_eq!(control, 0);
+    }
+
+    /// An unmatched action still reaches the other clients: the WebSocket
+    /// ingress's default is every connection.
+    #[tokio::test]
+    async fn a_client_action_still_reaches_every_client() {
+        let pages = registry_with_shell_and_body();
+        let (lane, _) = catch_all(br#"{"action":"show-card"}"#, &pages, PageTarget::All).await;
+        assert_eq!(lane.len(), 1);
+        assert_eq!(lane[0].to, Delivery::All);
+        assert!(lane[0].to.admits(4) && lane[0].to.admits(6) && lane[0].to.admits(99));
     }
 
     /// The deck's answer reaches the waiting requester.
@@ -567,6 +691,8 @@ mod tests {
         let (shutdown_tx, _) = mpsc::channel(1);
         let (client_action_tx, _rx) = broadcast::channel(16);
         let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, _lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let pages = PageRegistry::new();
 
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
@@ -588,6 +714,9 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                page_lane: &page_lane,
+                pages: &pages,
+                default_to: PageTarget::Shell,
             },
         )
         .await;
@@ -604,6 +733,8 @@ mod tests {
         let (shutdown_tx, _) = mpsc::channel(1);
         let (client_action_tx, mut client_action_rx) = broadcast::channel(16);
         let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, _lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let pages = PageRegistry::new();
 
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
@@ -624,6 +755,9 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &agent,
+                page_lane: &page_lane,
+                pages: &pages,
+                default_to: PageTarget::Shell,
             },
         )
         .await;
@@ -650,6 +784,8 @@ mod tests {
         let (shutdown_tx, _) = mpsc::channel(1);
         let (client_action_tx, mut client_action_rx) = broadcast::channel(16);
         let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, _lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let pages = PageRegistry::new();
 
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
@@ -667,6 +803,9 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                page_lane: &page_lane,
+                pages: &pages,
+                default_to: PageTarget::Shell,
             },
         )
         .await;
@@ -689,6 +828,8 @@ mod tests {
         let (shutdown_tx, _) = mpsc::channel(1);
         let (client_action_tx, _rx) = broadcast::channel(16);
         let dev_state = crate::dev::new_shared_dev_state();
+        let (page_lane, _lane_rx) = broadcast::channel::<AddressedFrame>(16);
+        let pages = PageRegistry::new();
 
         let mut stream_outputs = HashMap::new();
         stream_outputs.insert(FeedId::CONTROL, (client_action_tx, LagPolicy::Warn));
@@ -707,6 +848,9 @@ mod tests {
                 pending_evals: &pending_evals,
                 pending_asks: &pending_asks,
                 shared_agent: &None,
+                page_lane: &page_lane,
+                pages: &pages,
+                default_to: PageTarget::Shell,
             },
         )
         .await;

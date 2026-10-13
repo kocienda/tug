@@ -857,6 +857,43 @@ async fn test_spawn_session_rejects_resume_when_live_on_other_card() {
         .expect_handled_with("same-card reconnect must succeed");
 }
 
+/// A body page that reloads is a new client for the same card. Its resume of
+/// the session its card holds — `Live`, and still in the old client's set —
+/// is the card coming back, not a second card, so it is admitted with no
+/// `session_live_elsewhere`.
+#[tokio::test]
+async fn test_spawn_session_admits_resume_by_the_same_card_on_a_new_client() {
+    let (sup, mut state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    sup.handle_control("spawn_session", &spawn_payload("card-X", "sess-1"), 1)
+        .await
+        .expect_handled();
+    let tug_id = TugSessionId::new("sess-1");
+    {
+        let ledger = sup.ledger.lock().await;
+        ledger
+            .get(&tug_id)
+            .expect("the card's entry")
+            .lock()
+            .await
+            .spawn_state = SpawnState::Live;
+    }
+    while state_rx.try_recv().is_ok() {}
+
+    sup.handle_control("spawn_session", &resume_payload("card-X", "sess-1"), 2)
+        .await
+        .expect_handled_with("the card's own reloaded page resumes its session");
+
+    while let Ok(frame) = state_rx.try_recv() {
+        let (_, state) = session_state_of(&frame);
+        assert_ne!(
+            state, "errored",
+            "no session_live_elsewhere for the same card"
+        );
+    }
+    let cs = sup.client_sessions.lock().await;
+    assert!(cs.get(&2).expect("client 2's set").contains(&tug_id));
+}
+
 /// A `resume` from a different card must SUCCEED when the recorded
 /// holder card has no live client connection — the
 /// `rebind_from_ledger` case. After a tugcast restart the entry is

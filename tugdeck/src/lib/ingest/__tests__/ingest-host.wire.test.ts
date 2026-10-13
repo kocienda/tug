@@ -22,11 +22,11 @@ afterEach(() => {
   restoreWebSocket();
 });
 
-function openChannel(): { channel: InProcessIngestChannel; batches: SessionBatch[] } {
+function openChannel(sessions?: "all" | string[]): { channel: InProcessIngestChannel; batches: SessionBatch[] } {
   const channel = new InProcessIngestChannel({ timers: QUIET_TIMERS });
   const batches: SessionBatch[] = [];
   channel.setBatchListener((batch) => batches.push(batch));
-  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16 });
+  channel.post({ kind: "init", wsUrl: "ws://test.invalid/ws", periodMs: 16, ...(sessions === undefined ? {} : { sessions }) });
   return { channel, batches };
 }
 
@@ -121,6 +121,24 @@ describe("IngestHost — the wire half", () => {
       action: "subscribe_feeds",
       feeds: [FeedId.JOTS],
     });
+  });
+
+  test("the sessions init names ride every subscription, and none means every session", () => {
+    const subscriptionOf = (sessions?: "all" | string[]): unknown => {
+      const { channel } = openChannel(sessions);
+      channel.post({ kind: "subscribe", feeds: [FeedId.JOTS] });
+      channel.post({ kind: "connect" });
+      const ws = FakeWebSocket.last!;
+      handshake(ws);
+      const control = ws.sent
+        .filter((d): d is ArrayBuffer => typeof d !== "string")
+        .map((d) => decodeFrame(d))
+        .find((f) => f.feedId === FeedId.CONTROL);
+      return JSON.parse(new TextDecoder().decode(control!.payload));
+    };
+    expect(subscriptionOf(["s1"])).toEqual({ action: "subscribe_feeds", feeds: [FeedId.JOTS], sessions: ["s1"] });
+    expect(subscriptionOf()).toEqual({ action: "subscribe_feeds", feeds: [FeedId.JOTS] });
+    expect(subscriptionOf("all")).toEqual({ action: "subscribe_feeds", feeds: [FeedId.JOTS] });
   });
 
   test("a frame the page sent after the wire closed is refused with a reason, not dropped quietly", () => {

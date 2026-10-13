@@ -6,27 +6,35 @@ use super::super::*;
 use tugcast_core::ControlAction;
 
 /// A `deck_seatings` CONTROL request: the deck's full-replacement report of
-/// which tug sessions its open Session cards are seated on. Only the session
-/// ids matter server-side (the changeset compose folds them into liveness);
-/// the `card_id` each entry carries is observability the payload keeps for
-/// the wire log. An empty list is a valid report — "seated on nothing".
-fn parse_deck_seatings_payload(payload: &[u8]) -> Result<HashSet<String>, ControlError> {
+/// which tug sessions its open Session cards are seated on, as (card,
+/// session) pairs. The changeset compose folds the sessions into liveness;
+/// the card is what lets that card's own page write the session's input. An
+/// entry's `card_id` may be absent or `null`, but never an empty string. An
+/// empty list is a valid report — "seated on nothing".
+fn parse_deck_seatings_payload(
+    payload: &[u8],
+) -> Result<HashSet<crate::feeds::deck_seatings::Seating>, ControlError> {
     let value: serde_json::Value =
         serde_json::from_slice(payload).map_err(|_| ControlError::Malformed)?;
     let seatings = value
         .get("seatings")
         .and_then(|v| v.as_array())
         .ok_or(ControlError::Malformed)?;
-    let mut session_ids = HashSet::new();
+    let mut pairs = HashSet::new();
     for entry in seatings {
         let id = entry
             .get("tug_session_id")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .ok_or(ControlError::Malformed)?;
-        session_ids.insert(id.to_string());
+        let card = match entry.get("card_id") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(card)) if !card.is_empty() => Some(card.clone()),
+            Some(_) => return Err(ControlError::Malformed),
+        };
+        pairs.insert((card, id.to_string()));
     }
-    Ok(session_ids)
+    Ok(pairs)
 }
 
 impl AgentSupervisor {
@@ -46,8 +54,8 @@ impl AgentSupervisor {
                 // reported it (`on_client_disconnect` drops it; a reconnect
                 // is a fresh id that starts empty).
                 match parse_deck_seatings_payload(payload) {
-                    Ok(session_ids) => {
-                        if crate::feeds::deck_seatings::set_deck_seatings(client_id, session_ids) {
+                    Ok(pairs) => {
+                        if crate::feeds::deck_seatings::set_deck_seatings(client_id, pairs) {
                             self.registry.changeset_all_bump().notify_one();
                         }
                         Ok(())
@@ -93,6 +101,36 @@ impl AgentSupervisor {
         match result {
             Ok(()) => ControlOutcome::Handled,
             Err(e) => ControlOutcome::Error(e),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_seating_report_reads_card_and_session_pairs() {
+        let pairs = parse_deck_seatings_payload(
+            br#"{"seatings":[{"card_id":"c1","tug_session_id":"s1"},{"card_id":null,"tug_session_id":"s2"},{"tug_session_id":"s3"}]}"#,
+        )
+        .unwrap();
+        let expected: HashSet<_> = [
+            (Some("c1".to_string()), "s1".to_string()),
+            (None, "s2".to_string()),
+            (None, "s3".to_string()),
+        ]
+        .into();
+        assert_eq!(pairs, expected);
+        for bad in [
+            &br#"{"seatings":[{"card_id":"","tug_session_id":"s1"}]}"#[..],
+            br#"{"seatings":[{"card_id":7,"tug_session_id":"s1"}]}"#,
+            br#"{"seatings":[{"card_id":"c1"}]}"#,
+        ] {
+            assert!(matches!(
+                parse_deck_seatings_payload(bad),
+                Err(ControlError::Malformed)
+            ));
         }
     }
 }

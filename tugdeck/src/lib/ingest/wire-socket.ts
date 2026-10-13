@@ -20,6 +20,16 @@ import { FeedId, FrameFlags, controlFrame, encodeFrame } from "@/protocol";
 import { devLog } from "@/lib/dev-log-port";
 import type { IngestDisconnectState, IngestHandshake, IngestWireStatePatch } from "@tugproto/ingest";
 
+/**
+ * The page identity a hello carries, in tugcast's spelling. Absent, the hello
+ * names no role and tugcast serves the connection as a tool.
+ */
+export interface WireHello {
+  role: "shell" | "body" | "tool";
+  page_id: string;
+  card_id?: string;
+}
+
 /** Protocol name for handshake */
 const PROTOCOL_NAME = "tugcast";
 
@@ -154,6 +164,7 @@ export class WireSocket {
     private readonly url: string,
     private readonly out: WireSocketOutput,
     private readonly timers: WireTimers = GLOBAL_TIMERS,
+    private readonly hello: WireHello | null = null,
   ) {}
 
   /** Whether the handshake has completed and the wire is live. */
@@ -199,7 +210,7 @@ export class WireSocket {
       // Send protocol handshake as a text frame
       this.handshakePending = true;
       this.out.wireState({ state: "will-open" });
-      ws.send(JSON.stringify({ protocol: PROTOCOL_NAME, version: PROTOCOL_VERSION }));
+      ws.send(JSON.stringify({ protocol: PROTOCOL_NAME, version: PROTOCOL_VERSION, ...this.hello }));
     });
 
     ws.onmessage = this.event((event: MessageEvent) => {
@@ -424,9 +435,16 @@ export class WireSocket {
     return false;
   }
 
-  /** Send a `subscribe_feeds` CONTROL frame carrying `feeds`. */
-  sendSubscription(feeds: readonly number[]): void {
-    const frame = controlFrame("subscribe_feeds", { feeds: [...feeds] });
+  /**
+   * Send a `subscribe_feeds` CONTROL frame carrying `feeds`, and `sessions`
+   * when it names some. The message replaces the whole filter, so leaving
+   * `sessions` out is every session.
+   */
+  sendSubscription(feeds: readonly number[], sessions: "all" | readonly string[] = "all"): void {
+    const frame = controlFrame("subscribe_feeds", {
+      feeds: [...feeds],
+      ...(sessions === "all" ? {} : { sessions: [...sessions] }),
+    });
     this.send(frame.feedId, frame.flags, frame.payload);
   }
 

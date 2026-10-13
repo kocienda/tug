@@ -513,6 +513,9 @@ pub struct AgentSupervisor {
     /// [`AgentSupervisor::stop_arc_now`] can decline, and it says so rather
     /// than reporting a stop that did not happen.
     pub wheel: Option<Arc<crate::wheel::WheelState>>,
+    /// The live pages. The orphan sweep reads it to spare a card whose page
+    /// is live or departed within the settle window.
+    pub(crate) pages: Arc<crate::pages::PageRegistry>,
 }
 
 /// The supervisor's collaborators that live outside it, handed in at
@@ -528,6 +531,8 @@ pub struct SupervisorDeps {
     pub arc_tick_tx: Option<mpsc::Sender<String>>,
     pub wheel_tick_tx: Option<mpsc::Sender<String>>,
     pub wheel: Option<Arc<crate::wheel::WheelState>>,
+    /// The process's page registry. A fresh, empty one by default.
+    pub(crate) pages: Arc<crate::pages::PageRegistry>,
 }
 
 /// Registration sent through [`AgentSupervisor::merger_register_tx`] so the
@@ -1837,6 +1842,7 @@ impl AgentSupervisor {
             arc_tick_tx,
             wheel_tick_tx,
             wheel,
+            pages,
         } = deps;
         let sup = Self {
             ledger: Arc::new(Mutex::new(HashMap::new())),
@@ -1865,6 +1871,7 @@ impl AgentSupervisor {
             arc_tick_tx,
             wheel_tick_tx,
             wheel,
+            pages,
         };
         (sup, merger_register_rx)
     }
@@ -2017,9 +2024,9 @@ impl AgentSupervisor {
             A::DeckSeatings | A::DeckLog => {
                 self.handle_deck_control(action, payload, client_id).await
             }
-            A::TrashSession
-            | A::RenameSession
-            | A::SetSessionPrivate => self.handle_rows_control(action, payload).await,
+            A::TrashSession | A::RenameSession | A::SetSessionPrivate => {
+                self.handle_rows_control(action, payload).await
+            }
             A::RecordTurnTelemetry
             | A::RecordContextBreakdown
             | A::RecordSessionStateChange
@@ -4544,9 +4551,26 @@ impl AgentSupervisor {
         });
     }
 
+    /// Whether `card_id` seats `session`: the ledger entry records that
+    /// card, or a connected deck reports the card seated on it. A body page
+    /// rendering such a card may write the session's `CODE_INPUT`.
+    pub(crate) async fn card_seats_session(&self, card_id: &str, session: &TugSessionId) -> bool {
+        let entry = self.ledger.lock().await.get(session).cloned();
+        if let Some(entry) = entry
+            && entry.lock().await.card_id.as_deref() == Some(card_id)
+        {
+            return true;
+        }
+        super::deck_seatings::card_seats(card_id, session.as_str())
+    }
+
     /// Close every bridge no client holds and no card names ([B07]).
     ///
-    /// Three exclusions, and each is a session that is *meant* to be held by
+    /// A session is held when a client registered it, when a deck's seating
+    /// report seats it, or when its card has a live page or one that
+    /// departed within the settle window — a body reloading between its old
+    /// socket and its new one is a reconnect, not an orphan. Beyond those,
+    /// two exclusions, and each is a session that is *meant* to be held by
     /// nobody:
     ///
     /// - a **headless** session, whose whole point is running with no card in
@@ -4554,7 +4578,6 @@ impl AgentSupervisor {
     /// - an entry that has not spawned — `Idle` is what `rebind_from_ledger`
     ///   leaves at startup, waiting for the card that will claim it, and
     ///   `Errored` / `Closed` have no subprocess left to reap;
-    /// - anything a client is holding, which is the ordinary case.
     ///
     /// A sweep whose own client is gone by the time the window passes does
     /// nothing. There is then no deck that re-announced, so "no client holds
@@ -4566,7 +4589,13 @@ impl AgentSupervisor {
             if !cs.contains_key(&client_id) {
                 return;
             }
-            cs.values().flatten().cloned().collect()
+            let mut held: HashSet<TugSessionId> = cs.values().flatten().cloned().collect();
+            held.extend(
+                super::deck_seatings::seated_session_ids()
+                    .into_iter()
+                    .map(TugSessionId::new),
+            );
+            held
         };
         let entries: Vec<(TugSessionId, Arc<Mutex<LedgerEntry>>)> = {
             let ledger = self.ledger.lock().await;
@@ -4582,6 +4611,12 @@ impl AgentSupervisor {
                 (entry.card_id.clone(), entry.spawn_state)
             };
             if crate::background_session::is_background_card_id(card_id.as_deref()) {
+                continue;
+            }
+            if card_id
+                .as_deref()
+                .is_some_and(|card| self.pages.card_live_or_recent(card, BRIDGE_ORPHAN_SETTLE))
+            {
                 continue;
             }
             if !matches!(spawn_state, SpawnState::Spawning | SpawnState::Live) {
@@ -9784,6 +9819,105 @@ mod tests {
                 .await
                 .contains_key(&TugSessionId::new("orphan")),
             "with no client to have re-announced, the sweep judges nothing",
+        );
+    }
+
+    /// A Live bridge, held by no client, for a card whose body page departed.
+    async fn a_departed_cards_bridge(sup: &AgentSupervisor, session: &str, card: &str) {
+        sup.handle_control("spawn_session", &spawn_payload("card-1", "held"), 10)
+            .await
+            .expect_handled();
+        let entry = insert_ledger_entry(sup, &TugSessionId::new(session)).await;
+        {
+            let mut entry = entry.lock().await;
+            entry.card_id = Some(card.to_owned());
+            entry.spawn_state = SpawnState::Live;
+        }
+        let body = tugcast_core::PageIdentity {
+            role: tugcast_core::PageRole::Body,
+            page_id: Some(format!("page-{card}")),
+            card_id: Some(card.to_owned()),
+        };
+        sup.pages.register(77, &body);
+        sup.pages.depart(77);
+    }
+
+    /// **A body reloading is a reconnect, not an orphan.** A sibling page's
+    /// sweep that runs while the body is between sockets spares the card's
+    /// bridge for the settle window after its page departed, and reaps it
+    /// once the window has passed with no page back.
+    #[tokio::test]
+    async fn the_sweep_spares_a_card_whose_page_departed_within_the_window() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        a_departed_cards_bridge(&sup, "reloading", "card-reloading").await;
+
+        sup.pages
+            .backdate_departure("card-reloading", Duration::from_secs(10));
+        sup.reap_orphan_bridges(10).await;
+        assert!(
+            sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("reloading")),
+            "10 s after its page left, the card may still be reloading",
+        );
+
+        sup.pages
+            .backdate_departure("card-reloading", Duration::from_secs(51));
+        sup.reap_orphan_bridges(10).await;
+        assert!(
+            !sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("reloading")),
+            "61 s after its page left with none back, the bridge is an orphan",
+        );
+    }
+
+    /// A session a deck's seating report seats is held, whatever client
+    /// spawned it.
+    #[tokio::test]
+    async fn the_sweep_spares_a_session_the_seating_board_seats() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        a_departed_cards_bridge(&sup, "sweep-seated", "card-sweep-seated").await;
+        sup.pages
+            .backdate_departure("card-sweep-seated", Duration::from_secs(120));
+        super::super::deck_seatings::set_deck_seatings(
+            9_201,
+            std::iter::once((None, "sweep-seated".to_string())).collect(),
+        );
+        sup.reap_orphan_bridges(10).await;
+        super::super::deck_seatings::drop_deck_seatings(9_201);
+        assert!(
+            sup.ledger
+                .lock()
+                .await
+                .contains_key(&TugSessionId::new("sweep-seated")),
+            "a seated session is not an orphan",
+        );
+    }
+
+    /// A card seats a session when the ledger entry records the card, or a
+    /// deck reports the pair; no other card does.
+    #[tokio::test]
+    async fn a_card_seats_a_session_by_its_ledger_entry_or_a_seating_report() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let entry = insert_ledger_entry(&sup, &TugSessionId::new("seats-s1")).await;
+        entry.lock().await.card_id = Some("seats-c1".to_owned());
+        let s1 = TugSessionId::new("seats-s1");
+        assert!(sup.card_seats_session("seats-c1", &s1).await);
+        assert!(!sup.card_seats_session("seats-c2", &s1).await);
+
+        super::super::deck_seatings::set_deck_seatings(
+            9_202,
+            std::iter::once((Some("seats-c2".to_string()), "seats-s1".to_string())).collect(),
+        );
+        let reported = sup.card_seats_session("seats-c2", &s1).await;
+        super::super::deck_seatings::drop_deck_seatings(9_202);
+        assert!(reported, "a deck reported card 2 seated on it");
+        assert!(
+            !sup.card_seats_session("seats-c2", &TugSessionId::new("seats-s9"))
+                .await
         );
     }
 

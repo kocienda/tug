@@ -12,6 +12,7 @@
 //! on an input FeedId claims it; subsequent clients receive an error frame.
 
 use parking_lot::Mutex;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,15 +31,18 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use tugcast_core::{BusDelivered, BusFrom, BusOutbound, BusRole, BusTarget};
 use tugcast_core::{
     CLOSE_BAD_HANDSHAKE, CLOSE_HANDSHAKE_TIMEOUT, CLOSE_VERSION_MISMATCH, ControlAction, FeedId,
-    Frame, HANDSHAKE_TIMEOUT, PROTOCOL_NAME, PROTOCOL_VERSION, TugSessionId,
+    Frame, HANDSHAKE_TIMEOUT, PROTOCOL_NAME, PROTOCOL_VERSION, PageIdentity, PageRole,
+    TugSessionId, parse_page_hello,
 };
 
 use crate::auth::{self, SharedAuthState};
 use crate::feeds::agent_supervisor::{AgentSupervisor, ControlError, ControlOutcome};
 use crate::feeds::code::parse_tug_session_id;
 use crate::feeds::terminal;
+use crate::pages::{AddressedFrame, ClientFrame, PageRegistry, PageTarget, SessionSubscription};
 
 /// Broadcast channel capacity for stream feeds (re-exported so existing
 /// `crate::router::BROADCAST_CAPACITY` callers keep working — the constant
@@ -110,12 +114,44 @@ impl ClientLiveness {
 // InputOwnership — single-writer-per-(FeedId, tug_session_id) enforcement (P5)
 // ---------------------------------------------------------------------------
 
-/// Shared map tracking which client (by ID) owns each `(FeedId,
-/// Option<TugSessionId>)` key. Non-session-scoped inputs (TERMINAL_INPUT,
-/// FILETREE_QUERY, ...) use `None`; CODE_INPUT uses `Some(tug_session_id)`
-/// so distinct sessions can coexist under multiple writers, one per session.
-/// A non-zero value is the owning client's ID. Per [D08].
-type InputOwnership = Arc<Mutex<HashMap<(FeedId, Option<TugSessionId>), u64>>>;
+/// Shared map tracking which page owns each `(FeedId, Option<TugSessionId>)`
+/// key. Non-session-scoped single-writer inputs (TERMINAL_INPUT,
+/// TERMINAL_RESIZE) use `None`; CODE_INPUT uses `Some(tug_session_id)` so
+/// distinct sessions can coexist under multiple writers, one per session.
+/// An owner whose `client_id` is 0 holds nothing. Per [D08].
+type InputOwnership = Arc<Mutex<HashMap<(FeedId, Option<TugSessionId>), InputOwner>>>;
+
+/// The page that owns an input key: its connection, and the card it renders
+/// when it is a body page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InputOwner {
+    client_id: u64,
+    card_id: Option<String>,
+}
+
+impl From<u64> for InputOwner {
+    /// A page that renders no card.
+    fn from(client_id: u64) -> Self {
+        Self {
+            client_id,
+            card_id: None,
+        }
+    }
+}
+
+/// Whether a card seats a session — the supervisor's answer in production,
+/// a fixed one in the admission tests.
+#[async_trait::async_trait]
+trait CardSeats: Send + Sync {
+    async fn card_seats_session(&self, card_id: &str, session: &TugSessionId) -> bool;
+}
+
+#[async_trait::async_trait]
+impl CardSeats for AgentSupervisor {
+    async fn card_seats_session(&self, card_id: &str, session: &TugSessionId) -> bool {
+        AgentSupervisor::card_seats_session(self, card_id, session).await
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Per-client state machine
@@ -163,6 +199,37 @@ async fn forward_broadcast(
     }
 }
 
+/// One client's forwarder for one addressed lane: the frames whose delivery
+/// names this client into the merged snapshot channel, and on a lag the
+/// lane's own lag frame. Every connection reads every lane and keeps what is
+/// its own; the address rides beside the frame, so the frame is forwarded as
+/// it was published.
+async fn forward_addressed(
+    mut rx: broadcast::Receiver<AddressedFrame>,
+    snap_tx: mpsc::Sender<Frame>,
+    lag_frame: Option<Frame>,
+    client_id: u64,
+) {
+    loop {
+        match rx.recv().await {
+            Ok(addressed) => {
+                if addressed.to.admits(client_id) && snap_tx.send(addressed.frame).await.is_err() {
+                    break;
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                warn!(client_id, skipped = n, "addressed lane lagged");
+                if let Some(frame) = lag_frame.clone() {
+                    if snap_tx.send(frame).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // FeedRouter
 // ---------------------------------------------------------------------------
@@ -175,8 +242,12 @@ async fn forward_broadcast(
 pub struct FeedRouter {
     /// FeedId → (broadcast::Sender, LagPolicy) for stream feeds (server → client).
     pub(crate) stream_outputs: HashMap<FeedId, (broadcast::Sender<Frame>, LagPolicy)>,
-    /// FeedId → mpsc::Sender for input feeds (client → server).
-    input_sinks: HashMap<FeedId, mpsc::Sender<Frame>>,
+    /// The feeds registered through `register_session_feed`, whose frames
+    /// carry a `tug_session_id` and are filtered by each page's session
+    /// subscription ([P08]).
+    session_feeds: Arc<HashSet<FeedId>>,
+    /// FeedId → the backend each input feed (client → server) is sent to.
+    input_sinks: HashMap<FeedId, InputSink>,
     /// Snapshot watch receivers, keyed by the feed each carries (delivered
     /// to every client on connect, and re-delivered when a subscription
     /// later adds that feed).
@@ -194,6 +265,15 @@ pub struct FeedRouter {
     /// Without one, a client that missed frames is told nothing and goes on
     /// rendering a state it may have missed the correction to.
     snapshot_broadcast_senders: Vec<(broadcast::Sender<Frame>, Option<Frame>)>,
+    /// Addressed lanes: each connection subscribes every one at
+    /// `ClientState::Live` and forwards only the frames addressed to it,
+    /// with the lane's lag frame when its receiver falls behind.
+    addressed_senders: Vec<(broadcast::Sender<AddressedFrame>, Option<Frame>)>,
+    /// The page lane: every tell, eval, ask and `ask-rescind` addressed to a
+    /// page. One FIFO lane, so a frame published after another arrives after
+    /// it at every connection both are addressed to. tugcast's own CONTROL
+    /// broadcasts stay on the CONTROL stream.
+    pub(crate) page_lane: broadcast::Sender<AddressedFrame>,
 
     /// Tracks which client owns each `(input FeedId, tug_session_id?)` key
     /// (P5 single-writer guard, relaxed per [D08]).
@@ -225,6 +305,9 @@ pub struct FeedRouter {
     /// has built them. `POST /api/session` parks into these; the drain task
     /// spawned beside the arc engine empties them on the turn-end tick.
     pub(crate) wheel: Option<Arc<crate::wheel::WheelState>>,
+    /// Which page is on each connection. `boot` replaces the default with
+    /// the one registry it shares with every per-page service.
+    pub(crate) pages: Arc<PageRegistry>,
 }
 
 /// Pending eval requests awaiting responses from the browser.
@@ -248,11 +331,20 @@ impl FeedRouter {
         shutdown_tx: mpsc::Sender<u8>,
         dev_state: crate::dev::SharedDevState,
     ) -> Self {
+        let (page_lane, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let lane_lag = Frame::control(
+            FeedId::CONTROL,
+            serde_json::to_vec(&serde_json::json!({"type": "lag_detected", "lane": "page"}))
+                .expect("a json! value serializes"),
+        );
         Self {
             stream_outputs: HashMap::new(),
+            session_feeds: Arc::new(HashSet::new()),
             input_sinks: HashMap::new(),
             snapshot_watches: Vec::new(),
             snapshot_broadcast_senders: Vec::new(),
+            addressed_senders: vec![(page_lane.clone(), Some(lane_lag))],
+            page_lane,
             input_ownership: Arc::new(Mutex::new(HashMap::new())),
             client_id_counter: Arc::new(AtomicU64::new(1)),
             feed_counters: Arc::new(GlobalFeedCounters::default()),
@@ -265,11 +357,19 @@ impl FeedRouter {
             pending_asks: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             shared_agent: None,
             wheel: None,
+            pages: Arc::new(PageRegistry::new()),
         }
     }
 
     /// Borrow the router state `dispatch_action` needs.
-    pub(crate) fn action_context(&self) -> crate::actions::ActionContext<'_> {
+    ///
+    /// `default_to` is where a tell with no `to` of its own goes: every
+    /// connection for one client reaching the others over the WebSocket, the
+    /// shell for a host or HTTP tell.
+    pub(crate) fn action_context(
+        &self,
+        default_to: PageTarget,
+    ) -> crate::actions::ActionContext<'_> {
         crate::actions::ActionContext {
             shutdown_tx: &self.shutdown_tx,
             stream_outputs: &self.stream_outputs,
@@ -277,6 +377,9 @@ impl FeedRouter {
             pending_evals: &self.pending_evals,
             pending_asks: &self.pending_asks,
             shared_agent: &self.shared_agent,
+            page_lane: &self.page_lane,
+            pages: &self.pages,
+            default_to,
         }
     }
 
@@ -313,17 +416,31 @@ impl FeedRouter {
     /// Register a session-scoped stream feed: the feed's own channel and
     /// lag policy enter client delivery; producers publish through their
     /// `SessionScopedFeed` clones (splice-on-emit lives there, not here).
+    /// The feed id is recorded as session-scoped, so each connection's
+    /// session subscription filters it.
     pub(crate) fn register_session_feed(
         &mut self,
         feed: &crate::feeds::session_scoped::SessionScopedFeed,
     ) {
         self.stream_outputs
             .insert(feed.feed_id(), (feed.sender(), feed.lag_policy()));
+        Arc::make_mut(&mut self.session_feeds).insert(feed.feed_id());
     }
 
     /// Register an input sink (client → server backend).
     pub(crate) fn register_input(&mut self, feed_id: FeedId, tx: mpsc::Sender<Frame>) {
-        self.input_sinks.insert(feed_id, tx);
+        self.input_sinks.insert(feed_id, InputSink::Plain(tx));
+    }
+
+    /// Register an input whose backend answers the page that asked: each
+    /// frame is sent with the sender's `client_id`, which the router sets
+    /// and a page cannot forge.
+    pub(crate) fn register_addressed_input(
+        &mut self,
+        feed_id: FeedId,
+        tx: mpsc::Sender<ClientFrame>,
+    ) {
+        self.input_sinks.insert(feed_id, InputSink::Addressed(tx));
     }
 
     /// Attach the multi-session supervisor. Called from `main.rs` after the
@@ -372,6 +489,18 @@ impl FeedRouter {
     ) {
         self.snapshot_broadcast_senders
             .push((sender, Some(lag_frame)));
+    }
+
+    /// Register an addressed lane. Each connection forwards only the frames
+    /// whose delivery names it, and `lag_frame` in their place when its
+    /// receiver falls behind. The page lane is registered in `new`; the
+    /// per-page reply lanes are the callers this is for.
+    pub(crate) fn register_addressed_stream(
+        &mut self,
+        sender: broadcast::Sender<AddressedFrame>,
+        lag_frame: Option<Frame>,
+    ) {
+        self.addressed_senders.push((sender, lag_frame));
     }
 
     /// Assign a unique client ID.
@@ -465,17 +594,24 @@ fn host_os_version() -> String {
 /// the protocol identity plus an additive `host` object (`{os, version}`) so
 /// the frontend can gate on the macOS version from the drop, before any card
 /// ([P06], Spec S03). Additive and back-compatible: older clients ignore it.
-fn build_handshake_response() -> serde_json::Value {
+/// It also tells the connection its own `client_id` and echoes the page
+/// identity the hello stated, so a page can see what tugcast took it for.
+fn build_handshake_response(client_id: u64, identity: &PageIdentity) -> serde_json::Value {
     serde_json::json!({
         "protocol": PROTOCOL_NAME,
         "version": PROTOCOL_VERSION,
         "capabilities": [],
         "host": { "os": "macos", "version": host_os_version() },
+        "client_id": client_id,
+        "page": identity,
     })
 }
 
 /// Perform the protocol handshake at WebSocket connection open.
-async fn perform_handshake(socket: &mut WebSocket) -> bool {
+///
+/// Returns the page identity the hello stated (a tool when it stated none),
+/// or `None` when the handshake failed and the socket is done.
+async fn perform_handshake(socket: &mut WebSocket, client_id: u64) -> Option<PageIdentity> {
     let hello = tokio::time::timeout(HANDSHAKE_TIMEOUT, socket.recv()).await;
 
     let hello_text = match hello {
@@ -488,15 +624,15 @@ async fn perform_handshake(socket: &mut WebSocket) -> bool {
                     reason: "expected text handshake frame".into(),
                 })))
                 .await;
-            return false;
+            return None;
         }
         Ok(Some(Err(e))) => {
             warn!("Handshake failed: WebSocket error: {}", e);
-            return false;
+            return None;
         }
         Ok(None) => {
             info!("Client disconnected before handshake");
-            return false;
+            return None;
         }
         Err(_) => {
             warn!("Handshake timed out");
@@ -506,7 +642,7 @@ async fn perform_handshake(socket: &mut WebSocket) -> bool {
                     reason: "handshake timeout".into(),
                 })))
                 .await;
-            return false;
+            return None;
         }
     };
 
@@ -520,7 +656,7 @@ async fn perform_handshake(socket: &mut WebSocket) -> bool {
                     reason: "invalid handshake JSON".into(),
                 })))
                 .await;
-            return false;
+            return None;
         }
     };
 
@@ -536,7 +672,7 @@ async fn perform_handshake(socket: &mut WebSocket) -> bool {
                 reason: format!("unknown protocol: {protocol}").into(),
             })))
             .await;
-        return false;
+        return None;
     }
 
     let version = hello_json
@@ -558,21 +694,40 @@ async fn perform_handshake(socket: &mut WebSocket) -> bool {
                 .into(),
             })))
             .await;
-        return false;
+        return None;
     }
 
-    let response = build_handshake_response();
+    let identity = match parse_page_hello(&hello_json) {
+        Ok(identity) => identity,
+        Err(reason) => {
+            warn!("Handshake failed: bad page identity: {}", reason);
+            let _ = socket
+                .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                    code: CLOSE_BAD_HANDSHAKE,
+                    reason: format!("bad page identity: {reason}").into(),
+                })))
+                .await;
+            return None;
+        }
+    };
+
+    let response = build_handshake_response(client_id, &identity);
     if socket
         .send(Message::Text(response.to_string().into()))
         .await
         .is_err()
     {
         info!("Client disconnected during handshake response");
-        return false;
+        return None;
     }
 
-    info!("Protocol handshake complete (v{})", PROTOCOL_VERSION);
-    true
+    info!(
+        client_id,
+        role = identity.role.as_str(),
+        "Protocol handshake complete (v{})",
+        PROTOCOL_VERSION
+    );
+    Some(identity)
 }
 
 // ---------------------------------------------------------------------------
@@ -680,17 +835,72 @@ impl GlobalFeedCounters {
 ///
 /// `CONTROL` and `HEARTBEAT` are the control and liveness planes and are
 /// always admitted — a client that could unsubscribe its own liveness could
-/// hang itself. A `None` subscription means everything, which is the state of
-/// every connection that has said nothing, and is what makes the filter
-/// wire-compatible on the day it ships.
+/// hang itself. `DECK_BUS` is admitted too: a bus frame reaches only the
+/// pages it was addressed to, so addressing already scopes it. A `None`
+/// subscription means everything, which is the state of every connection
+/// that has said nothing, and is what makes the filter wire-compatible on
+/// the day it ships.
 fn admits(subscription: Option<&HashSet<FeedId>>, feed_id: FeedId) -> bool {
-    if feed_id == FeedId::CONTROL || feed_id == FeedId::HEARTBEAT {
+    if feed_id == FeedId::CONTROL || feed_id == FeedId::HEARTBEAT || feed_id == FeedId::DECK_BUS {
         return true;
     }
     match subscription {
         None => true,
         Some(set) => set.contains(&feed_id),
     }
+}
+
+/// Carry one `DECK_BUS` frame from a page to the pages it names (Spec S06).
+///
+/// The sender is stamped from `from`, the identity its hello registered, so
+/// a `from` in the payload is never read. A tool is refused, a payload
+/// outside the vocabulary is malformed, and a target no live page answers
+/// is undeliverable; each refusal is the CONTROL error the sender gets back.
+/// A delivery rides the page lane, so it is ordered with every tell.
+fn route_bus(
+    pages: &PageRegistry,
+    page_lane: &broadcast::Sender<AddressedFrame>,
+    from: &PageIdentity,
+    payload: &[u8],
+) -> Result<(), serde_json::Value> {
+    let error = |detail: &str| serde_json::json!({ "type": "error", "detail": detail });
+    let role = match from.role {
+        PageRole::Shell => BusRole::Shell,
+        PageRole::Body => BusRole::Body,
+        PageRole::Tool => return Err(error("bus_refused")),
+    };
+    let Ok(outbound) = serde_json::from_slice::<BusOutbound>(payload) else {
+        return Err(error("bus_malformed"));
+    };
+    let target = match &outbound.to {
+        BusTarget::Role(BusRole::Shell) => PageTarget::Shell,
+        BusTarget::Role(BusRole::Body) => PageTarget::Bodies,
+        BusTarget::Card { card } => PageTarget::Card(card.clone()),
+        BusTarget::Page { page } => PageTarget::Page(page.clone()),
+    };
+    let Some(to) = pages.resolve(&target) else {
+        let mut refusal = error("bus_undeliverable");
+        refusal["to"] = serde_json::to_value(&outbound.to).unwrap_or_default();
+        return Err(refusal);
+    };
+    let delivered = BusDelivered {
+        from: BusFrom {
+            page_id: from.page_id.clone().unwrap_or_default(),
+            role,
+            card_id: from.card_id.clone(),
+        },
+        to: outbound.to,
+        message: outbound.message,
+    };
+    let Ok(bytes) = serde_json::to_vec(&delivered) else {
+        return Err(error("bus_malformed"));
+    };
+    // A send with no receiver means no connection is live to take it.
+    let _ = page_lane.send(AddressedFrame {
+        to,
+        frame: Frame::new(FeedId::DECK_BUS, bytes),
+    });
+    Ok(())
 }
 
 /// Parse a `subscribe_feeds` payload into a full replacement set (Spec S01).
@@ -713,6 +923,64 @@ fn parse_subscribe_feeds(payload: &serde_json::Value) -> Option<HashSet<FeedId>>
     )
 }
 
+/// Parse the session half of a `subscribe_feeds` payload (Spec S04).
+///
+/// An absent `sessions`, or `"all"`, is every session: the message is a
+/// full replacement, so saying nothing resets a narrowed filter. An array
+/// of strings is exactly those ids, and `[]` is none. Anything else is
+/// malformed and answers `None`, which leaves both sets alone. Unlike the
+/// feed list, one non-string entry refuses the whole set, because an id the
+/// page meant and the router skipped is a session the page silently loses.
+fn parse_subscribe_sessions(payload: &serde_json::Value) -> Option<SessionSubscription> {
+    match payload.get("sessions") {
+        None => Some(SessionSubscription::All),
+        Some(serde_json::Value::String(s)) if s == "all" => Some(SessionSubscription::All),
+        Some(serde_json::Value::Array(ids)) => ids
+            .iter()
+            .map(|v| v.as_str().map(str::to_string))
+            .collect::<Option<HashSet<String>>>()
+            .map(SessionSubscription::Only),
+        Some(_) => None,
+    }
+}
+
+/// The `tug_session_id` a session-scoped frame carries ([P08]).
+///
+/// The hot path reads the leading `{"tug_session_id":"…"` that
+/// `splice_tug_session_id` writes, without a parse. A frame whose id is not
+/// first (`build_session_state_frame` serializes with sorted keys), or whose
+/// id carries an escape, falls back to a full parse. `None` means the frame
+/// names no session, and the caller admits it.
+fn session_of(payload: &[u8]) -> Option<Cow<'_, str>> {
+    const PREFIX: &[u8] = b"{\"tug_session_id\":\"";
+    let start = payload.iter().position(|b| !b.is_ascii_whitespace())?;
+    if let Some(rest) = payload[start..].strip_prefix(PREFIX) {
+        if let Some(end) = rest.iter().position(|b| *b == b'"' || *b == b'\\') {
+            if rest[end] == b'"' {
+                if let Ok(id) = std::str::from_utf8(&rest[..end]) {
+                    return Some(Cow::Borrowed(id));
+                }
+            }
+        }
+    }
+    parse_tug_session_id(payload).map(Cow::Owned)
+}
+
+/// Does a connection's session subscription admit `frame`? ([P08])
+///
+/// Only a frame on a session-scoped feed that names a session can be
+/// refused, and a connection taking every session never reads the payload.
+fn admits_session(
+    sessions: &SessionSubscription,
+    session_feeds: &HashSet<FeedId>,
+    frame: &Frame,
+) -> bool {
+    if matches!(sessions, SessionSubscription::All) || !session_feeds.contains(&frame.feed_id) {
+        return true;
+    }
+    session_of(&frame.payload).is_none_or(|id| sessions.admits(&id))
+}
+
 /// Build the `feed_stats` CONTROL response (Spec S02).
 ///
 /// Pure over its arguments so it is unit-testable without a socket. Rows
@@ -720,7 +988,9 @@ fn parse_subscribe_feeds(payload: &serde_json::Value) -> Option<HashSet<FeedId>>
 /// response short rather than 256 rows long.
 fn build_feed_stats_json(
     client_id: u64,
+    page: &PageIdentity,
     subscribed: Option<&HashSet<FeedId>>,
+    sessions: &SessionSubscription,
     conn: &FeedCounters,
     global: &GlobalFeedCounters,
 ) -> serde_json::Value {
@@ -776,7 +1046,9 @@ fn build_feed_stats_json(
     serde_json::json!({
         "type": "feed_stats",
         "client_id": client_id,
+        "page": page,
         "subscribed": subscribed,
+        "sessions": sessions,
         "connection": connection,
         "global": global_rows,
     })
@@ -816,10 +1088,16 @@ impl SendOutcome {
 struct ClientSink {
     socket: WebSocket,
     client_id: u64,
+    /// The page identity this connection's hello stated.
+    identity: PageIdentity,
     /// The feeds this connection asked for, or `None` if it has never asked.
     /// `None` is not "no feeds" — it is "everything", which is why an
     /// existing client that never learns the verb is unaffected.
     subscription: Option<HashSet<FeedId>>,
+    /// The sessions this connection takes session-scoped frames for.
+    sessions: SessionSubscription,
+    /// The router's session-scoped feeds, shared by every connection.
+    session_feeds: Arc<HashSet<FeedId>>,
     /// This connection's own table. Plain `u64`s: the client task is its
     /// only writer.
     counters: FeedCounters,
@@ -833,11 +1111,20 @@ struct ClientSink {
 }
 
 impl ClientSink {
-    fn new(socket: WebSocket, client_id: u64, global_counters: Arc<GlobalFeedCounters>) -> Self {
+    fn new(
+        socket: WebSocket,
+        client_id: u64,
+        identity: PageIdentity,
+        global_counters: Arc<GlobalFeedCounters>,
+        session_feeds: Arc<HashSet<FeedId>>,
+    ) -> Self {
         Self {
             socket,
             client_id,
+            identity,
             subscription: None,
+            sessions: SessionSubscription::All,
+            session_feeds,
             counters: FeedCounters::new(),
             global_counters,
             retained_watches: Vec::new(),
@@ -850,9 +1137,16 @@ impl ClientSink {
     /// queued and never drained, because there is no per-connection queue and
     /// an unsubscribe whose effect is deferred is worse than one that is
     /// exact. It costs no encode at all.
+    ///
+    /// A frame on a session-scoped feed is also refused when it names a
+    /// session outside this connection's session subscription. Replay needs
+    /// no rule of its own: lag-recovery replay and tugcode's replay frames
+    /// pass through here on `CODE_OUTPUT` and are filtered the same way.
     async fn send_frame(&mut self, frame: Frame) -> SendOutcome {
         let feed_id = frame.feed_id;
-        if !admits(self.subscription.as_ref(), feed_id) {
+        if !admits(self.subscription.as_ref(), feed_id)
+            || !admits_session(&self.sessions, &self.session_feeds, &frame)
+        {
             self.counters.record_dropped(feed_id);
             self.global_counters.record_dropped(feed_id);
             return SendOutcome::Dropped;
@@ -889,8 +1183,8 @@ impl ClientSink {
 // ---------------------------------------------------------------------------
 
 /// Try to claim an input `(FeedId, tug_session_id?)` key for the given
-/// client. Returns `Ok(())` if the client owns it (or just claimed it),
-/// or `Err(owner_id)` if another client owns it.
+/// page. Returns `Ok(())` if the page owns it (or just claimed it), or
+/// `Err(owner_id)` if another client owns it.
 ///
 /// The `tug_session_id` argument is `None` for all non-CODE_INPUT feeds
 /// (TERMINAL_INPUT, FILETREE_QUERY, TERMINAL_RESIZE) and
@@ -900,24 +1194,78 @@ fn try_claim_input(
     ownership: &InputOwnership,
     feed_id: FeedId,
     tug_session_id: Option<TugSessionId>,
-    client_id: u64,
+    owner: impl Into<InputOwner>,
 ) -> Result<(), u64> {
+    let owner = owner.into();
     let mut map = ownership.lock();
     let key = (feed_id, tug_session_id);
-    match map.get(&key).copied() {
+    match map.get(&key).map(|held| held.client_id) {
         None | Some(0) => {
-            map.insert(key, client_id);
+            map.insert(key, owner);
             Ok(())
         }
-        Some(owner) if owner == client_id => Ok(()),
-        Some(owner) => Err(owner),
+        Some(held) if held == owner.client_id => Ok(()),
+        Some(held) => Err(held),
     }
 }
+
+/// Hand an input key to `owner`, whoever held it. Returns the owner it
+/// replaced.
+fn take_over_input(
+    ownership: &InputOwnership,
+    feed_id: FeedId,
+    tug_session_id: Option<TugSessionId>,
+    owner: InputOwner,
+) -> Option<InputOwner> {
+    ownership.lock().insert((feed_id, tug_session_id), owner)
+}
+
+/// Where an input feed's frames go.
+#[derive(Clone)]
+pub(crate) enum InputSink {
+    /// The frame alone: a backend that answers on a session-scoped or
+    /// shared feed and keeps no per-page state.
+    Plain(mpsc::Sender<Frame>),
+    /// The frame and its sender, for a backend that answers the page that
+    /// asked or keeps state per page.
+    Addressed(mpsc::Sender<ClientFrame>),
+}
+
+impl InputSink {
+    async fn send(&self, client_id: u64, frame: Frame) {
+        // A backend that has gone away drops the frame, as it always has.
+        let _ = match self {
+            InputSink::Plain(tx) => tx.send(frame).await.map_err(|_| ()),
+            InputSink::Addressed(tx) => tx
+                .send(ClientFrame { client_id, frame })
+                .await
+                .map_err(|_| ()),
+        };
+    }
+}
+
+/// The inputs every page owns for itself: no page is ever refused
+/// `input_claimed` on one of these, because each page's requests are its own
+/// and their answers go back to it. The terminal pair stays single-writer —
+/// there is one tmux pane — and `CODE_INPUT` stays single-writer per
+/// session. An input listed nowhere is single-writer until it is added here.
+pub(crate) const PER_PAGE_INPUTS: &[FeedId] = &[
+    FeedId::SHELL_INPUT,
+    FeedId::REFS_INPUT,
+    FeedId::OVERVIEW_INPUT,
+    FeedId::FILETREE_QUERY,
+    FeedId::FILE_WATCH_QUERY,
+    FeedId::GIT_DIFF_QUERY,
+    FeedId::GIT_LOG_QUERY,
+    FeedId::GIT_COMMIT_FILES_QUERY,
+    FeedId::USAGE_QUERY,
+    FeedId::RENDER_INPUT,
+];
 
 /// Release all input keys owned by the given client.
 fn release_inputs(ownership: &InputOwnership, client_id: u64) {
     let mut map = ownership.lock();
-    map.retain(|_, owner| *owner != client_id);
+    map.retain(|_, owner| owner.client_id != client_id);
 }
 
 /// Combined client teardown: release input ownership AND notify the
@@ -926,6 +1274,7 @@ fn release_inputs(ownership: &InputOwnership, client_id: u64) {
 /// supervisor state (`client_sessions`) cannot leak across reconnects.
 async fn teardown_client(router: &FeedRouter, client_id: u64) {
     release_inputs(&router.input_ownership, client_id);
+    router.pages.depart(client_id);
     if let Some(sup) = router.supervisor.as_ref() {
         sup.on_client_disconnect(client_id).await;
     }
@@ -1036,25 +1385,37 @@ enum InputDecision {
 ///
 /// Behavior summary:
 ///
-/// 1. Non-CODE_INPUT feeds: no session parsing, no authorization check, key
-///    is `(feed_id, None)`.
+/// 0. A feed in [`PER_PAGE_INPUTS`]: `Forward`, always. Nothing is claimed.
+/// 1. Other non-CODE_INPUT feeds: no session parsing, no authorization
+///    check, key is `(feed_id, None)`.
 /// 2. CODE_INPUT with no `tug_session_id` in payload: `MissingSession`. No
 ///    ownership mutation. (Hard reject per Step 7's wedge acknowledgement —
 ///    tugdeck `encodeCodeInput` must inject the field.)
 /// 3. CODE_INPUT with a `tug_session_id` the client never registered via
-///    `spawn_session`: `NotOwned`. No ownership mutation. Closes the
-///    authorization gap where a client that learned another client's UUID
-///    could race the legitimate owner to claim the key. Skipped when
-///    `client_sessions` is `None` (Step 7 interim before main.rs wiring).
+///    `spawn_session`, from a page whose card does not seat it: `NotOwned`.
+///    No ownership mutation. Closes the authorization gap where a client
+///    that learned another client's UUID could race the legitimate owner
+///    to claim the key. Skipped when `client_sessions` is `None` (Step 7
+///    interim before main.rs wiring).
 /// 4. Otherwise, attempt [`try_claim_input`] under the relaxed
-///    `(FeedId, Option<TugSessionId>)` key and translate the result.
+///    `(FeedId, Option<TugSessionId>)` key and translate the result. A
+///    body page whose card seats the session takes a claim another page
+///    holds — a reloaded body is a new connection for the same card, and a
+///    shell that spawned the session hands it to the card's own page.
+///
+/// `card` is the writing page's card and what can say whether that card
+/// seats a session; `None` for a page that renders no card.
 async fn authorize_and_claim_input(
     ownership: &InputOwnership,
     client_sessions: Option<&ClientSessionAffinity>,
+    card: Option<(&str, &dyn CardSeats)>,
     feed_id: FeedId,
     payload: &[u8],
     client_id: u64,
 ) -> InputDecision {
+    if PER_PAGE_INPUTS.contains(&feed_id) {
+        return InputDecision::Forward;
+    }
     let tug_session_id: Option<TugSessionId> = if feed_id == FeedId::CODE_INPUT {
         match parse_tug_session_id(payload) {
             Some(s) => Some(TugSessionId::new(s)),
@@ -1064,16 +1425,51 @@ async fn authorize_and_claim_input(
         None
     };
 
+    // Whether the writing page's card seats the session. Asked at most
+    // once, and only when a client-held rule has already said no.
+    let mut seated: Option<bool> = None;
+    let mut card_seats = async |session: &TugSessionId| -> bool {
+        if let Some(known) = seated {
+            return known;
+        }
+        let answer = match card {
+            Some((card_id, seats)) => seats.card_seats_session(card_id, session).await,
+            None => false,
+        };
+        seated = Some(answer);
+        answer
+    };
+
     if let (Some(sessions), Some(session)) = (client_sessions, &tug_session_id) {
-        let cs = sessions.lock().await;
-        if !cs.get(&client_id).is_some_and(|set| set.contains(session)) {
+        let registered = {
+            let cs = sessions.lock().await;
+            cs.get(&client_id).is_some_and(|set| set.contains(session))
+        };
+        if !registered && !card_seats(session).await {
             return InputDecision::NotOwned(session.clone());
         }
     }
 
-    match try_claim_input(ownership, feed_id, tug_session_id, client_id) {
+    let owner = InputOwner {
+        client_id,
+        card_id: card.map(|(card_id, _)| card_id.to_owned()),
+    };
+    match try_claim_input(ownership, feed_id, tug_session_id.clone(), owner.clone()) {
         Ok(()) => InputDecision::Forward,
-        Err(owner) => InputDecision::Claimed(owner),
+        Err(held) => match &tug_session_id {
+            Some(session) if card_seats(session).await => {
+                let previous = take_over_input(ownership, feed_id, tug_session_id.clone(), owner);
+                info!(
+                    client_id,
+                    tug_session_id = session.as_str(),
+                    from_client = held,
+                    from_card = ?previous.and_then(|p| p.card_id),
+                    "CODE_INPUT taken over by the page whose card seats the session"
+                );
+                InputDecision::Forward
+            }
+            _ => InputDecision::Claimed(held),
+        },
     }
 }
 
@@ -1085,20 +1481,31 @@ async fn authorize_and_claim_input(
 async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id: Option<String>) {
     let client_id = router.next_client_id();
     info!(client_id, "Client connected");
+
+    // --- Protocol handshake (v1) ---
+    let Some(identity) = perform_handshake(&mut socket, client_id).await else {
+        return;
+    };
+    router.pages.register(client_id, &identity);
+    // A body page's card: what lets it write the session its card seats.
+    let page_card = identity.card_id.clone();
+
     // Every open card re-announces its session from here; a bridge still in
-    // nobody's set once that has settled is an orphan ([B07]).
+    // nobody's set once that has settled is an orphan ([B07]). Armed only
+    // once the registry knows the page, so a failed handshake arms nothing.
     if let Some(sup) = router.supervisor.as_ref() {
         sup.on_client_connect(client_id);
     }
 
-    // --- Protocol handshake (v1) ---
-    if !perform_handshake(&mut socket).await {
-        return;
-    }
-
     // From here on nothing holds the raw socket: every server-to-client
     // frame goes through the sink.
-    let mut sink = ClientSink::new(socket, client_id, Arc::clone(&router.feed_counters));
+    let mut sink = ClientSink::new(
+        socket,
+        client_id,
+        identity,
+        Arc::clone(&router.feed_counters),
+        Arc::clone(&router.session_feeds),
+    );
 
     // Build the StreamMap for output fan-in
     let (mut stream_map, lag_policies) = build_stream_map(&router.stream_outputs);
@@ -1219,6 +1626,17 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                     let bcast_rx = tx.subscribe();
                     let snap_tx_clone = snap_tx.clone();
                     tokio::spawn(forward_broadcast(bcast_rx, snap_tx_clone, lag_frame));
+                }
+
+                // Addressed lanes: every connection reads every lane and
+                // forwards what is addressed to it.
+                for (tx, lag_frame) in std::mem::take(&mut router.addressed_senders) {
+                    tokio::spawn(forward_addressed(
+                        tx.subscribe(),
+                        snap_tx.clone(),
+                        lag_frame,
+                        client_id,
+                    ));
                 }
 
                 drop(snap_tx);
@@ -1359,7 +1777,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                     if parsed == Some(ControlAction::FeedStats) {
                                                         let stats = build_feed_stats_json(
                                                             sink.client_id,
+                                                            &sink.identity,
                                                             sink.subscription.as_ref(),
+                                                            &sink.sessions,
                                                             &sink.counters,
                                                             &sink.global_counters,
                                                         );
@@ -1370,8 +1790,12 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                         // unsubscribe verb, no acknowledgement
                                                         // frame — the effect is observable in
                                                         // feed_stats and in what arrives.
-                                                        match parse_subscribe_feeds(&payload) {
-                                                            Some(set) => {
+                                                        // Both sets are parsed before
+                                                        // either is applied, so a malformed
+                                                        // half leaves the whole filter as it
+                                                        // was (Spec S04).
+                                                        match parse_subscribe_feeds(&payload).zip(parse_subscribe_sessions(&payload)) {
+                                                            Some((set, sessions)) => {
                                                                 // The add-set is a difference, not
                                                                 // the whole set: a previous None
                                                                 // already had everything, so a
@@ -1383,6 +1807,8 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                 };
                                                                 debug!(client_id, feeds = set.len(), added = added.len(), "subscribe_feeds applied");
                                                                 sink.subscription = Some(set);
+                                                                router.pages.set_sessions(client_id, sessions.clone());
+                                                                sink.sessions = sessions;
                                                                 // Re-deliver each newly added
                                                                 // snapshot feed's retained latest
                                                                 // value. A feed with no retained
@@ -1408,7 +1834,7 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                 }
                                                             }
                                                             None => {
-                                                                warn!(client_id, "subscribe_feeds carried no feeds array; subscription left unchanged");
+                                                                warn!(client_id, "subscribe_feeds carried no feeds array or a malformed sessions field; subscription left unchanged");
                                                             }
                                                         }
                                                     } else {
@@ -1461,12 +1887,26 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                                 crate::actions::dispatch_action(
                                                                     action,
                                                                     &frame.payload,
-                                                                    &router.action_context(),
+                                                                    &router.action_context(PageTarget::All),
                                                                 ).await;
                                                             }
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+                                        // Router-internal: the deck bus (Spec S06).
+                                        // Answered on this socket loop, so a
+                                        // refusal arrives before any later reply.
+                                        else if fid == FeedId::DECK_BUS {
+                                            if let Err(refusal) = route_bus(
+                                                &router.pages,
+                                                &router.page_lane,
+                                                &sink.identity,
+                                                &frame.payload,
+                                            ) {
+                                                warn!(client_id, detail = %refusal["detail"], "bus frame refused");
+                                                let _ = sink.send_control_json(FeedId::CONTROL, &refusal).await;
                                             }
                                         }
                                         // Dynamic dispatch: look up input sink, then
@@ -1477,14 +1917,17 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                             let decision = authorize_and_claim_input(
                                                 &router.input_ownership,
                                                 router.supervisor.as_ref().map(|s| &s.client_sessions),
+                                                page_card.as_deref().zip(
+                                                    router.supervisor.as_deref().map(|s| s as &dyn CardSeats),
+                                                ),
                                                 fid,
                                                 &frame.payload,
                                                 client_id,
                                             ).await;
                                             match decision {
                                                 InputDecision::Forward => {
-                                                    let tx = router.input_sinks.get(&fid).unwrap();
-                                                    let _ = tx.send(frame).await;
+                                                    let sink = router.input_sinks.get(&fid).unwrap();
+                                                    sink.send(client_id, frame).await;
                                                 }
                                                 InputDecision::MissingSession => {
                                                     warn!(
@@ -1637,7 +2080,7 @@ mod tests {
 
     #[test]
     fn handshake_response_carries_well_formed_host() {
-        let r = build_handshake_response();
+        let r = build_handshake_response(7, &PageIdentity::tool());
 
         // Additive host object present and well-formed (Spec S03).
         let host = r.get("host").expect("handshake response has a host field");
@@ -1670,6 +2113,27 @@ mod tests {
         assert_eq!(
             r.get("version").and_then(|v| v.as_u64()),
             Some(PROTOCOL_VERSION as u64)
+        );
+    }
+
+    #[test]
+    fn handshake_response_carries_client_id_and_page() {
+        let identity = PageIdentity {
+            role: tugcast_core::PageRole::Body,
+            page_id: Some("p1".into()),
+            card_id: Some("c1".into()),
+        };
+        let r = build_handshake_response(42, &identity);
+        assert_eq!(r["client_id"], 42);
+        assert_eq!(
+            r["page"],
+            serde_json::json!({"role": "body", "page_id": "p1", "card_id": "c1"})
+        );
+
+        let tool = build_handshake_response(3, &PageIdentity::tool());
+        assert_eq!(
+            tool["page"],
+            serde_json::json!({"role": "tool", "page_id": null, "card_id": null})
         );
     }
 
@@ -1750,6 +2214,10 @@ mod tests {
         router.register_session_feed(&feed);
 
         feed.publish("session-a", br#"{"type":"assistant_text"}"#);
+        assert!(
+            router.session_feeds.contains(&FeedId::CODE_OUTPUT),
+            "a session feed is recorded for the session filter"
+        );
         feed.publish("session-b", br#"{"type":"tool_use"}"#);
 
         let (_, policy) = router.stream_outputs.get(&FeedId::CODE_OUTPUT).unwrap();
@@ -1872,6 +2340,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_per_page_input_forwards_a_second_page_without_a_claim() {
+        let ownership: InputOwnership = Arc::new(Mutex::new(HashMap::new()));
+        for &feed in PER_PAGE_INPUTS {
+            for client in [1, 2] {
+                assert_eq!(
+                    authorize_and_claim_input(&ownership, None, None, feed, b"{}", client).await,
+                    InputDecision::Forward,
+                    "page {client} owns its own requests on {feed:?}"
+                );
+            }
+        }
+        assert!(
+            ownership.lock().is_empty(),
+            "a per-page input claims nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_terminal_stays_single_writer() {
+        let ownership: InputOwnership = Arc::new(Mutex::new(HashMap::new()));
+        for feed in [FeedId::TERMINAL_INPUT, FeedId::TERMINAL_RESIZE] {
+            assert_eq!(
+                authorize_and_claim_input(&ownership, None, None, feed, b"x", 1).await,
+                InputDecision::Forward
+            );
+            assert_eq!(
+                authorize_and_claim_input(&ownership, None, None, feed, b"x", 2).await,
+                InputDecision::Claimed(1),
+                "one tmux pane, one writer"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn test_p5_code_input_missing_session_id_rejected() {
         // CODE_INPUT with no `tug_session_id` in the payload is rejected
         // with `MissingSession`, and the ownership map is NOT mutated —
@@ -1882,7 +2384,8 @@ mod tests {
         let payload = br#"{"type":"user_message","text":"hi"}"#;
 
         let decision =
-            authorize_and_claim_input(&ownership, None, FeedId::CODE_INPUT, payload, 42).await;
+            authorize_and_claim_input(&ownership, None, None, FeedId::CODE_INPUT, payload, 42)
+                .await;
 
         assert_eq!(decision, InputDecision::MissingSession);
         assert!(
@@ -1907,6 +2410,7 @@ mod tests {
         let decision = authorize_and_claim_input(
             &ownership,
             Some(&client_sessions),
+            None,
             FeedId::CODE_INPUT,
             payload,
             1,
@@ -1934,6 +2438,7 @@ mod tests {
         let decision = authorize_and_claim_input(
             &ownership,
             Some(&client_sessions),
+            None,
             FeedId::CODE_INPUT,
             payload,
             1,
@@ -1944,6 +2449,80 @@ mod tests {
             ownership.lock().len(),
             1,
             "successful claim writes exactly one entry to the ownership map"
+        );
+    }
+
+    /// Fixed (card, session) seatings, standing in for the supervisor.
+    struct FixedSeats(HashSet<(&'static str, &'static str)>);
+
+    #[async_trait::async_trait]
+    impl CardSeats for FixedSeats {
+        async fn card_seats_session(&self, card_id: &str, session: &TugSessionId) -> bool {
+            self.0
+                .iter()
+                .any(|(c, s)| *c == card_id && *s == session.as_str())
+        }
+    }
+
+    /// `CODE_INPUT` follows the card's seating: a body page whose card
+    /// seats the session is admitted with no `client_sessions` row and
+    /// takes the claim over from the page that held it; a page whose card
+    /// does not seat it is refused, and a second page with no card is still
+    /// a second writer.
+    #[tokio::test]
+    async fn code_input_follows_the_cards_seating() {
+        const SHELL: u64 = 1;
+        const BODY: u64 = 2;
+        const OTHER_BODY: u64 = 3;
+        const SECOND_SHELL: u64 = 4;
+        let ownership: InputOwnership = Arc::new(Mutex::new(HashMap::new()));
+        let client_sessions: ClientSessionAffinity =
+            Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        client_sessions
+            .lock()
+            .await
+            .insert(SHELL, [TugSessionId::new("sess-s")].into());
+        let seats = FixedSeats([("card-x", "sess-s")].into());
+        let payload = br#"{"tug_session_id":"sess-s","type":"user_message"}"#;
+        let write = async |client: u64, card: Option<&str>| {
+            authorize_and_claim_input(
+                &ownership,
+                Some(&client_sessions),
+                card.map(|c| (c, &seats as &dyn CardSeats)),
+                FeedId::CODE_INPUT,
+                payload,
+                client,
+            )
+            .await
+        };
+
+        // The shell spawned the session and writes it first.
+        assert_eq!(write(SHELL, None).await, InputDecision::Forward);
+        // A body whose card does not seat it is not owned.
+        assert_eq!(
+            write(OTHER_BODY, Some("card-z")).await,
+            InputDecision::NotOwned(TugSessionId::new("sess-s"))
+        );
+        // The card's own body, with no client_sessions row, takes it over.
+        assert_eq!(write(BODY, Some("card-x")).await, InputDecision::Forward);
+        let key = (FeedId::CODE_INPUT, Some(TugSessionId::new("sess-s")));
+        assert_eq!(
+            ownership.lock().get(&key),
+            Some(&InputOwner {
+                client_id: BODY,
+                card_id: Some("card-x".into())
+            })
+        );
+        // The shell is now a second writer.
+        assert_eq!(write(SHELL, None).await, InputDecision::Claimed(BODY));
+        // And so is another shell-role page that registered the session.
+        client_sessions
+            .lock()
+            .await
+            .insert(SECOND_SHELL, [TugSessionId::new("sess-s")].into());
+        assert_eq!(
+            write(SECOND_SHELL, None).await,
+            InputDecision::Claimed(BODY)
         );
     }
 
@@ -1993,6 +2572,7 @@ mod tests {
     use crate::feeds::agent_supervisor::{install_live_session_for_tests, test_minimal_supervisor};
     use crate::feeds::session_metadata::is_system_metadata;
     use crate::feeds::workspace_registry::WorkspaceKey;
+    use crate::pages::Delivery;
     use std::path::PathBuf;
     use tokio_util::sync::CancellationToken;
     use tugcast_core::TugSessionId;
@@ -2401,8 +2981,8 @@ mod tests {
         assert!(router.input_sinks.contains_key(&FeedId::TERMINAL_RESIZE));
     }
 
-    #[test]
-    fn test_many_to_one_input() {
+    #[tokio::test]
+    async fn test_many_to_one_input() {
         let (shutdown_tx, _) = mpsc::channel(1);
         let auth = crate::auth::new_shared_auth_state(0);
         let dev_state = crate::dev::new_shared_dev_state();
@@ -2414,18 +2994,36 @@ mod tests {
 
         let input_tx = router.input_sinks.get(&FeedId::TERMINAL_INPUT).unwrap();
         input_tx
-            .try_send(Frame::new(FeedId::TERMINAL_INPUT, b"key".to_vec()))
-            .unwrap();
+            .send(1, Frame::new(FeedId::TERMINAL_INPUT, b"key".to_vec()))
+            .await;
 
         let resize_tx = router.input_sinks.get(&FeedId::TERMINAL_RESIZE).unwrap();
         resize_tx
-            .try_send(Frame::new(FeedId::TERMINAL_RESIZE, b"resize".to_vec()))
-            .unwrap();
+            .send(1, Frame::new(FeedId::TERMINAL_RESIZE, b"resize".to_vec()))
+            .await;
 
         let f1 = rx.try_recv().unwrap();
         let f2 = rx.try_recv().unwrap();
         assert_eq!(f1.feed_id, FeedId::TERMINAL_INPUT);
         assert_eq!(f2.feed_id, FeedId::TERMINAL_RESIZE);
+    }
+
+    #[tokio::test]
+    async fn an_addressed_input_carries_its_senders_client_id() {
+        let (shutdown_tx, _) = mpsc::channel(1);
+        let auth = crate::auth::new_shared_auth_state(0);
+        let dev_state = crate::dev::new_shared_dev_state();
+        let mut router = FeedRouter::new("test".into(), auth, shutdown_tx, dev_state);
+        let (tx, mut rx) = mpsc::channel(16);
+        router.register_addressed_input(FeedId::GIT_LOG_QUERY, tx);
+
+        let sink = router.input_sinks.get(&FeedId::GIT_LOG_QUERY).unwrap();
+        sink.send(7, Frame::new(FeedId::GIT_LOG_QUERY, b"{}".to_vec()))
+            .await;
+
+        let received = rx.try_recv().unwrap();
+        assert_eq!(received.client_id, 7);
+        assert_eq!(received.frame.feed_id, FeedId::GIT_LOG_QUERY);
     }
 
     #[test]
@@ -2491,10 +3089,18 @@ mod tests {
         let global = GlobalFeedCounters::default();
         global.record_sent(FeedId::JOTS, 512);
 
-        let v = build_feed_stats_json(7, None, &conn, &global);
+        let v = build_feed_stats_json(
+            7,
+            &PageIdentity::tool(),
+            None,
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
 
         assert_eq!(v["type"], "feed_stats");
         assert_eq!(v["client_id"], 7);
+        assert_eq!(v["page"]["role"], "tool");
         assert_eq!(
             v["connection"].as_array().unwrap().len(),
             1,
@@ -2514,7 +3120,14 @@ mod tests {
         conn.record_dropped(FeedId::CODE_OUTPUT);
         let global = GlobalFeedCounters::default();
 
-        let v = build_feed_stats_json(1, None, &conn, &global);
+        let v = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            None,
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
 
         let row = stats_row(&v["connection"], FeedId::CODE_OUTPUT.as_byte())
             .expect("a drop-only row is still a row");
@@ -2532,14 +3145,28 @@ mod tests {
         let conn = FeedCounters::new();
         let global = GlobalFeedCounters::default();
 
-        let none = build_feed_stats_json(1, None, &conn, &global);
+        let none = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            None,
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
         assert!(
             none["subscribed"].is_null(),
             "a connection that never sent subscribe_feeds is null, not []"
         );
 
         let empty = HashSet::new();
-        let empty = build_feed_stats_json(1, Some(&empty), &conn, &global);
+        let empty = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            Some(&empty),
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
         assert_eq!(
             empty["subscribed"],
             serde_json::json!([]),
@@ -2549,7 +3176,14 @@ mod tests {
         let set: HashSet<FeedId> = [FeedId::JOTS, FeedId::CONTROL, FeedId::CODE_OUTPUT]
             .into_iter()
             .collect();
-        let named = build_feed_stats_json(1, Some(&set), &conn, &global);
+        let named = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            Some(&set),
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
         assert_eq!(
             named["subscribed"],
             serde_json::json!([0x40, 0xA0, 0xC0]),
@@ -2565,7 +3199,14 @@ mod tests {
         conn.record_sent(FeedId(0x7F), 10);
         let global = GlobalFeedCounters::default();
 
-        let v = build_feed_stats_json(1, None, &conn, &global);
+        let v = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            None,
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
 
         let known = stats_row(&v["connection"], 0x40).expect("the CODE_OUTPUT row");
         assert_eq!(known["name"], "CodeOutput");
@@ -2601,6 +3242,7 @@ mod tests {
         let empty = HashSet::new();
         assert!(admits(Some(&empty), FeedId::CONTROL));
         assert!(admits(Some(&empty), FeedId::HEARTBEAT));
+        assert!(admits(Some(&empty), FeedId::DECK_BUS));
         assert!(
             !admits(Some(&empty), FeedId::CODE_OUTPUT),
             "an empty set means nothing but the exemptions"
@@ -2614,6 +3256,116 @@ mod tests {
         assert!(admits(Some(&set), FeedId::DEFAULTS));
         assert!(!admits(Some(&set), FeedId::CODE_OUTPUT));
         assert!(!admits(Some(&set), FeedId::FILETREE));
+    }
+
+    // ---- The deck bus ----
+
+    fn page(role: PageRole, page: &str, card: Option<&str>) -> PageIdentity {
+        PageIdentity {
+            role,
+            page_id: Some(page.into()),
+            card_id: card.map(Into::into),
+        }
+    }
+
+    /// Shell 1, bodies 2 (`c1`) and 3 (`c2`), tool 4, and the page lane.
+    fn bus_pages() -> (PageRegistry, broadcast::Sender<AddressedFrame>) {
+        let pages = PageRegistry::new();
+        pages.register(1, &page(PageRole::Shell, "s", None));
+        pages.register(2, &page(PageRole::Body, "b1", Some("c1")));
+        pages.register(3, &page(PageRole::Body, "b2", Some("c2")));
+        pages.register(4, &PageIdentity::tool());
+        let (lane, _) = broadcast::channel(16);
+        (pages, lane)
+    }
+
+    fn delivered(rx: &mut broadcast::Receiver<AddressedFrame>) -> (Delivery, serde_json::Value) {
+        let addressed = rx.try_recv().expect("a delivery on the page lane");
+        assert_eq!(addressed.frame.feed_id, FeedId::DECK_BUS);
+        let body = serde_json::from_slice(&addressed.frame.payload).expect("JSON");
+        (addressed.to, body)
+    }
+
+    #[test]
+    fn resolving_the_bodies_never_reaches_a_tool() {
+        let pages = PageRegistry::new();
+        pages.register(1, &PageIdentity::tool());
+        pages.register(2, &page(PageRole::Body, "b1", Some("c1")));
+        pages.register(3, &page(PageRole::Body, "b2", Some("c2")));
+        assert_eq!(
+            pages.resolve(&PageTarget::Bodies),
+            Some(Delivery::Clients(vec![2, 3].into()))
+        );
+    }
+
+    #[test]
+    fn a_bus_message_carries_its_sender_as_registered() {
+        let (pages, lane) = bus_pages();
+        let mut rx = lane.subscribe();
+        let sent = serde_json::json!({
+            "from": {"pageId": "forged", "role": "shell", "cardId": null},
+            "to": "shell",
+            "kind": "card-advice",
+            "payload": {"advice": "fold-guard", "guarded": true},
+        });
+        let from = page(PageRole::Body, "b1", Some("c1"));
+        route_bus(&pages, &lane, &from, sent.to_string().as_bytes()).expect("delivered");
+        let (to, body) = delivered(&mut rx);
+        assert_eq!(to, Delivery::Client(1));
+        assert_eq!(
+            body["from"],
+            serde_json::json!({"pageId": "b1", "role": "body", "cardId": "c1"})
+        );
+        assert_eq!(body["payload"]["guarded"], true);
+    }
+
+    #[test]
+    fn a_bus_message_reaches_the_pages_its_target_names() {
+        let (pages, lane) = bus_pages();
+        let mut rx = lane.subscribe();
+        let shell = page(PageRole::Shell, "s", None);
+        let to_bodies = serde_json::json!({
+            "to": "body",
+            "kind": "deck-facts",
+            "payload": {"theme": "ironclad", "zoom": 1.0, "keyboardAccess": false, "modifierLatch": [], "appActive": true},
+        });
+        route_bus(&pages, &lane, &shell, to_bodies.to_string().as_bytes()).expect("delivered");
+        assert_eq!(delivered(&mut rx).0, Delivery::Clients(vec![2, 3].into()));
+        let to_card = serde_json::json!({"to": {"card": "c2"}, "kind": "card-command", "payload": {"command": "interrupt"}});
+        route_bus(&pages, &lane, &shell, to_card.to_string().as_bytes()).expect("delivered");
+        assert_eq!(delivered(&mut rx).0, Delivery::Client(3));
+        let to_page = serde_json::json!({"to": {"page": "b1"}, "kind": "card-command", "payload": {"command": "turn-next"}});
+        route_bus(&pages, &lane, &shell, to_page.to_string().as_bytes()).expect("delivered");
+        assert_eq!(delivered(&mut rx).0, Delivery::Client(2));
+    }
+
+    #[test]
+    fn the_bus_refuses_a_tool_a_stranger_kind_and_a_target_nobody_answers() {
+        let (pages, lane) = bus_pages();
+        let mut rx = lane.subscribe();
+        let ok = serde_json::json!({"to": "shell", "kind": "card-advice", "payload": {"advice": "sheet-reservation", "reserved": true}});
+        let refused = route_bus(
+            &pages,
+            &lane,
+            &PageIdentity::tool(),
+            ok.to_string().as_bytes(),
+        );
+        assert_eq!(refused.unwrap_err()["detail"], "bus_refused");
+
+        let body = page(PageRole::Body, "b1", Some("c1"));
+        let stranger = serde_json::json!({"to": "shell", "kind": "card-gossip", "payload": {}});
+        let malformed = route_bus(&pages, &lane, &body, stranger.to_string().as_bytes());
+        assert_eq!(malformed.unwrap_err()["detail"], "bus_malformed");
+        let not_json = route_bus(&pages, &lane, &body, b"not json");
+        assert_eq!(not_json.unwrap_err()["detail"], "bus_malformed");
+
+        let nobody = serde_json::json!({"to": {"card": "nobody"}, "kind": "card-command", "payload": {"command": "interrupt"}});
+        let undeliverable =
+            route_bus(&pages, &lane, &body, nobody.to_string().as_bytes()).unwrap_err();
+        assert_eq!(undeliverable["detail"], "bus_undeliverable");
+        assert_eq!(undeliverable["to"], serde_json::json!({"card": "nobody"}));
+
+        assert!(rx.try_recv().is_err(), "no refusal reaches the page lane");
     }
 
     #[test]
@@ -2688,6 +3440,133 @@ mod tests {
             1,
             "a set, so duplicates are free rather than an error"
         );
+    }
+
+    // ---- The session filter ----
+
+    fn only(ids: &[&str]) -> SessionSubscription {
+        SessionSubscription::Only(ids.iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn parse_subscribe_sessions_reads_every_well_formed_shape() {
+        let parse = |v: serde_json::Value| parse_subscribe_sessions(&v);
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [] })),
+            Some(SessionSubscription::All),
+            "an absent sessions field resets to all"
+        );
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [], "sessions": "all" })),
+            Some(SessionSubscription::All)
+        );
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [], "sessions": [] })),
+            Some(only(&[])),
+            "[] is none, not all"
+        );
+        assert_eq!(
+            parse(serde_json::json!({ "feeds": [], "sessions": ["s-a", "s-b"] })),
+            Some(only(&["s-a", "s-b"]))
+        );
+    }
+
+    #[test]
+    fn parse_subscribe_sessions_refuses_a_malformed_field() {
+        for bad in [
+            serde_json::json!({ "feeds": [], "sessions": 5 }),
+            serde_json::json!({ "feeds": [], "sessions": [1] }),
+            serde_json::json!({ "feeds": [], "sessions": ["s-a", null] }),
+            serde_json::json!({ "feeds": [], "sessions": "some" }),
+        ] {
+            assert_eq!(parse_subscribe_sessions(&bad), None, "{bad} is malformed");
+        }
+    }
+
+    #[test]
+    fn session_of_reads_the_spliced_prefix_without_a_parse() {
+        let payload =
+            crate::feeds::code::splice_tug_session_id(br#"{"type":"assistant_text"}"#, "s-1");
+        assert!(
+            matches!(session_of(&payload), Some(Cow::Borrowed("s-1"))),
+            "the hot path borrows the id from the payload"
+        );
+    }
+
+    #[test]
+    fn session_of_falls_back_to_a_parse_when_the_id_is_not_first() {
+        let payload = br#"{"detail":null,"state":"pending","tug_session_id":"s"}"#;
+        assert_eq!(session_of(payload).as_deref(), Some("s"));
+    }
+
+    #[test]
+    fn session_of_answers_none_for_a_frame_that_names_no_session() {
+        assert_eq!(session_of(b"not json at all").as_deref(), None);
+        assert_eq!(session_of(br#"{"type":"x"}"#).as_deref(), None);
+        assert_eq!(session_of(b"").as_deref(), None);
+    }
+
+    #[test]
+    fn the_session_filter_drops_only_a_named_session_outside_the_set() {
+        let feeds: HashSet<FeedId> = [FeedId::CODE_OUTPUT, FeedId::SESSION_STATE].into();
+        let scoped = |s: &str| {
+            Frame::new(
+                FeedId::CODE_OUTPUT,
+                crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, s),
+            )
+        };
+        let unscoped = Frame::new(FeedId::CODE_OUTPUT, br#"{"type":"x"}"#.to_vec());
+
+        assert!(admits_session(
+            &SessionSubscription::All,
+            &feeds,
+            &scoped("s-a")
+        ));
+        assert!(admits_session(&only(&["s-b"]), &feeds, &scoped("s-b")));
+        assert!(
+            !admits_session(&only(&["s-b"]), &feeds, &scoped("s-a")),
+            "a session outside the set is dropped"
+        );
+        assert!(
+            !admits_session(&only(&[]), &feeds, &scoped("s-a")),
+            "[] admits no session"
+        );
+        assert!(
+            admits_session(&only(&[]), &feeds, &unscoped),
+            "a frame naming no session is admitted"
+        );
+        let other = Frame::new(
+            FeedId::JOTS,
+            crate::feeds::code::splice_tug_session_id(br#"{"type":"x"}"#, "s-a"),
+        );
+        assert!(
+            admits_session(&only(&[]), &feeds, &other),
+            "a frame on a feed that is not session-scoped is never session-filtered"
+        );
+    }
+
+    #[test]
+    fn feed_stats_reports_the_session_subscription() {
+        let conn = FeedCounters::new();
+        let global = GlobalFeedCounters::default();
+        let all = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            None,
+            &SessionSubscription::All,
+            &conn,
+            &global,
+        );
+        assert!(all["sessions"].is_null(), "all sessions is null");
+        let some = build_feed_stats_json(
+            1,
+            &PageIdentity::tool(),
+            None,
+            &only(&["s-b", "s-a"]),
+            &conn,
+            &global,
+        );
+        assert_eq!(some["sessions"], serde_json::json!(["s-a", "s-b"]));
     }
 
     #[test]

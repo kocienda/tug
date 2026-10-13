@@ -193,6 +193,12 @@ impl FeedId {
     /// period, resync requests and find queries.
     pub const RENDER_INPUT: Self = Self(0xB1);
 
+    // -- Deck bus --
+    /// Addressed messages between pages (bidirectional): a page sends a
+    /// target and a message, and tugcast delivers it on the page lane with
+    /// the sender stamped from its registered identity.
+    pub const DECK_BUS: Self = Self(0xD0);
+
     // -- Router-internal --
     /// Control commands (tugdeck → tugcast, tugcast → tugdeck)
     pub const CONTROL: Self = Self(0xC0);
@@ -247,6 +253,7 @@ impl FeedId {
             Self::REFS_INPUT => Some("RefsInput"),
             Self::OVERVIEW => Some("Overview"),
             Self::OVERVIEW_INPUT => Some("OverviewInput"),
+            Self::DECK_BUS => Some("DeckBus"),
             Self::CONTROL => Some("Control"),
             Self::HEARTBEAT => Some("Heartbeat"),
             _ => None,
@@ -565,6 +572,8 @@ mod tests {
         assert_eq!(FeedId::RENDER_INPUT.as_byte(), 0xB1);
         assert_eq!(FeedId::RENDERED.name(), Some("Rendered"));
         assert_eq!(FeedId::RENDER_INPUT.name(), Some("RenderInput"));
+        assert_eq!(FeedId::DECK_BUS.as_byte(), 0xD0);
+        assert_eq!(FeedId::DECK_BUS.name(), Some("DeckBus"));
         assert_eq!(FeedId::CONTROL.as_byte(), 0xC0);
         assert_eq!(FeedId::HEARTBEAT.as_byte(), 0xFF);
     }
@@ -584,7 +593,7 @@ mod tests {
 
     /// The size both tables must agree on, so a scanner that silently matches
     /// nothing cannot pass vacuously.
-    const FEED_TABLE_LEN: usize = 42;
+    const FEED_TABLE_LEN: usize = 43;
 
     /// A screaming-snake identifier, and nothing else.
     fn is_feed_constant_name(name: &str) -> bool {
