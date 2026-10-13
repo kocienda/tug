@@ -37,6 +37,17 @@ tart pull ghcr.io/cirruslabs/macos-golden-gate-base:latest
 tart clone ghcr.io/cirruslabs/macos-golden-gate-base:latest base-golden-gate
 ```
 
+**Grow the disk to 150 GB after every pull.** The prebuilts ship 50 GB, too
+small for Xcode; the disk is sparse, so the host pays only for what is written.
+
+```sh
+tart set base-<key> --disk-size 150
+```
+
+Golden Gate and Sequoia grow their APFS container on the next boot. Tahoe
+needs one command in the guest: `sudo diskutil apfs resizeContainer disk0s2 0`.
+Re-clone any existing `run-*` VM to pick up the new size.
+
 **The Golden Gate line requires a host on macOS 26 or newer.** Cirrus publishes
 every 27 image — `base`, `vanilla` and `xcode`, all tags — in ASIF (Apple
 Sparse Image Format), where the Sequoia and Tahoe images are raw. ASIF is a
