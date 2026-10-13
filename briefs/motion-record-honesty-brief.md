@@ -38,6 +38,8 @@ The always-on rows from the user's own gestures minutes earlier: `move` first fr
 
 **[F07] The sampler's ring feeds a second consumer.** `settle-gap-sampler.ts` is "the one frame record a settle keeps on every deck" and also the ingest Worker's pacing source through `postDisplayPeriod` (`settle-engine.ts:295-307`); before the first settle a 120 Hz display is paced at 60 Hz. Fine, and unnamed in the header. **(verified, read)**
 
+**[F08] The verb's deck census is a three-second stall on the user's deck.** Every `settle`, `walk` and `rest` run begins with `layerTreeProbe` (`tugdeck/src/lib/perf-monitor.ts:972-1005`), a `getComputedStyle` per element over the whole document, whose own comment says "never on a frame path". On the user's deck at 25,714 elements a 1 ms native sample on 2026-10-12 read it at 3.3 s of forced style and layout on the main thread, inside the eval door's Worker message. The verb takes it before the samplers start, so a `--sample` split excludes it; the user feels it on every run, and the rest check that follows it reads a deck that has just been stalled. The chain census's call sites are minified positions in a bundle the app does not keep a source map for, so once the app is rebuilt out from under a running deck, as it was that day, no site can be mapped. **(verified, measured and read)**
+
 ---
 
 ## Decisions {#decisions}
@@ -55,6 +57,8 @@ The always-on rows from the user's own gestures minutes earlier: `move` first fr
 **[B06] Every duplication names its end or its permanence.** The WASM parse and the page find index are written as permanent for the paths tugcast does not serve, with the retirement clause rewritten to say so; Lezer versus tree-sitter is written as permanent with its fixture widened to every token class; the two windowing implementations are collapsed by `briefs/population-ceiling-cold-paths-brief.md` [B07].
 
 **[B07] The sampler's header names its second consumer.**
+
+**[B08] The verb's census forces nothing on a user deck, and its sites can be mapped.** The deck line is taken from counts that force no style (the element count, `__tugMotion.layers()` where it is already kept), and the full `getComputedStyle` walk runs only under a `--full-census` flag that prints its own cost. The chain census records function names beside positions, or the app serves the bundle's source map on the loopback port the eval door gates, so a site read on the user's deck resolves to a source line after the app has been rebuilt. `briefs/engine-time-in-the-motion-brief.md` [B02] depends on both.
 
 ---
 
