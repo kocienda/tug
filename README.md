@@ -35,7 +35,7 @@ Building Tug from source needs more than running it does. Beyond the requirement
 - [`just`](https://github.com/casey/just), which runs every build, test, and lint recipe
 - `tmux`, `wasm-pack`, and `shellcheck` for the day-to-day development loop
 
-An Apple Developer ID certificate is needed for the signed developer bundle and the app-test suite, but not for an unsigned local build. [DEVELOPING.md](DEVELOPING.md) walks through installing the tools and going from a fresh checkout to a running build.
+An Apple Developer ID certificate is optional for building and running Tug. It is needed for the app-test suite and for builds you share with other Macs. [DEVELOPING.md](DEVELOPING.md) walks through installing the tools and going from a fresh checkout to a running build.
 
 ## Learn more
 

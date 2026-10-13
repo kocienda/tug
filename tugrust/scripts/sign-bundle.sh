@@ -39,6 +39,21 @@ set -euo pipefail
 # returned by `security find-identity -v -p codesigning` — see
 # #apple-prereqs in the plan for the one-time keychain setup that
 # installs the certificate.
+#
+# Ad-hoc fallback: with TUG_SIGN_ALLOW_ADHOC=1 in the environment, a
+# machine with no Developer ID identity signs the bundle ad-hoc (`-`)
+# instead of failing. Only the interactive developer bundles
+# (`just app-debug`, `just app-release`) opt in. The app-test bundle
+# needs a stable designated requirement for its Accessibility grant,
+# and a distribution build must be notarizable, so neither may fall
+# back. Passing `-` as IDENTITY selects the same ad-hoc path explicitly.
+#
+# An ad-hoc signature has no Team ID, and under the hardened runtime
+# dyld refuses to map one ad-hoc image into another ad-hoc process
+# ("mapping process and mapped file (non-platform) have different Team
+# IDs"). The Debug bundle loads Tug.debug.dylib and Sparkle, so the
+# ad-hoc path signs WITHOUT --options runtime, and without --timestamp,
+# which an ad-hoc signature has no use for. Entitlements still apply.
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     echo "usage: $(basename "$0") <APP_PATH> [<IDENTITY>]" >&2
@@ -59,10 +74,27 @@ if [ -z "$IDENTITY" ]; then
             | awk -F'"' '/Developer ID Application:/ {print $2; exit}'
     )"
     if [ -z "$IDENTITY" ]; then
-        echo "error: no Developer ID Application identity found in the login keychain" >&2
-        echo "       run: just setup-dev-signing  (one-time machine setup)" >&2
-        exit 1
+        if [ -n "${TUG_SIGN_ALLOW_ADHOC:-}" ]; then
+            IDENTITY="-"
+            echo "warning: no Developer ID Application identity found; signing ad-hoc." >&2
+            echo "         The app runs, but macOS may ask again for microphone and speech" >&2
+            echo "         access after each rebuild. See DEVELOPING.md to set up the certificate." >&2
+        else
+            echo "error: no Developer ID Application identity found in the login keychain" >&2
+            echo "       run: just setup-dev-signing  (one-time machine setup)" >&2
+            exit 1
+        fi
     fi
+fi
+
+# The codesign flags that depend on the identity. See the header for why
+# the ad-hoc path drops the hardened runtime.
+if [ "$IDENTITY" = "-" ]; then
+    SIGN_FLAGS=()
+    IDENTITY_LABEL="ad-hoc"
+else
+    SIGN_FLAGS=(--options runtime --timestamp)
+    IDENTITY_LABEL="${IDENTITY%% (*}"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -97,7 +129,7 @@ sign() {
     shift 2
     note "    signing $label"
     local log
-    if ! log="$(codesign --force --options runtime --timestamp \
+    if ! log="$(codesign --force ${SIGN_FLAGS[@]+"${SIGN_FLAGS[@]}"} \
             "$@" --sign "$IDENTITY" "$path" 2>&1)"; then
         echo "error: codesign failed for $path" >&2
         printf '%s\n' "$log" >&2
@@ -217,4 +249,4 @@ if ! verify_log="$(codesign --verify --deep --strict --verbose=1 "$APP_PATH" 2>&
 fi
 note "$verify_log"
 
-echo "    codesign: ${SIGNED_COUNT} items signed + verified (${IDENTITY%% (*})"
+echo "    codesign: ${SIGNED_COUNT} items signed + verified (${IDENTITY_LABEL})"

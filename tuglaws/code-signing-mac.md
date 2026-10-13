@@ -24,6 +24,8 @@ identifier "<bundle-id>" and anchor apple generic and certificate 1[…] /* exis
 
 This DR is **structural** — it references the Apple intermediate cert and the team ID rather than a single leaf hash. The team-issued cert can be re-issued (e.g., on annual renewal) and the DR's *shape* stays the same; only the leaf-cert-specific bytes change. TCC matches on the structural pattern, so the AX grant survives cert rotation. This is the architectural improvement over the prior self-signed `Tug Dev` model, where every cert regeneration produced a wholly new DR.
 
+**The ad-hoc fallback for the interactive bundles.** A developer without a Developer ID certificate can still build and run Tug. `just app-debug` and `just app-release` set `TUG_SIGN_ALLOW_ADHOC=1`, and `sign-bundle.sh` signs those bundles ad-hoc, with a warning, when the keychain has no Developer ID identity. The interactive app needs no AX grant, only microphone and speech recognition, so the cost is that macOS may re-prompt for those after each rebuild. The ad-hoc path drops `--options runtime`: under the hardened runtime, dyld refuses to map an ad-hoc image into an ad-hoc process ("different Team IDs"), and the Debug bundle loads `Tug.debug.dylib` and Sparkle. The app-test bundle (`build-app`) and distribution builds (`dmg`'s signed path, `notarize`) never opt in. The app-test bundle's AX grant must persist, and a distribution build must be notarizable, so on a machine without the certificate they still fail with the `setup-dev-signing` message.
+
 ---
 
 ## The app-test identity (`TUG_FORCE_BUNDLE_ID`)

@@ -492,7 +492,9 @@ app-debug: build wasm
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
         -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED" build
     APP_DIR="$DERIVED/Build/Products/Debug/${PRODUCT_NAME}.app"
-    bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
+    # With no Developer ID certificate, sign ad-hoc rather than fail: the
+    # interactive bundle runs either way. See sign-bundle.sh's header.
+    TUG_SIGN_ALLOW_ADHOC=1 bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
     # Non-blocking orphan-detection preamble so users get a nudge to
     # clean up bundle-less data dirs without ever failing the build.
     if tugrust/target/debug/tugtool host instance prune --json 2>/dev/null | grep -q instance_id; then
@@ -542,7 +544,8 @@ app-release: wasm
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Release \
         -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED" build
     APP_DIR="$DERIVED/Build/Products/Release/${PRODUCT_NAME}.app"
-    bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
+    # Ad-hoc fallback when there is no Developer ID certificate, as in app-debug.
+    TUG_SIGN_ALLOW_ADHOC=1 bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
     # Seed source-tree-path for the release instance too. AppDelegate
     # falls back to BuildInfo.sourceTree if the tugbank value is
     # missing, but release builds intentionally omit BuildSourceTree
