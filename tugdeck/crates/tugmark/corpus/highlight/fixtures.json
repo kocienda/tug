@@ -1,8 +1,9 @@
 [
   {
     "lang": "js",
-    "source": "// note\nconst a = \"hi\";\nlet n = 42;\n",
-    "salient": [["const", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+    "source": "// note\nconst a = \"hi\";\nlet n = 42;\nfoo(a.b);\nconst MAX = 1;\nconst e = \"x\\ny\";\nouter: for (;;) { break outer; }\n",
+    "salient": [["const", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"], ["foo", "function"], ["b", "property"], ["=", "operator"], [";", "punctuation"]],
+    "diverges": [["MAX", "constant", "variable"], ["\\n", null, "string-expression"], ["outer", null, "constant"]]
   },
   {
     "lang": "jsx",
@@ -11,8 +12,9 @@
   },
   {
     "lang": "ts",
-    "source": "// note\nconst a: number = 42;\nconst s = \"hi\";\n",
-    "salient": [["const", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+    "source": "// note\nconst a: number = 42;\nconst s = \"hi\";\nclass K {}\nfunction t(r: number) {}\n",
+    "salient": [["const", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"], ["number", "type"], ["K", "type"], ["r", "variable"]],
+    "diverges": [["t", "function", "variable"]]
   },
   {
     "lang": "tsx",
@@ -21,8 +23,9 @@
   },
   {
     "lang": "rust",
-    "source": "// note\nfn main() { let s = \"hi\"; let n = 42; }\n",
-    "salient": [["fn", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+    "source": "// note\n#[inline]\nfn main() { let s = \"hi\"; let n = 42; let e = \"x\\n\"; }\nconst MAX: u32 = 1;\n",
+    "salient": [["fn", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"], ["u32", "type"]],
+    "diverges": [["main", "function", "variable"], ["\\n", "string-expression", null], ["MAX", "type", "variable"], ["inline", null, "decorator"]]
   },
   {
     "lang": "py",
@@ -51,13 +54,15 @@
   },
   {
     "lang": "java",
-    "source": "// note\nclass A { String s = \"hi\"; int n = 42; }\n",
-    "salient": [["class", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]]
+    "source": "// note\nclass A { String s = \"hi\"; int n = 42; }\n@Override\nvoid m() {}\n",
+    "salient": [["class", "keyword"], ["\"hi\"", "string"], ["// note", "comment"], ["42", "number"]],
+    "diverges": [["Override", "decorator", null]]
   },
   {
     "lang": "swift",
-    "source": "// note\nlet s = \"hi\"\nvar n = 42\n",
-    "salient": [["let", "keyword"], ["// note", "comment"], ["42", "number"]]
+    "source": "// note\nlet s = \"hi\"\nvar n = 42\n@objc func f(z: Int) {}\n",
+    "salient": [["let", "keyword"], ["// note", "comment"], ["42", "number"], ["Int", "type"]],
+    "diverges": [["@objc", null, "attribute"], ["objc", "decorator", null], ["z", "variable", null]]
   },
   {
     "lang": "sh",

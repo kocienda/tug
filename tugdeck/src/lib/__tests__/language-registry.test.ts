@@ -83,11 +83,14 @@ const TUGMARK = join(import.meta.dir, "../../../crates/tugmark");
 
 describe("the fence highlighter shares tugcast's slots", () => {
   // tugmark's `highlight.rs` reads the same file: one fixture per grammar
-  // tugcast carries, with the salient tokens both highlighters must slot alike.
+  // tugcast carries, with the salient tokens both highlighters must slot
+  // alike, and the tokens they slot differently pinned per side — tugcast's
+  // slot second, this page's third, `null` for no span of its own.
   const fixtures = JSON.parse(readFileSync(join(TUGMARK, "corpus/highlight/fixtures.json"), "utf8")) as {
     lang: string;
     source: string;
     salient: [string, string][];
+    diverges?: [string, string | null, string | null][];
   }[];
 
   for (const fixture of fixtures) {
@@ -96,8 +99,23 @@ describe("the fence highlighter shares tugcast's slots", () => {
       for (const [token, slot] of fixture.salient) {
         expect({ token, slots: slotsOf(html, token) }).toEqual({ token, slots: [slot] });
       }
+      for (const [token, , pageSlot] of fixture.diverges ?? []) {
+        expect({ token, slots: slotsOf(html, token) }).toEqual({ token, slots: pageSlot === null ? null : [pageSlot] });
+      }
     });
   }
+
+  test("the fixtures name every code slot", () => {
+    // The prose slots are the markdown fence's, held by the test below.
+    const prose = new Set(["heading", "emphasis", "strong", "monospace", "quote", "content-separator", "strikethrough", "hard-break", "link"]);
+    const named = new Set<string>();
+    for (const fixture of fixtures) {
+      for (const [, slot] of fixture.salient) named.add(slot);
+      for (const [, , pageSlot] of fixture.diverges ?? []) if (pageSlot !== null) named.add(pageSlot);
+    }
+    const code = TUG_SYNTAX_SLOTS.map((s) => s.slot).filter((slot) => !prose.has(slot));
+    expect(code.filter((slot) => !named.has(slot))).toEqual([]);
+  });
 
   test("a markdown fence keeps its heading, emphasis, monospace and link slots", async () => {
     const html = await highlightFragmentToHtml("# Title\n\nSome *em* and `code` with [a link](https://x.dev).\n", "md");

@@ -408,12 +408,18 @@ mod tests {
         lang: String,
         source: String,
         salient: Vec<(String, String)>,
+        /// The tokens the two highlighters slot differently, with this
+        /// side's slot (`None`: no span of its own).
+        diverges: Vec<(String, Option<String>)>,
     }
 
-    /// One fixture per grammar: a keyword, a string, a comment and a
-    /// number where the language has them. The page's
-    /// `language-registry.test.ts` holds its fence highlighter to the same
-    /// file, so both sides slot each salient token alike.
+    /// One fixture per grammar. `salient` holds the tokens both
+    /// highlighters slot alike, and the page's `language-registry.test.ts`
+    /// holds its fence highlighter to the same file. `diverges` pins every
+    /// token the two slot differently, each side asserting its own column
+    /// (tugcast's is the second, the page's the third), so a fork that moves
+    /// on either side fails here or there. Between them the two lists name
+    /// every slot this highlighter writes.
     fn fixtures() -> Vec<Fixture> {
         let raw: serde_json::Value =
             serde_json::from_str(include_str!("../corpus/highlight/fixtures.json"))
@@ -431,6 +437,14 @@ mod tests {
                     .iter()
                     .map(|pair| (text(&pair[0]), text(&pair[1])))
                     .collect(),
+                diverges: f["diverges"]
+                    .as_array()
+                    .map(|rows| {
+                        rows.iter()
+                            .map(|row| (text(&row[0]), row[1].as_str().map(str::to_string)))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             })
             .collect()
     }
@@ -462,7 +476,31 @@ mod tests {
                     fixture.lang
                 );
             }
+            for (token, slot) in &fixture.diverges {
+                assert_eq!(
+                    slot_of(&html, token),
+                    *slot,
+                    "{}: the pinned fork {token:?} in {html}",
+                    fixture.lang
+                );
+            }
         }
+    }
+
+    #[test]
+    fn the_fixtures_name_every_slot_this_highlighter_writes() {
+        let mut named = std::collections::BTreeSet::new();
+        for fixture in fixtures() {
+            named.extend(fixture.salient.into_iter().map(|(_, slot)| slot));
+            named.extend(fixture.diverges.into_iter().filter_map(|(_, slot)| slot));
+        }
+        let written: std::collections::BTreeSet<String> = CAPTURES
+            .iter()
+            .map(|(_, slot)| slot.to_string())
+            .chain(std::iter::once(ATTRIBUTE.to_string()))
+            .collect();
+        let missing: Vec<&String> = written.difference(&named).collect();
+        assert!(missing.is_empty(), "slots no fixture names: {missing:?}");
     }
 
     #[test]

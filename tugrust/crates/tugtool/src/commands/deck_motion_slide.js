@@ -64,10 +64,28 @@
     return p ? p.getAttribute("data-pane-id") : null;
   }
 
-  function census() {
-    var layers = window.__tugMotion && window.__tugMotion.layers
-      ? window.__tugMotion.layers()
-      : {};
+  // A pane whose workspace layer is not shown, or which the rail parked.
+  function parkedPane(p) {
+    if (p.hasAttribute("data-rail-parked")) return true;
+    var layer = p.closest("[data-space-layer]");
+    return layer !== null && !layer.hasAttribute("data-space-shown");
+  }
+
+  // The deck line every slide and settle reading carries. By default it is
+  // built from counts that force no style: the element count, and each pane's
+  // title, size and whether its workspace layer is shown, read off attributes.
+  // `full` adds `__tugMotion.layers()`, a `getComputedStyle` over every
+  // element — 3.3 s of forced style on a 25,714-element deck — and reports what
+  // it cost, since a user's deck feels it and the rest check after it reads a
+  // deck that has just been stalled.
+  function census(full) {
+    var layers = null;
+    var censusMs = null;
+    if (full && window.__tugMotion && window.__tugMotion.layers) {
+      var started = performance.now();
+      layers = window.__tugMotion.layers();
+      censusMs = Math.round((performance.now() - started) * 10) / 10;
+    }
     var panes = Array.prototype.slice.call(document.querySelectorAll(".tug-pane")).map(function (p) {
       // A sidebar card's pane carries a title; a flow card names itself in
       // its title bar's label.
@@ -77,15 +95,17 @@
         elements: p.querySelectorAll("*").length,
         focused: p.getAttribute("data-focused") === "true",
         // A pane in a parked workspace layer stays in the DOM, and in every
-        // count above, but is not on screen.
-        parked: !p.checkVisibility(),
+        // count above, but is not on screen. Read off the layer's attribute,
+        // which forces no style the way `checkVisibility()` does.
+        parked: parkedPane(p),
       };
     });
     panes.sort(function (a, b) { return b.elements - a.elements; });
     return {
-      elements: layers.elements || document.querySelectorAll("*").length,
-      stackingContexts: layers.stackingContexts || 0,
-      renderLayerCandidates: layers.renderLayerCandidates || 0,
+      elements: document.getElementsByTagName("*").length,
+      stackingContexts: layers ? layers.stackingContexts : null,
+      renderLayerCandidates: layers ? layers.renderLayerCandidates : null,
+      censusMs: censusMs,
       panes: panes,
       visibility: document.visibilityState,
       hasFocus: document.hasFocus(),
@@ -169,7 +189,7 @@
     };
   }
 
-  if (args.op === "census") return census();
+  if (args.op === "census") return census(args.full === true);
 
   if (args.op === "recorder") return { installed: !!window.__tugLead };
 

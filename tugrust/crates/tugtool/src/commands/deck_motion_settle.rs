@@ -56,6 +56,22 @@
 //! under. `--sample` runs the native samplers (`deck_motion_sample.rs`)
 //! across the drives, so a streaming reading says how much of its cost was
 //! script and how much engine.
+//!
+//! **Quiet instruments.** Every instrument above costs frames inside the
+//! window it reads: the samplers stop WebContent, the lead recorder takes a
+//! stack at every queueing, the commit census diffs the whole fiber tree on
+//! every commit, and the drive's own zero-timer heartbeat and subtree
+//! `MutationObserver` run through the motion. `--quiet-instruments` drives
+//! with none of them — the frame pump alone, which reads the settle mark off
+//! its container, and the commit census stilled — so its frames are the
+//! gesture's. It is the reading of record; attribution comes from a second
+//! drive with the instruments on, and it refuses `--tasks`, `--chains` and
+//! `--sample` rather than reading as quiet beside them.
+//!
+//! **The census forces nothing.** The deck line is built from counts that
+//! force no style; `--full-census` adds `__tugMotion.layers()`, a
+//! `getComputedStyle` over every element that held a 25,714-element deck's
+//! main thread 3.3 s, and prints what it cost.
 
 use crate::commands::deck_motion::eval_gated;
 use crate::commands::deck_motion_slide::{
@@ -983,6 +999,40 @@ fn streams(port: u16) -> Result<Option<StreamCount>, String> {
         .map_err(|e| format!("the page's stream count did not parse: {e}"))
 }
 
+/// How much a run instruments the deck it reads.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Quiet {
+    /// Drive with the frame pump alone and the commit census stilled.
+    pub instruments: bool,
+    /// Take the deck line from the full `getComputedStyle` census.
+    pub full_census: bool,
+}
+
+/// The `record` op's arguments for one drive. A quiet drive arms no recorder
+/// and no chain probe whatever the flags say, so its frames carry no
+/// instrument's cost.
+pub fn record_args(
+    drive: &Drive,
+    drive_args: Value,
+    tasks: bool,
+    chains: bool,
+    is_census: bool,
+    quiet: bool,
+) -> Value {
+    json!({
+        "op": "record",
+        "gesture": drive.gesture,
+        "args": drive_args,
+        "tasks": !quiet && tasks && drive.read,
+        "chains": !quiet && chains && drive.read,
+        "chainStacks": !quiet && is_census,
+        "quiet": quiet,
+        "tailMs": TAIL_MS,
+        "capMs": CAP_MS,
+        "fixedMs": (drive.gesture == "switch").then_some(SWITCH_WINDOW_MS),
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_settle(
     port: u16,
@@ -993,6 +1043,7 @@ pub fn run_settle(
     chains: bool,
     sample: bool,
     streaming: Option<u32>,
+    quiet: Quiet,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || Ok(eval_gated("deck motion settle", json_output));
@@ -1009,7 +1060,7 @@ pub fn run_settle(
     if tasks && !ensure_recorder(port, json_output)? {
         return gated();
     }
-    let Some(census) = census(port)? else {
+    let Some(census) = census(port, quiet.full_census)? else {
         return gated();
     };
     let Some(rest) = page(port, json!({"op": "rest"}))? else {
@@ -1084,6 +1135,11 @@ pub fn run_settle(
                 "note: the samplers stop WebContent to read its stacks, so the frame numbers below are perturbed — take frames from a run without --sample"
             );
         }
+        if quiet.instruments {
+            println!(
+                "note: quiet instruments — the frame pump alone, the commit census stilled; these frames are the gesture's, and no commit is attributed"
+            );
+        }
         println!(
             "settle --gesture {gesture}, {} drive(s), commits within {MARGIN_MS:.0} ms of the settle mark",
             plan.iter().filter(|d| d.read).count()
@@ -1129,17 +1185,14 @@ pub fn run_settle(
         };
         let raw = page(
             port,
-            json!({
-                "op": "record",
-                "gesture": drive.gesture,
-                "args": drive_args,
-                "tasks": tasks && drive.read,
-                "chains": chains && drive.read,
-                "chainStacks": is_census,
-                "tailMs": TAIL_MS,
-                "capMs": CAP_MS,
-                "fixedMs": (drive.gesture == "switch").then_some(SWITCH_WINDOW_MS),
-            }),
+            record_args(
+                drive,
+                drive_args,
+                tasks,
+                chains,
+                is_census,
+                quiet.instruments,
+            ),
         )?;
         let Some(raw) = raw else {
             return gated();
@@ -1188,6 +1241,7 @@ pub fn run_settle(
                 "marginMs": MARGIN_MS,
                 "framesPerturbedByTasks": tasks,
                 "framesPerturbedBySampling": sample,
+                "quietInstruments": quiet.instruments,
                 "chainsCensus": chains_census,
                 "readings": readings,
                 "samples": processes,
@@ -2028,6 +2082,69 @@ mod tests {
             read: true,
         };
         assert_eq!(reduce(&switch, &raw).land, None);
+    }
+
+    /// A quiet drive arms nothing whatever the flags say, and says it is quiet.
+    #[test]
+    fn a_quiet_drive_arms_no_instrument() {
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let quiet = record_args(&drive, json!({"card": "c1"}), true, true, true, true);
+        assert_eq!(
+            (
+                &quiet["tasks"],
+                &quiet["chains"],
+                &quiet["chainStacks"],
+                &quiet["quiet"]
+            ),
+            (&json!(false), &json!(false), &json!(false), &json!(true))
+        );
+        let loud = record_args(&drive, json!({"card": "c1"}), true, true, true, false);
+        assert_eq!(
+            (
+                &loud["tasks"],
+                &loud["chains"],
+                &loud["chainStacks"],
+                &loud["quiet"]
+            ),
+            (&json!(true), &json!(true), &json!(true), &json!(false))
+        );
+    }
+
+    /// The quiet pump places a flip just after the last frame that saw the
+    /// old state, and a late shed just after the last frame that saw a
+    /// still-crossing mark — so the land reads as it does from the observer's
+    /// exact times: open at the last frame before the off, close at the second
+    /// frame past the close.
+    #[test]
+    fn a_quiet_drive_reads_its_land_off_the_pump() {
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let observed = json!({
+            "settle": [[2.0, true], [290.0, false]],
+            "sheds": [320.0],
+            "frames": [131.0, 147.0, 284.0, 301.0, 317.0, 334.0, 351.0, 368.0],
+            "commits": null,
+        });
+        let pumped = json!({
+            "settle": [[0.1, true], [284.1, false]],
+            "sheds": [317.1],
+            "frames": [131.0, 147.0, 284.0, 301.0, 317.0, 334.0, 351.0, 368.0],
+            "beats": [],
+            "commits": null,
+        });
+        let (a, b) = (reduce(&drive, &observed), reduce(&drive, &pumped));
+        let (la, lb) = (a.land.unwrap(), b.land.unwrap());
+        assert_eq!(la.gaps_ms, lb.gaps_ms);
+        assert_eq!(la.frame_ms, lb.frame_ms);
+        assert_eq!(a.longest_gap_ms, b.longest_gap_ms);
+        assert_eq!(b.commits_seen, None, "a quiet drive attributes no commit");
     }
 
     #[test]

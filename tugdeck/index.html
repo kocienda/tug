@@ -203,7 +203,12 @@
        that runs on the shipping path for nobody who did not ask for it.
        `__tugTestMode` is written by a WKUserScript at atDocumentStart, so it
        is already there when this runs; off both, the hook is never installed
-       and react-dom takes its ordinary no-devtools path. -->
+       and react-dom takes its ordinary no-devtools path.
+
+       The quiet switch (`__tugCommits.quiet`) stills the walk even in test
+       mode, for a reading drive that must carry no instrument's cost
+       (the settle verb's quiet-instruments mode); an armed recorder
+       still walks, and the verb refuses to arm one in that mode. -->
   <script>
     (function () {
       var testMode = window.__tugTestMode === true;
@@ -211,6 +216,7 @@
       if (!testMode && !lead) return;
       if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
       var recording = false;
+      var quiet = false;
       try { recording = window.sessionStorage.getItem("tug-motion-record") === "1"; } catch (e) {}
       var commits = [];
       function nameOf(type) {
@@ -353,7 +359,7 @@
           lead.takeRead();
         },
         onCommitFiberRoot: function (_id, root) {
-          if (!testMode && !recording && !(lead && lead.armed())) return;
+          if ((quiet || (!testMode && !recording)) && !(lead && lead.armed())) return;
           var commit = census(root);
           // What the walk itself cost, so a reading can set it aside, and
           // which recorded callback the commit ran inside.
@@ -373,7 +379,10 @@
         renderers: function () { return renderers.size; },
         // The record switch: walk every commit, armed recorder or not. Takes
         // effect at once; returns whether the census now walks.
-        record: function (on) { recording = on === true; return recording || testMode; }
+        record: function (on) { recording = on === true; return recording || testMode; },
+        // The quiet switch: walk no commit the recorder did not arm, test
+        // mode included. Returns whether it is now quiet.
+        quiet: function (on) { quiet = on === true; return quiet; }
       };
     })();
   </script>

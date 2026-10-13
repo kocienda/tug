@@ -67,6 +67,8 @@ The user, 2026-10-11: "The clear imperative seems to be: *work must move off the
 - **Where does the dev-mode deep-freeze live?** `feed-store.ts:64` freezes decoded frames in dev and test builds. Structured-clone across the thread boundary makes the frozen object a copy; the freeze moves to the Worker's output or is dropped as redundant.
 - **Shared or dedicated Worker?** One deck is one page, so a dedicated Worker is enough. A SharedWorker buys nothing until there are two documents, which is [B07] of the program brief's escape and not this stage.
 
+*Answered as built.* The page posts the display period: once in `init`, and again as `display-period` whenever the settle engine's frame sampler learns a period more than half a millisecond off the last one posted (`postDisplayPeriod` in `settle-engine.ts`, run as each settle ends). Before the first settle the Worker paces at the 60 Hz fallback, which errs toward the slower cadence on a faster display. The Worker is dedicated: one `new Worker` per page (`tugdeck/src/lib/ingest/ingest-channel.ts`). The batch, the hold and their caps are written in `tuglaws/ingest-and-render.md`.
+
 ---
 
 ## Non-goals {#non-goals}

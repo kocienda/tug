@@ -872,7 +872,10 @@ export class SessionTranscriptDataSource implements TugListViewDataSource {
    * whose new descriptor is {@link sameTranscriptRowData} to its previous
    * one keeps the previous object, so its version holds across the
    * publish. Only rows read in the last snapshot are kept, which is the
-   * rendered window: a row that leaves it remounts when it returns.
+   * rendered window: a row that leaves it gets a fresh descriptor when it
+   * returns, so its version moves and the list re-renders its cell once.
+   * Its key is the row id either way, so nothing about the row's identity
+   * changes.
    */
   private _rowVersions: {
     snapshot: CodeSessionSnapshot | null;

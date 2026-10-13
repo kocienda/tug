@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   classifyGeometryChains,
+  functionsOf,
   type ChainLogEntry,
 } from "../geometry-chain-probe";
 
@@ -132,6 +133,7 @@ describe("classifyGeometryChains", () => {
         taskId: 1,
         name: "clientWidth",
         site: "at loop (a.ts:1)",
+        functions: ["loop"],
         writes: [{ name: "setProperty", site: "at apply (b.ts:2)" }],
       },
       {
@@ -140,6 +142,7 @@ describe("classifyGeometryChains", () => {
         taskId: 1,
         name: "clientWidth",
         site: "at loop (a.ts:1)",
+        functions: ["loop"],
         writes: [{ name: "setProperty", site: "at apply (b.ts:2)" }],
       },
       {
@@ -148,6 +151,7 @@ describe("classifyGeometryChains", () => {
         taskId: 2,
         name: "clientHeight",
         site: "at once (c.ts:1)",
+        functions: ["once"],
         writes: [{ name: "setAttribute", site: "at mark (d.ts:1)" }],
       },
     ]);
@@ -177,5 +181,26 @@ describe("classifyGeometryChains", () => {
     expect(reading.ranked.length).toBe(1);
     expect(reading.ranked[0].site).toBe("<no stack>");
     expect(reading.ranked[0].chains).toBe(2);
+    expect(reading.ranked[0].functions).toEqual([]);
+  });
+
+  test("a site carries its named functions, which a rebuild does not move", () => {
+    // The WebKit frame shape off a minified bundle: positions that a rebuild
+    // moves, and the names keepNames preserves.
+    const site = [
+      "measureRow@http://127.0.0.1:55255/assets/index-a1b2.js:8:99094",
+      "@http://127.0.0.1:55255/assets/index-a1b2.js:8:12001",
+      "ListView@http://127.0.0.1:55255/assets/index-a1b2.js:9:404",
+      "module code@http://127.0.0.1:55255/assets/index-a1b2.js:1:1",
+    ].join("\n");
+    expect(functionsOf(site)).toEqual(["measureRow", "ListView"]);
+    expect(functionsOf("at remeasure (c.ts:3)\nat <anonymous> (d.ts:4)")).toEqual(["remeasure"]);
+    const reading = classifyGeometryChains([
+      entry("read", "clientWidth", 1, site),
+      entry("write", "setProperty", 1, site),
+      entry("read", "offsetWidth", 1, site),
+    ]);
+    expect(reading.ranked[0].functions).toEqual(["measureRow", "ListView"]);
+    expect(reading.chainTimes[0].functions).toEqual(["measureRow", "ListView"]);
   });
 });

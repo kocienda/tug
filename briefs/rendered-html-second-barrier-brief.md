@@ -68,6 +68,8 @@ The 2026-10-12 audit's security review of stage 5 concluded: "What I would not d
 - **What does the second barrier cost on the whale arm?** Measured by the streaming arm. The expectation is well under a millisecond per delta; a reading above that is a finding, not a reason to drop the barrier.
 - **Is the fuzz oracle jsdom or WebKit?** jsdom is what runs under `bun test`; the real-WebKit assertion is the app-test. Both run; the app-test is the one that counts.
 
+*Answered as built.* `'unsafe-eval'` stays, because the eval door runs arbitrary text that no hash or nonce can name, and it covers WASM instantiation too. `'unsafe-inline'` is gone, and the deck's own inline scripts are admitted by hash. The second barrier cost 0.17 ms per delta on the streaming arm, and was removed once the fuzz and `at0732` were clean ([D210] in `tuglaws/design-decisions.md`). Both oracles run, and `at0732` in WebKit is the one that counts.
+
 ---
 
 ## Non-goals {#non-goals}

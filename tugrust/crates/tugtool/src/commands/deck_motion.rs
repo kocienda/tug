@@ -220,6 +220,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             sample,
             queries,
             tasks,
+            full_census,
             ..
         } => crate::commands::deck_motion_slide::run_slide(
             port,
@@ -229,6 +230,7 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             sample,
             queries,
             tasks,
+            full_census,
             json_output,
         ),
         DeckMotionCommands::Settle {
@@ -244,6 +246,8 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             chains,
             sample,
             streaming,
+            quiet_instruments,
+            full_census,
             ..
         } => crate::commands::deck_motion_settle::run_settle(
             port,
@@ -261,6 +265,10 @@ pub fn run_deck_motion(cmd: DeckMotionCommands, json_output: bool) -> Result<i32
             chains,
             sample,
             streaming,
+            crate::commands::deck_motion_settle::Quiet {
+                instruments: quiet_instruments,
+                full_census,
+            },
             json_output,
         ),
         DeckMotionCommands::Walk { restore: true, .. } => {
@@ -734,6 +742,14 @@ pub(crate) fn chains_text(mode: &str, value: &serde_json::Value) -> Option<Strin
             num_at(site, "ms"),
             joined(site, "names")
         );
+        // The names first: a rebuilt app moves every minified position, and
+        // the bundle keeps its function names.
+        if let Some(functions) = site.get("functions").and_then(|f| f.as_array())
+            && !functions.is_empty()
+        {
+            let names: Vec<&str> = functions.iter().filter_map(|f| f.as_str()).collect();
+            let _ = writeln!(out, "      in    {}", names.join(" ← "));
+        }
         for line in str_at(site, "site").lines() {
             let _ = writeln!(out, "      read  {}", line.trim());
         }
@@ -950,25 +966,81 @@ fn render_probe(value: &serde_json::Value) {
     }
 }
 
-/// The text `gaps` prints, or `None` for a value it cannot read: a count, then
-/// one line per late frame, newest first, with how long ago it was.
+/// The text `gaps` prints, or `None` for a value it cannot read: a count, the
+/// two classes summed apart — judders inside the motion, which the one-period
+/// bar is read over, and gaps the set-up ended in, which are the lead's budget
+/// — then one line per late frame, newest first, with both beats and how long
+/// ago it was. A row with no class (a deck older than the two-beat row) counts
+/// as a judder, so an old deck's reading never passes a bar it would not have.
 pub(crate) fn gaps_text(value: &serde_json::Value) -> Option<String> {
     let rows = value.get("rows")?.as_array()?;
     let now = value.get("now")?.as_f64()?;
     if rows.is_empty() {
         return Some("no late frames recorded inside a settle\n".to_string());
     }
+    let is_lead = |row: &serde_json::Value| str_at(row, "class") == "lead";
+    let (lead, judder): (Vec<&serde_json::Value>, Vec<&serde_json::Value>) =
+        rows.iter().partition(|row| is_lead(row));
+    // Folded from +0.0: an empty `sum::<f64>()` is -0.0, which prints as "-0.0 ms".
+    let sum = |rows: &[&serde_json::Value]| {
+        rows.iter()
+            .map(|r| num_at(r, "gapMs"))
+            .fold(0.0, |a, b| a + b)
+    };
+    // A deck older than the two-beat row records one `beat`, the one in force
+    // when the late frame arrived; its start is unknown.
+    let legacy =
+        |row: &serde_json::Value| row.get("startBeat").is_none() && row.get("beat").is_some();
     let mut text = format!("{} late frame(s) recorded inside a settle\n", rows.len());
+    let worst = judder
+        .iter()
+        .max_by(|a, b| num_at(a, "gapMs").total_cmp(&num_at(b, "gapMs")));
+    match worst {
+        Some(row) => {
+            let period = num_at(row, "periodMs");
+            let frames = if period > 0.0 {
+                num_at(row, "gapMs") / period
+            } else {
+                0.0
+            };
+            text.push_str(&format!(
+                "  judder (the one-period bar): {} over, {:.1} ms in all, worst {:.1} ms ({:.1} frames)\n",
+                judder.len(),
+                sum(&judder),
+                num_at(row, "gapMs"),
+                frames,
+            ));
+        }
+        None => text.push_str("  judder (the one-period bar): none\n"),
+    }
+    text.push_str(&format!(
+        "  lead (the set-up's budget):   {} gap(s), {:.1} ms in all\n",
+        lead.len(),
+        sum(&lead),
+    ));
+    let older = rows.iter().filter(|row| legacy(row)).count();
+    if older > 0 {
+        text.push_str(&format!(
+            "  {older} row(s) from a deck older than the two-beat row: only the beat at the late frame is known, so each reads as a judder\n",
+        ));
+    }
     for row in rows.iter().rev() {
         let gap = num_at(row, "gapMs");
         let period = num_at(row, "periodMs");
         let frames = if period > 0.0 { gap / period } else { 0.0 };
+        let class = if is_lead(row) { "lead" } else { "judder" };
+        let beats = if legacy(row) {
+            format!("?→{}", str_at(row, "beat"))
+        } else {
+            format!("{}→{}", str_at(row, "startBeat"), str_at(row, "endBeat"))
+        };
         text.push_str(&format!(
-            "  {:>7.1} s ago  {:>6.1} ms ({:.1} frames)  {:<8} +{:.0} ms into the window\n",
+            "  {:>7.1} s ago  {:>6.1} ms ({:.1} frames)  {:<6} {:<16} +{:.0} ms into the window\n",
             (now - num_at(row, "at")) / 1000.0,
             gap,
             frames,
-            str_at(row, "beat"),
+            class,
+            beats,
             num_at(row, "offsetMs"),
         ));
     }
@@ -1062,25 +1134,73 @@ mod tests {
         );
     }
 
-    /// Newest first, each with its age, its gap in ms and in frames, and the
-    /// beat it fell in; an empty ring says so rather than printing nothing.
+    /// The two classes summed apart, then newest first, each with its age, its
+    /// gap in ms and in frames, its class and both beats; an empty ring says so
+    /// rather than printing nothing.
     #[test]
     fn gaps_prints_each_late_frame_newest_first() {
         let value = serde_json::json!({
             "now": 10_000.0,
             "rows": [
-                {"at": 4_000.0, "beat": "move", "gapMs": 50.0, "periodMs": 16.0, "offsetMs": 120.0},
-                {"at": 8_000.0, "beat": "set-up", "gapMs": 32.0, "periodMs": 16.0, "offsetMs": 16.0},
+                {"at": 4_000.0, "startBeat": "move", "endBeat": "move", "class": "judder", "gapMs": 50.0, "periodMs": 16.0, "offsetMs": 120.0},
+                {"at": 6_000.0, "startBeat": "move", "endBeat": "grow", "class": "judder", "gapMs": 40.0, "periodMs": 16.0, "offsetMs": 300.0},
+                {"at": 8_000.0, "startBeat": "set-up", "endBeat": "move", "class": "lead", "gapMs": 80.0, "periodMs": 16.0, "offsetMs": 80.0},
             ],
         });
         let text = gaps_text(&value).expect("a gaps value renders");
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines[0], "2 late frame(s) recorded inside a settle");
-        assert!(lines[1].contains("2.0 s ago"), "{text}");
-        assert!(lines[1].contains("32.0 ms (2.0 frames)  set-up"), "{text}");
-        assert!(lines[2].contains("6.0 s ago"), "{text}");
-        assert!(lines[2].contains("50.0 ms (3.1 frames)  move"), "{text}");
-        assert!(lines[2].ends_with("+120 ms into the window"), "{text}");
+        assert_eq!(lines[0], "3 late frame(s) recorded inside a settle");
+        // The set-up's 80 ms is the lead's, never the worst judder.
+        assert_eq!(
+            lines[1],
+            "  judder (the one-period bar): 2 over, 90.0 ms in all, worst 50.0 ms (3.1 frames)"
+        );
+        assert_eq!(
+            lines[2],
+            "  lead (the set-up's budget):   1 gap(s), 80.0 ms in all"
+        );
+        assert!(lines[3].contains("2.0 s ago"), "{text}");
+        assert!(
+            lines[3].contains("80.0 ms (5.0 frames)  lead   set-up→move"),
+            "{text}"
+        );
+        assert!(lines[4].contains("move→grow"), "{text}");
+        assert!(lines[5].contains("6.0 s ago"), "{text}");
+        assert!(
+            lines[5].contains("50.0 ms (3.1 frames)  judder move→move"),
+            "{text}"
+        );
+        assert!(lines[5].ends_with("+120 ms into the window"), "{text}");
+        // A deck with only set-up gaps has no judder to bar.
+        let lead_only = serde_json::json!({
+            "now": 1.0,
+            "rows": [{"at": 0.0, "startBeat": "set-up", "endBeat": "move", "class": "lead", "gapMs": 70.0, "periodMs": 16.0, "offsetMs": 70.0}],
+        });
+        let lead_text = gaps_text(&lead_only).expect("renders");
+        assert!(
+            lead_text.contains("judder (the one-period bar): none"),
+            "{lead_text}"
+        );
+        // A row with no class is a judder: an old deck never passes a bar.
+        let classless = serde_json::json!({
+            "now": 1.0,
+            "rows": [{"at": 0.0, "beat": "move", "gapMs": 50.0, "periodMs": 16.0, "offsetMs": 70.0}],
+        });
+        let classless_text = gaps_text(&classless).expect("renders");
+        assert!(
+            classless_text.contains("judder (the one-period bar): 1 over"),
+            "{classless_text}"
+        );
+        assert!(
+            classless_text.contains("lead (the set-up's budget):   0 gap(s), 0.0 ms in all"),
+            "{classless_text}"
+        );
+        assert!(
+            classless_text.contains("1 row(s) from a deck older than the two-beat row"),
+            "{classless_text}"
+        );
+        assert!(classless_text.contains("judder ?→move"), "{classless_text}");
+        assert!(!text.contains("older than"), "{text}");
         let empty = serde_json::json!({"now": 1.0, "rows": []});
         assert_eq!(
             gaps_text(&empty).as_deref(),
@@ -1143,6 +1263,7 @@ mod tests {
                 "ms": 28.5,
                 "writeSites": ["at write (a.ts:3)\nat caller (b.ts:4)"],
                 "names": ["clientHeight", "scrollTop"],
+                "functions": ["pin", "effect"],
             }],
         });
         let text = chains_text("read", &value).expect("a read value renders");
@@ -1162,6 +1283,11 @@ mod tests {
         );
         assert!(text.contains("      write at write (a.ts:3)\n"), "{text}");
         assert!(!text.contains("at caller"), "{text}");
+        // The names lead, ahead of the positions a rebuild moves.
+        let names = text
+            .find("      in    pin ← effect\n")
+            .expect("the names are printed");
+        assert!(names < text.find("      read  ").unwrap(), "{text}");
     }
 
     #[test]

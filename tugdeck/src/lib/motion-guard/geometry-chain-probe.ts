@@ -95,6 +95,8 @@ export interface GeometryChain {
 /** Reading sites ranked by how many chains they pay for. */
 export interface RankedReadSite {
   readonly site: string;
+  /** The site's named functions, innermost first ({@link functionsOf}). */
+  readonly functions: readonly string[];
   readonly chains: number;
   /** The summed {@link GeometryChain.ms} of this site's chains. */
   readonly ms: number;
@@ -122,6 +124,8 @@ export interface GeometryChainReading {
     readonly taskId: number;
     readonly name: string;
     readonly site: string;
+    /** The paying read's named functions, innermost first ({@link functionsOf}). */
+    readonly functions: readonly string[];
     /** The writes that dirtied style before the paying read, in order. */
     readonly writes: readonly { readonly name: string; readonly site: string }[];
   }[];
@@ -178,6 +182,32 @@ let taskPending = false;
 let truncated = false;
 let captureStacks = true;
 let restores: Restore[] = [];
+
+/**
+ * The function names a site's frames carry, innermost first, with the
+ * anonymous frames and the engine's `global code` / `module code` frames left
+ * out. A site's positions are minified offsets into one bundle, which a
+ * rebuild moves and the app keeps no source map for; the bundle keeps its
+ * names (`esbuild.keepNames` in `vite.config.ts`), so the names are what still
+ * resolve on a deck read after the app was rebuilt under it. Reads both the
+ * WebKit frame shape (`name@url:line:col`) and V8's (`at name (url)`).
+ */
+export function functionsOf(site: string): string[] {
+  const names: string[] = [];
+  for (const raw of site.split("\n")) {
+    const line = raw.trim();
+    let name = "";
+    const at = line.indexOf("@");
+    if (at > 0) name = line.slice(0, at);
+    else {
+      const v8 = /^at\s+([^\s(]+)\s+\(/.exec(line);
+      if (v8 !== null) name = v8[1];
+    }
+    if (name === "" || name === "<anonymous>" || name.endsWith(" code")) continue;
+    names.push(name);
+  }
+  return names;
+}
 
 function siteOf(stack: string | undefined): string {
   if (stack === undefined) return "<no stack>";
@@ -399,6 +429,7 @@ export function classifyGeometryChains(
   const ranked: RankedReadSite[] = [...grouped.entries()]
     .map(([site, group]) => ({
       site,
+      functions: functionsOf(site),
       chains: group.chains,
       ms: group.ms,
       writeSites: [...group.writeSites].slice(0, CHAIN_WRITE_SITES_PER_READ),
@@ -418,6 +449,7 @@ export function classifyGeometryChains(
       taskId: chain.taskId,
       name: chain.readName,
       site: chain.readSite,
+      functions: functionsOf(chain.readSite),
       writes: chain.writes,
     })),
     ranked,

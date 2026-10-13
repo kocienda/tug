@@ -64,6 +64,8 @@ The user wants full frame rates no matter what work the app is doing. After stag
 - **Does the engine re-decide compositing when a row mounts into the margin during a settle?** [D9] forbids creating a layer inside a settle. A row mounting mid-fold is a layer transaction. The window must hold its mounted set from `arm` to land, which the motion gate's observer hold already shapes (`gesture-scope.ts:420`).
 - **What does an aged deck look like after stages 1 through 3?** Unknown until read; [B04].
 
+*Answered as built.* The margin is a viewport each way to mount and two to keep (`EVICT_MOUNT_MARGIN_VIEWPORTS`, `EVICT_RETAIN_MARGIN_VIEWPORTS` in `internal/list-view-window.ts`), plus at most one measure segment of eight rows a commit for heights not yet measured. The mounted set is held from the gate's close to its release: a commit under the gate renders the window, segment and row count the last unheld commit rendered, and the observers are `heldResizeObserver`s. So no row mounts into a settle. Both answers hold for the transcript and the Overview, which share one implementation. The aged deck's readings are in the program record.
+
 ---
 
 ## Non-goals {#non-goals}

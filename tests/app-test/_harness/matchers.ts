@@ -312,9 +312,12 @@ export type DeckTraceEventShape = {
     }
   | {
       /** A frame more than one display period late inside a settle's
-       *  motion window. Always recorded. */
+       *  motion window, with the beat at both ends of the gap; `lead` when
+       *  it starts in the set-up, `judder` inside the motion. Always recorded. */
       kind: "settle-gap";
-      beat: string;
+      startBeat: string;
+      endBeat: string;
+      class: "lead" | "judder";
       gapMs: number;
       periodMs: number;
       offsetMs: number;
@@ -706,7 +709,7 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
     case "settle-motion-violation":
       return `settle-motion-violation ${e.paneId}:${e.property}`;
     case "settle-gap":
-      return `settle-gap ${e.beat} gap=${e.gapMs.toFixed(1)}ms period=${e.periodMs.toFixed(1)}ms +${e.offsetMs.toFixed(0)}ms`;
+      return `settle-gap ${e.class} ${e.startBeat}→${e.endBeat} gap=${e.gapMs.toFixed(1)}ms period=${e.periodMs.toFixed(1)}ms +${e.offsetMs.toFixed(0)}ms`;
     case "opening-bid-mismatch":
       return `opening-bid-mismatch ${fmt(e.memberId)} bid=${e.bid} report=${e.report} (${e.report - e.bid >= 0 ? "+" : ""}${e.report - e.bid})`;
     case "session-lifecycle":

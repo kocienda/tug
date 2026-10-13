@@ -113,7 +113,11 @@ The 2026-10-12 audit of the five landed stages found the architecture sound and 
 | 4. population-ceiling | | Before and after on the harness, 2026-10-12 (`compositing-walk-readings.md` #aging-reading). Before: fresh 5,422 elements and a 4.97 ms mean walk, aged 15,913 elements (1,424 stacking contexts, all 150 Overview posts mounted) and 5.60 ms. After: fresh 4,209 and 4.27 ms, aged 6,960 elements (538 stacking contexts, 11 of 150 posts mounted at one stacking context each, evicting transcripts peaking at 6 of 16 rows through a fold and a split) and 5.10 ms. The ceiling is the aged mean walk within the fresh one plus 1.33 ms, the fresh reading's own spread, and `at0727` asserts it with the Overview's mounted count, no full transcript mount through a reflowing settle, and every moving settle sealed. The user's deck still runs `main` and was read as found twice, up 1 h 18 min (30,097 elements, 5.58 ms) and up 2 h 22 min (38,056 elements, 147 posts all mounted, 7.23 ms with a spread of 12.57). Since the join the user's deck runs this stage's code (`0f74f891d`), read as found up 6 h 07 min: 29,496 elements (1,721 stacking contexts), 21 Overview posts mounted, 4.17 ms with a spread of 2.28. A parked Overview pane still holds 10,998 elements. The stage's cold paths (`briefs/population-ceiling-cold-paths-brief.md`) take a harness reading of 6,870 elements aged and an aged walk 1.10 ms over fresh. Their reading of record is the two empty "cold paths" rows of the aging table: fresh after the first relaunch onto a build carrying them, and aged after a working day with sessions streaming. Both are owed after that arc joins. |
 | 5. tugcast-renders | | Baseline and after-reading on the harness, 2026-10-12, below: at rest with three streams, the page's live-turn row parses fell from 109.5 per second to 0, since streamed rows now draw from tugcast's renders, and the `RENDERED` feed that replaced them carries 52.6 frames and 105 KB per second. React's rest census, the motion gaps and the sealed wire did not move. The user's deck was read quiet, since only one session was mid-turn and none streaming text, and it runs `main`. The user's-deck streaming after-reading is owed once the stage joins, as stages 1–3 recorded. |
 
+**Every reading below says which instruments it ran under, and only an unperturbed one is a reading of record.** Up to 2026-10-12 every harness drive ran `--tasks --sample`. `/usr/bin/sample` stops WebContent, the host and the GPU process every 5 ms for the whole drive. `--tasks` takes a stack at every queued task. The commit census walked the whole fiber tree on every commit in test mode, and the verb kept its own timer chain and a subtree `MutationObserver` running through the motion. Every user's-deck reading through stage 5 ran `--sample`, preceded by a `getComputedStyle` census of the whole document. So each of those tables is labelled *instrumented*, and its gaps and leads are upper bounds on what the deck delivers unwatched rather than the delivery itself. Since `briefs/motion-record-honesty-brief.md` the settle verb has `--quiet-instruments` (no timer chain, no observer, no census walk, the rAF pump only), `at0725` reads its bar from that drive, and `tugtool deck motion gaps` splits every late frame into the set-up's lead and the motion's judder. The unperturbed readings, the first of stage code on the user's deck among them, are at the end of this record ([#unperturbed](#unperturbed)). The stages have all joined and the user's deck runs their code, so the streaming reading each row above owes is the one row still to take, and it is written there as the reading still to be taken.
+
 #### Stage 1 baseline — 2026-10-11
+
+*Instrumented: `--sample` on every drive, `--tasks` on the harness's, and the commit census walking every commit in test mode.*
 
 Taken with `tugtool deck motion settle --streaming <n> --sample` at the arc's base (`afe1d74b5`) plus the instrument. Every gap is in ms; the bar for every row is the asks' bar — no gap over one display period inside the motion, and a one-frame land — and every row below misses it.
 
@@ -139,6 +143,8 @@ The two readings disagree about where the time goes, and the disagreement is the
 
 #### Stage 1 probe: the `flushSync` drain gated — 2026-10-11
 
+*Instrumented, as the baseline: `--tasks --sample` and the test-mode commit census.*
+
 The same harness arm, read again with only the drain fix in: the wrapped `flushSync` no longer drains the tells a closed motion gate holds (`tugdeck/src/lib/gesture-scope.ts`, `drain`). Nothing else changed, so the delta is this fix's share.
 
 | Arm | Gesture | Floor before the drives | Lead | Longest gap | React in the window | Commits in the window | WebContent main thread: busy, of which script |
@@ -151,6 +157,8 @@ The same harness arm, read again with only the drain fix in: the wrapped `flushS
 The drain was the route the streams' commits took into the motion. The `SessionCardBody` commits are gone from every motion's commit list; what is left inside the motion is at most three 21-fiber `SessionTelemetryStatusRow2` commits, and the rest of the window's commits land at its release. React time in the window falls by two thirds, from 123–170 ms to 34–53 ms, and commits in the window from 45–52 to 5–21. The frames do not follow: the longest gaps are 34–54 ms against 36–58, and script's share of WebContent's busy samples is unchanged at 55–57%. So the React commits were not the bulk of what holds the main thread under streaming. The script the samples still see is not React's commits; the candidates are the plain tasks the next probes remove, the streaming blocks' rAF parse and reconcile ([B04]) and the find index's rebuild ([B05]), and their readings say which it is.
 
 #### Stage 1 probe: the streaming reconcile deferred while motion is held — 2026-10-11
+
+*Instrumented, as the baseline: `--tasks --sample` and the test-mode commit census.*
 
 The same arm again, with the drain fix and now the streaming blocks' deferral (`tugdeck/src/lib/markdown/streaming-flush.ts`): a streaming block's frame that finds the motion gate closed reconciles nothing and runs one reconcile, with the store's current text, at the gate's release.
 
@@ -165,6 +173,8 @@ The worst gap comes down and the spread closes: 36–44 ms across all eight driv
 
 #### Stage 1 probe: the find index built only while find is open — 2026-10-11
 
+*Instrumented, as the baseline: `--tasks --sample` and the test-mode commit census.*
+
 The same arm again, with the two fixes above and now the find index keyed on the find bar's open state (`tugdeck/src/components/tugways/cards/session-card-transcript.tsx`): with the bar closed, a store publish rebuilds nothing. This reading ran as the last file of a 45-file batch rather than an 8-file one.
 
 | Arm | Gesture | Floor before the drives | Lead | Longest gap | React in the window | Commits in the window | WebContent main thread: busy, of which script |
@@ -174,9 +184,11 @@ The same arm again, with the two fixes above and now the find index keyed on the
 | whale | fold | 44 updates/s, 193 ms/s busy | 37, 11 | 38, 51 | 49, 61 | 24, 17 | 491 of 1,038; script 287 (58%) |
 | whale | slot | 65 updates/s, 333 ms/s busy | 18, 23 | 54, 42 | 44, 43 | 7, 10 | 504 of 1,046; script 269 (53%) |
 
-On this deck the fix reads as nothing: gaps of 38–54 ms against 36–44 with the reconcile deferral, the floor's busy time and script's share inside their run-to-run spread. That is what the harness deck predicts rather than evidence that the rebuild is cheap. The rebuild walks the rows of the card whose store published, and the three streaming cards here hold one turn each, so their index is a handful of rows; the card with the long transcript, `c1`, is the one the gestures move and it does not stream. On the user's deck a streaming card is usually a long session, and there the per-publish walk is over every loaded row. The after-reading on the user's deck under streaming is where this fix's share shows, if it has one. One cost the fix leaves in place, as [B05] scoped it: the transcript host still subscribes to the session snapshot with find closed, and that snapshot is now read by nothing but the find memo, so the host still re-renders on every publish to learn that it has nothing to build.
+On this deck the fix reads as nothing: gaps of 38–54 ms against 36–44 with the reconcile deferral, the floor's busy time and script's share inside their run-to-run spread. That is what the harness deck predicts rather than evidence that the rebuild is cheap. The rebuild walks the rows of the card whose store published, and the three streaming cards here hold one turn each, so their index is a handful of rows; the card with the long transcript, `c1`, is the one the gestures move and it does not stream. On the user's deck a streaming card is usually a long session, and there the per-publish walk is over every loaded row. The after-reading on the user's deck under streaming is where this fix's share shows, if it has one. One cost the fix leaves in place, as [B05] scoped it: the transcript host still subscribes to the session snapshot with find closed, and that snapshot is now read by nothing but the find memo, so the host still re-renders on every publish to learn that it has nothing to build. *As built, after stage 2:* that cost is gone. The host's subscriptions are narrow selectors over the fields it draws (`briefs/react-off-the-stream-path-brief.md` [B02]), and a streamed token no longer publishes the snapshot at all ([D209]), so the host does not re-render on a publish that changed nothing it reads.
 
 #### Stage 1 probe: one frame-aligned publish tick for every streaming store — 2026-10-11
+
+*Instrumented, as the baseline: `--tasks --sample` and the test-mode commit census.*
 
 The same arm again, with the three fixes above and now the shared publish tick (`tugdeck/src/lib/live-publish-tick.ts`): every store's coalesced text publish rides one `requestAnimationFrame`, with a 50 ms deadline behind it for an occluded window, instead of each store's own 16 ms timer. Read in a 14-file batch.
 
@@ -190,6 +202,8 @@ The same arm again, with the three fixes above and now the shared publish tick (
 The motion reads a little better and the floor a little worse. Inside the window the longest gaps are 31–48 ms, and 31 is the lowest any reading has shown (the drain probe's lowest was 34), and commits in the window fall to 5–14 against 7–24 on the find-index probe. Before the drives, the floor's busy time rose on all four rows, to 327–410 ms/s against 125–333 on every earlier reading, at the same 48–61 updates/s. The tick runs every store's React render inside the frame callback, where the per-store timers ran them between frames, so the floor's frame-time accounting may now be charging them to the frames; that is a reading of the mechanism, not a measurement, and the user's-deck reading will say whether the floor rose there too. Script's share of the drive ranges 48–59%, the widest spread of any reading, so it carries nothing here.
 
 #### Stage 1 after-reading — 2026-10-11
+
+*Instrumented: `--tasks --sample` and the test-mode commit census on the harness; `--sample` and the whole-document census on the user's deck.*
 
 The same harness arm with all four fixes and the always-recorded gap row in, on the arc's final tree, read alone (one file, both transcript arms).
 
@@ -217,6 +231,8 @@ The user's deck tells the baseline's story again: gaps of 155–199 ms, a land o
 
 #### Stage 2 after-reading — 2026-10-11
 
+*Instrumented: the streaming drives `--tasks --sample`, the quiet fold `--tasks`, and the test-mode commit census on all of them. "Quiet" in these tables means nothing streaming, not unperturbed.*
+
 `at0725-streaming-settle-reading`, slice arm, on the arc's final tree (`71723dbe6`), read alone. The whale arm skips on a machine without the whale snapshot. The baseline is the same file at the arc's base (`466d95e3d`, stage 1 joined), taken before any of this stage's changes. Both are on the stage-1 harness deck: four cards four-up, three streaming a stubbed turn at one word per 25 ms. The number this stage moves is the rest census: commits React makes over 4 s with the three streams running and no gesture.
 
 | Rest, three streams | Commits/s | React ms/s | Fibers performed/s | Most-performed components |
@@ -240,6 +256,8 @@ Two drives each; times in ms. The always-recorded `settle-gap` row saw eight lat
 **Inside the motion the gaps did not move.** The longest gaps read 31–57 ms against 32–49 at the baseline. The 57 is one drive, with three 21-fiber `SessionTelemetryStatusRow2` commits inside its motion. Every row still misses the one-period bar. React in the window was 31–51 ms after stage 1 and reads 19–39 now, which is inside the run-to-run spread. The largest commit is a quarter smaller on the fold and an eighth smaller on the slot move, because the title bar no longer re-renders for either, but it lands at the gesture's start rather than inside the motion, so it shortens the lead's work rather than the gaps. What fills the motion's gaps is not React's: stage 1 found the same, and with React's rest work gone, compositing, layout and style (71, 48–49 and 25–29 samples) are now nearly as large as script (82–94). That is stage 3's and stage 4's ground.
 
 #### Stage 3 after-reading — 2026-10-12
+
+*Instrumented: the streaming drives `--tasks --sample`, the quiet fold `--tasks`, and the test-mode commit census on all of them; `--sample` and the whole-document census on the user's deck. "Quiet" means nothing streaming, not unperturbed.*
 
 `at0725-streaming-settle-reading`, slice arm, on the arc's final tree (`bd1ceb307`), read alone. The baseline is the same file at the arc's base (`aa0316a97`, stage 2 joined) with only the ingest-task counter added, taken before anything moved. Both are on the stage-1 harness deck: four cards four-up, three streaming a stubbed turn at one word per 25 ms. At the baseline the socket, the decode and every session's reducer ran on the page's main thread; after, they run in the ingest Worker, which posts the page one batch per display period and holds the wire while a settle's motion gate is closed.
 
@@ -274,6 +292,8 @@ The user's deck tells stage 1's story again, larger: the frames are lost before 
 
 #### Stage 5 baseline — 2026-10-12
 
+*Instrumented: the streaming drives `--tasks --sample`, the quiet fold `--tasks`, and the test-mode commit census on all of them. "Quiet" means nothing streaming, not unperturbed.*
+
 `at0725-streaming-settle-reading`, slice arm, at the arc's base (`c391e67a6`, stages 1–4 joined) with only the row-parse split added to the rest census, read alone. The deck is stage 1's: four cards four-up, three streaming a stubbed turn at one word per 25 ms. The number this stage is sure to move is new in the census: the page's markdown row parses per second, split into rows of a turn in flight at either end of the 4 s window (`turn.${turnKey}.…` identities) and every other row.
 
 | Rest, three streams | Row parses/s, live-turn rows | Row parses/s, other rows | Wire tasks/s on the main thread | Commits/s | React ms/s | Fibers performed/s |
@@ -291,6 +311,8 @@ Two drives each; times in ms. The always-recorded `settle-gap` row saw eight lat
 **Every streamed word costs the page a whole-message parse.** 109.5 parses per second across three streams is about 36 per stream, one per word the stub emits at its 25 ms cadence: each streaming flush re-parses, re-sanitizes and re-hashes its message's whole text, and no restored or static row parsed at all over the window. That rate is what this stage takes to zero. The rest of the reading matches stage 3's after-reading within its spread, so it is the base the stage is read against rather than a finding: the gaps are 28–45 ms, every drive misses the one-period bar, no ingest batch lands inside a motion, and script is 22% of WebContent's busy samples with compositing, layout and style beside it. As stage 3 found, the harness's streams hold one short turn each, so the parse each word pays here is the cheapest it will ever be; a long message streaming on the user's deck pays it over the whole message each word.
 
 #### Stage 5 after-reading — 2026-10-12
+
+*Instrumented: the streaming drives `--tasks --sample`, the quiet fold `--tasks`, and the test-mode commit census on all of them; `--sample` and the whole-document census on the user's deck. "Quiet" means nothing streaming, not unperturbed.*
 
 `at0725-streaming-settle-reading`, slice arm, on the arc's tree after its find and highlighting rounds (`4afbe6e80` plus the census's new assertion), read alone. The deck is the baseline's: four cards four-up, three streaming a stubbed turn at one word per 25 ms. Now tugcast parses each streaming assistant message, sanitizes and highlights it, and sends the changed blocks on `RENDERED` paced to the display. The page draws those rows from the records and parses none of them. For this one run, a temporary tally in the ingest Worker counted the `RENDERED` frames and their bytes. It was applied with `tugtool file probe` and is not in the tree.
 
@@ -330,3 +352,48 @@ Two drives each; times in ms. The always-recorded `settle-gap` row saw eight lat
 | slot | 17 updates/s, 74 ms/s busy | 841, 835 ms | 82, 66 | 153 (153), 166 (35) | 53, 35 | 270 of 1,000; style 72, compositing 52, script 39, layout 27 |
 
 Since stage 3's reading the deck has shrunk from 35,932 elements to 16,360. The first drive of each gesture still loses one frame of 150 ms or more, and style and compositing still lead the busy samples, with script third or fourth. Whether this stage matters there turns on the streaming reading, on a deck that carries tugcast's renders, and that reading is owed once the stage joins.
+
+#### The unperturbed readings {#unperturbed}
+
+These are the readings of record. Each one says what was still running beside the deck.
+
+**User's release deck on stage code, quiet — 2026-10-12.** The first reading of stage code on the user's deck: relaunched with every stage on, 13,399 to 14,750 elements, read with `--streaming 0` and neither `--tasks` nor `--sample`. The quiet mode did not exist yet, so the verb's own timer chain, observer and whole-document census still ran. The samplers did not, so these are unperturbed by the instruments that stop WebContent.
+
+| Gesture | Lead | Worst in-motion gap | Land |
+|---|---|---|---|
+| fold / unfold | 16 ms | 31–42 ms | 30–42 ms |
+| slot move | 22–47 ms | 30–89 ms | 28–30 ms |
+| split → stack | 16 ms | 53–92 ms | 30 ms |
+
+Against stage 5's instrumented reading of `main` on this deck, where the first drive of each gesture lost a frame of 150 ms or more, no drive lost one over 92 ms. Every gesture still misses the one-period bar mid-motion. The always-recorded rows from the user's own gestures minutes earlier read `move` first frames 79–86 ms late, which is the set-up wearing the beat's name that the two-beat row now separates out, and `shrink` stalls of 67–76 ms at +67, +142 and +151 ms into one window, which are mid-motion judders by any reading. A separate native sample across the split drives put the WebContent main thread at compositing 30, rendering update 18, style 14, layer commit 13 and script 7 of 131 busy samples: the engine, not script.
+
+**User's release deck, nothing armed — 2026-10-13.** `tugtool deck motion gaps`, the always-recorded rows, read with no drive. The deck runs `347506333` (every stage and the cold paths), its page up 33 minutes at 13,966 elements.
+
+| Late frame | Gap | Into the window | Beat at the late frame | Reads as |
+|---|---|---|---|---|
+| 1 | 96 ms (5.6 frames) | +96 ms | `room` | judder; the set-up's shape |
+| 2 | 59 ms (3.5 frames) | +155 ms | `room` | judder |
+| 3 | 30 ms (1.8 frames) | +531 ms | `arrive` | judder |
+
+All three are from one settle, 6.2–6.7 s after page load: the restore at launch, not a gesture. No settle in the 33 minutes after it recorded a late frame. The trace records late frames only, so it cannot say how many gestures ran clean in that time, or whether any ran. That build predates the two-beat row, so each row carries only the beat in force when its late frame arrived, and the verb reads each as a judder, as it reads every row without a class. The first row's offset equals its gap, so it began at the window's first frame, which is the set-up's shape: under the two-beat row it would read as the lead. The two-beat form of this reading is the same verb on the first build that carries the row.
+
+**Harness, three streams, `at0725` — 2026-10-13.** Slice arm, read in a 42-file batch on this arc's tree. Each gesture is driven twice quiet (`--quiet-instruments`: no `--tasks`, no `--sample`, the commit census stilled, no timer chain or observer), and `deck motion gaps` is read over those drives. Each is then driven twice more with `--tasks --sample`, for attribution only.
+
+| Drive | Longest gap | Land frame | Ingest batches inside the motion |
+|---|---|---|---|
+| fold, quiet (of record) | 30, 27 | 30, 23 | 0, 0 |
+| slot, quiet (of record) | 27, 25 | 23, 23 | 0, 0 |
+| fold, instrumented (`--tasks --sample`) | 47, 48 | — | 0, 0 |
+| slot, instrumented (`--tasks --sample`) | 50, 44 | — | 0, 0 |
+| fold, no streams, instrumented (`--tasks`) | 35, 37 | — | — |
+
+Times in ms. Over the quiet drives the gap rows read one judder, 26 ms (1.5 frames) inside `move`, and a lead of two gaps and 54 ms in all. Over the instrumented drives they read two judders, 95 ms in all with the worst at 51 ms (3.0 frames), and a lead of four gaps and 166 ms in all.
+
+**The instruments were a third to nearly half of the number the program was opened on.** Unwatched, the harness's longest gaps under three streams are 25–30 ms, against 44–50 ms with the samplers on. Every earlier harness table's 31–58 ms was read the same instrumented way, so its before-and-after compares instrumented drives and says nothing about how far the unwatched motion moved. The bar is still missed: one late frame of 1.5 frames inside `move`, across four drives. That one judder is what `briefs/engine-time-in-the-motion-brief.md` reads against, and the lead is a budget.
+
+**User's release deck under streaming: still to be taken.** This is the reading every stage row above owes, and the one this record still lacks. It needs three sessions streaming text on a build that carries the two-beat row. Only the user can arrange the three turns. With them in flight, the reading is `tugtool deck motion settle --streaming 3 --quiet-instruments` for the fold and the slot move, then `tugtool deck motion gaps` for the late frames those drives and the user's own gestures recorded.
+
+| Gesture | Streams | Lead | Worst judder | Land | Ingest batches inside the motion |
+|---|---|---|---|---|---|
+| fold | 3 | still to be taken | | | |
+| slot move | 3 | still to be taken | | | |

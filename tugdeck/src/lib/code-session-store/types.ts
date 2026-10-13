@@ -167,8 +167,11 @@ export interface UserMessage extends MessageBase {
 
 export interface AssistantText extends MessageBase {
   kind: "assistant_text";
-  /** Mutates by append during streaming; replaced wholesale on
-   *  `is_partial: false`. */
+  /** In the engine's state, grows by append during streaming and is
+   *  replaced wholesale on `is_partial: false`. The page's snapshot does not
+   *  follow each append: a streamed delta reaches the page as a `stream`
+   *  write to the session's `PropertyStore`, the live copy the markdown view
+   *  reads, and bumps no snapshot. */
   text: string;
 }
 

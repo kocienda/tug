@@ -697,7 +697,9 @@ export const tugMotion: TugMotionDiagnostics = {
       if (e.kind !== "settle-gap") continue;
       rows.push({
         at: e.timestamp,
-        beat: e.beat,
+        startBeat: e.startBeat,
+        endBeat: e.endBeat,
+        class: e.class,
         gapMs: e.gapMs,
         periodMs: e.periodMs,
         offsetMs: e.offsetMs,

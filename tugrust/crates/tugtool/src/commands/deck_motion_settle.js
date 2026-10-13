@@ -27,6 +27,16 @@
 // callback, for the reason `slide` gives: a gesture delivered during a
 // rendering update is a different gesture. With `tasks` it runs inside
 // `lead.run("gesture", …)`, so the recorder names the gesture's own task.
+//
+// With `quiet` the drive carries no instrument but the rAF pump: no
+// zero-timer heartbeat (`beats` is empty), no MutationObserver, and the commit
+// census stilled (`__tugCommits.quiet`). The pump reads the settle mark off
+// the container itself — one query after the drive, then one attribute read
+// per frame — and a flip is placed just after the last frame that saw the
+// old state, which is where the land's reducer needs it. A still-crossing
+// mark is looked for only from the off until none is left, since only a shed
+// after the off moves the land. The trace stays on: its gate and ingest rows
+// are product rows the motion reading and the sealed wire are read from.
 (function (args) {
   "use strict";
 
@@ -105,6 +115,12 @@
     }
     var trace = window.__deckTrace || null;
     var motion = window.__tugMotion || null;
+    var quiet = args.quiet === true;
+    if (quiet && (args.tasks || args.chains)) {
+      resolve({ error: "a quiet drive arms no recorder and no chain probe" });
+      return;
+    }
+    var commitCensus = window.__tugCommits || null;
     if (args.chains && !(motion && typeof motion.chains === "function")) {
       resolve({ error: "this deck has no window.__tugMotion.chains" });
       return;
@@ -125,16 +141,46 @@
     var traceWasOn = trace ? trace.isEnabled() : false;
     var traceMark = 0;
     var paneId = null;
+    // The quiet pump's reading of the mark: the container once seen, the
+    // mark's state and the time at the last look, and whether a still-crossing
+    // mark was standing when the mark came off.
+    var container = null;
+    var markOn = false;
+    var lastLook = 0;
+    var stillStanding = false;
+    var driven = false;
+
+    function look(now) {
+      if (!driven || args.fixedMs != null) return;
+      if (container === null) {
+        container = document.querySelector("[" + SETTLE + "]:not(.tug-pane)");
+      }
+      var on = container !== null && container.hasAttribute(SETTLE);
+      // The flip fell between the last look and this one; just after the last
+      // look is the side the land's reducer reads it on.
+      var at = lastLook + 0.1;
+      if (on !== markOn) {
+        marks.push([at, on]);
+        markOn = on;
+        if (!on) stillStanding = document.querySelector("[" + STILL_SETTLED + "]") !== null;
+      } else if (stillStanding && document.querySelector("[" + STILL_SETTLED + "]") === null) {
+        sheds.push(at);
+        stillStanding = false;
+      }
+      lastLook = now;
+    }
 
     function frame() {
-      frames.push(performance.now());
+      var now = performance.now();
+      frames.push(now);
+      if (quiet) look(now);
       if (!done) requestAnimationFrame(frame);
     }
     function beat() {
       beats.push(performance.now());
       if (!done) setTimeout(beat, 0);
     }
-    var observer = new MutationObserver(function (records) {
+    var observer = quiet ? null : new MutationObserver(function (records) {
       var now = performance.now();
       records.forEach(function (m) {
         if (m.attributeName === STILL_SETTLED) {
@@ -147,11 +193,13 @@
         marks.push([now, m.target.hasAttribute(SETTLE)]);
       });
     });
-    observer.observe(document.body, {
-      attributes: true, subtree: true, attributeFilter: [SETTLE, STILL_SETTLED],
-    });
+    if (observer) {
+      observer.observe(document.body, {
+        attributes: true, subtree: true, attributeFilter: [SETTLE, STILL_SETTLED],
+      });
+    }
     requestAnimationFrame(frame);
-    beat();
+    if (!quiet) beat();
 
     var rel = function (t) { return Math.round((t - t0) * 10) / 10; };
 
@@ -178,7 +226,8 @@
 
     function finish(error) {
       done = true;
-      observer.disconnect();
+      if (observer) observer.disconnect();
+      if (quiet && commitCensus && typeof commitCensus.quiet === "function") commitCensus.quiet(false);
       var tasks = args.tasks ? lead.disarm() : null;
       var tells = args.tasks ? lead.tells() : null;
       var chains = null;
@@ -256,7 +305,13 @@
         // place a chain in the land's frame.
         landChains: chains && chains.chainTimes
           ? chains.chainTimes.map(function (c) {
-              return { t: rel(c.t), ms: c.ms, site: String(c.site || "").split("\n")[0].trim() };
+              // The first frame, named by the nearest named function when the
+              // frame itself is anonymous: a name outlives the rebuild that
+              // moves every minified position.
+              var first = String(c.site || "").split("\n")[0].trim();
+              var named = c.functions && c.functions.length > 0 ? c.functions[0] : null;
+              var site = named && first.indexOf(named + "@") !== 0 ? "in " + named + ": " + first : first;
+              return { t: rel(c.t), ms: c.ms, site: site };
             })
           : null,
         paneId: paneId,
@@ -273,8 +328,8 @@
         }),
         // The census walks every commit in test mode, and in a release deck
         // only while the recorder is armed — so without `tasks` a release
-        // deck has none to give.
-        commits: window.__tugCommits
+        // deck has none to give, and a quiet drive stilled it.
+        commits: !quiet && window.__tugCommits
           ? window.__tugCommits.since(t0).map(function (c) {
               return {
                 t: rel(c.t), ms: Math.round(c.ms * 10) / 10, task: c.task,
@@ -311,6 +366,7 @@
           // Armed last, just before the drive, so the probe's log is the
           // gesture's own; `stacks: false` unless this is the census drive.
           if (args.chains) motion.chains("arm", { stacks: !!args.chainStacks });
+          if (quiet && commitCensus && typeof commitCensus.quiet === "function") commitCensus.quiet(true);
           t0 = performance.now();
           var drive = function () { return lab.drive(args.gesture, args.args); };
           var outcome;
@@ -319,6 +375,11 @@
             outcome = lead.run("gesture", drive);
           } else {
             outcome = drive();
+          }
+          if (quiet) {
+            driven = true;
+            lastLook = t0;
+            look(performance.now());
           }
           if (outcome && outcome.error) {
             finish(outcome.error);

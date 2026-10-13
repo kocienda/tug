@@ -50,6 +50,8 @@ The 2026-10-12 audit's verdict on stage 4: "bounded by the viewport is true of t
 
 **[B07] One windowing implementation.** The Overview's hold predicate, hidden hold, pin tracker, stale rule and segment renderer are extracted to a `useOverviewWindow` hook built on the same pure helpers the list view uses, with one gap convention and `heldResizeObserver`. `MeasureLedger.coversRange` leaves the interface or is used. The pure `computeOverviewWindow` already lives in `overview-window.ts`; the hook half follows it out of the 2,700-line card.
 
+*As built (`347506333`):* the collapse landed. `useOverviewWindow` (`tugdeck/src/components/overview/use-overview-window.ts`) runs `computeWindow` and `resolveEvictSegments` from `internal/list-view-window.ts`, the list view's own window math, over a post-keyed `KeyedHeightLedger`, with `heldResizeObserver` and the list view's mount and retain margins. `MeasureLedger.coversRange` left the interface. The card is 2,374 lines. With one implementation there is no second one for a parity test to hold, which closes the gap the 2026-10-12 audit named. `tuglaws/ingest-and-render.md` states the shared window as [L36].
+
 **[B08] The aged reading is taken on this code.** On the user's deck: census and walk fresh after relaunch and after a working day with sessions streaming through it, written into `briefs/compositing-walk-readings.md`'s aging table and the program record. This is the stage's owed reading and this brief's reading of record.
 
 ---
@@ -58,6 +60,8 @@ The 2026-10-12 audit's verdict on stage 4: "bounded by the viewport is true of t
 
 - **Where do persisted heights live, and how are they invalidated?** The card state bag is the [A9] protocol's home for per-card user-visible state; heights are derived appearance, so they may instead ride a sidecar keyed by session and width. A height saved at one width is wrong at another; the stale tier already handles that if the sidecar records the width. The arc decides.
 - **What does the Overview's opening look like when its page drains instead of mounting?** The follow-bottom reader sees the newest posts first and the rest fill above under the restore target. Settled by looking on the user's deck.
+
+*Answered as built.* Heights persist in the card state bag, `bag.components`, under `session-card-transcript-heights` for the transcript and `overview-heights` for the Overview, keyed by row or post. A width change re-wraps every row, so every height goes stale and drains through measure segments, as a stale height always did. That is how a height saved at one width stays correct at another.
 
 ---
 

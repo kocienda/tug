@@ -53,6 +53,7 @@
 - [app-test-harness.md](app-test-harness.md) — Architecture of the `Tug.app` integration-test harness: subprocess driving, WKWebView, the trusted-event problem, fidelity envelope, lifecycle model.
 - [code-signing-mac.md](code-signing-mac.md) — The `Tug Dev` self-signed signing pipeline (macOS only). Why the app-test harness depends on it; procedures and failure modes.
 - [wasm-crates.md](wasm-crates.md) — WASM crates in tugdeck (`tugmark-wasm`, `tugdiff-wasm`). Per-crate layout, build pipeline, lazy-load convention, and the checklist for adding a new one.
+- [ingest-and-render.md](ingest-and-render.md) — How session data reaches the deck: the ingest Worker as the authority and the page store as its mirror, the patch protocol and its parity tests, one batch per display period and none inside a motion with the hold capped on every side, the sealed-wire invariant, tugcast's `RENDERED` feed with its display rule and its one sanitizing barrier, and the viewport-bounded population with its two margins. Read before touching the Worker, the protocol, the render feed, or a windowed list. Grounds [L34]–[L36].
 
 ## Refusals & failure surfaces
 

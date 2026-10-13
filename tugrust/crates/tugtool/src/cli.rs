@@ -1216,8 +1216,10 @@ pub enum DeckMotionCommands {
     },
     /// The late frames every settle has recorded: each frame that arrived
     /// more than one display period after the one before it while the
-    /// settling mark was on, with the beat it fell in and how long ago.
-    /// Always recorded, so it answers on a deck nobody armed.
+    /// settling mark was on, with the beat at both ends of the gap and how
+    /// long ago. A gap that starts in the set-up is summed under the lead, a
+    /// budget; every other gap is a judder, the class the one-period bar is
+    /// read over. Always recorded, so it answers on a deck nobody armed.
     Gaps {
         #[command(flatten)]
         target: DeckTarget,
@@ -1329,6 +1331,12 @@ pub enum DeckMotionCommands {
         /// the first run on a page reloads the deck to install it.
         #[arg(long)]
         tasks: bool,
+        /// Take the deck line from `__tugMotion.layers()` — a
+        /// `getComputedStyle` over every element, seconds of forced style on a
+        /// large deck — and print what it cost. Without it the line is built
+        /// from counts that force no style.
+        #[arg(long)]
+        full_census: bool,
         #[command(flatten)]
         target: DeckTarget,
     },
@@ -1413,6 +1421,19 @@ pub enum DeckMotionCommands {
         /// readings after it would be a quieter deck's.
         #[arg(long, value_name = "SESSIONS")]
         streaming: Option<u32>,
+        /// Drive with no instrument but the frame pump: no zero-timer
+        /// heartbeat, no MutationObserver, and the React commit census
+        /// stilled, so the frames are the gesture's alone. The reading of
+        /// record is taken this way; attribution comes from a second drive
+        /// with the instruments on.
+        #[arg(long, conflicts_with_all = ["tasks", "chains", "sample"])]
+        quiet_instruments: bool,
+        /// Take the deck line from `__tugMotion.layers()` — a
+        /// `getComputedStyle` over every element, seconds of forced style on a
+        /// large deck — and print what it cost. Without it the line is built
+        /// from counts that force no style.
+        #[arg(long)]
+        full_census: bool,
         #[command(flatten)]
         target: DeckTarget,
     },

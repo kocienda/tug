@@ -244,6 +244,22 @@ The test: *if the thing you are waiting on never answers, what does the user see
 
 ---
 
+## Ingest and Render
+
+### L34. A Worker owns the wire; the page holds a mirror. {#l34}
+
+The ingest Worker holds tugcast's socket, decodes every frame once, runs every session's reducer, and is the authority for each session's state. The page's `CodeSessionStore` reduces nothing: it applies the engine's patches and posts its local actions to the engine as finished, sequenced events. What crosses between them is the patch protocol in `tugproto/src/ingest.ts`, which never names its sender, at most one batch per display period, and none while a settle's motion gate is closed. The hold is capped on every side that holds: the Worker, tugcast's render bridge, and the page's parked in-flight batches. A gate that never opens therefore cannot strand the deck's data. The long form is [ingest-and-render.md](ingest-and-render.md#authority). [L02, L22, L23, D209; [animation-doctrine.md](animation-doctrine.md#d9-compositor-only-settle) D9]
+
+### L35. The page draws tugcast's render of a streamed row, and parses only what tugcast does not serve. {#l35}
+
+A live assistant or thinking row draws the blocks tugcast rendered, sanitized and highlighted. It follows one display rule (`chooseRenderedBlocks`): a streaming record is drawn as it comes, a finalized one only when its text length and hash match the row's text, and `null` means parse. Restored rows, static blocks and every row the rule sends to parse use the page's own parse, and that path is permanent. tugcast's sanitizer is the one barrier on rendered HTML. It reads the same allow-list file the page's DOMPurify reads, and a Content-Security-Policy with no inline script sits beneath it. The long form is [ingest-and-render.md](ingest-and-render.md#render-feed). [D210]
+
+### L36. The mounted population is bounded by the viewport, not by the rows a surface holds. {#l36}
+
+The transcript and the Overview mount the rows within one viewport of the scrollport, keep them until they are two away, and mount at most one capped measure segment beside them. Spacers stand in for the rest and keep the scroll geometry exact. Heights persist with the card's state, so no state mounts the whole loaded window, cold or warm. Under a closed motion gate the mounted set is held. Both surfaces run one window implementation, `internal/list-view-window.ts`. The long form is [ingest-and-render.md](ingest-and-render.md#population). [L23; [animation-doctrine.md](animation-doctrine.md#d9-compositor-only-settle) D9]
+
+---
+
 ## Licensing
 
 ### L21. Third-party code and patterns require license compliance before use. {#l21}

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
 
 import { FALLBACK_FRAME_PERIOD_MS } from "../settle-frame-probe";
-import { PERIOD_MIN_GAPS, type SettleGapRow, SettleGapSampler } from "../settle-gap-sampler";
+import {
+  PERIOD_MIN_GAPS,
+  SET_UP_BEAT,
+  type SettleGapRow,
+  SettleGapSampler,
+  gapClassOf,
+} from "../settle-gap-sampler";
 
 /** A sampler over a frame queue the test fires by hand, at the times it names. */
 function harness() {
@@ -45,22 +51,60 @@ describe("SettleGapSampler", () => {
     expect(h.rows).toEqual([]);
   });
 
-  it("records one row per late frame, with the beat, the gap and its offset", () => {
+  it("records one row per late frame, with both beats, the gap and its offset", () => {
     const h = harness();
-    let beat = "set-up";
+    let beat = "move";
     h.sampler.start(() => beat);
     const p = 1000 / 60;
     h.run(smooth(1000, 4, p));
-    beat = "move";
     // Two frames missed: the next arrives three periods after the last.
     h.run([1000 + 6 * p, 1000 + 7 * p]);
     h.sampler.stop();
     expect(h.rows).toHaveLength(1);
     const [row] = h.rows;
-    expect(row.beat).toBe("move");
+    expect(row.startBeat).toBe("move");
+    expect(row.endBeat).toBe("move");
+    expect(row.class).toBe("judder");
     expect(row.gapMs).toBeCloseTo(3 * p, 6);
     expect(row.periodMs).toBeCloseTo(p, 6);
     expect(row.offsetMs).toBeCloseTo(6 * p, 6);
+  });
+
+  it("a gap the set-up ends in is the lead, not a judder of the beat that launched at its end", () => {
+    // The live shape: the first sampled frame precedes the deferred React
+    // commit, so the set-up's cost lands in the first gap and the beat in
+    // force at its late frame is the one that launched behind it.
+    const h = harness();
+    let beat = "set-up";
+    h.sampler.start(() => beat);
+    const p = 1000 / 60;
+    h.run([1000]);
+    beat = "move";
+    h.run([1000 + 5 * p]);
+    // And a late frame inside the beat, after it, is the judder.
+    h.run([1000 + 6 * p, 1000 + 9 * p]);
+    h.sampler.stop();
+    expect(h.rows.map((r) => [r.class, r.startBeat, r.endBeat])).toEqual([
+      ["lead", "set-up", "move"],
+      ["judder", "move", "move"],
+    ]);
+  });
+
+  it("a gap that straddles one beat's end and the next one's launch is a judder", () => {
+    const h = harness();
+    let beat = "move";
+    h.sampler.start(() => beat);
+    const p = 1000 / 60;
+    h.run(smooth(0, 3, p));
+    beat = "grow";
+    h.run([2 * p + 3 * p]);
+    expect(h.rows).toHaveLength(1);
+    expect(h.rows[0]).toMatchObject({ class: "judder", startBeat: "move", endBeat: "grow" });
+  });
+
+  it("classes a row by its start beat alone", () => {
+    expect(gapClassOf(SET_UP_BEAT)).toBe("lead");
+    expect(gapClassOf("move")).toBe("judder");
   });
 
   it("does not read the lead: the gap to the first frame is not a row", () => {
@@ -136,7 +180,7 @@ describe("SettleGapSampler", () => {
     h.sampler.start(() => "b");
     expect(h.frames.size).toBe(1);
     h.run([0, 50]);
-    expect(h.rows.map((r) => r.beat)).toEqual(["b"]);
+    expect(h.rows.map((r) => r.endBeat)).toEqual(["b"]);
     h.sampler.stop();
     expect(h.frames.size).toBe(0);
     expect(h.sampler.running).toBe(false);

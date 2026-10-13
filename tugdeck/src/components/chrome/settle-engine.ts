@@ -133,7 +133,7 @@ import {
   SPACE_SWITCHING_ATTRIBUTE,
 } from "./space-layer";
 import { mark as perfMark } from "@/lib/perf-marks";
-import { SettleGapSampler } from "@/lib/settle-gap-sampler";
+import { SET_UP_BEAT, SettleGapSampler } from "@/lib/settle-gap-sampler";
 import { getConnection } from "@/lib/connection-singleton";
 import { FALLBACK_FRAME_PERIOD_MS } from "@/lib/frame-period";
 import {
@@ -2229,7 +2229,7 @@ export function useSettleEngine({
         `${IMPOSITION_SETTLE_MS}ms`,
       );
       putSettlingMarkOn(el);
-      settleGapSampler.start(() => settleBeatRef.current?.kind ?? "set-up");
+      settleGapSampler.start(() => settleBeatRef.current?.kind ?? SET_UP_BEAT);
       const settleMs = readSettleMs(el);
       settleDurationRef.current = settleMs;
       if (prelaunch) {

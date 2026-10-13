@@ -566,7 +566,9 @@ const EVENT_FIXTURES: Record<
   },
   "settle-gap": {
     kind: "settle-gap",
-    beat: "move",
+    startBeat: "move",
+    endBeat: "move",
+    class: "judder",
     gapMs: 50,
     periodMs: 16.7,
     offsetMs: 120,

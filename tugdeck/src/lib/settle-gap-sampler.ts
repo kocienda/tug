@@ -21,11 +21,26 @@
  * catch-ups, and it read 4–6 ms there. The median stands clear of both the
  * catch-ups and the long gaps while each is under half the ring. The gap from the mark going
  * on to the first frame is the settle's lead, a budget rather than a defect,
- * and is not read; every gap after it is inside the motion.
+ * and is not read.
  *
- * A row carries the beat the gap fell in — the engine knows its beats, not the
- * gesture that asked for them; the `settle-arm` row before it in the ring says
- * which arrangement that was — and how far into the window it fell.
+ * A row carries the beat in force at both ends of its gap — the engine knows
+ * its beats, not the gesture that asked for them; the `settle-arm` row before
+ * it in the ring says which arrangement that was — and how far into the
+ * window it fell. Both ends, because the first sampled frame precedes the
+ * deferred React commit: the set-up (that commit, the Last pass, layout, the
+ * beats' creation) falls inside the first gap and ends where a beat launches,
+ * so a row labelled only by the beat in force at its late frame charged the
+ * set-up's cost to the beat that followed it. A row that starts in `set-up` is
+ * the set-up's cost and is classed `lead`, the budget set-up-and-go allows; any
+ * other row is inside the motion and classed `judder`, which is the class the
+ * one-period bar is read over. A row that crosses from one beat to another is
+ * still mid-motion, so it is a judder too: the bar is not loosened by where a
+ * late frame happened to straddle a launch.
+ *
+ * The ring has a second consumer: the ingest Worker paces its batches to the
+ * period it learns (`postDisplayPeriod` in `settle-engine.ts`, posted where a
+ * settle's sampling stops). So before the first settle a faster display is
+ * paced at the 60 Hz fallback, which errs toward the slower cadence.
  */
 
 import { FALLBACK_FRAME_PERIOD_MS, GAP_TOLERANCE } from "./settle-frame-probe";
@@ -39,10 +54,28 @@ export const PERIOD_MIN_GAPS = 8;
 /** The quantile of the ring read as the period: the median. */
 const PERIOD_QUANTILE = 0.5;
 
+/**
+ * A row's class: `lead` for a gap that starts in the set-up, a budget;
+ * `judder` for one inside the motion, which the one-period bar reads.
+ */
+export type SettleGapClass = "lead" | "judder";
+
+/** The beat a gap that starts before any beat has launched is read in. */
+export const SET_UP_BEAT = "set-up";
+
+/** The class of a gap that starts in `startBeat`. */
+export function gapClassOf(startBeat: string): SettleGapClass {
+  return startBeat === SET_UP_BEAT ? "lead" : "judder";
+}
+
 /** The row one long gap records. */
 export interface SettleGapRow {
-  /** The beat in force when the late frame arrived, or `"set-up"` before one. */
-  beat: string;
+  /** The beat in force at the frame before the gap, or `"set-up"` before one. */
+  startBeat: string;
+  /** The beat in force when the late frame arrived. */
+  endBeat: string;
+  /** Whether the gap is the set-up's cost or a judder inside the motion. */
+  class: SettleGapClass;
   /** The gap between the two frames, in ms. */
   gapMs: number;
   /** The display period the gap was judged against, in ms. */
@@ -63,7 +96,9 @@ export class SettleGapSampler {
   private frame: number | null = null;
   private last: number | null = null;
   private first: number | null = null;
-  private beatOf: () => string = () => "set-up";
+  private beatOf: () => string = () => SET_UP_BEAT;
+  /** The beat in force at the last sampled frame: the start beat of the next gap. */
+  private lastBeat: string = SET_UP_BEAT;
   /** The last {@link PERIOD_RING} gaps, from every window, oldest overwritten. */
   private readonly gaps: number[] = [];
   private nextGap = 0;
@@ -98,7 +133,10 @@ export class SettleGapSampler {
   private readonly tick = (at: number): void => {
     this.frame = this.source.requestFrame(this.tick);
     const last = this.last;
+    const startBeat = this.lastBeat;
+    const endBeat = this.beatOf();
     this.last = at;
+    this.lastBeat = endBeat;
     if (last === null) {
       this.first = at;
       return;
@@ -108,7 +146,9 @@ export class SettleGapSampler {
     const period = this.period();
     if (gap > period * GAP_TOLERANCE) {
       this.source.record({
-        beat: this.beatOf(),
+        startBeat,
+        endBeat,
+        class: gapClassOf(startBeat),
         gapMs: gap,
         periodMs: period,
         offsetMs: at - (this.first ?? last),

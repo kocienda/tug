@@ -282,9 +282,12 @@ fn page(port: u16, args: Value) -> Result<Option<Value>, String> {
 }
 
 /// The deck's census — its size and its panes — that every reading carries
-/// beside its numbers. `None` when the eval door is shut.
-pub(crate) fn census(port: u16) -> Result<Option<Value>, String> {
-    page(port, json!({"op": "census"}))
+/// beside its numbers, from counts that force no style; with `full`, the
+/// stacking contexts and render-layer candidates of `__tugMotion.layers()`
+/// too, a `getComputedStyle` over every element, and what that cost. `None`
+/// when the eval door is shut.
+pub(crate) fn census(port: u16, full: bool) -> Result<Option<Value>, String> {
+    page(port, json!({"op": "census", "full": full}))
 }
 
 /// Post one op of an embedded page script. `None` when the eval door is shut;
@@ -919,6 +922,7 @@ pub fn run_slide(
     sample: bool,
     queries: bool,
     tasks: bool,
+    full_census: bool,
     json_output: bool,
 ) -> Result<i32, String> {
     let gated = || Ok(eval_gated("deck motion slide", json_output));
@@ -926,7 +930,7 @@ pub fn run_slide(
     if tasks && !ensure_recorder(port, json_output)? {
         return gated();
     }
-    let Some(census) = page(port, json!({"op": "census"}))? else {
+    let Some(census) = census(port, full_census)? else {
         return gated();
     };
     let (Some(from), Some(to)) = (resolve(port, from)?, resolve(port, to)?) else {
@@ -1098,14 +1102,31 @@ pub fn run_slide(
     Ok(0)
 }
 
+/// The census's first line. A census taken without `--full-census` has no
+/// stacking counts, and says how to get them rather than printing zeros; a
+/// full one says what its walk cost the deck.
+pub(crate) fn census_line(census: &Value) -> String {
+    let n = |k: &str| census.get(k).and_then(|v| v.as_f64()).map(|v| v as i64);
+    let elements = n("elements").unwrap_or(0);
+    match (n("stackingContexts"), n("renderLayerCandidates")) {
+        (Some(contexts), Some(candidates)) => {
+            let cost = census
+                .get("censusMs")
+                .and_then(|v| v.as_f64())
+                .map(|ms| format!(" (the full census held the main thread {ms:.0} ms)"))
+                .unwrap_or_default();
+            format!(
+                "deck: {elements} elements, {contexts} stacking contexts, {candidates} render-layer candidates{cost}"
+            )
+        }
+        _ => format!(
+            "deck: {elements} elements (counts that force no style; --full-census adds stacking contexts and render-layer candidates)"
+        ),
+    }
+}
+
 pub(crate) fn print_census(census: &Value) {
-    let n = |k: &str| census.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
-    println!(
-        "deck: {} elements, {} stacking contexts, {} render-layer candidates",
-        n("elements"),
-        n("stackingContexts"),
-        n("renderLayerCandidates")
-    );
+    println!("{}", census_line(census));
     if let Some(panes) = census.get("panes").and_then(|p| p.as_array()) {
         let largest: Vec<String> = panes
             .iter()
@@ -1495,6 +1516,24 @@ fn print_summary(s: &Summary) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The quiet census prints its element count and how to get the rest;
+    /// a full one prints the stacking counts and what the walk cost.
+    #[test]
+    fn the_deck_line_says_which_census_it_is() {
+        assert_eq!(
+            census_line(
+                &json!({"elements": 14750, "stackingContexts": null, "renderLayerCandidates": null, "censusMs": null})
+            ),
+            "deck: 14750 elements (counts that force no style; --full-census adds stacking contexts and render-layer candidates)"
+        );
+        assert_eq!(
+            census_line(
+                &json!({"elements": 25714, "stackingContexts": 812, "renderLayerCandidates": 640, "censusMs": 3300.4})
+            ),
+            "deck: 25714 elements, 812 stacking contexts, 640 render-layer candidates (the full census held the main thread 3300 ms)"
+        );
+    }
 
     #[test]
     fn the_page_call_applies_the_function_to_json_arguments() {

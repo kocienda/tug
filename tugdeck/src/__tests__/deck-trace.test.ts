@@ -176,7 +176,9 @@ describe("deckTrace.enable(false) gates recording", () => {
     deckTrace.enable(false);
     deckTrace.record({
       kind: "settle-gap",
-      beat: "move",
+      startBeat: "move",
+      endBeat: "move",
+      class: "judder",
       gapMs: 50,
       periodMs: 16.7,
       offsetMs: 120,

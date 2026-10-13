@@ -198,6 +198,8 @@
 
 **D79.** `requestAnimationFrame` is never used for operations depending on React state commits. RAF timing relative to React's commit cycle is not a contract. [L05]
 
+**D208.** **The wrapped `flushSync` drains what a gesture's scope holds, never what the motion gate holds.** `flushSync` (`tugdeck/src/lib/gesture-scope.ts`) is how code says "I need the DOM now", so it runs its body unheld. Before this decision it also drained every held tell, the gate's included. A streaming block flushes on every frame, so each one unsealed the motion once per frame. On the streaming arm that drain was the route by which about three quarters of React's in-motion time, and nearly all its in-motion commits, got in (`briefs/main-thread-headroom-program-brief.md`, the streaming-motion-reading probes). `drain` now takes the rule `release` already had. With no motion hold it runs the held set and the queued `afterGesture` work and leaves the scope pending. Inside a closed gate it runs nothing, and the gate's release runs what it held. The body still flushes, so a caller that needs its own DOM gets it. [L05, L13, D9, D204]
+
 ---
 
 ## Scroll Behavior
@@ -239,6 +241,10 @@ The contract is surface-wide, not body-kind-specific: any new inner scroller a b
 **D21.** Interface-first development: define TypeScript interfaces, mock backend, then implement frontend.
 
 **D109.** `TugConnection.onFrame` returns an unsubscribe closure (mirroring `onDisconnectState`); short-lived subscribers (per-card stores) capture it and release on `dispose()`. The `_disposed` guard is retained as a secondary safety, not as the leak fix. [L27]
+
+**D209.** **A streamed token costs React no commit: the per-store streaming publish is retired, and the Worker's batch is the one cadence.** The streaming-motion-reading arc coalesced each session store's text publish to one shared frame-aligned tick (`live-publish-tick.ts`), which still told React once per frame per streaming session. That design is reversed. Streaming text and thinking deltas never bump the structural snapshot: a `stream` patch writes the session's `PropertyStore` path, and the markdown view draws from it by observing the store directly ([L22]). React hears only structure (a new turn, a phase, a tool call or result, an error, a rewind, a restore), once per ingest batch, and the ingest Worker paces batches to the display period. The tick file is deleted. The deck store's deferred notify for gestures ([D204]) is untouched: it is the gesture path, and this is the stream path. [L02, L22, L34]
+
+**D210.** **tugcast's sanitizer is the one barrier on rendered HTML, and the page's second pass stood only until the first was fuzzed.** tugcast's render stage first trusted its own sanitizer on provenance: the HTML comes from tugcast, sanitized by `ammonia` with the page's allow-list. `briefs/rendered-html-second-barrier-brief.md` reversed that. Provenance was never the risk; a parser differential between html5ever and WebKit was. So for a time every new-hash HTML entry ran DOMPurify on the page, at 0.17 ms per delta. At the same time the CSP dropped `'unsafe-inline'` from `script-src`, admitting the deck's own inline scripts by hash. The barrier was removed (`0f74f891d`) once its condition was met. The differential fuzz was clean on both sides, and `at0732-tugcast-hostile-render` streamed hostile markdown and DOMPurify's own payloads through tugcast into the real WKWebView with no element, attribute, URL or CSP violation. What stays: one allow-list file (`sanitize-allowlist.json`) both sanitizers read, `class` and `id` held to pulldown-cmark's shapes, and the script-free CSP beneath, which turns a sanitizer miss into a rendered string. DOMPurify is pinned exactly, and a test holds the ported lists to it. Re-adding a page pass is the answer if any of those tests goes red, not a tuning knob. [L21, L35]
 
 ---
 
