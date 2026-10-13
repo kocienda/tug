@@ -20,14 +20,21 @@
 @import "./components/tugways/tug-code.css";
 @import "./components/tugways/tug-syntax-classes.css";
 
-/* Global resets (moved from inline <style> in index.html) */
+/* Global resets (moved from inline <style> in index.html)
+ *
+ * `clip`, not `hidden`: a `hidden` box is still a scroll container, so a
+ * `focus()` or `scrollIntoView()` can scroll it. Under View › Zoom below
+ * 100 % the deck root's layout box is the window ÷ f — taller and wider than
+ * the scaled picture of it — so `body` held that difference as scroll range,
+ * and a caret brought into view scrolled the whole deck up under the title
+ * bar. `clip` makes it no scroll container at all. */
 html,
 body {
   margin: 0;
   padding: 0;
   height: 100%;
   width: 100%;
-  overflow: hidden;
+  overflow: clip;
 }
 
 body {
