@@ -146,8 +146,6 @@ import {
   publishListCardBindingsErr,
   publishTrashSessionOk,
   publishTrashSessionErr,
-  publishTrashProjectDirSessionsOk,
-  publishTrashProjectDirSessionsErr,
   publishListSessionStateChangesOk,
   publishListSessionStateChangesErr,
 } from "./lib/session-ledger-events";
@@ -2046,29 +2044,6 @@ export function initActionDispatch(
       return;
     }
     publishTrashSessionErr({ session_id: sessionId, reason });
-  });
-
-  // trash_project_dir_sessions_ok / _err: response to a recents-eviction
-  // → ledger-eviction dispatch from `card-services-store.ts`. The caller
-  // is fire-and-forget (no UX surface waits on the ack), but registering
-  // the handlers keeps the unknown-action warning out of the console.
-  registerAction("trash_project_dir_sessions_ok", (payload) => {
-    const projectDir = payload.project_dir;
-    const count = payload.count;
-    if (typeof projectDir !== "string" || typeof count !== "number") {
-      console.warn("trash_project_dir_sessions_ok: missing or invalid fields", payload);
-      return;
-    }
-    publishTrashProjectDirSessionsOk({ project_dir: projectDir, count });
-  });
-  registerAction("trash_project_dir_sessions_err", (payload) => {
-    const projectDir = payload.project_dir;
-    const reason = payload.reason;
-    if (typeof projectDir !== "string" || typeof reason !== "string") {
-      console.warn("trash_project_dir_sessions_err: missing or invalid fields", payload);
-      return;
-    }
-    publishTrashProjectDirSessionsErr({ project_dir: projectDir, reason });
   });
 
   // list_session_state_changes_ok / _err: response to a

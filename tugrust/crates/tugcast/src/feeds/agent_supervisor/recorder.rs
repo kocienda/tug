@@ -760,8 +760,8 @@ pub(super) fn relocation_edge(
 }
 
 /// Build the `session_updated` push payload for a row's current state.
-/// Public so the `do_trash_session` / `do_trash_project_dir_sessions`
-/// handlers can emit the matching frame after their batch writes.
+/// Public so the row handlers can emit the matching frame after their
+/// writes.
 ///
 /// `metrics` is the session's `external_scan_cache` pair, and **every** caller
 /// looks it up — not just the one pushing after a turn. The client replaces its

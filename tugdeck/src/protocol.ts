@@ -789,22 +789,6 @@ export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): 
 }
 
 /**
- * Build a `trash_project_dir_sessions` CONTROL request frame.
- *
- * Drops every non-live row whose `project_dir` matches the given path
- * and moves each row's JSONL to in-place trash. Used by the recents-
- * eviction → ledger-eviction coupling: when a dev recent-projects
- * entry ages out, the matching ledger rows go too. Emits one
- * `session_updated { removed: true }` per dropped row plus
- * `trash_project_dir_sessions_ok { project_dir, count }` on success.
- */
-export function encodeTrashProjectDirSessions(projectDir: string): Frame {
-  return controlFrame("trash_project_dir_sessions", {
-    project_dir: projectDir,
-  });
-}
-
-/**
  * Build a `request_replay` CONTROL frame per [D12].
  *
  * The supervisor's handler looks up the live tugcode subprocess for the

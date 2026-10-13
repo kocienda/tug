@@ -1914,8 +1914,6 @@ impl AgentSupervisor {
     /// * `list_sessions` — picker query. Payload: `{project_dir}`.
     /// * `trash_session` — drop a non-live persisted record.
     ///   Payload: `{session_id}`.
-    /// * `trash_project_dir_sessions` — drop every non-live record
-    ///   under a workspace. Payload: `{project_dir}`.
     /// * `request_replay` — recovery verb per [D12]. Forward
     ///   `{"type":"request_replay"}` to the live tugcode subprocess so
     ///   a freshly-mounted `CodeSessionStore` rehydrates from JSONL.
@@ -2021,8 +2019,7 @@ impl AgentSupervisor {
             }
             A::TrashSession
             | A::RenameSession
-            | A::SetSessionPrivate
-            | A::TrashProjectDirSessions => self.handle_rows_control(action, payload).await,
+            | A::SetSessionPrivate => self.handle_rows_control(action, payload).await,
             A::RecordTurnTelemetry
             | A::RecordContextBreakdown
             | A::RecordSessionStateChange

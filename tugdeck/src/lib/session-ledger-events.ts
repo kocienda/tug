@@ -88,8 +88,6 @@ const listCardBindingsOkBus = makeBus<{ bindings: CardBinding[] }>();
 const listCardBindingsErrBus = makeBus<{ reason: string }>();
 const trashSessionOkBus = makeBus<{ session_id: string }>();
 const trashSessionErrBus = makeBus<{ session_id: string; reason: string }>();
-const trashProjectDirSessionsOkBus = makeBus<{ project_dir: string; count: number }>();
-const trashProjectDirSessionsErrBus = makeBus<{ project_dir: string; reason: string }>();
 const listSessionStateChangesOkBus = makeBus<ListSessionStateChangesOk>();
 const listSessionStateChangesErrBus = makeBus<ListSessionStateChangesErr>();
 
@@ -117,12 +115,6 @@ export const publishTrashSessionOk = trashSessionOkBus.publish;
 export const subscribeToTrashSessionErr = trashSessionErrBus.subscribe;
 export const publishTrashSessionErr = trashSessionErrBus.publish;
 
-export const subscribeToTrashProjectDirSessionsOk = trashProjectDirSessionsOkBus.subscribe;
-export const publishTrashProjectDirSessionsOk = trashProjectDirSessionsOkBus.publish;
-
-export const subscribeToTrashProjectDirSessionsErr = trashProjectDirSessionsErrBus.subscribe;
-export const publishTrashProjectDirSessionsErr = trashProjectDirSessionsErrBus.publish;
-
 export const subscribeToListSessionStateChangesOk = listSessionStateChangesOkBus.subscribe;
 export const publishListSessionStateChangesOk = listSessionStateChangesOkBus.publish;
 
@@ -138,8 +130,6 @@ export function _resetSessionLedgerEventsForTest(): void {
   listCardBindingsErrBus.reset();
   trashSessionOkBus.reset();
   trashSessionErrBus.reset();
-  trashProjectDirSessionsOkBus.reset();
-  trashProjectDirSessionsErrBus.reset();
   listSessionStateChangesOkBus.reset();
   listSessionStateChangesErrBus.reset();
 }

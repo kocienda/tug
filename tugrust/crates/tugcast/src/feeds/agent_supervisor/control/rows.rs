@@ -1,6 +1,6 @@
 //! The session-rows family of CONTROL actions: `trash_session`,
-//! `rename_session`, `set_session_private`, and `trash_project_dir_sessions`
-//! — the picker's edits to persisted session records.
+//! `rename_session`, and `set_session_private` — the picker's edits to
+//! persisted session records.
 
 use super::super::*;
 use tugcast_core::ControlAction;
@@ -94,13 +94,6 @@ impl AgentSupervisor {
             ControlAction::SetSessionPrivate => match parse_set_session_private_payload(payload) {
                 Ok((session_id, private)) => {
                     self.do_set_session_private(&session_id, private).await;
-                    Ok(())
-                }
-                Err(e) => return ControlOutcome::Error(e),
-            },
-            ControlAction::TrashProjectDirSessions => match parse_project_dir_payload(payload) {
-                Ok(project_dir) => {
-                    self.do_trash_project_dir_sessions(&project_dir).await;
                     Ok(())
                 }
                 Err(e) => return ControlOutcome::Error(e),
@@ -388,45 +381,6 @@ impl AgentSupervisor {
             Err(e) => {
                 warn!(error = %e, session_id, "set_session_private ledger error");
                 send_control(&self.control_tx, err("ledger_write_failed"));
-            }
-        }
-    }
-
-    /// Handle a `trash_project_dir_sessions` CONTROL request. Drops every
-    /// non-live row whose `project_dir` matches the request, broadcasts a
-    /// `session_updated { removed: true }` per dropped id, and returns a
-    /// count via `trash_project_dir_sessions_ok`. Used by the recents-
-    /// eviction → ledger-eviction coupling.
-    async fn do_trash_project_dir_sessions(&self, project_dir: &str) {
-        let Some(ledger) = self.session_ledger.as_ref() else {
-            let body = serde_json::json!({
-                "action": "trash_project_dir_sessions_err",
-                "project_dir": project_dir,
-                "reason": "no_ledger",
-            });
-            send_control(&self.control_tx, body);
-            return;
-        };
-        match ledger.trash_for_project_dir(project_dir) {
-            Ok(dropped) => {
-                for id in &dropped {
-                    let _ = self.control_tx.send(build_session_removed_frame(id));
-                }
-                let body = serde_json::json!({
-                    "action": "trash_project_dir_sessions_ok",
-                    "project_dir": project_dir,
-                    "count": dropped.len(),
-                });
-                send_control(&self.control_tx, body);
-            }
-            Err(err) => {
-                warn!(error = %err, project_dir, "trash_for_project_dir failed");
-                let body = serde_json::json!({
-                    "action": "trash_project_dir_sessions_err",
-                    "project_dir": project_dir,
-                    "reason": "ledger_write_failed",
-                });
-                send_control(&self.control_tx, body);
             }
         }
     }

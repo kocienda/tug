@@ -51,7 +51,6 @@ import { FeedStore, type FeedStoreFilter } from "./feed-store";
 import { FeedId } from "../protocol";
 import type { CompletionProvider } from "./tug-text-types";
 import { getConnection } from "./connection-singleton";
-import { encodeTrashProjectDirSessions } from "../protocol";
 import { DEFAULT_REPLAY_WINDOW_TURNS } from "../protocol";
 import { resolveRestoreWindow } from "./session-restore-window";
 import {
@@ -721,22 +720,17 @@ class CardServicesStore {
     // React effect so the side effect is co-located with services
     // construction; running it on every dep change of a React effect
     // would multiply-write the same path.
+    //
+    // A path that falls off the capped list leaves the list and nothing
+    // else. Its sessions and transcripts are untouched: the cap bounds a
+    // convenience menu, and is never the user saying they are done with a
+    // project [L23]. Only the user's own Trash gesture removes a session.
     const tugbank = getTugbankClient();
     if (tugbank) {
       const current = readSessionRecentProjects(tugbank);
       const updated = insertSessionRecentProject(current, binding.projectDir);
       if (updated[0] !== current[0] || updated.length !== current.length) {
         putSessionRecentProjects(updated);
-        // Recents↔ledger coherence: any path that fell off the recents
-        // tail also has its ledger rows dropped so the picker doesn't
-        // surface sessions for a path the user no longer recognizes.
-        // Computed as the set difference (current \ updated) — a path is
-        // evicted when it was in `current` but not in `updated`.
-        const updatedSet = new Set(updated);
-        const evicted = current.filter((p) => !updatedSet.has(p));
-        if (evicted.length > 0) {
-          trashLedgerForEvictedRecents(evicted);
-        }
       }
     }
 
@@ -1071,29 +1065,3 @@ class CardServicesStore {
 }
 
 export const cardServicesStore = new CardServicesStore();
-
-/**
- * Send `trash_project_dir_sessions` for each path that fell off the
- * recents tail. The supervisor matches by `project_dir` (literal user
- * path) and broadcasts a `session_updated { removed: true }` for each
- * dropped row. The store cache then patches itself.
- *
- * Fire-and-forget: there's no UX surface for the result of this batch
- * action (the user is just spawning a fresh card; the recents-cap
- * eviction is invisible). Errors are warnings, not blockers.
- */
-function trashLedgerForEvictedRecents(paths: ReadonlyArray<string>): void {
-  const connection = getConnection();
-  if (!connection) return;
-  for (const path of paths) {
-    const frame = encodeTrashProjectDirSessions(path);
-    try {
-      connection.send(frame.feedId, frame.payload);
-    } catch (err) {
-      console.warn(
-        `[recents-eviction] trash_project_dir_sessions for ${path} failed:`,
-        err,
-      );
-    }
-  }
-}

@@ -26,8 +26,8 @@
 //!
 //! There is no automatic eviction, and that is the policy. A `sessions` row
 //! — and the `turn_telemetry` under it — lives until the user trashes the
-//! session. `trash` and `trash_for_project_dir` are the only paths that
-//! remove one, and both are the user's own gesture.
+//! session. `trash` is the only path that removes one, and it runs only on
+//! the user's own gesture: a session named and trashed by hand.
 //!
 //! An age sweep lived here (`DEV_LEDGER_MAX_AGE_DAYS`, 90) and was removed
 //! rather than retuned. It defended nothing measurable: these tables are a
@@ -44,17 +44,19 @@
 //! had named by hand. A bounded row count is not a resource this ledger
 //! needs to defend, and no number is small enough to be worth a name.
 //!
-//! And a name is guarded besides. `trash_for_project_dir` — a delete the user
-//! asked for by evicting a project rather than by naming a session — goes
-//! through the `sparing_named_lines!` guard, which refuses to remove the last
-//! surviving segment of a line whose name the user typed. The guard sits
-//! beside the `DELETE` rather than in each caller, because the caller is where
-//! this went wrong once already. `trash` — a session named outright — is
-//! deliberately not guarded: deleting a session on purpose is the one act that
-//! may cost a name, and when it takes a line's last segment the name goes with
-//! it rather than being left to strand.
+//! A bulk delete by project lived here too (`trash_for_project_dir`), and it
+//! was removed for the same reason, with worse damage. The deck called it for
+//! every project that fell off the five-entry recent-projects list, so opening
+//! a card in a sixth project silently trashed every session — row and
+//! transcript — in whichever project the cap pushed out, and the startup
+//! sweep then deleted those transcripts for good a week later. A capped
+//! convenience list is not the user saying they are done with a project
+//! [L23]. No delete keyed on anything but a session the user named may come
+//! back; `only_the_users_trash_gesture_removes_a_session` holds the line.
 //!
-//! Live rows are never removed by either path.
+//! `trash` may cost a name: deleting a session on purpose is the one act that
+//! may, and when it takes a line's last segment the name goes with it rather
+//! than being left to strand. Live rows are never removed.
 //!
 //! # Schema
 //!
@@ -170,61 +172,6 @@ macro_rules! not_private {
             " AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id = ",
             $col,
             " AND s.private = 1)"
-        )
-    };
-}
-
-/// The **named-line guard**, spelled once and wrapped around every *automatic*
-/// delete over `sessions`. The argument is the SQL criterion naming the rows
-/// that path wants gone; what comes back is that same set, minus any row whose
-/// removal would strand a line the user named.
-///
-/// A `/rename` is the user's own word about their own work, and the ledger
-/// treated it as cache: a per-workspace cap deleted the last segment of the
-/// line named `lens-xp`, and the name — still intact on `lines` — became
-/// unreachable, because every listing path walks `sessions`. The guard lives
-/// here, beside the `DELETE`, rather than in each caller, because the caller
-/// is exactly where that went wrong once already.
-///
-/// **Set-aware, not row-at-a-time** — which is why this is a CTE and not a
-/// clause. A predicate asking each row on its own "is another segment of my
-/// line still here?" answers yes for *both* segments of a two-segment line,
-/// and then deletes both, stranding the name it was written to save. So the
-/// criterion is materialized once as `doomed`, and a row is spared only when
-/// its line is named, no segment of that line survives the criterion, and it
-/// is the newest of the doomed ones. Exactly one segment is left standing per
-/// named line, and it is the newest.
-///
-/// `trash` — the user's own explicit gesture — is deliberately not wrapped in
-/// this. Deleting a session on purpose is the one act that may cost a name.
-macro_rules! sparing_named_lines {
-    ($doomed_criterion:literal) => {
-        concat!(
-            "WITH doomed AS (
-                 SELECT session_id, line_id, last_used_at FROM sessions
-                 WHERE ",
-            $doomed_criterion,
-            "
-             )
-             SELECT d.session_id FROM doomed d
-             WHERE NOT (
-                 EXISTS (
-                     SELECT 1 FROM lines l
-                     WHERE l.line_id = d.line_id AND l.name_user_set = 1
-                 )
-                 AND NOT EXISTS (
-                     SELECT 1 FROM sessions s
-                     WHERE s.line_id = d.line_id
-                       AND s.session_id NOT IN (SELECT session_id FROM doomed)
-                 )
-                 AND NOT EXISTS (
-                     SELECT 1 FROM doomed n
-                     WHERE n.line_id = d.line_id
-                       AND (n.last_used_at > d.last_used_at
-                            OR (n.last_used_at = d.last_used_at
-                                AND n.session_id > d.session_id))
-                 )
-             )"
         )
     };
 }
@@ -5667,9 +5614,9 @@ impl SessionLedger {
     /// arbiter (Spec S08), and freeing the callsign would let a later session
     /// mint it — making this session's commit trailers cite someone else.
     ///
-    /// **A user-set name goes with the line's last segment.** Every *automatic*
-    /// delete spares such a row (`sparing_named_lines!`), so this is the only
-    /// path that can leave a named line with no segments at all — and the
+    /// **A user-set name goes with the line's last segment.** This is the only
+    /// path that removes a `sessions` row, so it is the only one that can
+    /// leave a named line with no segments at all — and the
     /// line-first listing would then keep offering that line forever, pointing
     /// at a transcript now sitting in `.tug-trash`. The user asked for the
     /// session to go, so the name goes with it, which also releases the
@@ -5730,48 +5677,6 @@ impl SessionLedger {
             session_id: session_id.to_owned(),
             jsonl_moved_to: trash_path,
         })
-    }
-
-    /// Drop every non-live row whose `project_dir` matches `project_dir`
-    /// literally and move each row's JSONL to trash. Returns the session
-    /// ids of the dropped rows so the caller can broadcast `session_updated
-    /// { removed: true }` pushes. Used by recents-eviction → ledger-eviction
-    /// coupling: when a dev recent-projects entry ages out, the matching
-    /// ledger rows are dropped in lockstep so the picker doesn't surface
-    /// sessions for a path the user no longer recognizes. The JSONLs go to
-    /// trash so the user can `mv` them back if they recognize the loss.
-    ///
-    /// Their `minted_tags` rows stay — the arbiter is append-only (Spec S08).
-    ///
-    /// **A name the user typed is never taken here.** The selection runs
-    /// through `sparing_named_lines!`, so a row that is the last surviving
-    /// segment of a user-named line is left where it is — row and JSONL both.
-    pub fn trash_for_project_dir(&self, project_dir: &str) -> Result<Vec<String>, LedgerError> {
-        let forwarding = self.forwarding();
-        let mut conn = self.db.lock();
-        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let doomed: Vec<String> = {
-            let mut stmt =
-                tx.prepare(sparing_named_lines!("project_dir = ?1 AND state != 'live'"))?;
-            stmt.query_map(params![project_dir], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?
-        };
-        for id in &doomed {
-            tx.execute("DELETE FROM sessions WHERE session_id = ?1", params![id])?;
-            self.delete_session_events(&tx, id, forwarding)?;
-        }
-        tx.commit()?;
-        drop(conn);
-        self.settle_session_deletes(doomed.iter().map(String::as_str));
-
-        let now = now_millis();
-        for id in &doomed {
-            move_jsonl_to_trash(&self.claude_home, project_dir, id, now);
-        }
-        if !doomed.is_empty() {
-            self.notify_sessions_changed();
-        }
-        Ok(doomed)
     }
 
     /// Walk every project subdirectory under the Claude home's `projects/`,
@@ -13460,54 +13365,13 @@ mod tests {
         assert!(session_dir.join(".tug-trash").exists());
     }
 
-    // ── the named-line guard ────────────────────────────────────────────────
+    // ── who may remove a session ────────────────────────────────────────────
     //
-    // A `/rename` is the user's own word, and no automatic delete may cost
-    // one. These exercise the two guarded paths, and the shape that broke the
-    // obvious predicate: a named line every one of whose segments is doomed.
-
-    /// A second segment on an existing line — the shape a rotation leaves.
-    fn seed_segment(ledger: &SessionLedger, id: &str, line_id: &str, now: i64) {
-        ledger
-            .record_spawn(id, WS_A, "/proj", "c", now, line_id, None)
-            .expect("record_spawn");
-    }
+    // A `/rename` is the user's own word, and only the user's own Trash
+    // gesture may cost one. There is no automatic delete left to guard.
 
     fn name_the_line(ledger: &SessionLedger, line_id: &str, name: &str) {
         ledger.rename(line_id, Some(name)).expect("rename");
-    }
-
-    #[test]
-    fn trash_for_project_dir_spares_the_last_segment_of_a_named_line() {
-        let l = fresh();
-        seed_live(&l, "named-seg", WS_A, "c", millis(0));
-        l.mark_closed("named-seg").unwrap();
-        name_the_line(&l, "named-seg", "dots-hacking");
-        // An unnamed neighbour in the same project dir, to prove the path
-        // still does its job around the row it spares.
-        seed_live(&l, "anon-seg", WS_A, "c", millis(0));
-        l.mark_closed("anon-seg").unwrap();
-
-        let dropped = l.trash_for_project_dir("/proj").unwrap();
-        assert_eq!(dropped, vec!["anon-seg".to_owned()]);
-        assert!(l.get("named-seg").unwrap().is_some());
-        assert!(l.get("anon-seg").unwrap().is_none());
-    }
-
-    #[test]
-    fn trash_for_project_dir_keeps_the_newest_segment_of_a_named_line() {
-        let l = fresh();
-        // Both segments match the project dir, so both are doomed by the
-        // criterion; the guard leaves the newest standing.
-        seed_live(&l, "pd-older", WS_A, "c", millis(9));
-        l.mark_closed("pd-older").unwrap();
-        seed_segment(&l, "pd-newer", "pd-older", millis(1));
-        l.mark_closed("pd-newer").unwrap();
-        name_the_line(&l, "pd-older", "live-atoms-in-editing");
-
-        let dropped = l.trash_for_project_dir("/proj").unwrap();
-        assert_eq!(dropped, vec!["pd-older".to_owned()]);
-        assert!(l.get("pd-newer").unwrap().is_some());
     }
 
     #[test]
@@ -13521,6 +13385,31 @@ mod tests {
         // said so, and refusing it would be the ledger overruling them.
         l.trash("named-seg").unwrap();
         assert!(l.get("named-seg").unwrap().is_none());
+    }
+
+    /// [L23]: removing a session is the user's act, so `trash` is the one
+    /// path in this file that deletes a `sessions` row, and it and
+    /// `trash_external_jsonl` are the only two that move a transcript to
+    /// `.tug-trash`. A bulk delete keyed on anything else fails here — one
+    /// keyed on a project falling off the capped recents list once trashed
+    /// every session under it whenever a card opened in a new directory.
+    #[test]
+    fn only_the_users_trash_gesture_removes_a_session() {
+        let src = include_str!("session_ledger.rs");
+        let body = src
+            .split("#[cfg(test)]\nmod tests {")
+            .next()
+            .expect("the non-test body");
+        assert_eq!(
+            body.matches("DELETE FROM sessions").count(),
+            1,
+            "only `trash` deletes a sessions row"
+        );
+        assert_eq!(
+            body.matches("move_jsonl_to_trash(").count(),
+            3,
+            "the helper's definition, `trash`, and `trash_external_jsonl` — nothing else"
+        );
     }
 
     // ── the line-first listing ──────────────────────────────────────────────
@@ -13626,44 +13515,6 @@ mod tests {
             line.name.is_none() && !line.name_user_set,
             "the one gesture that may cost a name has cost it"
         );
-    }
-
-    // ── trash_for_project_dir ───────────────────────────────────────────────
-
-    #[test]
-    fn trash_for_project_dir_drops_matching_rows_only() {
-        let l = fresh();
-        seed_live(&l, "matched-1", WS_A, "c", millis(0));
-        l.mark_closed("matched-1").unwrap();
-        seed_live(&l, "matched-2", WS_A, "c", millis(0));
-        l.mark_failed("matched-2").unwrap();
-        // Live match — survives (we don't reach into a card that's still open).
-        seed_live(&l, "matched-live", WS_A, "card-x", millis(0));
-        // Different project_dir — also survives.
-        ledger_helper_record(&l, "other", WS_A, "/other/path", "c", millis(0));
-        l.mark_closed("other").unwrap();
-
-        let dropped = l.trash_for_project_dir("/proj").unwrap();
-        let mut sorted = dropped.clone();
-        sorted.sort();
-        assert_eq!(sorted, vec!["matched-1".to_owned(), "matched-2".to_owned()]);
-        assert!(l.get("matched-1").unwrap().is_none());
-        assert!(l.get("matched-2").unwrap().is_none());
-        assert!(l.get("matched-live").unwrap().is_some());
-        assert!(l.get("other").unwrap().is_some());
-    }
-
-    fn ledger_helper_record(
-        ledger: &SessionLedger,
-        id: &str,
-        ws: &str,
-        project_dir: &str,
-        card: &str,
-        now: i64,
-    ) {
-        ledger
-            .record_spawn(id, ws, project_dir, card, now, id, None)
-            .expect("record_spawn");
     }
 
     // ── seat_line_bindings ───────────────────────────────────────────────────
