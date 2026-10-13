@@ -1120,6 +1120,28 @@ export class SessionTranscriptDataSource implements TugListViewDataSource {
   }
 
   /**
+   * A row id that survives a replay, for the list's persisted heights:
+   * the committed turn's `msgId` plus the row's ordinal within its turn.
+   * `idForIndex` cannot serve, because `turnKey` is re-minted on every
+   * replay; `msgId` is the wire's `msg_id`, which a live turn and its
+   * JSONL replay share. The ordinal covers every row kind a turn lays
+   * out, including a second user row from a mid-turn steer.
+   *
+   * `null` for a ghost row, for every row of the in-flight turn (its row
+   * count is still moving, and it sits at the tail, where it is mounted
+   * anyway), and for a turn with an empty `msgId`.
+   */
+  persistentIdForIndex(index: number): string | null {
+    const snap = this._codeSessionStore.getSnapshot();
+    const layout = this.layout(snap);
+    const slot = layout.slots[index];
+    if (slot === undefined || slot.active || slot.cellKind === "ghost") return null;
+    const msgId = snap.transcript[slot.turnIndex].msgId;
+    if (msgId.length === 0) return null;
+    return `${msgId}#${index - layout.turnStartRow[slot.turnIndex]}`;
+  }
+
+  /**
    * Cell-renderer kind. Three values:
    *  - `"user"` for the user-half row of a normal committed/in-flight
    *    turn. Never returned for a wake turn (which has no user row).

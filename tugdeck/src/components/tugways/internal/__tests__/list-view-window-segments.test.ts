@@ -3,9 +3,13 @@
  * most one measure segment, from the candidate window and the ledger.
  *
  * The rules pinned here are the ones that keep the transcript from mounting
- * every row: a row with no height mounts as its own run rather than
- * widening the window to it, and a reflow's stale heights drain a capped
- * run at a time.
+ * every row: a row outside the window with no height, or a stale one, is
+ * pending, and pending rows drain a capped run at a time, nearest the window
+ * first. This reverses the earlier rules, under which a cold ledger
+ * suspended eviction and rendered every row, a missing run mounted whole and
+ * was never capped, and missing rows on both sides clamped the window over
+ * the nearer run: a missing row now stands in its spacer at an estimate and
+ * drains exactly as a stale one does.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -23,13 +27,20 @@ function measured(n: number, h = 100): HeightIndex {
   return idx;
 }
 
-const heightOf = (idx: HeightIndex) => (i: number) => idx.get(i) ?? 0;
+/** Each row's height for the segment budget: measured, or a 100 px estimate. */
+const heightOf = (idx: HeightIndex) => (i: number) => idx.get(i) ?? 100;
 
 describe("resolveEvictSegments", () => {
-  test("a cold ledger suspends", () => {
+  test("an empty ledger over 500 rows drains one capped run beside the window", () => {
     const idx = new HeightIndex();
-    expect(resolveEvictSegments({ firstIndex: 10, lastIndex: 15 }, idx, 30, 500, heightOf(idx))).toEqual({
-      kind: "suspended",
+    const r = resolveEvictSegments({ firstIndex: 240, lastIndex: 250 }, idx, 500, 10_000, heightOf(idx));
+    // Rows 239 and 250 are equally near; the run below wins, and merges,
+    // since it touches the window.
+    expect(r).toEqual({
+      kind: "evict",
+      firstIndex: 240,
+      lastIndex: 250 + MEASURE_SEGMENT_MAX_ROWS,
+      segment: null,
     });
   });
 
@@ -63,26 +74,50 @@ describe("resolveEvictSegments", () => {
     });
   });
 
-  test("an unmeasured run is never capped", () => {
+  test("a 500-row missing run below is capped by rows", () => {
     const idx = measured(10);
-    const r = resolveEvictSegments({ firstIndex: 2, lastIndex: 5 }, idx, 40, 100, heightOf(idx));
-    expect(r).toEqual({ kind: "evict", firstIndex: 2, lastIndex: 5, segment: { firstIndex: 10, lastIndex: 40 } });
+    const r = resolveEvictSegments({ firstIndex: 2, lastIndex: 5 }, idx, 510, 10_000, heightOf(idx));
+    expect(r).toEqual({
+      kind: "evict",
+      firstIndex: 2,
+      lastIndex: 5,
+      segment: { firstIndex: 10, lastIndex: 10 + MEASURE_SEGMENT_MAX_ROWS },
+    });
   });
 
-  test("missing rows on both sides clamp the window over the nearer run; the farther run is the segment", () => {
+  test("a 500-row missing run below is capped by the budget, at the estimate", () => {
+    const idx = measured(10);
+    // Budget 250 px of 100 px estimates: rows 10 and 11.
+    const r = resolveEvictSegments({ firstIndex: 2, lastIndex: 5 }, idx, 510, 250, heightOf(idx));
+    expect(r).toEqual({ kind: "evict", firstIndex: 2, lastIndex: 5, segment: { firstIndex: 10, lastIndex: 12 } });
+  });
+
+  test("missing rows on both sides take the nearer run only, the window unclamped", () => {
     // Rows 0–1 prepended and unmeasured (far above), rows 28–29 appended
     // and unmeasured (near below), the window at 20–25.
     const idx = new HeightIndex();
     for (let i = 2; i < 28; i += 1) idx.set(i, 100);
     const r = resolveEvictSegments({ firstIndex: 20, lastIndex: 25 }, idx, 30, 500, heightOf(idx));
-    expect(r).toEqual({ kind: "evict", firstIndex: 20, lastIndex: 30, segment: { firstIndex: 0, lastIndex: 2 } });
+    expect(r).toEqual({ kind: "evict", firstIndex: 20, lastIndex: 25, segment: { firstIndex: 28, lastIndex: 30 } });
   });
 
-  test("missing rows on both sides, the run above nearer", () => {
+  test("missing rows on both sides, the run above nearer, taken from its window end", () => {
     const idx = new HeightIndex();
     for (let i = 3; i < 25; i += 1) idx.set(i, 100);
     const r = resolveEvictSegments({ firstIndex: 5, lastIndex: 8 }, idx, 30, 500, heightOf(idx));
-    expect(r).toEqual({ kind: "evict", firstIndex: 0, lastIndex: 8, segment: { firstIndex: 25, lastIndex: 30 } });
+    expect(r).toEqual({ kind: "evict", firstIndex: 5, lastIndex: 8, segment: { firstIndex: 0, lastIndex: 3 } });
+  });
+
+  test("missing and stale rows drain together, nearest the window first", () => {
+    const idx = measured(40, 10);
+    idx.markAllStale();
+    for (let i = 5; i < 35; i += 1) idx.set(i, 10); // fresh 5–34; stale 0–4 and 35–39
+    idx.delete(36);
+    idx.delete(37); // missing inside the stale run below
+    const r = resolveEvictSegments({ firstIndex: 15, lastIndex: 25 }, idx, 40, 10_000, heightOf(idx));
+    // Rows 4 and 35 are equally near; the run below wins, and its missing
+    // rows drain with its stale ones as one run.
+    expect(r).toEqual({ kind: "evict", firstIndex: 15, lastIndex: 25, segment: { firstIndex: 35, lastIndex: 40 } });
   });
 
   test("stale rows drain the nearest run, capped at MEASURE_SEGMENT_MAX_ROWS", () => {

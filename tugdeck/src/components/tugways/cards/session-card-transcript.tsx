@@ -47,6 +47,9 @@
  * `scrollKey="session-card-transcript"` so the [A9] state-preservation
  * protocol picks the right slot in `bag.regionScroll[]`. The key is
  * unique within the Session card's subtree per [L23] / [#public-api].
+ * Its measured row heights persist beside it, under
+ * `heightLedgerKey="session-card-transcript-heights"` in `bag.components`,
+ * so a reopened or relaunched transcript windows against real heights.
  *
  * Token sovereignty: `.session-card-transcript .tug-list-view { ... }`
  * cascade-scoped overrides live in `session-card.css` per [D12]. The
@@ -3382,6 +3385,7 @@ export const SessionTranscriptHost = forwardRef<
               dataSource={dataSource}
               cellRenderers={cellRenderers}
               scrollKey="session-card-transcript"
+              heightLedgerKey="session-card-transcript-heights"
               followBottom
               onRenderedRangeChange={handleFindRenderedRangeChange}
               // Z0 ([D97]) is the list's permanent leading row — it scrolls

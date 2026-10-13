@@ -256,19 +256,3 @@ describe("computeWindow — degenerate inputs under margins", () => {
     expect(r.lastIndex).toBe(30);
   });
 });
-
-describe("HeightIndex coverage — companion predicate", () => {
-  test("coversRange answers the out-of-window completeness question", async () => {
-    const { HeightIndex } = await import("../list-view-height-index");
-    const index = new HeightIndex();
-    for (let i = 0; i < 50; i += 1) index.set(i, ROW);
-    expect(index.coversRange(0, 50)).toBe(true);
-    expect(index.coversRange(0, 51)).toBe(false);
-    expect(index.coversRange(10, 10)).toBe(true); // empty range
-    expect(index.coversRange(20, 5)).toBe(true); // inverted range
-    expect(index.coversRange(-5, 3)).toBe(true); // negative start clamps
-    index.delete(30);
-    expect(index.coversRange(0, 50)).toBe(false);
-    expect(index.coversRange(31, 50)).toBe(true);
-  });
-});

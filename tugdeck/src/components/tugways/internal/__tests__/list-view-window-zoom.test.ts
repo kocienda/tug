@@ -112,7 +112,6 @@ describe("a zoom step's settle and the commit after it", () => {
       (i) => ledger.get(i) ?? 0,
     );
     expect(resolution.kind).toBe("evict");
-    if (resolution.kind === "suspended") return;
     expect(resolution.segment).toBeNull();
     const mounted = resolution.lastIndex - resolution.firstIndex;
     // The scrollport plus a viewport of margin each side, plus overscan.
@@ -139,7 +138,6 @@ describe("a zoom step's settle and the commit after it", () => {
       (i) => ledger.get(i) ?? 0,
     );
     expect(resolution.kind).toBe("evict");
-    if (resolution.kind === "suspended") return;
     // The segment touches the window, so it merges into it: the window grows
     // by at most one segment's rows, and never reaches the whole list.
     const segmentRows =

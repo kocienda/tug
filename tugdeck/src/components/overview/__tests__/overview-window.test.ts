@@ -1,5 +1,8 @@
 /**
  * overview-window — the Overview column's spacer, tops and pin arithmetic.
+ *
+ * Heights are outer extents — a post's height plus the gap after it — and
+ * every expected column height is the one the bare heights gave.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -7,39 +10,44 @@ import { describe, expect, test } from "bun:test";
 import { createTopPostStore, overviewCellTops, overviewSpacerHeight, pinnedRangeFor } from "../overview-window";
 
 describe("overviewSpacerHeight", () => {
+  // Extents of posts whose bare heights are `h`, under `gap`.
+  const ext = (h: number[], gap: number): number[] => h.map((x) => x + gap);
+
   test("no posts is no spacer", () => {
     expect(overviewSpacerHeight([], 12)).toBe(0);
   });
 
   test("one post is its own height, with no gap inside", () => {
-    expect(overviewSpacerHeight([80], 12)).toBe(80);
+    expect(overviewSpacerHeight(ext([80], 12), 12)).toBe(80);
   });
 
   test("many posts carry the gaps between them, not after the last", () => {
-    expect(overviewSpacerHeight([80, 40, 100], 12)).toBe(80 + 40 + 100 + 2 * 12);
+    expect(overviewSpacerHeight(ext([80, 40, 100], 12), 12)).toBe(80 + 40 + 100 + 2 * 12);
   });
 
   test("a spacer and its neighbours add up to the fully mounted column", () => {
     // Fully mounted: h0 g h1 g h2 g h3. Windowed over posts 1–2: h0 g S g h3.
     const h = [50, 70, 90, 30];
     const gap = 8;
-    const full = overviewSpacerHeight(h, gap);
-    const windowed = h[0]! + gap + overviewSpacerHeight([h[1]!, h[2]!], gap) + gap + h[3]!;
+    const full = overviewSpacerHeight(ext(h, gap), gap);
+    const windowed =
+      h[0]! + gap + overviewSpacerHeight(ext([h[1]!, h[2]!], gap), gap) + gap + h[3]!;
     expect(windowed).toBe(full);
+    expect(full).toBe(50 + 70 + 90 + 30 + 3 * 8);
   });
 });
 
 describe("overviewCellTops", () => {
-  test("tops start at the first margin and step by height plus gap", () => {
-    expect(overviewCellTops([50, 70, 90], 8, 16, 0)).toEqual([16, 74, 152]);
+  test("tops start at the first margin and step by extent", () => {
+    expect(overviewCellTops([58, 78, 98], 16, 0)).toEqual([16, 74, 152]);
   });
 
   test("tops are relative to the scrollport", () => {
-    expect(overviewCellTops([50, 70, 90], 8, 16, 100)).toEqual([-84, -26, 52]);
+    expect(overviewCellTops([58, 78, 98], 16, 100)).toEqual([-84, -26, 52]);
   });
 
   test("no posts, no tops", () => {
-    expect(overviewCellTops([], 8, 16, 0)).toEqual([]);
+    expect(overviewCellTops([], 16, 0)).toEqual([]);
   });
 });
 

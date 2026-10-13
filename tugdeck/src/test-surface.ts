@@ -488,8 +488,19 @@ import {
  * `2.37.0`: drops `renderedBarrier`. The page no longer sanitizes tugcast's
  * renders a second time, so there is no pass left to count. Major stays `2`
  * for the reason `2.20.0` gives.
+ *
+ * `2.38.0`: adds {@link TugTestSurface.holdMotion},
+ * {@link TugTestSurface.releaseMotion} and
+ * {@link TugTestSurface.deliverHeldUnderGate}: a test closes a settle's motion
+ * gate itself, hands the surfaces a commit mid-hold, and opens it again, so
+ * "nothing mounts under the beats" is an assertion that can fail. Additive;
+ * major stays `2`.
  */
-export const SURFACE_VERSION = "2.37.0" as const;
+export const SURFACE_VERSION = "2.38.0" as const;
+
+/** Motion gates a test closed, by the handle `holdMotion` returned. */
+const testMotionHolds = new Map<number, () => void>();
+let nextTestMotionHold = 1;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -912,6 +923,35 @@ export interface TugTestSurface {
    * store-driven DOM lands after `click` returns. `false` means it has landed.
    */
   isGestureScopePending(): boolean;
+
+  /**
+   * Close a settle's motion gate, as the settle engine does when its beats
+   * launch, until {@link TugTestSurface.releaseMotion} or `capMs` passes
+   * (SURFACE_VERSION 2.38.0). Returns a non-zero handle, or `0` when the
+   * gate did not close — motion is off, where no hold is taken — so a test
+   * can refuse to pass vacuously.
+   */
+  holdMotion(capMs: number): number;
+
+  /**
+   * Open a gate {@link TugTestSurface.holdMotion} closed (SURFACE_VERSION
+   * 2.38.0); `false` for an unknown or already-released handle.
+   */
+  releaseMotion(handle: number): boolean;
+
+  /**
+   * Hand over what the closed gate holds, with the gate still closed and its
+   * queued `afterGesture` work still queued (SURFACE_VERSION 2.38.0): first
+   * the wire — the host posts what it holds, and the session batches the
+   * page parked are applied, so the data reaches the stores — then the held
+   * store notifications. Returns how many of the two it delivered. The host's
+   * post lands on a later task, so a caller polls this until its data is in.
+   * The commit it produces stands for any commit that reaches a
+   * surface mid-motion — a parent re-render, an unheld update — over data
+   * that changed mid-motion, which a surface's own held subscription and the
+   * connection's parking never let happen together.
+   */
+  deliverHeldUnderGate(): number;
 
   // ---- State reads ----
   /**
@@ -2277,6 +2317,33 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
 
     isGestureScopePending(): boolean {
       return gestureScope.isPending();
+    },
+
+    holdMotion(capMs: number): number {
+      const handle = nextTestMotionHold;
+      // A hold closes a new gate epoch; with motion off it is a no-op and the
+      // epoch does not move.
+      const before = gestureScope.motionGate();
+      const release = gestureScope.holdMotion(capMs, () => {
+        testMotionHolds.delete(handle);
+      });
+      if (gestureScope.motionGate() === before) return 0;
+      nextTestMotionHold += 1;
+      testMotionHolds.set(handle, release);
+      return handle;
+    },
+
+    releaseMotion(handle: number): boolean {
+      const release = testMotionHolds.get(handle);
+      if (release === undefined) return false;
+      testMotionHolds.delete(handle);
+      release();
+      return true;
+    },
+
+    deliverHeldUnderGate(): number {
+      const parked = getConnection()?.deliverHeldWire() ?? 0;
+      return parked + gestureScope.deliverHeld();
     },
 
     // ---- state reads ----

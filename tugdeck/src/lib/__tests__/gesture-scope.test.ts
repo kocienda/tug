@@ -261,6 +261,19 @@ describe("GestureScope", () => {
     expect(calls).toEqual(["tell"]);
   });
 
+  it("deliverHeld runs the held tells under a closed gate and leaves afterGesture work queued", () => {
+    const { scope } = harness();
+    const calls: string[] = [];
+    const release = scope.holdMotion(10_000);
+    scope.tell(() => calls.push("tell"));
+    scope.enqueue(() => calls.push("queued"));
+    expect(scope.deliverHeld()).toBe(1);
+    expect(calls).toEqual(["tell"]);
+    expect(scope.isMotionHeld()).toBe(true);
+    release();
+    expect(calls).toEqual(["tell", "queued"]);
+  });
+
   it("a motion release while a scope is pending leaves the tells to the scope's release", () => {
     const { scope, flushes } = harness();
     const calls: string[] = [];

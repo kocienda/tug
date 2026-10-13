@@ -37,6 +37,10 @@ import {
   turnEntry,
   userMessage,
 } from "../code-session-store/__tests__/_helpers/messages";
+import { createInitialState, reduce } from "@/lib/code-session-store/reducer";
+import type { CodeSessionEvent } from "@/lib/code-session-store/events";
+import type { AppendTranscriptEffect } from "@/lib/code-session-store/effects";
+import { FIXTURE_IDS } from "@/lib/code-session-store/testing/golden-catalog";
 
 // ---------------------------------------------------------------------------
 // Fixture builders
@@ -992,5 +996,109 @@ describe("versions: a publish reconciles the rows it changed", () => {
   test("reading a row version twice in one snapshot returns the same token", () => {
     const { ds } = liveSource(snapshotWith({ transcript: [normalTurn("A", "one", "uno")] }));
     expect(ds.rowVersion(1)).toBe(ds.rowVersion(1));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Persistent row ids
+// ---------------------------------------------------------------------------
+
+describe("persistentIdForIndex", () => {
+  function refsTurn(turnKey: string): TurnEntry {
+    return turnEntry({
+      turnKey,
+      msgId: `msg-${turnKey}`,
+      origin: "refs",
+      messages: [userMessage({ turnKey, text: "refs" })],
+    });
+  }
+
+  test("every committed row kind gets a distinct `${msgId}#${ordinal}` id", () => {
+    const snap = snapshotWith({
+      transcript: [
+        normalTurn("A", "one", "uno"),
+        mergedTurn("M", "S"),
+        shellTurn("H", "ls"),
+        refsTurn("R"),
+      ],
+    });
+    const ds = new SessionTranscriptDataSource(storeWith(snap));
+    const ids = Array.from({ length: ds.numberOfItems() }, (_, i) => ds.persistentIdForIndex(i));
+    expect(ids).toEqual([
+      "msg-A#0",
+      "msg-A#1",
+      // The steered turn: user, assistant, user, assistant runs, each its own ordinal.
+      "msg-M#0",
+      "msg-M#1",
+      "msg-M#2",
+      "msg-M#3",
+      "msg-H#0",
+      "msg-R#0",
+    ]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("a ghost row, an in-flight row and a turn with an empty msgId have none", () => {
+    const empty = turnEntry({
+      turnKey: "E",
+      msgId: "",
+      messages: [userMessage({ turnKey: "E", text: "x" }), assistantText({ msgId: "", blockIndex: 0, text: "y" })],
+    });
+    const snap = snapshotWith({
+      transcript: [normalTurn("A", "one", "uno"), empty],
+      activeTurn: activeTurn({ turnKey: "L", isWake: false, withText: "live", submitAt: 10 }),
+      queuedSends: [{ turnKey: "Q", text: "queued", atoms: [], queuedAt: 20 } as unknown as QueuedSend],
+    });
+    const ds = new SessionTranscriptDataSource(storeWith(snap));
+    const n = ds.numberOfItems();
+    expect(ds.persistentIdForIndex(0)).toBe("msg-A#0");
+    expect(ds.persistentIdForIndex(2)).toBeNull();
+    expect(ds.persistentIdForIndex(3)).toBeNull();
+    for (let i = 4; i < n; i += 1) expect(ds.persistentIdForIndex(i)).toBeNull();
+    expect(ds.kindForIndex(n - 1)).toBe("ghost");
+  });
+
+  test("a replayed turn's id equals the live turn's, though its React key does not", () => {
+    function commit(events: ReadonlyArray<CodeSessionEvent>): TurnEntry {
+      let state = createInitialState(FIXTURE_IDS.TUG_SESSION_ID, "test", "new");
+      const appended: AppendTranscriptEffect[] = [];
+      for (const ev of events) {
+        const r = reduce(state, ev);
+        state = r.state;
+        for (const e of r.effects) if (e.kind === "append-transcript") appended.push(e);
+      }
+      expect(appended).toHaveLength(1);
+      return appended[0].entry;
+    }
+    const content = (msgId: string): CodeSessionEvent[] => [
+      {
+        type: "assistant_text",
+        msg_id: msgId,
+        block_index: 0,
+        text: "answer",
+        is_partial: false,
+        rev: 0,
+        seq: 0,
+        status: "complete",
+      },
+      { type: "turn_complete", msg_id: msgId, result: "success", seq: 1 },
+    ];
+    const live = commit([
+      { type: "send", text: "ask", atoms: [], content: [{ type: "text" as const, text: "ask" }], turnKey: "tk-live" },
+      ...content("msg_01Real"),
+    ]);
+    const replayed = commit([
+      { type: "replay_started" },
+      { type: "add_user_message", text: "ask", atoms: [], turnKey: "tk-replay" },
+      ...content("msg_01Real"),
+    ]);
+
+    const liveDs = new SessionTranscriptDataSource(storeWith(snapshotWith({ transcript: [live] })));
+    const replayDs = new SessionTranscriptDataSource(storeWith(snapshotWith({ transcript: [replayed] })));
+    expect(liveDs.numberOfItems()).toBe(replayDs.numberOfItems());
+    for (let i = 0; i < liveDs.numberOfItems(); i += 1) {
+      expect(replayDs.persistentIdForIndex(i)).toBe(liveDs.persistentIdForIndex(i));
+      expect(replayDs.idForIndex(i)).not.toBe(liveDs.idForIndex(i));
+    }
   });
 });

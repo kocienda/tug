@@ -208,13 +208,46 @@ export function resolveAnchoredScrollTop(
  *
  * The resolver returns `null` once the anchored node leaves the document, which
  * is the caller's cue to fall back to whatever coarser anchor it holds.
+ *
+ * The composition of {@link captureElementAnchor} and
+ * {@link resolveElementAnchor}, for a caller that captures and resolves in one
+ * place. A caller that must capture before the geometry moves — the list
+ * view, whose rows have already re-wrapped by the time its width observer
+ * fires — captures on every commit and resolves later.
  */
 export function trackElementAnchor(el: HTMLElement): (() => number | null) | null {
+  const captured = captureElementAnchor(el);
+  return captured === null ? null : resolveElementAnchor(el, captured);
+}
+
+/** The element under a scroller's top edge, and its top's distance below that edge. */
+export interface CapturedElementAnchor {
+  readonly anchorEl: HTMLElement;
+  readonly delta: number;
+}
+
+/**
+ * Capture the element under `el`'s top edge and where its top sits against
+ * that edge. `null` when there is nothing under the edge to hold. Rect reads
+ * only: on a layout that is already clean it forces nothing.
+ */
+export function captureElementAnchor(el: HTMLElement): CapturedElementAnchor | null {
   const anchorEl = findAnchorElement(el);
   if (anchorEl === null) return null;
   const delta = measureDelta(el, anchorEl);
-  if (delta === undefined) return null;
-  const anchor: GenericAnchor = { kind: "element", delta };
+  return delta === undefined ? null : { anchorEl, delta };
+}
+
+/**
+ * The resolver for the `scrollTop` that puts a captured element back where it
+ * sat: `null` once the node has left `el`, the cue for a coarser fallback.
+ */
+export function resolveElementAnchor(
+  el: HTMLElement,
+  captured: CapturedElementAnchor,
+): () => number | null {
+  const { anchorEl } = captured;
+  const anchor: GenericAnchor = { kind: "element", delta: captured.delta };
   return () => {
     const currentDelta = measureDelta(el, anchorEl);
     if (currentDelta === undefined) return null;

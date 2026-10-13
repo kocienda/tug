@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import {
   computeWindow,
   offsetForIndex,
+  resolveRowAnchorScrollTop,
 } from "../list-view-window";
 
 const fixed = (h: number) => () => h;
@@ -281,5 +282,25 @@ describe("computeWindow — pinnedRange ([L23] selection/focus pin)", () => {
     expect(computeWindow({ ...base, pinnedRange: null })).toEqual(
       computeWindow(base),
     );
+  });
+});
+
+describe("resolveRowAnchorScrollTop", () => {
+  test("puts the row's anchor line at the scrollport top", () => {
+    expect(resolveRowAnchorScrollTop(1200, 35, 5000)).toBe(1235);
+  });
+
+  test("clamps at zero above the first row", () => {
+    // A reader above the first row's top (the first margin) cannot be held
+    // at a negative scroll.
+    expect(resolveRowAnchorScrollTop(8, -20, 5000)).toBe(0);
+  });
+
+  test("clamps at the bottom of the scroll range", () => {
+    expect(resolveRowAnchorScrollTop(4900, 300, 5000)).toBe(5000);
+  });
+
+  test("an unbounded maximum clamps only at zero", () => {
+    expect(resolveRowAnchorScrollTop(9000, 40, Number.POSITIVE_INFINITY)).toBe(9040);
   });
 });

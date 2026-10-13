@@ -529,7 +529,6 @@ describe("HeightIndex — the stale tier", () => {
     expect(idx.get(0)).toBe(30);
     expect(idx.get(1)).toBe(40);
     expect(idx.has(0)).toBe(true);
-    expect(idx.coversRange(0, 2)).toBe(true);
     expect(idx.isFresh(0)).toBe(false);
     expect(idx.totalHeight(3, est)).toBe(30 + 40 + 50);
   });
@@ -582,5 +581,64 @@ describe("HeightIndex — the stale tier", () => {
     expect(idx.staleCount()).toBe(0);
     idx.set(1, 40);
     expect(idx.isFresh(1)).toBe(true);
+  });
+});
+
+describe("HeightIndex — median, pending count and re-estimate", () => {
+  test("median is over every held height, fresh or stale, and moves with set and shift", () => {
+    const idx = new HeightIndex();
+    expect(idx.median()).toBeNull();
+    idx.set(0, 30);
+    idx.set(1, 90);
+    idx.set(2, 50);
+    expect(idx.median()).toBe(50);
+    idx.markAllStale();
+    expect(idx.median()).toBe(50);
+    idx.set(3, 70);
+    expect(idx.median()).toBe(60); // even count: (50 + 70) / 2
+    idx.shift(2);
+    expect(idx.median()).toBe(60);
+    idx.set(0, 10);
+    expect(idx.median()).toBe(50);
+  });
+
+  test("pendingCount counts missing and stale rows in range", () => {
+    const idx = new HeightIndex();
+    idx.set(0, 30);
+    idx.set(1, 40);
+    idx.set(2, 50);
+    expect(idx.pendingCount(5)).toBe(2); // rows 3 and 4 missing
+    idx.markAllStale();
+    expect(idx.pendingCount(5)).toBe(5);
+    idx.set(1, 40);
+    expect(idx.pendingCount(5)).toBe(4);
+    idx.shift(2); // fresh row 1 is now row 3
+    expect(idx.pendingCount(5)).toBe(4);
+    expect(idx.isFresh(3)).toBe(true);
+    // A height past the range does not count against it.
+    idx.set(9, 10);
+    expect(idx.pendingCount(5)).toBe(4);
+  });
+
+  test("reestimate rewrites unmeasured rows of the prepared cache, leaving measured rows", () => {
+    const idx = new HeightIndex();
+    let estimate = 50;
+    const est = (): number => estimate;
+    idx.set(1, 30);
+    idx.prepare(4, est);
+    expect(idx.offsetForIndex(4, est)).toBe(50 + 30 + 50 + 50);
+    estimate = 80;
+    idx.reestimate();
+    expect(idx.offsetForIndex(1, est)).toBe(80);
+    expect(idx.offsetForIndex(2, est)).toBe(80 + 30);
+    expect(idx.offsetForIndex(4, est)).toBe(80 + 30 + 80 + 80);
+    expect(idx.get(1)).toBe(30);
+  });
+
+  test("reestimate with no cache is a no-op", () => {
+    const idx = new HeightIndex();
+    idx.set(0, 30);
+    idx.reestimate();
+    expect(idx.get(0)).toBe(30);
   });
 });

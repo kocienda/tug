@@ -10,6 +10,8 @@
  *
  * | Phase          | What would break without it                              |
  * |----------------|----------------------------------------------------------|
+ * | opening page   | a column that opens hidden mounting every post on the    |
+ * |                | reveal, instead of draining its page under the follow pin|
  * | live edge      | every post mounted anyway, or a document of the wrong    |
  * |                | height, so the scrollbar lies                            |
  * | far scroll     | the wrong post under the eye at a scroll position, or a  |
@@ -20,6 +22,14 @@
  * |                | never been mounted                                       |
  * | follow         | a new post arriving under a following reader and not     |
  * |                | being followed                                           |
+ * | held post      | a post published under a settle's closed motion gate     |
+ * |                | mounting under the beats ([D9]), or not being followed   |
+ * |                | once the gate opens                                      |
+ * | width change   | a reader up in history walked off the post they were     |
+ * |                | reading as every post re-wraps and drains above them     |
+ * | relaunch       | a relaunched column draining every post it had measured  |
+ * |                | before the quit, instead of windowing against the        |
+ * |                | persisted heights from its first commit                  |
  *
  * **The reference.** The Overview has no switch to mount every post, so the
  * fully-mounted column is arithmetic rather than a second mode: one sweep of
@@ -33,12 +43,21 @@
  *
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/components/overview/overview-window.ts
+ * @covers tugdeck/src/components/overview/use-overview-window.ts
+ * @covers tugdeck/src/components/tugways/internal/list-view-keyed-ledger.ts
  * @covers tugdeck/src/components/tugways/internal/list-view-window.ts
+ * @covers tugdeck/src/components/tugways/internal/list-view-height-persist.ts
  */
 
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import {
+  mkTempTugbank,
+  rmTempTugbank,
+  seedTugbankForLaunch,
+  tugbankRead,
+} from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -191,6 +210,12 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed", () =>
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
+        // ── Opening page: hidden before the first post, so the column has no
+        // window to hold when the page arrives — the cold opening's shape.
+        await app.evalJS<boolean>(`(function () {
+  document.querySelector(${JSON.stringify(TRANSCRIPT)}).style.display = "none";
+  return true;
+})()`);
         for (let id = 0; id < POST_COUNT; id++) {
           expect(
             await app.evalJS<boolean>(
@@ -199,12 +224,43 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed", () =>
           ).toBe(true);
         }
         await app.waitForCondition<boolean>(
-          `(window.__tug.overviewPosts() || []).length === ${POST_COUNT} &&
-            Array.from(document.querySelectorAll(${JSON.stringify(`${CELL} .overview-post-body`)}))
-              .some(function (b) { return (b.textContent || "").indexOf("Post ${POST_COUNT - 1}:") === 0; })`,
+          `(window.__tug.overviewPosts() || []).length === ${POST_COUNT}`,
+          { timeoutMs: 30_000 },
+        );
+        await app.evalJS<boolean>(`(function () {
+  document.querySelector(${JSON.stringify(TRANSCRIPT)}).style.display = "";
+  return true;
+})()`);
+        await app.waitForCondition<boolean>(
+          `(function () {
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  return el.hasAttribute("data-window-peak") && !el.hasAttribute("data-window-stale") &&
+    Array.from(document.querySelectorAll(${JSON.stringify(`${CELL} .overview-post-body`)}))
+      .some(function (b) { return (b.textContent || "").indexOf("Post ${POST_COUNT - 1}:") === 0; });
+})()`,
           { timeoutMs: 30_000 },
         );
         await new Promise((r) => setTimeout(r, 800));
+        const opening = await app.evalJS<{ peak: number; newestGap: number | null }>(`(function () {
+  var postNumber = ${POST_NUMBER_JS};
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  var cs = getComputedStyle(el);
+  var portBottom = el.getBoundingClientRect().top + el.clientTop + el.clientHeight;
+  var newest = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
+    .filter(function (c) { return postNumber(c) === ${POST_COUNT - 1}; })[0];
+  var newestGap = null;
+  if (newest !== undefined) {
+    var below = (parseFloat(getComputedStyle(newest).marginBlockEnd) || 0) + (parseFloat(cs.paddingBlockEnd) || 0);
+    newestGap = portBottom - (newest.getBoundingClientRect().bottom + below);
+  }
+  return { peak: Number(el.getAttribute("data-window-peak") || "-1"), newestGap: newestGap };
+})()`);
+        note("opening page", JSON.stringify(opening));
+        // A reveal that mounted the page whole would read the whole page.
+        expect(opening.peak).toBeGreaterThan(0);
+        expect(opening.peak).toBeLessThan(POST_COUNT);
+        expect(opening.newestGap, "the newest post is mounted").not.toBeNull();
+        expect(Math.abs(opening.newestGap!)).toBeLessThanOrEqual(1);
 
         // ── Live edge: windowed, and the document is the full one's height.
         const edge = await column(app);
@@ -225,6 +281,8 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed", () =>
         const back = await column(app);
         note("reference", JSON.stringify({ fullHeight, gap: ref.gap, firstMargin: ref.firstMargin, lastMargin: ref.lastMargin, padEnd: ref.padEnd, scrollHeight: back.scrollHeight }));
         expect(Math.abs(back.scrollHeight - fullHeight)).toBeLessThanOrEqual(2);
+        // The drained opening's window was the one the reference places there.
+        expect(edge.firstVisible).toBe(postAt(ref, edge.scrollTop));
 
         // ── Far scroll: the post a full mount would show, and no hole.
         for (const frac of [0.1, 0.5, 0.9]) {
@@ -336,8 +394,259 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed", () =>
         const followed = await column(app);
         note("after a new post while following", JSON.stringify(followed));
         expect(followed.scrollHeight - followed.scrollTop - followed.clientHeight).toBeLessThanOrEqual(2);
+
+        // ── Held post: published under a closed motion gate, it waits for the
+        // gate to open, even when a commit reaches the column mid-hold.
+        const heldPost = POST_COUNT + 1;
+        const heldBody = `${CELL} .overview-post-body`;
+        const heldMounted = `Array.from(document.querySelectorAll(${JSON.stringify(heldBody)}))
+            .some(function (b) { return (b.textContent || "").indexOf("Post ${heldPost}:") === 0; })`;
+        // A zero handle is a deck with motion off, where this would pass vacuously.
+        const handle = await app.evalJS<number>(`window.__tug.holdMotion(20000)`);
+        expect(handle).toBeGreaterThan(0);
+        let released = false;
+        try {
+          expect(
+            await app.evalJS<boolean>(
+              `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(heldPost)))})`,
+            ),
+          ).toBe(true);
+          await app.waitForCondition<boolean>(
+            `(window.__tug.overviewPosts() || []).some(function (p) { return p.body.indexOf("Post ${heldPost}:") === 0; })`,
+            { timeoutMs: 10_000 },
+          );
+          const delivered = await app.evalJS<number>(`window.__tug.deliverHeldUnderGate()`);
+          expect(delivered).toBeGreaterThanOrEqual(1);
+          await new Promise((r) => setTimeout(r, 300));
+          expect(await app.evalJS<boolean>(heldMounted), "no cell for the held post while held").toBe(false);
+          expect(await app.evalJS<boolean>(`window.__tug.releaseMotion(${handle})`)).toBe(true);
+          released = true;
+        } finally {
+          if (!released) await app.evalJS<boolean>(`window.__tug.releaseMotion(${handle})`);
+        }
+        await app.waitForCondition<boolean>(heldMounted, { timeoutMs: 10_000 });
+        await new Promise((r) => setTimeout(r, 500));
+        const afterHeld = await column(app);
+        note("after a post published under a held gate", JSON.stringify(afterHeld));
+        expect(afterHeld.scrollHeight - afterHeld.scrollTop - afterHeld.clientHeight).toBeLessThanOrEqual(2);
+
+        // ── Width change: a reader up in history, halfway into a post, stays
+        // on that line while every post re-wraps and its height drains above
+        // them. The column's own width is written, as a rail resize would.
+        await scrollToTop(app, Math.round((afterHeld.scrollHeight - afterHeld.clientHeight) * 0.5));
+        const readTopJs = (n: number): string => `(function () {
+  var postNumber = ${POST_NUMBER_JS};
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  var cell = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
+    .filter(function (c) { return postNumber(c) === ${n}; })[0];
+  return cell === undefined ? null : cell.getBoundingClientRect().top - el.getBoundingClientRect().top;
+})()`;
+        const reading = await column(app);
+        expect(reading.firstVisible).toBeGreaterThanOrEqual(0);
+        // Put the scrollport top halfway into that post.
+        await app.evalJS<boolean>(`(function () {
+  var postNumber = ${POST_NUMBER_JS};
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  var cell = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
+    .filter(function (c) { return postNumber(c) === ${reading.firstVisible}; })[0];
+  var r = cell.getBoundingClientRect();
+  el.scrollTop += r.top - el.getBoundingClientRect().top + r.height / 2;
+  el.dispatchEvent(new Event("scroll"));
+  return true;
+})()`);
+        await new Promise((r) => setTimeout(r, 400));
+        const readTop = await app.evalJS<number | null>(readTopJs(reading.firstVisible));
+        expect(readTop, "the post being read is mounted").not.toBeNull();
+        const widths = await app.evalJS<{ before: number; after: number }>(`(function () {
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  var before = el.clientWidth;
+  el.style.width = Math.round(before * 0.7) + "px";
+  return { before: before, after: el.clientWidth };
+})()`);
+        // A width that did not move would pass with nothing held.
+        expect(widths.before - widths.after).toBeGreaterThan(50);
+        // The drain starts on the observer's delivery; give it a beat to begin.
+        await new Promise((r) => setTimeout(r, 300));
+        await app.waitForCondition<boolean>(
+          `!document.querySelector(${JSON.stringify(TRANSCRIPT)}).hasAttribute("data-window-stale")`,
+          { timeoutMs: 30_000 },
+        );
+        // The hold rides the settle tail past drain end.
+        await new Promise((r) => setTimeout(r, 900));
+        const heldTop = await app.evalJS<number | null>(readTopJs(reading.firstVisible));
+        note(
+          "width change",
+          JSON.stringify({ post: reading.firstVisible, widths, readTop, heldTop }),
+        );
+        expect(heldTop, "the post being read is still mounted").not.toBeNull();
+        expect(Math.abs(heldTop! - readTop!)).toBeLessThanOrEqual(2);
       } finally {
         await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a relaunched column windows from its first commit",
+    async () => {
+      // Two processes over one temp tugbank, as at0535 does for the Overview's
+      // draft. Published posts are never persisted, so phase B re-publishes the
+      // same 150 (the same ids give the same post keys) behind a hidden column,
+      // and the reveal is the column's first look at them.
+      const tugbankPath = mkTempTugbank();
+      seedTugbankForLaunch(tugbankPath);
+      const cardIdJs = `(function () {
+  var el = document.querySelector(${JSON.stringify(CARD)});
+  var host = el === null ? null : el.closest("[data-card-id]");
+  return host === null ? "" : (host.getAttribute("data-card-id") || "");
+})()`;
+      /** The post under the scrollport top and its top edge's offset from it. */
+      const readTopPost = (app: App): Promise<{ n: number; offset: number }> =>
+        app.evalJS(`(function () {
+  var postNumber = ${POST_NUMBER_JS};
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  var top = el.getBoundingClientRect().top;
+  var cells = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
+    .map(function (c) { return { n: postNumber(c), r: c.getBoundingClientRect() }; })
+    .filter(function (c) { return c.r.bottom > top + 0.5; })
+    .sort(function (a, b) { return a.r.top - b.r.top; });
+  return cells.length === 0 ? { n: -1, offset: 0 } : { n: cells[0].n, offset: cells[0].r.top - top };
+})()`);
+      const publishAll = async (app: App): Promise<void> => {
+        for (let id = 0; id < POST_COUNT; id++) {
+          expect(
+            await app.evalJS<boolean>(
+              `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
+            ),
+          ).toBe(true);
+        }
+        await app.waitForCondition<boolean>(
+          `(window.__tug.overviewPosts() || []).length === ${POST_COUNT}`,
+          { timeoutMs: 30_000 },
+        );
+      };
+      try {
+        // ── Phase A: publish with the column visible, so each post is
+        // measured as it lands; scroll to a mid-column post; quit.
+        let cardId = "";
+        let deckState: unknown = null;
+        let phaseA: { n: number; offset: number };
+        {
+          const app = await launchTugApp({
+            testName: "at0728-relaunch-A",
+            env: { TUGBANK_PATH: tugbankPath },
+            persistInTestMode: true,
+          });
+          await app.nativeKey("o", ["cmd", "ctrl"]);
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
+            { timeoutMs: 10_000 },
+          );
+          await publishAll(app);
+          await app.waitForCondition<boolean>(
+            `!document.querySelector(${JSON.stringify(TRANSCRIPT)}).hasAttribute("data-window-stale")`,
+            { timeoutMs: 30_000 },
+          );
+          const col = await column(app);
+          await scrollToTop(app, Math.round((col.scrollHeight - col.clientHeight) * 0.5));
+          await new Promise((r) => setTimeout(r, 500));
+          phaseA = await readTopPost(app);
+          cardId = await app.evalJS<string>(cardIdJs);
+          expect(cardId).not.toBe("");
+          deckState = await app.evalJS<unknown>(`window.tugdeck.diag.getDeckState()`);
+          await app.quitGracefully();
+        }
+
+        // ── Phase A assertion: the heights are on disk. ──
+        const onDisk = tugbankRead<{
+          components?: Record<string, { entries?: unknown[] }> | null;
+        }>(tugbankPath, "dev.tugapp.deck.cardstate", cardId);
+        expect(onDisk?.type).toBe("json");
+        const bag = onDisk!.value!;
+        const heightsKey = Object.keys(bag.components ?? {}).find((k) => k.endsWith("overview-heights"));
+        expect(heightsKey).toBeDefined();
+        const recorded = bag.components![heightsKey!]!.entries?.length ?? 0;
+        expect(recorded).toBe(POST_COUNT);
+
+        // ── Phase B: re-inject the bag, re-publish behind a hidden column, reveal. ──
+        {
+          const app = await launchTugApp({
+            testName: "at0728-relaunch-B",
+            env: { TUGBANK_PATH: tugbankPath },
+            persistInTestMode: true,
+          });
+          try {
+            await app.seedDeckState({
+              state: deckState as never,
+              cardStates: { [cardId]: bag as Record<string, unknown> },
+              focusCardId: cardId,
+            });
+            await app.waitForCondition<boolean>(
+              `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
+              { timeoutMs: 15_000 },
+            );
+            await app.evalJS<boolean>(`(function () {
+  document.querySelector(${JSON.stringify(TRANSCRIPT)}).style.display = "none";
+  return true;
+})()`);
+            note(
+              "relaunch: live bag heights before the posts arrive",
+              String(
+                await app.evalJS<number>(`(function () {
+  window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
+  var bag = window.__tug.getCardStateBag(${JSON.stringify(cardId)});
+  var c = (bag && bag.components) || {};
+  var k = Object.keys(c).filter(function (x) { return /overview-heights$/.test(x); })[0];
+  return k === undefined || !c[k] ? -1 : (c[k].entries || []).length;
+})()`),
+              ),
+            );
+            await publishAll(app);
+            const atReveal = await app.evalJS<{ stale: string | null }>(`(function () {
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  el.style.display = "";
+  return { stale: el.getAttribute("data-window-stale") };
+})()`);
+            const firstSample = await app.evalJS<{ stale: string | null }>(
+              `({ stale: document.querySelector(${JSON.stringify(TRANSCRIPT)}).getAttribute("data-window-stale") })`,
+            );
+            note(
+              `relaunch: ${recorded} heights recorded; data-window-stale at the reveal ` +
+                `${atReveal.stale ?? "absent"}, at the first sample after it ${firstSample.stale ?? "absent"}`,
+            );
+            // Every post was seeded fresh at an unchanged width: none is pending.
+            expect(atReveal.stale).toBeNull();
+            expect(firstSample.stale).toBeNull();
+
+            // The restore is CardHost's raw `scrollTop` replay, retried on
+            // subtree mutation; against exact heights it lands on the post.
+            await app.waitForCondition<boolean>(
+              `(function () {
+  var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
+  return el.hasAttribute("data-window-peak") && el.scrollTop > 0;
+})()`,
+              { timeoutMs: 15_000 },
+            );
+            await new Promise((r) => setTimeout(r, 1500));
+            const peak = await app.evalJS<number>(
+              `Number(document.querySelector(${JSON.stringify(TRANSCRIPT)}).getAttribute("data-window-peak") || "-1")`,
+            );
+            const phaseB = await readTopPost(app);
+            note(
+              `relaunch: peak mounted ${peak}; top post ${phaseA.n} at ${phaseA.offset.toFixed(2)} → ` +
+                `${phaseB.n} at ${phaseB.offset.toFixed(2)}`,
+            );
+            expect(peak).toBeGreaterThan(0);
+            expect(peak).toBeLessThan(POST_COUNT);
+            expect(phaseB.n).toBe(phaseA.n);
+            expect(Math.abs(phaseB.offset - phaseA.offset)).toBeLessThanOrEqual(1);
+          } finally {
+            await app.quitGracefully();
+          }
+        }
+      } finally {
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,

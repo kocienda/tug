@@ -361,7 +361,16 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // Raised in place, which trips the refinance rule for the reason the
     // `tug-text-editor/` entry below gives: the delete-then-re-add needs two
     // commits for a key already in `HEAD`. The argument is written here.
-    "tugdeck/src/components/tugways/internal/": 37,
+    // Raised from 37 by `list-view-height-persist.ts`, the list view's
+    // persisted-height payload: capture, seed and coercion, split out of
+    // `tug-list-view.tsx` as pure helpers so they could be unit-tested with
+    // no DOM. It is the list view's own code, so a test that drives the list
+    // drives it; raised in place on the same terms.
+    // Raised from 38 by `list-view-keyed-ledger.ts`, the key-keyed height
+    // ledger the Overview column windows on, beside `HeightIndex`: it is the
+    // list view's window math held by row key, so a test that drives either
+    // windowed surface drives it; raised in place on the same terms.
+    "tugdeck/src/components/tugways/internal/": 39,
     // Raised from 5 by `empty-line-selection.ts`, the File card editor's
     // blank-line selection paint: a CM6 extension the editor installs, so the
     // text-card tests that drive the editor drive it too. Raised in place, on

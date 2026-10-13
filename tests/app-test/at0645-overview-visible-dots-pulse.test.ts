@@ -39,6 +39,7 @@
  * @covers tugdeck/src/components/tugways/tug-session-identity.tsx
  * @covers tugdeck/src/components/tugways/session-phase-dot.tsx
  * @covers tugdeck/src/components/overview/overview-card.tsx
+ * @covers tugdeck/src/components/overview/use-overview-window.ts
  * @covers tugdeck/styles/tug.css
  *
  * @foreground — the off-screen rule needs a viewport to measure against, so
@@ -244,10 +245,14 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
           { timeoutMs: 30_000 },
         );
         // The off-screen marks land on the observer's first delivery; wait
-        // for the breathing set to be exactly the set in view.
+        // for the breathing set to be exactly the set in view, with the
+        // column at rest. The column drains its page a short run at a time,
+        // and a run mounted to be measured shows its dots until their marks
+        // land, so the census below is read once the drain has ended.
         const breathesInView = `(function(){
           var m = ${MARKS_JS};
-          return m.visible.length > 1
+          return !document.querySelector(${JSON.stringify(SCROLLER)}).hasAttribute("data-window-stale")
+            && m.visible.length > 1
             && JSON.stringify(m.breathing) === JSON.stringify(m.visible);
         })()`;
         await app.waitForCondition<boolean>(breathesInView, { timeoutMs: 15_000 });

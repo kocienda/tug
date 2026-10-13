@@ -32,6 +32,7 @@
  *
  * @covers tugdeck/src/components/overview/overview-card.tsx
  * @covers tugdeck/src/components/overview/overview-card.css
+ * @covers tugdeck/src/components/overview/use-overview-window.ts
  * @covers tugdeck/src/components/tugways/tug-jump-to-bottom-button.tsx
  * @covers tugdeck/src/components/tugways/tug-jump-to-bottom-button.css
  */

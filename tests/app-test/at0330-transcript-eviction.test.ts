@@ -33,8 +33,18 @@
  * | reflow drain        | a width change mounting every row to re-measure it,   |
  * |                     | or the reader's place drifting while the stale        |
  * |                     | heights drain                                         |
+ * | reflow line         | a reflow holding the reader's row while the line they |
+ * |                     | were reading moved inside it as the text above it     |
+ * |                     | re-wrapped                                            |
  * | out-of-view append  | a row appended below a reader at the top widening the |
  * |                     | window all the way down to it                         |
+ * | held append         | a row with no height mounting under a settle's beats  |
+ * |                     | ([D9]), or a follower left behind once the gate opens |
+ * | hidden backlog      | a hidden tab's backlog mounting whole on the reveal,  |
+ * |                     | instead of draining a capped run per commit           |
+ * | relaunch heights    | a relaunched transcript draining every row it had     |
+ * |                     | measured before the quit, instead of windowing        |
+ * |                     | against the persisted heights from its first commit   |
  *
  * The transcript is seeded with COMPLETE TURNS, not with many messages in one
  * turn: consecutive assistant messages inside a turn coalesce into a single
@@ -44,6 +54,9 @@
  * @covers tugdeck/src/components/tugways/internal/list-view-window.ts
  * @covers tugdeck/src/components/tugways/internal/list-view-height-index.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/components/tugways/internal/list-view-height-persist.ts
+ * @covers tugdeck/src/lib/session-transcript-data-source.ts
+ * @covers tugdeck/src/lib/resize-episode.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -211,6 +224,54 @@ async function stopMountSampler(app: App): Promise<{ peak: number; sawStale: boo
   var s = window.__at0330Sampler;
   s.done = true;
   return { peak: s.peak, sawStale: s.sawStale };
+})()`);
+}
+
+/**
+ * Remember the element under the scrollport's top edge — the block the
+ * reader's line is in (`p`, `li`, `h2`, `pre`) — as `window.__at0330Line`,
+ * and return its top's distance below the edge, in layout px (the viewport
+ * delta over the deck root's zoom factor). An edge that falls in the gap
+ * between two blocks takes the first block below it, as the list's own
+ * element anchor does. Null with no block in reach.
+ *
+ * Found by rect, not by hit-test: the transcript's sticky entry pin stands
+ * over the scrollport's top edge, so `elementFromPoint` there answers the pin.
+ */
+async function rememberTopLine(app: App): Promise<{ delta: number; text: string } | null> {
+  return app.evalJS(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var deck = document.getElementById("deck-container");
+  var f = deck.getBoundingClientRect().width / deck.offsetWidth;
+  var port = el.getBoundingClientRect();
+  var line = port.top + 1;
+  var node = null;
+  var below = null;
+  el.querySelectorAll("[data-tug-list-cell-index] p, [data-tug-list-cell-index] li, [data-tug-list-cell-index] h2, [data-tug-list-cell-index] pre").forEach(function (b) {
+    var r = b.getBoundingClientRect();
+    if (r.top > line) {
+      if (r.top < port.top + port.height / 2 && (below === null || r.top < below.getBoundingClientRect().top)) below = b;
+      return;
+    }
+    if (r.bottom <= line) return;
+    if (node === null || r.height < node.getBoundingClientRect().height) node = b;
+  });
+  if (node === null) node = below;
+  if (node === null) return null;
+  window.__at0330Line = node;
+  return { delta: (node.getBoundingClientRect().top - port.top) / f, text: (node.textContent || "").slice(0, 40) };
+})()`);
+}
+
+/** The remembered element's delta now, in layout px; null once it has left the document. */
+async function readTopLine(app: App): Promise<number | null> {
+  return app.evalJS(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var node = window.__at0330Line;
+  if (!node || !el.contains(node)) return null;
+  var deck = document.getElementById("deck-container");
+  var f = deck.getBoundingClientRect().width / deck.offsetWidth;
+  return (node.getBoundingClientRect().top - el.getBoundingClientRect().top) / f;
 })()`);
 }
 
@@ -664,9 +725,8 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
   };
 })()`);
         expect(settled.active).toBe(true);
-        // A reflow drains rather than suspends; at most one fallback for the
-        // whole gesture, never one per tick.
-        expect(settled.fallbacks - before.fallbacks).toBeLessThanOrEqual(1);
+        // A reflow drains rather than suspends: no commit renders every row.
+        expect(settled.fallbacks - before.fallbacks).toBe(0);
 
         // Exactness after settle: the evicted document is the same
         // height the fully-mounted one is at this width.
@@ -785,6 +845,76 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
   );
 
   test(
+    "a reflow holds the reader's line, not only the row",
+    async () => {
+      const app = await standUp("at0330-reflow-line");
+      try {
+        await scrollTo(app, 0.4);
+        // Put the scrollport top just inside a reply's list item. The reply's
+        // paragraph sits above it in the same row and re-wraps at the new
+        // width, so the item moves inside its row: a hold on the row and a
+        // pixel offset into it would let the reader's line slide, and only a
+        // hold on the line itself keeps it.
+        // The placement repeats until the item rests where it was put: the
+        // first write lands against rows still settling their heights.
+        const place = (): Promise<number | null> =>
+          app.evalJS<number | null>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var portTop = el.getBoundingClientRect().top;
+  var li = window.__at0330Line;
+  if (!li || !el.contains(li)) {
+    li = [].slice.call(el.querySelectorAll("[data-tug-list-cell-index] li"))
+      .filter(function (c) { return c.getBoundingClientRect().top > portTop + 100; })[0];
+    if (li === undefined) return null;
+    window.__at0330Line = li;
+  }
+  el.scrollTop = Math.round(el.scrollTop + li.getBoundingClientRect().top - portTop + 3);
+  return li.getBoundingClientRect().top - portTop;
+})()`);
+        await app.evalJS<boolean>(`(delete window.__at0330Line, true)`);
+        let rest: number | null = null;
+        for (let pass = 0; pass < 4; pass += 1) {
+          expect(await place(), "a list item below the scrollport top to read from").not.toBeNull();
+          await new Promise((r) => setTimeout(r, 500));
+          rest = await readTopLine(app);
+          if (rest !== null && Math.abs(rest + 3) <= 1) break;
+        }
+        expect(rest, "the item rests just above the scrollport top").not.toBeNull();
+        expect(Math.abs(rest! + 3)).toBeLessThanOrEqual(1);
+        const before = { delta: rest!, text: await app.evalJS<string>(`(window.__at0330Line.textContent || "").slice(0, 40)`) };
+        const w = await app.evalJS<number>(`document.querySelector('${SCROLLER}').clientWidth`);
+
+        // A direct width write opens no resize episode: the drain's own hold
+        // is what keeps the reader.
+        await startMountSampler(app);
+        await app.evalJS<number>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  el.style.flex = "0 0 auto";
+  el.style.width = "${Math.round(w * 0.55)}px";
+  return el.clientWidth;
+})()`);
+        await app.waitForCondition<boolean>(
+          `(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return window.__at0330Sampler.sawStale && !el.hasAttribute("data-evict-stale");
+})()`,
+          { timeoutMs: 20_000, pollMs: 250 },
+        );
+        // Past the hold's release tail: where the reader was left.
+        await new Promise((r) => setTimeout(r, 1000));
+        await stopMountSampler(app);
+        const after = await readTopLine(app);
+        note("reflow line", JSON.stringify({ line: before!.text, width: [w, Math.round(w * 0.55)], delta: [before!.delta, after] }));
+        expect(after, "the line's block is still mounted").not.toBeNull();
+        expect(Math.abs(after! - before!.delta)).toBeLessThanOrEqual(2);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
     "an out-of-view append mounts alone",
     async () => {
       const app = await standUp("at0330-append");
@@ -846,6 +976,10 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
   };
 })()`);
         expect(before.cells).toBeLessThan(TURNS);
+        // The reader is up in history, not following: a zoom step holds the
+        // line they were reading, in layout px, through each rescale.
+        const line = await rememberTopLine(app);
+        expect(line, "a block under the scrollport top").not.toBeNull();
 
         // Arm the instruments before the zoom: the most cells ever mounted
         // (the over-mount is transient, so a read after settle cannot see
@@ -912,14 +1046,17 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
         // Past the width settle (200 ms) and the re-observe deliveries.
         await new Promise((r) => setTimeout(r, 1500));
         const zoomedOut = await read();
+        const lineOut = await readTopLine(app);
 
         expect(await app.setPageZoom(2)).toBeCloseTo(2, 5);
         await new Promise((r) => setTimeout(r, 1500));
         const zoomedIn = await read();
+        const lineIn = await readTopLine(app);
 
         expect(await app.setPageZoom(1)).toBeCloseTo(1, 5);
         await new Promise((r) => setTimeout(r, 1500));
         const restored = await read();
+        const lineRestored = await readTopLine(app);
 
         // Two steps back to back: the second is counted in frames from its
         // arrival at the deck to the first frame the root is drawn at it.
@@ -959,6 +1096,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
           maxCells: [zoomedOut.maxCells, zoomedIn.maxCells, restored.maxCells, tapped.maxCells],
           worstGapMs: [zoomedOut.worstGap, zoomedIn.worstGap, restored.worstGap, tapped.worstGap],
           doubleTap,
+          line: { text: line!.text, delta: [line!.delta, lineOut, lineIn, lineRestored] },
         });
 
         for (const step of [zoomedOut, zoomedIn, restored, tapped]) {
@@ -975,6 +1113,11 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
         // reaches the deck, never queued behind the first step's work.
         expect(doubleTap.framesToSecond).toBeGreaterThan(0);
         expect(doubleTap.framesToSecond).toBeLessThanOrEqual(2);
+        // The reader's line held through every step, in layout px.
+        for (const delta of [lineOut, lineIn, lineRestored]) {
+          expect(delta, "the line's block is still mounted").not.toBeNull();
+          expect(Math.abs(delta! - line!.delta)).toBeLessThanOrEqual(2);
+        }
       } finally {
         await app.close();
       }
@@ -1137,8 +1280,8 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
         expect(hidden.anchor).toBeNull();
 
         // Reveal. The 0→real resize refires the cell observer with honest
-        // values; the reveal commit's coverage check suspends at most once
-        // over the rows left unmeasured, measures them, and re-arms.
+        // values, and the rows left unmeasured drain through measure
+        // segments, a capped run per commit.
         // Restore the card's ORIGINAL inline display (the deck's layout
         // styles live inline on the card element — clearing to "" would
         // clobber them and unconstrain the scroller).
@@ -1150,6 +1293,11 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
         await waitForTranscriptSettled(app);
         await app.waitForCondition<boolean>(
           `!!document.querySelector('${FIXTURE_SCROLLER}[data-evict-active]')`,
+          { timeoutMs: 30_000, pollMs: 250 },
+        );
+        // The exactness below holds once the drain has measured every row.
+        await app.waitForCondition<boolean>(
+          `!document.querySelector('${FIXTURE_SCROLLER}').hasAttribute("data-evict-stale")`,
           { timeoutMs: 30_000, pollMs: 250 },
         );
         await new Promise((r) => setTimeout(r, 1500));
@@ -1166,10 +1314,9 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
     anchor: el.getAttribute("data-tug-scroll-state"),
   };
 })()`);
-        // One suspension for the whole reveal, and the anchor writer
-        // resumed once the scroller had a real box again.
-        expect(revealed.fallbacks).toBeGreaterThanOrEqual(0);
-        expect(revealed.fallbacks).toBeLessThanOrEqual(1);
+        // The reveal no longer suspends — no commit rendered every row — and
+        // the anchor writer resumed once the scroller had a real box again.
+        expect(revealed.fallbacks).toBe(0);
         expect(revealed.anchor).not.toBeNull();
 
         // A RESUMED session keeps the Z0 strip: it reports the load window
@@ -1212,6 +1359,344 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction", () => {
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a hidden tab's backlog drains on reveal",
+    async () => {
+      const app = await standUp("at0330-hidden-backlog");
+      try {
+        // Rest at the bottom, following: the file's eviction precondition.
+        await scrollTo(app, 1);
+        const before = await app.evalJS<{ fallbacks: number; following: boolean }>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var state = el.getAttribute("data-tug-scroll-state");
+  return {
+    fallbacks: Number(el.getAttribute("data-evict-fallbacks") || "-1"),
+    following: state !== null && JSON.parse(state).atBottom === true,
+  };
+})()`);
+        expect(before.following).toBe(true);
+
+        // Hide the scroller the way an inactive card tab is hidden, and let
+        // a backlog of turns arrive behind it.
+        await app.evalJS<boolean>(`(function () {
+  document.querySelector('${SCROLLER}').style.display = "none";
+  return true;
+})()`);
+        await seedTurns(app, TURNS, TURNS);
+
+        // Reveal, and wait for the backlog to drain.
+        await app.evalJS<boolean>(`(function () {
+  document.querySelector('${SCROLLER}').style.display = "";
+  return true;
+})()`);
+        await app.waitForCondition<boolean>(
+          `(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return el.hasAttribute("data-evict-active") && !el.hasAttribute("data-evict-stale");
+})()`,
+          { timeoutMs: 30_000, pollMs: 250 },
+        );
+        await app.waitForCondition<boolean>(
+          `(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
+})()`,
+          { timeoutMs: 8000, pollMs: 100 },
+        );
+
+        const after = await app.evalJS<{
+          peak: number;
+          fallbacks: number;
+          following: boolean;
+          gap: number;
+        }>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var state = el.getAttribute("data-tug-scroll-state");
+  return {
+    peak: Number(el.getAttribute("data-evict-peak") || "-1"),
+    fallbacks: Number(el.getAttribute("data-evict-fallbacks") || "-1"),
+    following: state !== null && JSON.parse(state).atBottom === true,
+    gap: el.scrollHeight - el.scrollTop - el.clientHeight,
+  };
+})()`);
+        note(
+          `hidden backlog: ${TURNS} turns behind the hide, peak mounted ${after.peak}, ` +
+            `fallbacks ${before.fallbacks} → ${after.fallbacks}, bottom gap ${after.gap.toFixed(1)}`,
+        );
+        // The backlog alone is more rows than this: a reveal that mounted it
+        // as one segment would read above the bound.
+        expect(after.peak).toBeGreaterThan(0);
+        expect(after.peak).toBeLessThan(TURNS);
+        expect(after.fallbacks - before.fallbacks).toBe(0);
+        expect(after.following).toBe(true);
+        expect(after.gap).toBeLessThanOrEqual(2);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a turn appended under a held motion gate mounts after the gate opens",
+    async () => {
+      const app = await standUp("at0330-held-append");
+      try {
+        // Rest at the bottom, following.
+        const rows = await readRowCount(app);
+        const mountedIndices = (): Promise<number[]> =>
+          app.evalJS<number[]>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return Array.prototype.map.call(
+    el.querySelectorAll("[data-tug-list-cell-index]"),
+    function (c) { return Number(c.getAttribute("data-tug-list-cell-index")); }
+  ).sort(function (a, b) { return a - b; });
+})()`);
+        const before = await mountedIndices();
+
+        // Close the gate as a settle's beats do. A zero handle is a deck with
+        // motion off, where nothing holds and this case would pass vacuously.
+        const handle = await app.evalJS<number>(`window.__tug.holdMotion(20000)`);
+        expect(handle).toBeGreaterThan(0);
+        let released = false;
+        try {
+          // Drive the new turn. The connection parks the engine's batches
+          // under the gate and the list's own subscription is held, so the
+          // harness's settle wait would never return: drive without it, and
+          // hand the parked data and the held notifications over under the
+          // gate — the commit a parent re-render or an unheld update would
+          // make over data that changed mid-motion.
+          const drive = (action: Record<string, unknown>): Promise<null> =>
+            app.evalJS<null>(
+              `(window.__tug.driveSession("A", ${JSON.stringify(action)}), null)`,
+            );
+          const frame = (decoded: Record<string, unknown>): Promise<null> =>
+            drive({
+              op: "ingestFrame",
+              feedId: FEED_CODE_OUTPUT,
+              decoded: { tug_session_id: SID, ...decoded },
+            });
+          const msgId = `${SID}-m${TURNS}`;
+          await drive({ op: "send", text: `prompt ${TURNS}` });
+          await frame({ type: "prompt_anchor", promptUuid: `${SID}-u${TURNS}` });
+          await frame({ type: "content_block_start", msg_id: msgId, block_index: 0, kind: "text" });
+          await frame({
+            type: "assistant_text",
+            seq: 0,
+            rev: 0,
+            status: "complete",
+            msg_id: msgId,
+            block_index: 0,
+            text: replyText(TURNS),
+            is_partial: false,
+          });
+          await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
+          await app.evalJS<boolean>(`(window.__at0330Delivered = 0, true)`);
+          await app.waitForCondition<boolean>(
+            `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate(),
+              window.__tug.sessionSettled("A"))`,
+            { timeoutMs: 10_000, pollMs: 100 },
+          );
+          await new Promise((r) => setTimeout(r, 300));
+          const delivered = await app.evalJS<number>(
+            `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate())`,
+          );
+          expect(delivered).toBeGreaterThanOrEqual(1);
+          await new Promise((r) => setTimeout(r, 300));
+
+          // Nothing mounted under the hold: the same cells, and none past them.
+          const during = await mountedIndices();
+          expect(during).toEqual(before);
+          const heldGate = await app.evalJS<boolean>(
+            `window.__tug.releaseMotion(${handle})`,
+          );
+          released = true;
+          expect(heldGate).toBe(true);
+        } finally {
+          if (!released) await app.evalJS<boolean>(`window.__tug.releaseMotion(${handle})`);
+        }
+
+        // Once the gate opens the new turn mounts and the follower is on it.
+        await app.waitForCondition<boolean>(
+          `(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return !!el.querySelector('[data-tug-list-cell-index="${rows}"]') &&
+    el.scrollHeight - el.clientHeight - el.scrollTop <= 2;
+})()`,
+          { timeoutMs: 15_000, pollMs: 100 },
+        );
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a relaunched transcript windows from its first commit",
+    async () => {
+      // Two processes. In test mode a relaunched card's bag goes back in
+      // through `seedDeckState`'s `cardStates` whether or not it went by
+      // disk, so phase A takes the bag in-page, as at0535 does, and phase B
+      // re-injects it; the payload's tugbank round trip is at0728's relaunch
+      // case. The relaunch has the cold path's shape: the turns arrive behind
+      // a hidden card, with no box to measure them in, and the reveal is the
+      // list's first look at them. Without persisted heights every row would
+      // be pending there and drain; with them, every row windows against its
+      // phase-A height at once.
+      type Bag = {
+        components?: Record<string, { entries?: unknown[] }> | null;
+        regionScroll?: Record<string, { x: number; y: number; meta?: unknown }> | null;
+      };
+      const deck = sessionCardShape({ width: 900, height: 760 });
+      /** The row under the scrollport top and its top edge's offset from it. */
+      const readTopRow = (app: App): Promise<{ index: number; offset: number }> =>
+        app.evalJS(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  var top = el.getBoundingClientRect().top;
+  var best = null;
+  el.querySelectorAll("[data-tug-list-cell-index]").forEach(function (c) {
+    var r = c.getBoundingClientRect();
+    if (r.bottom <= top + 0.5) return;
+    var i = Number(c.getAttribute("data-tug-list-cell-index"));
+    if (best === null || i < best.index) best = { index: i, offset: r.top - top };
+  });
+  return best;
+})()`);
+      {
+        // ── Phase A: seed, scroll to mid-transcript, take the bag. ──
+        let phaseA: { index: number; offset: number };
+        let bag: Bag;
+        {
+          const app = await standUp("at0330-relaunch-A");
+          try {
+            await scrollTo(app, 0.5);
+            await app.waitForCondition<boolean>(
+              `!document.querySelector('${SCROLLER}').hasAttribute("data-evict-stale")`,
+              { timeoutMs: 10_000, pollMs: 100 },
+            );
+            await new Promise((r) => setTimeout(r, 500));
+            phaseA = await readTopRow(app);
+            bag = await app.evalJS<Bag>(`(function () {
+  window.tugdeck.saveState();
+  return JSON.parse(JSON.stringify(window.__tug.getCardStateBag("A")));
+})()`);
+          } finally {
+            await app.close();
+          }
+        }
+
+        // ── Phase A assertion: the heights are in the bag beside the scroll. ──
+        const heightsKey = Object.keys(bag.components ?? {}).find((k) =>
+          k.endsWith("session-card-transcript-heights"),
+        );
+        expect(heightsKey).toBeDefined();
+        const recorded = bag.components![heightsKey!]!.entries?.length ?? 0;
+        expect(recorded).toBeGreaterThan(TURNS);
+        const saved = bag.regionScroll?.["session-card-transcript"];
+        expect(saved).toBeDefined();
+
+        // ── Phase B: re-inject the bag, re-seed behind a hidden card, reveal. ──
+        {
+          const app = await launchTugApp({ testName: "at0330-relaunch-B" });
+          try {
+            await app.enableDeckTrace(true);
+            // Only the axes under test go back in: the heights and the scroll.
+            // The card's own content would have it resume the phase-A session,
+            // which this process does not have; the turns are re-seeded below.
+            await app.seedDeckState({
+              state: deck,
+              cardStates: { A: { components: bag.components, regionScroll: bag.regionScroll } },
+              focusCardId: "A",
+            });
+            await app.waitForCondition<boolean>(
+              `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+            );
+            await app.bindSession("A", { tugSessionId: SID });
+            await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+            await app.evalJS<boolean>(`(function () {
+  var card = document.querySelector('[data-card-id="A"]');
+  window.__at0330PrevDisplay = card.style.display;
+  card.style.display = "none";
+  return true;
+})()`);
+            note(
+              "relaunch: live bag heights before the turns arrive",
+              String(
+                await app.evalJS<number>(`(function () {
+  window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
+  var bag = window.__tug.getCardStateBag("A");
+  var c = (bag && bag.components) || {};
+  var k = Object.keys(c).filter(function (x) { return /session-card-transcript-heights$/.test(x); })[0];
+  return k === undefined || !c[k] ? -1 : (c[k].entries || []).length;
+})()`),
+              ),
+            );
+            await seedTurns(app, TURNS);
+            const fallbacksBefore = await app.evalJS<number>(
+              `Number(document.querySelector('${SCROLLER}').getAttribute("data-evict-fallbacks") || "0")`,
+            );
+            const atReveal = await app.evalJS<{ stale: string | null }>(`(function () {
+  var card = document.querySelector('[data-card-id="A"]');
+  card.style.display = window.__at0330PrevDisplay || "";
+  return { stale: document.querySelector('${SCROLLER}').getAttribute("data-evict-stale") };
+})()`);
+            const firstSample = await app.evalJS<{ stale: string | null }>(
+              `({ stale: document.querySelector('${SCROLLER}').getAttribute("data-evict-stale") })`,
+            );
+            note(
+              `relaunch: ${recorded} heights recorded; data-evict-stale at the reveal ` +
+                `${atReveal.stale ?? "absent"}, at the first sample after it ${firstSample.stale ?? "absent"}`,
+            );
+            // Every row was seeded fresh at an unchanged width: none is pending.
+            expect(atReveal.stale).toBeNull();
+            expect(firstSample.stale).toBeNull();
+
+            await app.waitForCondition<boolean>(
+              `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
+              { timeoutMs: 30_000, pollMs: 250 },
+            );
+            // A send pins the reader to the bottom, and so does a reveal of a
+            // list that was following, so the restore is replayed once the
+            // turns are in and the list has a box: CardHost's own cold-boot
+            // event, carrying the saved anchor. It resolves against the
+            // seeded heights, so it lands where phase A was without a drain.
+            await app.evalJS<boolean>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  el.dispatchEvent(new CustomEvent("tug-region-scroll-set", {
+    detail: ${JSON.stringify({ top: saved!.y, left: saved!.x, meta: saved!.meta })},
+    cancelable: true,
+    bubbles: false,
+  }));
+  return true;
+})()`);
+            await new Promise((r) => setTimeout(r, 1500));
+            const after = await app.evalJS<{ peak: number; fallbacks: number }>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return {
+    peak: Number(el.getAttribute("data-evict-peak") || "-1"),
+    fallbacks: Number(el.getAttribute("data-evict-fallbacks") || "-1"),
+  };
+})()`);
+            const phaseB = await readTopRow(app);
+            note(
+              `relaunch: peak mounted ${after.peak}, fallbacks ${fallbacksBefore} → ${after.fallbacks}; ` +
+                `top row ${phaseA.index} at ${phaseA.offset.toFixed(2)} → ${phaseB.index} at ${phaseB.offset.toFixed(2)}`,
+            );
+            expect(after.peak).toBeGreaterThan(0);
+            expect(after.peak).toBeLessThan(TURNS);
+            expect(after.fallbacks - fallbacksBefore).toBe(0);
+            expect(phaseB.index).toBe(phaseA.index);
+            expect(Math.abs(phaseB.offset - phaseA.offset)).toBeLessThanOrEqual(1);
+          } finally {
+            await app.close();
+          }
+        }
       }
     },
     TEST_TIMEOUT_MS,

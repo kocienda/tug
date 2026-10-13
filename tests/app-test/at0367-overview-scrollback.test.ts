@@ -24,6 +24,7 @@
  *
  * @covers tugdeck/src/lib/overview-store.ts
  * @covers tugdeck/src/components/overview/overview-card.tsx
+ * @covers tugdeck/src/components/overview/use-overview-window.ts
  * @covers tugdeck/src/test-surface.ts
  */
 

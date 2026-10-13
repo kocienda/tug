@@ -299,6 +299,24 @@ export class GestureScope {
     if (this.motionHolds === 0) this.runHeldAndQueued();
   }
 
+  /**
+   * Run every held store tell now, under bypass, with the gate left closed
+   * and the queued `afterGesture` work left queued; returns how many ran.
+   *
+   * Test-surface only. It stands in for any other commit that reaches a
+   * surface mid-motion — a parent re-render, an unheld state update — which
+   * renders against live data while the gate is still closed. A surface's
+   * own held subscription produces no commit mid-motion, so without this a
+   * test of "nothing mounts under the beats" could not fail.
+   */
+  deliverHeld(): number {
+    if (this.held.size === 0) return 0;
+    const fns = [...this.held];
+    this.held.clear();
+    this.withBypass(() => runGuarded(fns));
+    return fns.length;
+  }
+
   private runHeldAndQueued(): void {
     if (this.held.size === 0 && this.queue.length === 0) return;
     const fns = [...this.held, ...this.queue];

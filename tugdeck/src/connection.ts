@@ -218,6 +218,8 @@ export class TugConnection {
    * every later `connect`, released by `close` ([L27]).
    */
   private releaseMotionGate: (() => void) | null = null;
+  /** The cap of the gate's latest hold, for a test-surface re-hold of the host. */
+  private heldCapMs = 0;
 
   private callbacks: Map<number, FrameCallback[]> = new Map();
   /**
@@ -474,6 +476,7 @@ export class TugConnection {
   private observeMotionGate(): void {
     if (this.releaseMotionGate !== null) return;
     this.releaseMotionGate = this.motionGate.observeMotionGate((change) => {
+      if (change.held) this.heldCapMs = change.capMs;
       this.channel?.post(
         change.held ? { kind: "motion", held: true, capMs: change.capMs } : { kind: "motion", held: false },
       );
@@ -520,6 +523,26 @@ export class TugConnection {
       return;
     }
     this.applyNow(batch);
+  }
+
+  /**
+   * Let the wire through a closed motion gate once, with the page's gate left
+   * closed; returns how many parked batches applied. Test-surface only: the
+   * host holds what it produces for the gate's length and the page parks
+   * what was already in flight, so no session data reaches a store
+   * mid-motion. This asks the host to post what it holds and to hold again,
+   * and applies what the page has parked so far — the host's batch arrives
+   * on a later task, parked, for the next call — so a test of what a surface
+   * does with data that changed mid-motion can fail.
+   */
+  deliverHeldWire(): number {
+    if (this.motionGate.isMotionHeld() && this.channel !== null) {
+      this.channel.post({ kind: "motion", held: false });
+      this.channel.post({ kind: "motion", held: true, capMs: this.heldCapMs });
+    }
+    const count = this.parked.length;
+    this.applyParked();
+    return count;
   }
 
   /** The gate opened: apply what it parked, in arrival order. */

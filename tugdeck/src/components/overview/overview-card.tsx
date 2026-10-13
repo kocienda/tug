@@ -79,7 +79,6 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
 } from "react";
 import { afterGesture, gestureScope, useSyncExternalStore } from "@/lib/gesture-scope";
@@ -126,21 +125,12 @@ import {
 import { isDictationAvailable } from "@/lib/dictation-bridge";
 import { computePageNavigation } from "@/components/tugways/internal/list-view-page-navigation";
 import {
-  computeWindow,
-  EVICT_MOUNT_MARGIN_VIEWPORTS,
-  EVICT_RETAIN_MARGIN_VIEWPORTS,
-  resolveEvictSegments,
-  type MeasureLedger,
-  type RowRun,
-} from "@/components/tugways/internal/list-view-window";
-import {
   createTopPostStore,
   overviewCellTops,
-  overviewSpacerHeight,
   PENDING_TOP_POST,
-  pinnedRangeFor,
   type TopPostStore,
 } from "./overview-window";
+import { useOverviewWindow } from "./use-overview-window";
 import {
   getAtomsInState,
   removeAtomById,
@@ -1013,117 +1003,6 @@ const OverviewPinnedHeader = React.memo(React.forwardRef<
 const PINNED_HEADER_EPSILON_PX = 1;
 
 /**
- * What a post's height is taken to be before it has been measured. It only
- * places the candidate window; a post with no measured height is mounted in
- * the commit it appears, so this never reaches a spacer.
- */
-const OVERVIEW_ESTIMATED_POST_PX = 160;
-
-/** A run of posts named by its first and last keys. */
-interface PostKeyRange {
-  firstKey: string;
-  lastKey: string;
-}
-
-/**
- * The Overview column's window and measure segment for this render, or
- * `null` to mount every post: before the column has been laid out, with a
- * cold ledger, or with a hidden column that has no window to hold.
- *
- * The list view's window math, fed the column's own geometry: every height
- * carries the flex gap after it and the window is computed from the first
- * post's top, `scrollTop − firstMargin` — fed bare heights, the window would
- * drift a gap per post. While a settle's motion gate is closed the window and
- * segment hold what the last commit mounted, unless a post has no height,
- * which mounts anyway.
- */
-function computeOverviewWindow({
-  posts,
-  scrollEl,
-  ledger,
-  metrics,
-  prevWindow,
-  prevSegment,
-  pinnedRange,
-}: {
-  posts: readonly OverviewPostEntry[];
-  scrollEl: HTMLDivElement | null;
-  ledger: ReadonlyMap<string, { h: number; fresh: boolean }>;
-  metrics: { gap: number; firstMargin: number } | null;
-  prevWindow: PostKeyRange | null;
-  prevSegment: PostKeyRange | null;
-  pinnedRange: { first: number; last: number } | null;
-}): { window: RowRun; segment: RowRun | null } | null {
-  const n = posts.length;
-  if (n === 0 || scrollEl === null || metrics === null) return null;
-  const indexOf = (key: string): number => posts.findIndex((p) => p.key === key);
-  const runOf = (range: PostKeyRange | null): RowRun | null => {
-    if (range === null) return null;
-    const a = indexOf(range.firstKey);
-    const b = indexOf(range.lastKey);
-    return a === -1 || b < a ? null : { firstIndex: a, lastIndex: b + 1 };
-  };
-  const prev = runOf(prevWindow);
-  const viewport = scrollEl.clientHeight;
-  if (viewport === 0) {
-    // A hidden column (a parked twin, a folded rail) has no geometry to
-    // window against. Hold what was mounted rather than mounting everything
-    // on every post that arrives while nobody can see it.
-    return prev === null ? null : { window: prev, segment: null };
-  }
-  const entries = posts.map((p) => ledger.get(p.key));
-  const view: MeasureLedger = {
-    has: (i) => entries[i] !== undefined,
-    isFresh: (i) => entries[i]?.fresh === true,
-    coversRange: (first, last) => {
-      for (let i = first; i < last; i += 1) {
-        if (entries[i] === undefined) return false;
-      }
-      return true;
-    },
-  };
-  const { gap, firstMargin } = metrics;
-  if (
-    prev !== null &&
-    gestureScope.isMotionHeld() &&
-    view.coversRange(0, prev.firstIndex) &&
-    view.coversRange(prev.lastIndex, n)
-  ) {
-    const held = runOf(prevSegment);
-    return {
-      window: prev,
-      segment:
-        held !== null && (held.lastIndex < prev.firstIndex || held.firstIndex > prev.lastIndex)
-          ? held
-          : null,
-    };
-  }
-  const candidate = computeWindow({
-    itemCount: n,
-    scrollTop: Math.max(0, scrollEl.scrollTop - firstMargin),
-    viewportHeight: viewport,
-    overscanCount: 1,
-    estimatedHeightForIndex: (i) => (entries[i]?.h ?? OVERVIEW_ESTIMATED_POST_PX) + gap,
-    pinnedRange,
-    mountMarginPx: viewport * EVICT_MOUNT_MARGIN_VIEWPORTS,
-    retainMarginPx: viewport * EVICT_RETAIN_MARGIN_VIEWPORTS,
-    prevRange: prev === null ? null : { first: prev.firstIndex, last: prev.lastIndex },
-  });
-  const resolution = resolveEvictSegments(
-    candidate,
-    view,
-    n,
-    viewport,
-    (i) => (entries[i]?.h ?? 0) + gap,
-  );
-  if (resolution.kind === "suspended") return null;
-  return {
-    window: { firstIndex: resolution.firstIndex, lastIndex: resolution.lastIndex },
-    segment: resolution.segment,
-  };
-}
-
-/**
  * The Overview card's content ([L25]: the pane owns geometry and chrome; this
  * owns the surface inside it).
  */
@@ -1177,95 +1056,9 @@ export function OverviewContent({
   // free to say the reader is not at the bottom.
   const pinTopRef = useRef(Number.POSITIVE_INFINITY);
 
-  // ---- The window ----
-  //
-  // The column mounts the posts within a viewport of the scrollport (and
-  // keeps them until they are two away), plus at most one measure segment,
-  // and stands spacers in for the rest — the list view's window math over a
-  // ledger of measured heights, with this card's own follow, prepend and
-  // paging models left as they were. The spacers keep `scrollHeight` and
-  // `scrollTop` exact, which is all those models read.
-  //
-  // The ledger is keyed by post, not by index, so a prepend and the front
-  // trim at the row cap move indices without touching it. Each entry is the
-  // cell's border-box height and whether it was measured since the column's
-  // width last changed: a width change re-wraps every post, so every height
-  // goes stale and drains through measure segments, as the list view's do.
-  const ledgerRef = useRef(new Map<string, { h: number; fresh: boolean }>());
-  // The column's flex `gap` and its first child's top margin, read once per
-  // width change. Null until the first commit has laid the column out; the
-  // window stays fully mounted until then.
-  const metricsRef = useRef<{ gap: number; firstMargin: number } | null>(null);
-  // The previous commit's window and segment, by post key so a prepend or a
-  // trim cannot shift them.
-  const prevWindowRef = useRef<{ firstKey: string; lastKey: string } | null>(null);
-  const prevSegmentRef = useRef<{ firstKey: string; lastKey: string } | null>(null);
-  // The posts holding the selection's endpoints and keyboard focus ([L23]):
-  // the window clamps outward to keep them mounted.
-  const pinKeysRef = useRef<{
-    anchor: string | null;
-    focus: string | null;
-    focused: string | null;
-  }>({ anchor: null, focus: null, focused: null });
-  // Re-window. While a settle's motion gate is closed the re-window waits
-  // for it to open, coalesced to one, exactly as the list view's does.
-  const [, renderTick] = useReducer((x: number) => x + 1, 0);
-  const tickHeldRef = useRef(false);
-  const scrollTick = useCallback((): void => {
-    if (!gestureScope.isMotionHeld()) {
-      renderTick();
-      return;
-    }
-    if (tickHeldRef.current) return;
-    tickHeldRef.current = true;
-    afterGesture(() => {
-      tickHeldRef.current = false;
-      renderTick();
-    });
-  }, []);
-
-  const postKeys = posts.map((p) => p.key);
   // The posts as of this render, for the gesture paths that read them later.
   const overviewPostsRef = useRef(posts);
   overviewPostsRef.current = posts;
-  const column = computeOverviewWindow({
-    posts,
-    scrollEl: scrollRef.current,
-    ledger: ledgerRef.current,
-    metrics: metricsRef.current,
-    prevWindow: prevWindowRef.current,
-    prevSegment: prevSegmentRef.current,
-    pinnedRange: pinnedRangeFor(
-      postKeys,
-      pinKeysRef.current.anchor,
-      pinKeysRef.current.focus,
-      pinKeysRef.current.focused,
-    ),
-  });
-  // Remember what this commit mounted, by key, once it has committed.
-  useLayoutEffect(() => {
-    if (column === null) {
-      prevWindowRef.current = null;
-      prevSegmentRef.current = null;
-      return;
-    }
-    const keyRange = (run: RowRun | null) =>
-      run === null || run.lastIndex <= run.firstIndex
-        ? null
-        : { firstKey: postKeys[run.firstIndex]!, lastKey: postKeys[run.lastIndex - 1]! };
-    prevWindowRef.current = keyRange(column.window);
-    prevSegmentRef.current = keyRange(column.segment);
-  });
-  // A post that left the column (the front trim at the row cap) leaves the
-  // ledger with it.
-  useLayoutEffect(() => {
-    const live = new Set(postKeys);
-    for (const key of ledgerRef.current.keys()) {
-      if (!live.has(key)) ledgerRef.current.delete(key);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `postKeys` is derived from `posts`
-  }, [posts]);
-
   // ---- The pinned header ----
   //
   // One header for the column, drawn over the scrollport, in place of a
@@ -1283,18 +1076,31 @@ export function OverviewContent({
   // it to open, like the re-window.
   const topPostStore = useMemo(createTopPostStore, []);
   const pinnedHeaderRef = useRef<HTMLDivElement | null>(null);
+  // The window's drain hold takes its reading of the reader's post from this
+  // pass, the one place that already reads the top post's rect each frame.
+  // Set once the window hook has run, below.
+  const noteTopPostRef = useRef<(key: string | null, offset: number) => void>(() => {});
   const placePinnedHeader = useCallback((): void => {
     const el = scrollRef.current;
     const header = pinnedHeaderRef.current;
     if (el === null || header === null) return;
     const portTop = layoutRectOf(el).top;
     let top: HTMLElement | null = null;
+    let topRect: DOMRect | null = null;
     for (const cell of el.querySelectorAll<HTMLElement>(":scope > .overview-cell")) {
-      if (layoutRectOf(cell).bottom > portTop) {
+      const rect = layoutRectOf(cell);
+      if (rect.bottom > portTop) {
         top = cell;
+        topRect = rect;
         break;
       }
     }
+    noteTopPostRef.current(
+      top === null || topRect === null || top.dataset.pending !== undefined
+        ? null
+        : (top.dataset.postKey ?? null),
+      topRect === null ? 0 : portTop - topRect.top,
+    );
     const entry = top?.querySelector<HTMLElement>(".tug-transcript-entry") ?? null;
     const pin = entry?.querySelector<HTMLElement>(".tug-transcript-entry__pin") ?? null;
     if (top === null || entry === null || pin === null) {
@@ -1405,66 +1211,16 @@ export function OverviewContent({
   // It is also where follow-state is RE-ENGAGED, which is the half a pin
   // alone cannot do: geometry moves in both directions, and a change that
   // brings the edge back under a reader who had left it must be read as
-  // arriving at the bottom. See the observer body.
+  // arriving at the bottom. See the body.
   //
-  // The scroller is observed for its own box (the viewport) and every cell
-  // for theirs (the content), which together are every way this column's
-  // scroll height can change. [L03] — live before the first post can settle.
-  //
-  // The same deliveries feed the window's ledger: every connected post cell
-  // writes its height, fresh, on every delivery — an unchanged height
-  // included, or a post whose height survived a width change would stay
-  // stale and stall the drain. A width change on the scroller re-reads the
-  // column's gap and first margin and marks every height stale first, so
-  // the cells delivered beside it land fresh. A change in the scroller's
-  // height re-windows too: the window's reach is measured in viewports, so a
-  // taller column, or a hidden one shown again, can need posts the last
-  // window never mounted, with no scroll and no cell resize to say so.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el === null) return;
-    const readMetrics = (): void => {
-      const gap = Number.parseFloat(getComputedStyle(el).rowGap);
-      const first = el.firstElementChild;
-      const margin =
-        first === null ? 0 : Number.parseFloat(getComputedStyle(first).marginBlockStart);
-      metricsRef.current = {
-        gap: Number.isFinite(gap) ? gap : 0,
-        firstMargin: Number.isFinite(margin) ? margin : 0,
-      };
-    };
-    readMetrics();
-    let lastWidth = el.clientWidth;
-    let lastHeight = el.clientHeight;
-    const observer = new ResizeObserver((entries) => {
-      let windowMoved = false;
-      if (Math.abs(el.clientHeight - lastHeight) >= 0.5) {
-        lastHeight = el.clientHeight;
-        windowMoved = true;
-      }
-      // A hidden column reports every cell at 0; nothing it says is a height.
-      if (el.clientWidth > 0) {
-        const ledger = ledgerRef.current;
-        if (Math.abs(el.clientWidth - lastWidth) >= 0.5) {
-          if (lastWidth > 0) {
-            for (const entry of ledger.values()) entry.fresh = false;
-          }
-          lastWidth = el.clientWidth;
-          readMetrics();
-          windowMoved = true;
-        }
-        for (const entry of entries) {
-          const cell = entry.target as HTMLElement;
-          const key = cell.dataset.postKey;
-          if (key === undefined || !cell.isConnected) continue;
-          const h = entry.borderBoxSize[0]?.blockSize ?? cell.offsetHeight;
-          const prev = ledger.get(key);
-          if (prev === undefined || !prev.fresh || Math.abs(prev.h - h) >= 0.5) {
-            windowMoved = true;
-          }
-          ledger.set(key, { h, fresh: true });
-        }
-      }
+  // The window's observer (`useOverviewWindow`) watches the scroller for its
+  // own box (the viewport) and every cell for theirs (the content), which
+  // together are every way this column's scroll height can change, and calls
+  // this from each delivery once the window's ledger has taken it. It is held
+  // by the motion gate, so a pin it makes lands after a settle, not in it.
+  const isFollowing = useCallback((): boolean => followingRef.current, []);
+  const onGeometry = useCallback(
+    (el: HTMLDivElement): void => {
       if (followingRef.current) {
         pinToBottom(el);
       } else {
@@ -1487,35 +1243,28 @@ export function OverviewContent({
         if (back) pinToBottom(el);
       }
       prevScrollHeightRef.current = el.scrollHeight;
-      if (windowMoved) scrollTick();
       schedulePinnedHeader();
-    });
-    observer.observe(el);
-    // The cells are re-observed as the column changes, from the same effect
-    // that owns the observer — one place that decides what is watched. A
-    // cell the window released is let go of too.
-    const sync = (records?: MutationRecord[]): void => {
-      for (const record of records ?? []) {
-        for (const node of record.removedNodes) {
-          if (node instanceof HTMLElement && node.classList.contains("overview-cell")) {
-            observer.unobserve(node);
-          }
-        }
-      }
-      for (const cell of el.querySelectorAll<HTMLElement>(
-        ":scope > .overview-cell",
-      )) {
-        observer.observe(cell);
-      }
-    };
-    sync();
-    const mutations = new MutationObserver(sync);
-    mutations.observe(el, { childList: true });
-    return () => {
-      mutations.disconnect();
-      observer.disconnect();
-    };
-  }, [setFollowing, atBottom, pinToBottom, scrollTick, schedulePinnedHeader]);
+    },
+    [setFollowing, atBottom, pinToBottom, schedulePinnedHeader],
+  );
+
+  // ---- The window ----
+  //
+  // The column mounts the posts near the scrollport and stands spacers in for
+  // the rest; the spacers keep `scrollHeight` and `scrollTop` exact, which is
+  // all this card's follow, prepend and paging models read.
+  const {
+    column,
+    renderColumn,
+    ledger,
+    metrics,
+    estimateExtent,
+    scrollTick,
+    noteTopPost,
+    holding,
+    releaseHold,
+  } = useOverviewWindow(scrollRef, posts, { isFollowing, onGeometry });
+  noteTopPostRef.current = noteTopPost;
 
   // Cold-boot restore, the half `captureRegionScrolls` cannot do alone.
   //
@@ -1562,7 +1311,7 @@ export function OverviewContent({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el === null) return;
-    const firstKey = posts.length > 0 ? posts[0]!.key : null;
+    const firstKey = column.firstKey;
     const prepended =
       prevFirstKeyRef.current !== null &&
       firstKey !== null &&
@@ -1570,22 +1319,28 @@ export function OverviewContent({
     if (followingRef.current) {
       // [L06]: following the newest post is a scroll write, not React state.
       pinToBottom(el);
-    } else if (prepended) {
+    } else if (prepended && !holding()) {
       // Older history arrived above the reader. Push the viewport down by
       // exactly what was inserted, so the line being read stays under the
       // eye. Guarded on `followingRef` because the follow effect above owns
       // `scrollTop` in the other case, and one property cannot have two
       // owners — in practice a reader up in history is never following, so
       // the guard states that invariant rather than adding a condition.
+      // A drain hold owns it too: posts prepended with heights still to
+      // measure are held by the window, which re-lands the reader's post as
+      // they resolve.
       el.scrollTop += el.scrollHeight - prevScrollHeightRef.current;
     }
     prevScrollHeightRef.current = el.scrollHeight;
     prevFirstKeyRef.current = firstKey;
+    // Keyed on the posts as rendered, not as stored: a post that arrived
+    // under a held commit is followed by the commit after the gate opens,
+    // which renders it, and keying on the data would see no change there.
     // `pendingRequestId` is a dependency because the in-flight wave is a ROW:
     // it mounts under the last post and pushes the live edge down exactly as
     // an arriving post does. Without it the placeholder for the answer the
     // reader just asked for could appear below the fold.
-  }, [posts, pendingRequestId, pinToBottom]);
+  }, [column.firstKey, column.lastKey, pendingRequestId, pinToBottom, holding]);
 
   // Annotation gestures — the Session transcript's own delegated layer,
   // `useAnnotationClicks`, mounted over the Overview's scroller. The atoms
@@ -1596,48 +1351,6 @@ export function OverviewContent({
   // because the Overview target offers no `insertCommand` and the Overview
   // protocol has no commands to run.
   useAnnotationClicks(scrollRef, { insertTarget: overviewInsertTarget() });
-
-  // Selection and focus pins ([L23] under windowing): a post holding an
-  // endpoint of the user's selection, or keyboard focus, must not unmount
-  // when the window moves elsewhere. Tracked by direct DOM observation into
-  // a ref, and a change re-windows. [L03] — live before the first gesture.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el === null) return;
-    const keyOf = (node: Node | null): string | null => {
-      if (node === null) return null;
-      const host = node instanceof Element ? node : node.parentElement;
-      if (host === null || !el.contains(host)) return null;
-      return host.closest<HTMLElement>(".overview-cell")?.dataset.postKey ?? null;
-    };
-    const recompute = (): void => {
-      const sel = document.getSelection();
-      const selecting = sel !== null && sel.rangeCount > 0 && !sel.isCollapsed;
-      const next = {
-        anchor: selecting ? keyOf(sel.anchorNode) : null,
-        focus: selecting ? keyOf(sel.focusNode) : null,
-        focused: keyOf(document.activeElement),
-      };
-      const prev = pinKeysRef.current;
-      if (
-        next.anchor === prev.anchor &&
-        next.focus === prev.focus &&
-        next.focused === prev.focused
-      ) {
-        return;
-      }
-      pinKeysRef.current = next;
-      scrollTick();
-    };
-    document.addEventListener("selectionchange", recompute);
-    el.addEventListener("focusin", recompute);
-    el.addEventListener("focusout", recompute);
-    return () => {
-      document.removeEventListener("selectionchange", recompute);
-      el.removeEventListener("focusin", recompute);
-      el.removeEventListener("focusout", recompute);
-    };
-  }, [scrollTick]);
 
   const onScroll = (): void => {
     const el = scrollRef.current;
@@ -1681,9 +1394,10 @@ export function OverviewContent({
   const jumpToBottom = useCallback((): void => {
     const el = scrollRef.current;
     if (el === null) return;
+    releaseHold();
     setFollowing(true);
     pinToBottom(el);
-  }, [setFollowing, pinToBottom]);
+  }, [setFollowing, pinToBottom, releaseHold]);
 
   /**
    * Step the column one POST — the Session transcript's ⌃⌘[ / ⌃⌘], read here.
@@ -1715,8 +1429,10 @@ export function OverviewContent({
     if (el === null) return;
     // Layout px, so the final delta lands in `scrollTop` as it reads.
     const portTop = layoutRectOf(el).top;
-    const metrics = metricsRef.current ?? { gap: 0, firstMargin: 0 };
-    const ledger = ledgerRef.current;
+    const firstMargin = metrics.current?.firstMargin ?? 0;
+    // A post the window has never measured stands in at the estimate, as it
+    // does in its spacer.
+    const estimate = estimateExtent();
     const mounted = new Map<string, HTMLElement>();
     for (const cell of el.querySelectorAll<HTMLElement>(":scope > .overview-cell")) {
       const key = cell.dataset.postKey;
@@ -1724,9 +1440,8 @@ export function OverviewContent({
     }
     const posts = overviewPostsRef.current;
     const tops = overviewCellTops(
-      posts.map((p) => ledger.get(p.key)?.h ?? 0),
-      metrics.gap,
-      metrics.firstMargin,
+      posts.map((p) => ledger.get(p.key) ?? estimate),
+      firstMargin,
       el.scrollTop,
     ).map((top, i) => {
       const cell = mounted.get(posts[i]!.key);
@@ -1740,6 +1455,8 @@ export function OverviewContent({
       cellTops: tops,
     });
     if (result.kind === "none") return;
+    // The press moves the reader, so a drain hold no longer speaks for them.
+    releaseHold();
     if (result.kind === "bottom") {
       setFollowing(true);
       pinToBottom(el);
@@ -1749,69 +1466,18 @@ export function OverviewContent({
     if (targetTop === undefined) return;
     setFollowing(false);
     el.scrollTop += targetTop;
-  }, [setFollowing, pinToBottom]);
+  }, [setFollowing, pinToBottom, ledger, metrics, estimateExtent, releaseHold]);
 
-  /**
-   * The column's children for this render: the window's posts and the
-   * segment's, in post order, with a spacer for every run between them.
-   * Spacers carry `overview-spacer`, never `overview-cell`, so every
-   * `:scope > .overview-cell` reader sees posts only.
-   */
-  const renderColumn = (): React.ReactNode[] => {
-    const row = (post: OverviewPostEntry): React.ReactElement => (
-      <OverviewPostRow
-        key={post.key}
-        post={post}
-        root={rootFor(post.projectDir)}
-        formats={formats}
-        refVersion={refVersion}
-      />
-    );
-    if (column === null) return posts.map(row);
-    const gap = metricsRef.current?.gap ?? 0;
-    const ledger = ledgerRef.current;
-    const rows = (run: RowRun): React.ReactElement[] =>
-      posts.slice(run.firstIndex, run.lastIndex).map(row);
-    const spacer = (key: string, first: number, last: number): React.ReactElement | null =>
-      last <= first ? null : (
-        <div
-          key={key}
-          className="overview-spacer"
-          aria-hidden="true"
-          style={{
-            blockSize: `${overviewSpacerHeight(
-              posts.slice(first, last).map((p) => ledger.get(p.key)?.h ?? 0),
-              gap,
-            )}px`,
-          }}
-        />
-      );
-    const { window: win, segment: seg } = column;
-    const n = posts.length;
-    if (seg !== null && seg.lastIndex <= win.firstIndex) {
-      return [
-        spacer("overview-spacer:top", 0, seg.firstIndex),
-        ...rows(seg),
-        spacer("overview-spacer:middle", seg.lastIndex, win.firstIndex),
-        ...rows(win),
-        spacer("overview-spacer:bottom", win.lastIndex, n),
-      ];
-    }
-    if (seg !== null) {
-      return [
-        spacer("overview-spacer:top", 0, win.firstIndex),
-        ...rows(win),
-        spacer("overview-spacer:middle", win.lastIndex, seg.firstIndex),
-        ...rows(seg),
-        spacer("overview-spacer:bottom", seg.lastIndex, n),
-      ];
-    }
-    return [
-      spacer("overview-spacer:top", 0, win.firstIndex),
-      ...rows(win),
-      spacer("overview-spacer:bottom", win.lastIndex, n),
-    ];
-  };
+  /** One post of the column, as the window renders it. */
+  const renderPost = (post: OverviewPostEntry): React.ReactElement => (
+    <OverviewPostRow
+      key={post.key}
+      post={post}
+      root={rootFor(post.projectDir)}
+      formats={formats}
+      refVersion={refVersion}
+    />
+  );
 
   // ⌃⌘[ / ⌃⌘] — the Session card's transcript chord, on this card's column.
   //
@@ -1873,7 +1539,7 @@ export function OverviewContent({
                 {status === "ready" ? "Nothing reported yet." : "Loading…"}
               </div>
             ) : (
-              renderColumn()
+              renderColumn(renderPost)
             )}
             {pendingRequestId !== null ? (
               // [L26]: keyed exactly as the answer will be, so the placeholder

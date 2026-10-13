@@ -40,11 +40,11 @@
  * measured height suspect without making it useless: the row is still
  * there, and its old height is a far better stand-in than an estimate
  * or a mount of the whole list. `markAllStale` keeps every height and
- * flags it; `set` clears the flag for the row it measures. `has` and
- * `coversRange` keep their meaning (a height is present, fresh or
- * stale), and the flag travels with its entry through `shift`, `delete`
- * and `clear`. The Fenwick cache never sees the flag, because flipping
- * it changes no height.
+ * flags it; `set` clears the flag for the row it measures. `has` keeps
+ * its meaning (a height is present, fresh or stale), and the flag
+ * travels with its entry through `shift`, `delete` and `clear`. The
+ * Fenwick cache never sees the flag, because flipping it changes no
+ * height.
  *
  * Laws: this module is non-React, non-DOM. No tuglaws apply directly
  * — the height index is consumed by `TugListView`, which carries the
@@ -68,6 +68,9 @@ export class HeightIndex {
 
   private cache: PreparedCache | null = null;
 
+  /** The held heights sorted ascending, for `median`; null until asked after a change. */
+  private sorted: number[] | null = null;
+
   /**
    * Record a measured height for the cell at `index`. Negative,
    * non-finite, or NaN values are silently ignored — `ResizeObserver`
@@ -87,6 +90,7 @@ export class HeightIndex {
     if (!Number.isFinite(height) || height < 0) return;
     this.heights.set(index, height);
     this.stale.delete(index);
+    this.sorted = null;
     if (this.cache !== null && index >= 0 && index < this.cache.itemCount) {
       const oldEffective = this.cache.effective[index];
       this.cache.effective[index] = height;
@@ -113,6 +117,15 @@ export class HeightIndex {
     for (const index of this.heights.keys()) this.stale.add(index);
   }
 
+  /**
+   * Mark one held height stale; a no-op for an index with no height. A
+   * seeded height found to have been measured at another width is
+   * marked this way, without touching heights measured live.
+   */
+  markStale(index: number): void {
+    if (this.heights.has(index)) this.stale.add(index);
+  }
+
   /** Whether `index` has a height measured since the last `markAllStale`. */
   isFresh(index: number): boolean {
     return this.heights.has(index) && !this.stale.has(index);
@@ -124,30 +137,49 @@ export class HeightIndex {
   }
 
   /**
-   * Whether EVERY index in the half-open range `[first, last)` has a
-   * measured height. Empty and inverted ranges answer `true`.
-   *
-   * This is the completeness question an eviction mode has to answer
-   * before it can unmount a cell: spacer geometry sums the heights of
-   * unrendered rows, so a single unmeasured row outside the window
-   * would put an estimate into the scroll math. Callers compose the
-   * two out-of-window ranges — `coversRange(0, firstIndex)` and
-   * `coversRange(lastIndex, itemCount)` — and render every row when
-   * either answers `false`.
-   *
-   * O(range) map lookups. At transcript scale (hundreds to a couple
-   * thousand rows) that is far cheaper than the height walk
-   * `computeWindow` already performs on the same range; `prepare`'s
-   * Fenwick cache is the escape hatch if a profile ever says
-   * otherwise.
+   * How many rows of `[0, itemCount)` are still to be measured: those with
+   * no height and those whose height is stale. A drain is over when this
+   * reaches 0.
    */
-  coversRange(first: number, last: number): boolean {
-    const start = Math.max(0, Math.floor(first));
-    const end = Math.floor(last);
-    for (let i = start; i < end; i += 1) {
-      if (!this.heights.has(i)) return false;
+  pendingCount(itemCount: number): number {
+    const n = Math.max(0, Math.floor(itemCount));
+    let fresh = 0;
+    for (const index of this.heights.keys()) {
+      if (index >= 0 && index < n && !this.stale.has(index)) fresh += 1;
     }
-    return true;
+    return n - fresh;
+  }
+
+  /**
+   * The median held height, fresh or stale, or `null` with none held. An
+   * even count takes the mean of the middle two. The sorted values are
+   * cached until the next `set`, `delete`, `clear`, `shift` or `adjustAll`.
+   */
+  median(): number | null {
+    if (this.heights.size === 0) return null;
+    if (this.sorted === null) {
+      this.sorted = Array.from(this.heights.values()).sort((a, b) => a - b);
+    }
+    const s = this.sorted;
+    const mid = s.length >> 1;
+    return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+  }
+
+  /**
+   * Re-read the estimate for every unmeasured row of the prepared cache
+   * from the cache's own `estimateFn`, and rebuild the tree in place — the
+   * answer to an estimate whose value moved while its identity did not
+   * (the list's median estimate, read through a ref). Measured rows are
+   * untouched. A no-op with no cache.
+   */
+  reestimate(): void {
+    const cache = this.cache;
+    if (cache === null) return;
+    for (let i = 0; i < cache.itemCount; i += 1) {
+      if (!this.heights.has(i)) cache.effective[i] = Math.max(0, cache.estimateFn(i));
+    }
+    cache.bit.fill(0);
+    this._bitBuild(cache);
   }
 
   /**
@@ -175,6 +207,7 @@ export class HeightIndex {
     for (const [index, height] of this.heights) {
       this.heights.set(index, Math.max(0, height + delta));
     }
+    this.sorted = null;
     const cache = this.cache;
     if (cache === null) return;
     for (let i = 0; i < cache.itemCount; i += 1) {
@@ -193,6 +226,7 @@ export class HeightIndex {
   delete(index: number): boolean {
     const had = this.heights.delete(index);
     this.stale.delete(index);
+    if (had) this.sorted = null;
     if (
       had
       && this.cache !== null
@@ -215,6 +249,7 @@ export class HeightIndex {
     this.heights.clear();
     this.stale.clear();
     this.cache = null;
+    this.sorted = null;
   }
 
   /** Number of measured indices currently held. */
@@ -251,6 +286,7 @@ export class HeightIndex {
       for (const i of moved) this.stale.add(i);
     }
     this.cache = null;
+    this.sorted = null;
   }
 
   /**

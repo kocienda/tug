@@ -360,10 +360,9 @@ export function classifyWidthSettle(
   return "reflowed";
 }
 
-/** The ledger questions eviction asks; `HeightIndex` answers both. */
+/** The ledger question eviction asks: does a row have a height? */
 export interface EvictionLedger {
   has(index: number): boolean;
-  coversRange(first: number, last: number): boolean;
 }
 
 /**
@@ -402,36 +401,86 @@ export interface RowRun {
 /**
  * How an eviction-mode commit renders: the window, plus at most one
  * *measure segment* — a separate run of rows outside the window, mounted
- * only so it can be measured, then released.
- *
- * - `evict` — render the window and the segment (or none), with spacers
- *   standing in for every other row. Every spacer row has a height.
- * - `suspended` — no row outside the window has a height at all (a cold
- *   ledger): render every row.
+ * only so it can be measured, then released. Spacers stand in for every
+ * other row, at its measured height or at an estimate.
  */
-export type EvictSegmentsResolution =
-  | { kind: "evict"; firstIndex: number; lastIndex: number; segment: RowRun | null }
-  | { kind: "suspended" };
+export type EvictSegmentsResolution = {
+  kind: "evict";
+  firstIndex: number;
+  lastIndex: number;
+  segment: RowRun | null;
+};
+
+/** What a commit under a closed motion gate renders ({@link holdCommittedWindow}). */
+export interface HeldWindow {
+  firstIndex: number;
+  lastIndex: number;
+  segment: RowRun | null;
+  /**
+   * The rows of the live data the held commit may render are
+   * `[prependAdded, renderedCount)`: exactly the rows the last commit
+   * rendered, at their live indices. Rows ahead of `prependAdded` were
+   * prepended under the hold and rows at or past `renderedCount` were
+   * appended under it; neither is in the DOM or in a spacer.
+   */
+  renderedCount: number;
+}
+
+/**
+ * The window a commit under a closed motion gate renders: the last
+ * commit's window and segment, translated by the rows prepended since it,
+ * so the same rows stay mounted and nothing new mounts under the beats.
+ *
+ * `null` when the data lost rows since the last commit
+ * (`itemCount < prevRenderedCount + prependAdded`): a held commit cannot
+ * render rows that no longer exist, so that commit renders unheld.
+ *
+ * The held commit's spacers are not recomputed — the caller keeps the last
+ * commit's spacer heights verbatim. During a hold the height ledger is not
+ * yet shifted for a prepend while these indices are, so a recomputed spacer
+ * would read the ledger in the wrong index space.
+ */
+export function holdCommittedWindow(
+  prev: { first: number; last: number },
+  prevSegment: RowRun | null,
+  prevRenderedCount: number,
+  prependAdded: number,
+  itemCount: number,
+): HeldWindow | null {
+  const renderedCount = prevRenderedCount + prependAdded;
+  if (itemCount < renderedCount) return null;
+  return {
+    firstIndex: prev.first + prependAdded,
+    lastIndex: prev.last + prependAdded,
+    segment:
+      prevSegment === null
+        ? null
+        : {
+            firstIndex: prevSegment.firstIndex + prependAdded,
+            lastIndex: prevSegment.lastIndex + prependAdded,
+          },
+    renderedCount,
+  };
+}
 
 /**
  * Resolve the window and its measure segment from the candidate window
- * and the ledger. The rules, in order:
+ * and the ledger. A row outside the window is *pending* when it has no
+ * height or a stale one; both stand in their spacer at an estimate (a
+ * missing row at the list's median) and drain the same way:
  *
- * 1. **Cold.** No row outside the window has a height, and there is at
- *    least one → `suspended`.
- * 2. **Missing heights.** A row with no height mounts in the commit it
- *    appears, or a spacer would estimate it, so a missing run is never
- *    capped. Missing rows on one side only make the segment the run
- *    covering them all. On both sides, the window clamps outward over
- *    the nearer side's run and the farther side's run is the segment
- *    (ties count the side below as nearer).
- * 3. **Stale heights.** Otherwise the segment is the stale run nearest
- *    the window (below wins a tie), taken from its window end and capped
- *    at {@link MEASURE_SEGMENT_MAX_ROWS} rows and at the rows whose
- *    heights sum to `budgetPx`, minimum one row.
- * 4. **Fresh.** Otherwise no segment.
+ * 1. **Nothing pending.** No segment.
+ * 2. **Pending.** The segment starts at the pending row nearest the window
+ *    (below wins a tie) and extends away from it across consecutive
+ *    pending rows, capped at {@link MEASURE_SEGMENT_MAX_ROWS} rows and at
+ *    the rows whose heights sum to `budgetPx`, minimum one row.
  *
  * A segment never touches the window: one that would is merged into it.
+ *
+ * So no commit mounts more than the window plus one capped segment, however
+ * cold the ledger. A missing run used to mount whole in the commit it
+ * appeared, and a ledger with no heights at all rendered every row; both
+ * are now drains.
  */
 export function resolveEvictSegments(
   candidate: RowRun,
@@ -442,66 +491,35 @@ export function resolveEvictSegments(
 ): EvictSegmentsResolution {
   let firstIndex = Math.max(0, Math.min(candidate.firstIndex, itemCount));
   let lastIndex = Math.max(firstIndex, Math.min(candidate.lastIndex, itemCount));
-  const outside = firstIndex + (itemCount - lastIndex);
+  const pending = (i: number): boolean => !ledger.has(i) || !ledger.isFresh(i);
 
-  // One pass over the rows outside the window: what is missing on each
-  // side, whether anything has a height, and the nearest stale row.
-  let anyHeight = false;
-  let missAboveFirst = -1;
-  let missAboveLast = -1;
-  let missBelowFirst = -1;
-  let missBelowLast = -1;
-  let staleAbove = -1; // the largest stale index above the window
-  let staleBelow = -1; // the smallest stale index below it
-  for (let i = 0; i < firstIndex; i += 1) {
-    if (!ledger.has(i)) {
-      if (missAboveFirst === -1) missAboveFirst = i;
-      missAboveLast = i;
-    } else {
-      anyHeight = true;
-      if (!ledger.isFresh(i)) staleAbove = i;
+  // The nearest pending row on each side of the window.
+  let above = -1;
+  for (let i = firstIndex - 1; i >= 0; i -= 1) {
+    if (pending(i)) {
+      above = i;
+      break;
     }
   }
+  let below = -1;
   for (let i = lastIndex; i < itemCount; i += 1) {
-    if (!ledger.has(i)) {
-      if (missBelowFirst === -1) missBelowFirst = i;
-      missBelowLast = i;
-    } else {
-      anyHeight = true;
-      if (staleBelow === -1 && !ledger.isFresh(i)) staleBelow = i;
+    if (pending(i)) {
+      below = i;
+      break;
     }
   }
-
-  if (outside > 0 && !anyHeight) return { kind: "suspended" };
 
   let segment: RowRun | null = null;
-  const missAbove: RowRun | null =
-    missAboveFirst === -1 ? null : { firstIndex: missAboveFirst, lastIndex: missAboveLast + 1 };
-  const missBelow: RowRun | null =
-    missBelowFirst === -1 ? null : { firstIndex: missBelowFirst, lastIndex: missBelowLast + 1 };
-
-  if (missAbove !== null && missBelow !== null) {
-    const gapAbove = firstIndex - missAbove.lastIndex;
-    const gapBelow = missBelow.firstIndex - lastIndex;
-    if (gapBelow <= gapAbove) {
-      lastIndex = missBelow.lastIndex;
-      segment = missAbove;
-    } else {
-      firstIndex = missAbove.firstIndex;
-      segment = missBelow;
-    }
-  } else if (missAbove !== null || missBelow !== null) {
-    segment = missAbove ?? missBelow;
-  } else if (staleAbove !== -1 || staleBelow !== -1) {
-    const below =
-      staleBelow !== -1 && (staleAbove === -1 || staleBelow - lastIndex <= firstIndex - 1 - staleAbove);
-    const step = below ? 1 : -1;
-    const start = below ? staleBelow : staleAbove;
+  if (above !== -1 || below !== -1) {
+    const takeBelow =
+      below !== -1 && (above === -1 || below - lastIndex <= firstIndex - 1 - above);
+    const step = takeBelow ? 1 : -1;
+    const start = takeBelow ? below : above;
     let end = start; // the last row taken, inclusive
     let rows = 1;
     let height = Math.max(0, heightFor(start));
     for (let i = start + step; i >= 0 && i < itemCount; i += step) {
-      if (!ledger.has(i) || ledger.isFresh(i)) break;
+      if (!pending(i)) break;
       if (rows >= MEASURE_SEGMENT_MAX_ROWS) break;
       const h = Math.max(0, heightFor(i));
       if (height + h > budgetPx) break;
@@ -509,7 +527,7 @@ export function resolveEvictSegments(
       rows += 1;
       end = i;
     }
-    segment = below
+    segment = takeBelow
       ? { firstIndex: start, lastIndex: end + 1 }
       : { firstIndex: end, lastIndex: start + 1 };
   }
@@ -525,4 +543,41 @@ export function resolveEvictSegments(
     }
   }
   return { kind: "evict", firstIndex, lastIndex, segment };
+}
+
+/** Where a cold window sits: the list's tail, or centred on one row. */
+export type ColdWindowAnchor = { kind: "tail" } | { kind: "row"; index: number };
+
+/**
+ * The rows a commit with no geometry renders — no viewport yet, or a list
+ * that mounts hidden with nothing previously windowed: at most
+ * {@link MEASURE_SEGMENT_MAX_ROWS} rows at the anchor, clamped into
+ * `[0, itemCount)`. Spacers stand in for the rest at ledger or estimate
+ * heights, and the next commit with geometry re-windows. A tail anchor
+ * takes the last rows; a row anchor centres on its row.
+ */
+export function coldWindow(itemCount: number, anchor: ColdWindowAnchor): RowRun {
+  const n = Math.max(0, Math.floor(itemCount));
+  const m = MEASURE_SEGMENT_MAX_ROWS;
+  if (anchor.kind === "tail") {
+    return { firstIndex: Math.max(0, n - m), lastIndex: n };
+  }
+  const first = Math.max(0, Math.min(anchor.index - Math.floor(m / 2), n - m));
+  return { firstIndex: first, lastIndex: Math.min(n, first + m) };
+}
+
+/**
+ * The `scrollTop` that puts a row's anchor line back at the scrollport top:
+ * the row's top in scroll-content coordinates (`rowTop`, leading content
+ * included) plus how far into the row the reader was (`rowOffset`), clamped
+ * into `[0, maxScrollTop]`. The one arithmetic every hold that re-lands a
+ * reader on a row shares — the list view's restore and drain targets, and
+ * the Overview's drain hold.
+ */
+export function resolveRowAnchorScrollTop(
+  rowTop: number,
+  rowOffset: number,
+  maxScrollTop: number,
+): number {
+  return Math.max(0, Math.min(rowTop + rowOffset, maxScrollTop));
 }
