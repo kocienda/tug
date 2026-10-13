@@ -120,6 +120,7 @@ import {
   snapshotRowParseCounters,
   type RowParseCountersSnapshot,
 } from "./lib/markdown/parse-counters";
+import { snapshotRenderedBarrier, type RenderedBarrierSnapshot } from "./lib/markdown/rendered-barrier";
 import { renderIncremental } from "./lib/markdown/render-incremental";
 import { isRenderedPending, isRenderedRecord } from "./lib/ingest/rendered-merge";
 import {
@@ -475,8 +476,17 @@ import {
  * `2.34.0`: adds {@link TugTestSurface.ingestHostFail}, which makes the
  * ingest Worker's host throw on a control, so a test watches the page fall
  * back to a host of its own and recover. Additive; major stays `2`.
+ *
+ * `2.35.0`: adds {@link TugTestSurface.renderedBarrier}, the counters of the
+ * page's sanitize pass over tugcast's renders, so a streaming reading can say
+ * what the second barrier cost per delta. Additive; major stays `2`.
+ *
+ * `2.36.0`: adds `recordHtml` to {@link RenderedRowFacts}: the HTML of each
+ * block a record holds, in order, as the row writes it — so a test can hold
+ * WebKit's own parse of what tugcast sent to the sanitizer's invariant.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.34.0" as const;
+export const SURFACE_VERSION = "2.36.0" as const;
 
 /**
  * Reveal outcomes in settle order, oldest first — see
@@ -495,6 +505,8 @@ export interface RenderedRowFacts {
   /** A record's facts; `null` for any other state. */
   streaming: boolean | null;
   current: boolean | null;
+  /** A record's blocks' HTML, in order, past the page's second barrier; `null` for any other state. */
+  recordHtml: string[] | null;
   /** The page's own parse of `text`: each block's `data-content-hash`. */
   pageHashes: string[];
   /** The page's own parse of `text`: its rendered text. */
@@ -1222,6 +1234,13 @@ export interface TugTestSurface {
    * ends of a window and diffs the counts.
    */
   rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] };
+
+  /**
+   * The page's sanitize pass over tugcast's renders, since launch
+   * (SURFACE_VERSION 2.35.0): emissions that carried HTML, blocks sanitized,
+   * and the time spent — total and the slowest emission.
+   */
+  renderedBarrier(): RenderedBarrierSnapshot;
 
   /**
    * Each committed assistant-text Message of `cardId`'s session, in
@@ -2721,6 +2740,10 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
     },
 
+    renderedBarrier(): RenderedBarrierSnapshot {
+      return snapshotRenderedBarrier();
+    },
+
     async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {
       const services = cardServicesStore.getServices(cardId);
       if (services === null) return null;
@@ -2744,6 +2767,9 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
               state === undefined ? "absent" : state === null ? "null" : isRenderedPending(state) ? "pending" : "record",
             streaming: isRenderedRecord(state) ? state.streaming : null,
             current: isRenderedRecord(state) ? state.current : null,
+            recordHtml: isRenderedRecord(state)
+              ? state.message.blocks.map((b) => state.message.html[b.hash] ?? "")
+              : null,
             pageHashes: [],
             pageText: "",
             el,

@@ -77,6 +77,10 @@ serial_test = "3"
 # a `"`, a newline and the rest, so a feed's path reading is proven against the
 # names git quotes rather than against ASCII.
 tugcore = { workspace = true, features = ["test-fixtures"] }
+# The sanitizer invariant reparses tugmark's output with html5ever's own
+# tokenizer rather than tugmark's scanner. Already in the tree through
+# ammonia; pinned to its version.
+html5ever = "0.40"
 
 # Feature flag for real-claude integration tests. These tests spawn a
 # real `claude` (tugcode) subprocess and must NEVER run in standard

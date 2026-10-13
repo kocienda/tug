@@ -16,12 +16,11 @@ use crate::render::RenderedBlock;
 /// The atom placeholder character.
 const ATOM_CHAR: char = '\u{fffc}';
 
-/// Elements whose text the inline-math walk never enters.
+/// Elements whose text the inline-math walk never enters. The page's walk
+/// also skips `script`, `style`, `textarea` and `title`, but this reads
+/// sanitized HTML, where the allow-list admits none of them.
 fn is_skip_tag(name: &str) -> bool {
-    matches!(
-        name,
-        "code" | "pre" | "script" | "style" | "textarea" | "title"
-    )
+    matches!(name, "code" | "pre")
 }
 
 fn has_class(attrs: &[(&str, String)], class: &str) -> bool {

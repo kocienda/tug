@@ -3,7 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; font-src 'self' data:;">
+  <!-- script-src admits no inline script by default: a handler attribute or a
+       <script> that survived the rendered-HTML sanitizers stays inert. The
+       deck's own inline scripts below are admitted by SHA-256, which
+       scripts/csp-inline-script-hashes.ts appends to this directive at
+       transform time. 'unsafe-eval' stays for one reader: the eval door
+       (`eval` in action-dispatch.ts, driven by POST /api/eval), which runs
+       arbitrary text that no hash or nonce can name; it also covers WASM
+       instantiation, so 'wasm-unsafe-eval' would add nothing. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss:; font-src 'self' data:;">
   <title>tugdeck</title>
   <!-- Bundled @font-face rules, served statically from /public so they sit
        OUTSIDE Vite's HMR module graph and are never re-registered on a hot

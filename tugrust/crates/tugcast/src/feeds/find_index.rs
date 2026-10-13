@@ -17,7 +17,9 @@
 //! itself. Either way the mounted units' texts come back too, so the page's
 //! painter can compare what was searched against what is on screen, and a
 //! unit tugcast holds no text for is reported `missing` for the page to
-//! project itself.
+//! project itself. A unit whose text hashes to the hash the page says it
+//! already holds (`known_texts`) is left out of `texts`, so a grep search
+//! re-sends only the texts that changed.
 //!
 //! Pure: the stage hands over owned text, and the answer is built on a
 //! blocking thread.
@@ -51,6 +53,8 @@ pub struct FindJob {
     pub units: Vec<(String, UnitText)>,
     /// The mounted units whose text the answer carries.
     pub mounted: Vec<(String, UnitText)>,
+    /// The text hash, decimal, of each unit's text the page holds.
+    pub known_texts: BTreeMap<String, String>,
 }
 
 /// A rendered text extracted while answering, for the stage to keep.
@@ -98,6 +102,14 @@ impl FindJob {
         let query: Vec<u16> = self.query.encode_utf16().collect();
         let mut room = self.limit as usize;
         let mounted: HashSet<String> = self.mounted.iter().map(|(unit, _)| unit.clone()).collect();
+        let known = self.known_texts;
+        // Units whose text the answer leaves out because the page holds it.
+        let mut held: HashSet<String> = HashSet::new();
+        let page_holds = |unit: &str, text: &str| {
+            known
+                .get(unit)
+                .is_some_and(|hash| *hash == tugmark::text_hash(text).to_string())
+        };
 
         for (unit, text) in self.units {
             let Some(text) = resolve(&unit, text) else {
@@ -118,16 +130,22 @@ impl FindJob {
             // A searched unit that is also mounted carries its text from
             // here, so it is never resolved twice.
             if self.options.grep || mounted.contains(&unit) {
-                texts.insert(unit, text);
+                if page_holds(&unit, &text) {
+                    held.insert(unit);
+                } else {
+                    texts.insert(unit, text);
+                }
             }
         }
         for (unit, text) in self.mounted {
-            if texts.contains_key(&unit) {
+            if texts.contains_key(&unit) || held.contains(&unit) {
                 continue;
             }
             match resolve(&unit, text) {
                 Some(text) => {
-                    texts.insert(unit, text);
+                    if !page_holds(&unit, &text) {
+                        texts.insert(unit, text);
+                    }
                 }
                 None => {
                     if !missing.contains(&unit) {
@@ -263,6 +281,7 @@ mod tests {
                 .into_iter()
                 .map(|(u, t)| (u.to_string(), t))
                 .collect(),
+            known_texts: BTreeMap::new(),
         }
     }
 
@@ -375,6 +394,36 @@ mod tests {
         let texts = texts.unwrap();
         assert_eq!(texts["a"], "alpha");
         assert_eq!(texts["b"], "beta");
+    }
+
+    #[test]
+    fn texts_the_page_holds_are_left_out() {
+        let mut asked = job(
+            opts(false, false, true),
+            vec![
+                ("a", UnitText::Ready("alpha".into())),
+                ("b", UnitText::Ready("beta".into())),
+            ],
+            vec![
+                ("b", UnitText::Ready("beta".into())),
+                ("c", UnitText::Ready("gamma".into())),
+            ],
+        );
+        asked.known_texts = BTreeMap::from([
+            // Held and unchanged: left out, searched or mounted.
+            ("b".to_string(), tugmark::text_hash("beta").to_string()),
+            ("c".to_string(), tugmark::text_hash("gamma").to_string()),
+            // Held, but the text has moved on since: sent.
+            ("a".to_string(), tugmark::text_hash("alp").to_string()),
+        ]);
+        let FindAnswer { frame, .. } = asked.answer();
+        let RenderedFrame::FindResult { texts, missing, .. } = frame else {
+            panic!()
+        };
+        let texts = texts.unwrap();
+        assert_eq!(texts.keys().collect::<Vec<_>>(), ["a"]);
+        assert_eq!(texts["a"], "alpha");
+        assert!(missing.is_empty(), "a held unit is not missing");
     }
 
     #[test]

@@ -165,6 +165,25 @@ tugmark-golden:
     cd tugrust && TUGMARK_GOLDEN_WRITE=1 cargo nextest run -p tugcast --test tugmark_drift
     cd tugdeck && bun test src/lib/markdown/__tests__/tugmark-drift.test.ts
 
+# Fuzz both sanitizers at a fresh seed (`just tugmark-fuzz 1234` repeats one).
+# tugcast's renderer and sanitizer run 200,000 cases reparsed by html5ever; the
+# page's pipeline and second barrier run `batches` runs of 1,000 reparsed by
+# jsdom, seeds `seed` upward, each in its own process because DOMPurify on
+# jsdom slows as one process ages. CI runs each once, at the fixed seed in
+# its test file. A failure names its seed and case.
+tugmark-fuzz seed="" batches="20":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    seed="{{seed}}"
+    [ -n "$seed" ] || seed=$(( (RANDOM << 15) | RANDOM ))
+    echo "tugmark-fuzz: seed $seed"
+    (cd tugrust && TUGMARK_FUZZ_SEED="$seed" TUGMARK_FUZZ_CASES=200000 cargo nextest run -p tugcast --test tugmark_invariant fuzz)
+    cd tugdeck
+    for i in $(seq 0 $(( {{batches}} - 1 ))); do
+        TUGMARK_FUZZ_SEED=$(( seed + i )) TUGMARK_FUZZ_CASES=1000 \
+            bun test src/lib/markdown/__tests__/sanitize-invariant.test.ts -t "holds the invariant over"
+    done
+
 # Capture Claude Code fixtures + capabilities snapshot (~2-3 min; real-claude)
 capture-capabilities:
     #!/usr/bin/env bash
@@ -358,7 +377,7 @@ fmt:
 # `@tug-optical-nudge:` comment saying what it corrects, which is what makes
 # the remaining ones countable. The runtime half is `at0625-type-baseline`,
 # because no stylesheet scan can see a rendered baseline.
-lint: tugplug-lint shellcheck
+lint: tugplug-lint shellcheck wasm-check
     cd tugdeck && bun run audit:visibility
     cd tugdeck && bun run audit:motion
     cd tugdeck && bun run check
@@ -419,6 +438,14 @@ ci: lint test
 # Build every WASM crate under tugdeck/crates/.
 wasm:
     scripts/build-wasm.sh
+
+# Rebuild every WASM package and fail if it differs from the committed one,
+# so a `pkg/` is always the build of its crates' source under the pinned
+# toolchain (`tugdeck/crates/rust-toolchain.toml`). A failure means the
+# rebuilt package is in the tree: commit it with the source that moved it.
+wasm-check: wasm
+    git diff --exit-code --stat -- tugdeck/crates/*/pkg
+    @untracked="$(git ls-files --others --exclude-standard -- tugdeck/crates/*/pkg)"; if [ -n "$untracked" ]; then echo "wasm-check: untracked package files:"; echo "$untracked"; exit 1; fi
 
 # Build the Mac app (with all dependencies), and run/restart it.
 #

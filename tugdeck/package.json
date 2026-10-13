@@ -59,7 +59,7 @@
     "ansi_up": "^6.0.6",
     "clsx": "^2.1.1",
     "diff-match-patch": "^1.0.5",
-    "dompurify": "^3.2.2",
+    "dompurify": "3.3.3",
     "katex": "^0.17.0",
     "linkify-element": "^4.3.3",
     "linkifyjs": "^4.3.3",

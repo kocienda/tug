@@ -32,7 +32,7 @@
 
 import { AnsiUp } from "ansi_up";
 
-import { getDOMPurify } from "../markdown/dompurify-instance";
+import { getPlainDOMPurify } from "../markdown/dompurify-instance";
 
 /**
  * DOMPurify config scoped to the `ansi_up` output vocabulary.
@@ -67,7 +67,7 @@ export function ansiToHtml(text: string): string {
   const ansiUp = new AnsiUp();
   ansiUp.use_classes = true;
   const raw = ansiUp.ansi_to_html(text);
-  const sanitized = getDOMPurify().sanitize(raw, ANSI_SANITIZE_CONFIG);
+  const sanitized = getPlainDOMPurify().sanitize(raw, ANSI_SANITIZE_CONFIG);
   // DOMPurify returns a string when the input is a string; the
   // declared `TrustedHTML | string` return type is satisfied either
   // way at the consumer site (assigned to innerHTML).

@@ -100,7 +100,8 @@ pub const FORBID_CONTENTS: &[&str] = &[
     "xmp",
 ];
 
-/// The four lists of the allow-list file.
+/// The allow-list file: its four lists, its two flags, and the shapes
+/// `class` and `id` are held to.
 #[derive(Debug)]
 pub struct AllowList {
     pub allowed_tags: Vec<String>,
@@ -109,6 +110,32 @@ pub struct AllowList {
     pub forbid_attr: Vec<String>,
     pub allow_data_attr: bool,
     pub allow_aria_attr: bool,
+    /// A `class` keeps only the tokens that open with one of these.
+    pub class_prefixes: Vec<String>,
+    /// The one shape an `id` survives in.
+    pub id_shape: IdShape,
+}
+
+/// The footnote shape: an `id` survives only on `tag` carrying `class`,
+/// and it and every `href="#…"` are moved under `prefix`, a namespace the
+/// page owns, so content can name nothing the page's own ids name.
+#[derive(Debug)]
+pub struct IdShape {
+    pub tag: String,
+    pub class: String,
+    pub prefix: String,
+}
+
+impl IdShape {
+    /// `value` under the prefix; a value already under it is left as is,
+    /// so a second sanitize (the page's barrier) changes nothing.
+    pub fn prefixed(&self, value: &str) -> String {
+        if value.starts_with(&self.prefix) {
+            value.to_string()
+        } else {
+            format!("{}{value}", self.prefix)
+        }
+    }
 }
 
 /// The allow-list file, parsed once.
@@ -134,6 +161,13 @@ pub fn allowlist() -> &'static AllowList {
                 .as_bool()
                 .unwrap_or_else(|| panic!("sanitize-allowlist.json: `{key}` is a boolean"))
         };
+        let shape = &value["ID_SHAPE"];
+        let field = |key: &str| -> String {
+            shape[key]
+                .as_str()
+                .unwrap_or_else(|| panic!("sanitize-allowlist.json: `ID_SHAPE.{key}` is a string"))
+                .to_string()
+        };
         AllowList {
             allowed_tags: list("ALLOWED_TAGS"),
             allowed_attr: list("ALLOWED_ATTR"),
@@ -141,6 +175,12 @@ pub fn allowlist() -> &'static AllowList {
             forbid_attr: list("FORBID_ATTR"),
             allow_data_attr: flag("ALLOW_DATA_ATTR"),
             allow_aria_attr: flag("ALLOW_ARIA_ATTR"),
+            class_prefixes: list("CLASS_PREFIXES"),
+            id_shape: IdShape {
+                tag: field("tag"),
+                class: field("class"),
+                prefix: field("prefix"),
+            },
         }
     })
 }
@@ -200,7 +240,9 @@ fn builder() -> &'static Builder<'static> {
 
 /// Sanitize one block's HTML to the allow-list's policy.
 pub fn sanitize(html: &str) -> String {
-    restrict_inputs(&builder().clean(&noscript_as_element(html)).to_string())
+    restrict_ids(&restrict_inputs(
+        &builder().clean(&noscript_as_element(html)).to_string(),
+    ))
 }
 
 /// `html` with every `noscript` tag renamed to `NOSCRIPT_STANDIN`, outside
@@ -213,7 +255,11 @@ pub fn sanitize(html: &str) -> String {
 /// option to turn it off, so `noscript` is raw text and `x` goes with it.
 /// Renamed to an unknown name, the element parses as DOMPurify's does.
 fn noscript_as_element(html: &str) -> Cow<'_, str> {
-    if !html.to_ascii_lowercase().contains("noscript") {
+    if !html
+        .as_bytes()
+        .windows(8)
+        .any(|w| w.eq_ignore_ascii_case(b"noscript"))
+    {
         return Cow::Borrowed(html);
     }
     let bytes = html.as_bytes();
@@ -287,7 +333,8 @@ fn js_trim(s: &str) -> &str {
 }
 
 /// DOMPurify's `ATTR_WHITESPACE`, removed from a value before
-/// `IS_ALLOWED_URI` reads it.
+/// `IS_ALLOWED_URI` reads it: the class U+0000–U+0020, U+00A0, U+1680,
+/// U+180E, U+2000–U+2029, U+205F, U+3000.
 fn is_attr_whitespace(c: char) -> bool {
     matches!(
         c,
@@ -340,7 +387,11 @@ fn breaks_out_of_xml(value: &str) -> bool {
 /// the value is trimmed, dropped if it could close an XML context, and
 /// otherwise kept only if its attribute is URI-safe, it reads as a safe
 /// URI, it is a `data:` URL on a `src`/`href` of a `DATA_URI_TAGS`
-/// element, or it is empty.
+/// element, or it is empty. Then the allow-list's shapes: a `class` keeps
+/// only its tokens in `CLASS_PREFIXES`, an `id` survives only on the
+/// footnote shape's tag and moves under its prefix, and a fragment `href`
+/// moves with it. The `id`'s class half is `restrict_ids`, which can see
+/// the element's other attributes.
 fn filter_attribute<'a>(tag: &str, name: &str, value: &'a str) -> Option<Cow<'a, str>> {
     let value = if name == "value" {
         value
@@ -358,7 +409,29 @@ fn filter_attribute<'a>(tag: &str, name: &str, value: &'a str) -> Option<Cow<'a,
             && value.starts_with("data:")
             && DATA_URI_TAGS.contains(&tag))
         || value.is_empty();
-    kept.then_some(Cow::Borrowed(value))
+    if !kept {
+        return None;
+    }
+    let list = allowlist();
+    match name {
+        "class" => {
+            let tokens: Vec<&str> = value
+                .split_ascii_whitespace()
+                .filter(|t| {
+                    list.class_prefixes
+                        .iter()
+                        .any(|p| t.starts_with(p.as_str()))
+                })
+                .collect();
+            (!tokens.is_empty()).then(|| Cow::Owned(tokens.join(" ")))
+        }
+        "id" => (tag == list.id_shape.tag).then(|| Cow::Owned(list.id_shape.prefixed(value))),
+        "href" if value.len() > 1 && value.starts_with('#') => Some(Cow::Owned(format!(
+            "#{}",
+            list.id_shape.prefixed(&value[1..])
+        ))),
+        _ => Some(Cow::Borrowed(value)),
+    }
 }
 
 /// Remove every `<input>` that is not a checkbox — the half of DOMPurify's
@@ -375,6 +448,47 @@ fn restrict_inputs(html: &str) -> String {
         {
             if attr(&attrs, "type") != Some("checkbox") {
                 cuts.push(span);
+            }
+        }
+    });
+    if cuts.is_empty() {
+        return html.to_string();
+    }
+    let mut out = String::with_capacity(html.len());
+    let mut cursor = 0;
+    for span in cuts {
+        out.push_str(&html[cursor..span.start]);
+        cursor = span.end;
+    }
+    out.push_str(&html[cursor..]);
+    out
+}
+
+/// Remove an `id` from any element that is not the footnote shape — the
+/// half of the `id` rule the attribute filter cannot see, since it needs
+/// the element's `class`. ammonia serializes each attribute as
+/// ` name="value"` with `"` escaped inside values, so ` id="` in a tag
+/// can only open the `id` attribute.
+fn restrict_ids(html: &str) -> String {
+    let shape = &allowlist().id_shape;
+    let mut cuts = Vec::new();
+    scan(html, |token| {
+        if let Token::Start { name, attrs, span } = token {
+            if attr(&attrs, "id").is_none() {
+                return;
+            }
+            let fits = name == shape.tag
+                && attr(&attrs, "class")
+                    .is_some_and(|c| c.split_ascii_whitespace().any(|t| t == shape.class));
+            if fits {
+                return;
+            }
+            let tag = &html[span.clone()];
+            if let Some(at) = tag.find(" id=\"") {
+                let open = at + " id=\"".len();
+                if let Some(len) = tag[open..].find('"') {
+                    cuts.push(span.start + at..span.start + open + len + 1);
+                }
             }
         }
     });
@@ -428,7 +542,10 @@ mod tests {
             sanitize(r#"<a href="https://example.com">x</a>"#),
             r#"<a href="https://example.com">x</a>"#
         );
-        assert_eq!(sanitize("<a href=\"#fn1\">1</a>"), "<a href=\"#fn1\">1</a>");
+        assert_eq!(
+            sanitize("<a href=\"#fn1\">1</a>"),
+            "<a href=\"#tugfn-fn1\">1</a>"
+        );
     }
 
     #[test]
@@ -494,8 +611,8 @@ mod tests {
         assert_eq!(sanitize(r#"<a href="data:text/html,x">a</a>"#), "<a>a</a>");
         assert_eq!(sanitize(r#"<img src="DATA:image/png;base64,AA">"#), "<img>");
         assert_eq!(
-            sanitize(r#"<p data-x="1" aria-label="a" id="title">a</p>"#),
-            r#"<p id="title">a</p>"#
+            sanitize(r#"<p data-x="1" aria-label="a" title="t">a</p>"#),
+            r#"<p title="t">a</p>"#
         );
         assert!(is_allowed_uri("a/b:c") && is_allowed_uri("#x") && is_allowed_uri("/x"));
         assert!(!is_allowed_uri("custom-scheme:x") && !is_allowed_uri(""));
@@ -509,7 +626,42 @@ mod tests {
         );
         assert_eq!(
             sanitize(r#"<div class="footnote-definition" id="1">x</div>"#),
-            r#"<div class="footnote-definition" id="1">x</div>"#
+            r#"<div class="footnote-definition" id="tugfn-1">x</div>"#
+        );
+    }
+
+    #[test]
+    fn class_keeps_only_the_parsers_vocabulary() {
+        assert_eq!(
+            sanitize(r#"<pre><code class="language-rust tug-syn-keyword x">a</code></pre>"#),
+            r#"<pre><code class="language-rust">a</code></pre>"#
+        );
+        assert_eq!(
+            sanitize(r#"<div class="tugx-katex">a</div>"#),
+            "<div>a</div>"
+        );
+        assert_eq!(
+            sanitize(r#"<sup class="footnote-reference">1</sup>"#),
+            r#"<sup class="footnote-reference">1</sup>"#
+        );
+    }
+
+    #[test]
+    fn id_survives_only_on_a_footnote_definition_under_the_prefix() {
+        assert_eq!(sanitize(r#"<h1 id="top">a</h1>"#), "<h1>a</h1>");
+        assert_eq!(sanitize(r#"<div id="root">a</div>"#), "<div>a</div>");
+        assert_eq!(
+            sanitize(r#"<div class="note" id="root">a</div>"#),
+            "<div>a</div>"
+        );
+        assert_eq!(
+            sanitize(r#"<div class="footnote-definition" id="tugfn-1">x</div>"#),
+            r#"<div class="footnote-definition" id="tugfn-1">x</div>"#
+        );
+        assert_eq!(sanitize(r##"<a href="#">a</a>"##), r##"<a href="#">a</a>"##);
+        assert_eq!(
+            sanitize(r##"<a href="#tugfn-1">a</a>"##),
+            r##"<a href="#tugfn-1">a</a>"##
         );
     }
 }

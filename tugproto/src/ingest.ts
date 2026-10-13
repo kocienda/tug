@@ -222,6 +222,7 @@ export interface IngestFindControl {
   limit: number;
   units: string[];
   mountedUnits: string[];
+  knownTexts?: Record<string, string>;
 }
 
 /**

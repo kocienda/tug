@@ -442,7 +442,12 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // `sanitize-allowlist.json`, the sanitizer's allow-list lifted out of
     // `dompurify-instance.ts` as data so tugcast reads the same file. Each is
     // code the subtree's declarers already drove before it moved.
-    "tugdeck/src/lib/markdown/": 22,
+    // Raised again, to 23, for `rendered-barrier.ts`, the page's sanitize
+    // pass over tugcast's renders: it runs inside the store's apply of every
+    // emission whose blocks the subtree's declarers already draw, so it is
+    // the same path with one more stage on it, not new reach. Raised in
+    // place, on the same terms as the raise to 22.
+    "tugdeck/src/lib/markdown/": 23,
 
     // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
     // ten themes, and its one declaration — `at0109`'s — boots under the base

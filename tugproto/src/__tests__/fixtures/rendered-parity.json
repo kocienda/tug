@@ -2,6 +2,7 @@
   "frames": [
     {
       "kind": "render-batch",
+      "v": 1,
       "sessions": [
         {
           "tugSessionId": "s1",
@@ -9,6 +10,9 @@
             {
               "messageKey": "m1:0",
               "channel": "text",
+              "seq": 2,
+              "baseSeq": 1,
+              "blocksFrom": 1,
               "blocks": [
                 { "hash": "12638187200555641996", "kind": "heading", "startChar": 0, "endChar": 9, "depth": 2, "itemCount": 0, "rowCount": 0 },
                 { "hash": "9113197264227342466", "kind": "paragraph", "startChar": 9, "endChar": 21, "depth": 0, "itemCount": 0, "rowCount": 0 }
@@ -38,10 +42,11 @@
     }
   ],
   "inputs": [
-    { "kind": "motion", "holder": "h1", "held": true, "capMs": 600 },
-    { "kind": "display-period", "periodMs": 8.33 },
-    { "kind": "resync", "tugSessionId": "s1" },
+    { "v": 1, "kind": "motion", "holder": "h1", "held": true, "capMs": 600 },
+    { "v": 1, "kind": "display-period", "periodMs": 8.33 },
+    { "v": 1, "kind": "resync", "tugSessionId": "s1" },
     {
+      "v": 1,
       "kind": "find",
       "requestId": "r1",
       "tugSessionId": "s1",
@@ -49,7 +54,8 @@
       "options": { "caseSensitive": false, "wholeWord": true, "grep": false },
       "limit": 500,
       "units": ["u1", "u2"],
-      "mountedUnits": ["u1"]
+      "mountedUnits": ["u1"],
+      "knownTexts": { "u2": "42" }
     }
   ]
 }

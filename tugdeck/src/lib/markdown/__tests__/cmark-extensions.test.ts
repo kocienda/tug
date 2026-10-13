@@ -71,17 +71,17 @@ describe("pulldown-cmark — footnotes", () => {
   test("inline reference renders as <sup class=\"footnote-reference\"><a href=\"#…\">", () => {
     const html = renderAll(FOOTNOTE_MD);
     expect(html).toMatch(
-      /<sup class="footnote-reference"><a href="#1">1<\/a><\/sup>/,
+      /<sup class="footnote-reference"><a href="#tugfn-1">1<\/a><\/sup>/,
     );
     expect(html).toMatch(
-      /<sup class="footnote-reference"><a href="#note">[^<]+<\/a><\/sup>/,
+      /<sup class="footnote-reference"><a href="#tugfn-note">[^<]+<\/a><\/sup>/,
     );
   });
 
   test("definition renders as <div class=\"footnote-definition\" id=\"…\">", () => {
     const html = renderAll(FOOTNOTE_MD);
-    expect(html).toMatch(/<div class="footnote-definition" id="1">/);
-    expect(html).toMatch(/<div class="footnote-definition" id="note">/);
+    expect(html).toMatch(/<div class="footnote-definition" id="tugfn-1">/);
+    expect(html).toMatch(/<div class="footnote-definition" id="tugfn-note">/);
   });
 
   test("definition-label sup with the back-reference number is preserved", () => {
@@ -94,7 +94,7 @@ describe("pulldown-cmark — footnotes", () => {
   test("definition body preserves nested inline emphasis", () => {
     const html = renderAll(FOOTNOTE_MD);
     expect(html).toMatch(
-      /footnote-definition[^>]*id="note"[\s\S]*<strong>emphasis<\/strong>/,
+      /footnote-definition[^>]*id="tugfn-note"[\s\S]*<strong>emphasis<\/strong>/,
     );
   });
 

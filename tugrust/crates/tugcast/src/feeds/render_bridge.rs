@@ -8,9 +8,10 @@
 //! `tugproto/src/__tests__/fixtures/rendered-parity.json`.
 //!
 //! A message is addressed by the wire's key for it (`message_key`). An
-//! emission carries the message's whole ordered block list but `html` only
-//! for hashes new since that message's previous emission; hashes are FNV-1a
-//! 64 as decimal strings.
+//! emission carries the message's ordered block list from the first block
+//! that changed since the message's previous emission (`blocks_from`, read
+//! against the emission numbered `base_seq`), and `html` only for hashes new
+//! since that emission; hashes are FNV-1a 64 as decimal strings.
 //!
 //! The bridge task is the impure half around [`RenderStage`]: it taps
 //! `CODE_OUTPUT` and `SESSION_STATE`, reads the deck's controls, and owns the
@@ -23,6 +24,14 @@
 //! A `find` control is answered at once and never held: the stage hands
 //! over each asked unit's text, `find_index` answers on a blocking thread,
 //! and the rendered texts it had to extract come back to the stage.
+//!
+//! Both directions carry the feed's version, [`RENDERED_FEED_VERSION`]: a
+//! `render-batch` names the version it was written at, and a control the
+//! bridge cannot read at its own version is refused. A deck's handshake
+//! asks for a resync of every message, and the bridge answers it at once
+//! with an empty `render-batch`, so a deck learns that this tugcast renders,
+//! and at which version, before any Message streams; a deck that hears no
+//! such answer draws its own.
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
@@ -83,7 +92,15 @@ pub enum RenderChannel {
 pub struct RenderedMessageWire {
     pub message_key: String,
     pub channel: RenderChannel,
-    /// The whole ordered block list.
+    /// This emission's number for the message, counting from 1.
+    pub seq: u64,
+    /// The emission `blocks` continues, when `blocks_from` is not zero: the
+    /// receiver keeps that emission's first `blocks_from` blocks and appends
+    /// `blocks`. Zero when the list is whole.
+    pub base_seq: u64,
+    /// Where `blocks` starts in the message's whole block list.
+    pub blocks_from: u32,
+    /// The ordered block list from `blocks_from` on.
     pub blocks: Vec<RenderedBlockWire>,
     /// Sanitized HTML by block hash, only for hashes new since the last
     /// emission.
@@ -110,13 +127,21 @@ pub struct FindMatch {
     pub end: u32,
 }
 
+/// The version of the `RENDERED` / `RENDER_INPUT` protocol this tugcast
+/// speaks: `RENDERED_FEED_VERSION` in `tugproto/src/rendered.ts`.
+pub const RENDERED_FEED_VERSION: u32 = 1;
+
 /// A frame on `RENDERED`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum RenderedFrame {
-    /// One tick's renders, every session's changed messages bundled.
+    /// One tick's renders, every session's changed messages bundled, at
+    /// protocol version `v`. Empty in answer to a deck's whole resync.
     #[serde(rename_all = "camelCase")]
-    RenderBatch { sessions: Vec<RenderedSessionWire> },
+    RenderBatch {
+        v: u32,
+        sessions: Vec<RenderedSessionWire>,
+    },
     /// The answer to a [`RenderInput::Find`].
     #[serde(rename_all = "camelCase")]
     FindResult {
@@ -141,6 +166,15 @@ pub struct FindOptions {
     pub case_sensitive: bool,
     pub whole_word: bool,
     pub grep: bool,
+}
+
+/// One `RENDER_INPUT` frame: a control, and the protocol version the deck
+/// wrote it at.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RenderInputFrame {
+    pub v: u32,
+    #[serde(flatten)]
+    pub control: RenderInput,
 }
 
 /// A control on `RENDER_INPUT`.
@@ -177,6 +211,11 @@ pub enum RenderInput {
         limit: u32,
         units: Vec<String>,
         mounted_units: Vec<String>,
+        /// The text hash of each unit's rendered text the page already
+        /// holds; a unit whose text still hashes the same is left out of
+        /// the answer's `texts`.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        known_texts: BTreeMap<String, String>,
     },
 }
 
@@ -225,10 +264,12 @@ impl StreamFeed for RenderBridge {
         "rendered"
     }
 
-    /// One frame per period at most, but a hold's release is a burst; a lost
-    /// frame is answered by the deck's `resync`.
+    /// One frame per period at most, but a hold's release is a burst and the
+    /// feed is uncompressed JSON; a lost frame is answered by the deck's
+    /// `resync`, which re-sends whole messages, so a deck that lags once
+    /// should not lag again for the size of the answer.
     fn channel_capacity(&self) -> usize {
-        64
+        256
     }
 
     async fn run(self: Box<Self>, tx: broadcast::Sender<Frame>, cancel: CancellationToken) {
@@ -349,9 +390,32 @@ impl Pacer {
     }
 }
 
+/// The block list of an emission that follows `earlier`, as one diff read
+/// against `earlier`'s base: the later list from `later_from` on, preceded
+/// by whatever of `earlier`'s list lies before it.
+fn compose_blocks(
+    earlier: &RenderedMessageWire,
+    later_from: u32,
+    later: Vec<RenderedBlockWire>,
+) -> (u64, u32, Vec<RenderedBlockWire>) {
+    if later_from == 0 {
+        return (0, 0, later);
+    }
+    // The later diff starts at or before the earlier one's start, so the
+    // earlier one's base holds every block it keeps.
+    if later_from <= earlier.blocks_from {
+        return (earlier.base_seq, later_from, later);
+    }
+    let keep = (later_from - earlier.blocks_from) as usize;
+    let mut blocks: Vec<RenderedBlockWire> = earlier.blocks.iter().take(keep).cloned().collect();
+    blocks.extend(later);
+    (earlier.base_seq, earlier.blocks_from, blocks)
+}
+
 /// Merge a later emission into an earlier one ([P05]): per message, the later
 /// block list and text facts win, and each block's HTML comes from the latest
-/// emission that carried it.
+/// emission that carried it. Two block-list diffs compose into one read
+/// against the earlier one's base.
 fn merge_batch(into: &mut Vec<RenderedSessionWire>, batch: Vec<RenderedSessionWire>) {
     for session in batch {
         let Some(held) = into
@@ -371,7 +435,15 @@ fn merge_batch(into: &mut Vec<RenderedSessionWire>, batch: Vec<RenderedSessionWi
                 Some(earlier) => {
                     let mut html = std::mem::take(&mut earlier.html);
                     html.extend(message.html);
-                    *earlier = RenderedMessageWire { html, ..message };
+                    let (base_seq, blocks_from, blocks) =
+                        compose_blocks(earlier, message.blocks_from, message.blocks);
+                    *earlier = RenderedMessageWire {
+                        html,
+                        base_seq,
+                        blocks_from,
+                        blocks,
+                        ..message
+                    };
                 }
             }
         }
@@ -407,6 +479,9 @@ struct Applied {
     batch: Option<Vec<RenderedSessionWire>>,
     /// A find query to answer off the loop.
     find: Option<FindJob>,
+    /// A whole resync, answered at once with an empty batch that tells the
+    /// deck this tugcast renders.
+    hello: bool,
 }
 
 /// Apply one `RENDER_INPUT` control.
@@ -416,8 +491,16 @@ fn apply_input(
     pacer: &mut Pacer,
     now: Instant,
 ) -> Applied {
-    let input: RenderInput = match serde_json::from_slice(payload) {
-        Ok(input) => input,
+    let input = match serde_json::from_slice::<RenderInputFrame>(payload) {
+        Ok(RenderInputFrame { v, control }) if v == RENDERED_FEED_VERSION => control,
+        Ok(RenderInputFrame { v, .. }) => {
+            warn!(
+                v,
+                ours = RENDERED_FEED_VERSION,
+                "RENDER_INPUT: a control at another version; refused"
+            );
+            return Applied::default();
+        }
         Err(e) => {
             warn!(error = %e, "RENDER_INPUT: malformed control");
             return Applied::default();
@@ -430,7 +513,7 @@ fn apply_input(
             cap_ms,
         } => Applied {
             batch: pacer.motion(holder, held, cap_ms, now),
-            find: None,
+            ..Applied::default()
         },
         RenderInput::DisplayPeriod { period_ms } => {
             pacer.set_period(period_ms);
@@ -441,7 +524,10 @@ fn apply_input(
             message_key,
         } => {
             stage.resync(tug_session_id.as_deref(), message_key.as_deref());
-            Applied::default()
+            Applied {
+                hello: tug_session_id.is_none() && message_key.is_none(),
+                ..Applied::default()
+            }
         }
         RenderInput::Find {
             request_id,
@@ -451,6 +537,7 @@ fn apply_input(
             limit,
             units,
             mounted_units,
+            known_texts,
         } => {
             let snapshot = |keys: Vec<String>| {
                 keys.into_iter()
@@ -463,7 +550,6 @@ fn apply_input(
             let units = snapshot(units);
             let mounted = snapshot(mounted_units);
             Applied {
-                batch: None,
                 find: Some(FindJob {
                     request_id,
                     tug_session_id,
@@ -472,14 +558,22 @@ fn apply_input(
                     limit,
                     units,
                     mounted,
+                    known_texts,
                 }),
+                ..Applied::default()
             }
         }
     }
 }
 
 fn publish(tx: &broadcast::Sender<Frame>, sessions: Vec<RenderedSessionWire>) {
-    publish_frame(tx, &RenderedFrame::RenderBatch { sessions });
+    publish_frame(
+        tx,
+        &RenderedFrame::RenderBatch {
+            v: RENDERED_FEED_VERSION,
+            sessions,
+        },
+    );
 }
 
 fn publish_frame(tx: &broadcast::Sender<Frame>, frame: &RenderedFrame) {
@@ -493,8 +587,11 @@ fn publish_frame(tx: &broadcast::Sender<Frame>, frame: &RenderedFrame) {
 }
 
 /// One broadcast receive. A lagged `CODE_OUTPUT` tap can leave a partial
-/// message short of text; its next whole frame repairs it, and until then
-/// the deck's text-hash check refuses the render.
+/// message short of text, until its next whole frame repairs it. While the
+/// Message streams, the deck draws a render of that text as it draws any
+/// render a tick behind: only a record longer than the deck's own text is
+/// refused. The deck's text-hash check refuses it once the Message is
+/// final, and the deck then parses its own text.
 fn take_frame(
     recv: Result<Frame, broadcast::error::RecvError>,
     wire: &str,
@@ -560,6 +657,9 @@ async fn render_bridge_task(
                         let applied = apply_input(&frame.payload, &mut stage, &mut pacer, Instant::now());
                         if let Some(batch) = applied.batch {
                             publish(&rendered_tx, batch);
+                        }
+                        if applied.hello {
+                            publish(&rendered_tx, Vec::new());
                         }
                         if let Some(job) = applied.find {
                             finds.spawn_blocking(move || job.answer());
@@ -654,11 +754,15 @@ mod tests {
     fn frames() -> Vec<RenderedFrame> {
         vec![
             RenderedFrame::RenderBatch {
+                v: 1,
                 sessions: vec![RenderedSessionWire {
                     tug_session_id: "s1".into(),
                     messages: vec![RenderedMessageWire {
                         message_key: "m1:0".into(),
                         channel: RenderChannel::Text,
+                        seq: 2,
+                        base_seq: 1,
+                        blocks_from: 1,
                         blocks: vec![
                             RenderedBlockWire {
                                 depth: 2,
@@ -698,8 +802,8 @@ mod tests {
         ]
     }
 
-    fn inputs() -> Vec<RenderInput> {
-        vec![
+    fn inputs() -> Vec<RenderInputFrame> {
+        let controls = vec![
             RenderInput::Motion {
                 holder: "h1".into(),
                 held: true,
@@ -722,8 +826,13 @@ mod tests {
                 limit: 500,
                 units: vec!["u1".into(), "u2".into()],
                 mounted_units: vec!["u1".into()],
+                known_texts: BTreeMap::from([("u2".to_string(), "42".to_string())]),
             },
-        ]
+        ];
+        controls
+            .into_iter()
+            .map(|control| RenderInputFrame { v: 1, control })
+            .collect()
     }
 
     #[test]
@@ -737,7 +846,8 @@ mod tests {
     #[test]
     fn inputs_parse_from_the_parity_fixture() {
         let fixture = fixture();
-        let parsed: Vec<RenderInput> = serde_json::from_value(fixture["inputs"].clone()).unwrap();
+        let parsed: Vec<RenderInputFrame> =
+            serde_json::from_value(fixture["inputs"].clone()).unwrap();
         assert_eq!(parsed, inputs());
         assert_eq!(serde_json::to_value(inputs()).unwrap(), fixture["inputs"]);
     }
@@ -751,6 +861,50 @@ mod tests {
             (wire.kind.as_str(), wire.depth, wire.end_char),
             ("heading", 1, 5)
         );
+    }
+
+    fn emission(seq: u64, base_seq: u64, from: u32, hashes: &[&str]) -> RenderedSessionWire {
+        RenderedSessionWire {
+            tug_session_id: "s1".into(),
+            messages: vec![RenderedMessageWire {
+                message_key: "m1".into(),
+                channel: RenderChannel::Text,
+                seq,
+                base_seq,
+                blocks_from: from,
+                blocks: hashes.iter().map(|h| block(h, "paragraph", 0, 0)).collect(),
+                html: BTreeMap::new(),
+                text_length: 0,
+                text_hash: "0".into(),
+            }],
+        }
+    }
+
+    fn list(batch: &[RenderedSessionWire]) -> (u64, u64, u32, Vec<String>) {
+        let m = &batch[0].messages[0];
+        let hashes = m.blocks.iter().map(|b| b.hash.clone()).collect();
+        (m.seq, m.base_seq, m.blocks_from, hashes)
+    }
+
+    #[test]
+    fn held_diffs_compose_against_the_first_ones_base() {
+        // The page holds emission 1: [a, b, c].
+        // 2 changes c to c2 and adds d; 3 changes d to d2.
+        let mut buffer = vec![emission(2, 1, 2, &["c2", "d"])];
+        merge_batch(&mut buffer, vec![emission(3, 2, 3, &["d2"])]);
+        assert_eq!(list(&buffer), (3, 1, 2, vec!["c2".into(), "d2".into()]));
+
+        // 4 reaches back before the held diff's start: its own list, base 1.
+        merge_batch(&mut buffer, vec![emission(4, 3, 1, &["b2", "c3"])]);
+        assert_eq!(list(&buffer), (4, 1, 1, vec!["b2".into(), "c3".into()]));
+
+        // A whole list replaces whatever was held.
+        merge_batch(&mut buffer, vec![emission(1, 0, 0, &["x"])]);
+        assert_eq!(list(&buffer), (1, 0, 0, vec!["x".into()]));
+
+        // A diff after a whole list stays whole.
+        merge_batch(&mut buffer, vec![emission(2, 1, 1, &["y"])]);
+        assert_eq!(list(&buffer), (2, 0, 0, vec!["x".into(), "y".into()]));
     }
 
     // ── the bridge, under a paused clock ──────────────────────────────────
@@ -769,6 +923,8 @@ mod tests {
         input_tx: mpsc::Sender<Frame>,
         frames: Published,
         finds: Arc<Mutex<Vec<RenderedFrame>>>,
+        /// Empty batches: the answers to whole resyncs.
+        hellos: Arc<Mutex<Vec<u32>>>,
         cancel: CancellationToken,
     }
 
@@ -789,10 +945,15 @@ mod tests {
             let sink = Arc::clone(&frames);
             let finds = Arc::new(Mutex::new(Vec::new()));
             let find_sink = Arc::clone(&finds);
+            let hellos = Arc::new(Mutex::new(Vec::new()));
+            let hello_sink = Arc::clone(&hellos);
             tokio::spawn(async move {
                 while let Ok(frame) = rendered_rx.recv().await {
                     match serde_json::from_slice(&frame.payload).unwrap() {
-                        RenderedFrame::RenderBatch { sessions } => {
+                        RenderedFrame::RenderBatch { v, sessions } if sessions.is_empty() => {
+                            hello_sink.lock().unwrap().push(v);
+                        }
+                        RenderedFrame::RenderBatch { sessions, .. } => {
                             sink.lock().unwrap().push((Instant::now(), sessions));
                         }
                         found @ RenderedFrame::FindResult { .. } => {
@@ -807,6 +968,7 @@ mod tests {
                 input_tx,
                 frames,
                 finds,
+                hellos,
                 cancel,
             }
         }
@@ -826,7 +988,12 @@ mod tests {
                 .unwrap();
         }
 
-        async fn control(&self, control: Value) {
+        /// Send a control, stamped at this tugcast's version unless it
+        /// carries one.
+        async fn control(&self, mut control: Value) {
+            if control.get("v").is_none() {
+                control["v"] = json!(RENDERED_FEED_VERSION);
+            }
             let bytes = serde_json::to_vec(&control).unwrap();
             self.input_tx
                 .send(Frame::new(FeedId::RENDER_INPUT, bytes))
@@ -871,6 +1038,39 @@ mod tests {
         fn drop(&mut self) {
             self.cancel.cancel();
         }
+    }
+
+    /// A deck's whole resync is answered at once with an empty batch at
+    /// this tugcast's version; a narrower one is not.
+    #[tokio::test(start_paused = true)]
+    async fn a_whole_resync_is_answered_with_the_feeds_version() {
+        let h = Harness::start();
+        h.control(json!({"kind": "resync", "tugSessionId": "s1"}))
+            .await;
+        h.wait(5).await;
+        assert!(h.hellos.lock().unwrap().is_empty());
+        h.control(json!({"kind": "resync"})).await;
+        h.wait(5).await;
+        assert_eq!(*h.hellos.lock().unwrap(), vec![RENDERED_FEED_VERSION]);
+        assert!(h.frames().is_empty());
+    }
+
+    /// A control written at a version this tugcast does not speak is
+    /// refused, as one with no version is.
+    #[tokio::test(start_paused = true)]
+    async fn a_control_at_another_version_is_refused() {
+        let h = Harness::start();
+        h.control(json!({"v": RENDERED_FEED_VERSION + 1, "kind": "resync"}))
+            .await;
+        h.wait(5).await;
+        assert!(h.hellos.lock().unwrap().is_empty());
+        let bytes = serde_json::to_vec(&json!({"kind": "resync"})).unwrap();
+        h.input_tx
+            .send(Frame::new(FeedId::RENDER_INPUT, bytes))
+            .await
+            .unwrap();
+        h.wait(5).await;
+        assert!(h.hellos.lock().unwrap().is_empty());
     }
 
     /// A find over replayed and live text alike, answered at once: the

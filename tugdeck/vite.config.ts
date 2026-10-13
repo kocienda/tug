@@ -20,6 +20,8 @@ import {
 import { fracFromAuthored, chromaFromAuthored, resolveHueAngle } from "./src/components/tugways/tugcolor";
 // The app-test reach instrumentation: only a build with TUG_APPTEST_REACH=1 carries it.
 import { tugReachPlugin } from "./scripts/babel-plugin-tug-reach";
+// script-src carries no 'unsafe-inline'; the deck's own inline scripts are admitted by hash.
+import { cspInlineScriptHashesPlugin } from "./scripts/csp-inline-script-hashes";
 
 /**
  * Vite plugin: seamless CSS hot-reload when tugcolor.ts changes.
@@ -859,6 +861,7 @@ export default (defineConfig as any)((env: any = {}) => {
       themeSaveLoadPlugin(),
       themeEditApplyPlugin(),
       capabilitiesVirtualModulePlugin(),
+      cspInlineScriptHashesPlugin(),
     ],
     css: {
       postcss: {

@@ -56,6 +56,13 @@
  * period — a resync of every message, because a fresh socket may belong to a
  * page that holds none of the HTML tugcast believes it sent.
  *
+ * tugcast answers that resync with an empty `render-batch` at its protocol
+ * version. Until one at the version this deck reads has arrived on the
+ * current socket, the host tells its engines tugcast is not rendering, and
+ * they mint no `pending` state: an older tugcast, or a newer one, leaves
+ * every row parsing its own text rather than waiting on a render that will
+ * not come. A batch at another version is dropped.
+ *
  * A session's find goes the same way: the host forwards the query on
  * `RENDER_INPUT` under the session's id and routes tugcast's `find-result`
  * back to the engine that asked, as a `find-result` patch. With the wire
@@ -64,7 +71,14 @@
  */
 
 import type { IngestPatch } from "@tugproto/ingest";
-import type { FindResultFrame, RenderInput, RenderedFrame, RenderedMessageWire } from "@tugproto/rendered";
+import {
+  RENDERED_FEED_VERSION,
+  renderInputFrame,
+  type FindResultFrame,
+  type RenderInput,
+  type RenderedFrame,
+  type RenderedMessageWire,
+} from "@tugproto/rendered";
 import { FeedId, FrameFlags } from "@/protocol";
 import { devLog } from "@/lib/dev-log-port";
 import { FALLBACK_FRAME_PERIOD_MS } from "@/lib/frame-period";
@@ -134,13 +148,13 @@ function mintHolderId(): string {
   return `holder-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
-/** The sessions of one `render-batch`, or `null` for any other frame. */
-function renderBatchSessions(
+/** One `render-batch`'s version and sessions, or `null` for any other frame. */
+function renderBatch(
   decoded: unknown,
-): ReadonlyArray<{ tugSessionId: string; messages: RenderedMessageWire[] }> | null {
+): { v: unknown; sessions: ReadonlyArray<{ tugSessionId: string; messages: RenderedMessageWire[] }> } | null {
   const frame = decoded as Partial<RenderedFrame> | null;
   if (frame === null || typeof frame !== "object" || frame.kind !== "render-batch") return null;
-  return Array.isArray(frame.sessions) ? frame.sessions : null;
+  return Array.isArray(frame.sessions) ? { v: frame.v, sessions: frame.sessions } : null;
 }
 
 /** An error as a line a log can carry across the thread boundary. */
@@ -198,6 +212,8 @@ export class IngestHost {
   private readonly engines = new Map<string, SessionEngine>();
   /** Each outstanding find, by request id, to the handle that asked. */
   private readonly pendingFinds = new Map<string, string>();
+  /** tugcast answered this socket's resync at a version this deck reads. */
+  private tugcastRenders = false;
   /** The last decoded frame of each session feed, until the wire closes. */
   private readonly sessionCache = new Map<number, unknown>();
   /** While the motion gate holds the wire: when the cap releases it. */
@@ -348,6 +364,8 @@ export class IngestHost {
         wireState: (payload) => {
           if (payload.state === "closed") {
             this.peeler.reset();
+            // The next socket's tugcast says again whether it renders.
+            this.tugcastRenders = false;
             // A session opened while the wire is down must not reduce a
             // frame from before the close ([D05]).
             this.sessionCache.clear();
@@ -439,6 +457,8 @@ export class IngestHost {
       {
         send: (feedId, payload) => this.sendForEngine(feedId, payload),
         emit: (patch) => this.emit(patch),
+        sendRenderControl: (control) => this.sendRenderControl(control),
+        tugcastRenders: () => this.tugcastRenders,
       },
     );
     this.engines.set(control.handle, engine);
@@ -498,7 +518,7 @@ export class IngestHost {
   private forwardFind(control: Extract<SessionControl, { kind: "find" }>): void {
     const engine = this.engines.get(control.handle);
     if (engine === undefined) return;
-    const { requestId, query, options, limit, units, mountedUnits } = control;
+    const { requestId, query, options, limit, units, mountedUnits, knownTexts } = control;
     if (this.options.send === undefined && this.socket?.connected !== true) {
       this.emit({
         kind: "find-result",
@@ -522,13 +542,14 @@ export class IngestHost {
       limit,
       units,
       mountedUnits,
+      ...(knownTexts !== undefined ? { knownTexts } : {}),
     });
   }
 
   /** One control to tugcast's render bridge, on the path the engines write on. */
   private sendRenderControl(control: RenderInput): void {
     if (this.options.send === undefined && this.socket?.connected !== true) return;
-    this.sendForEngine(FeedId.RENDER_INPUT, utf8Encode.encode(JSON.stringify(control)));
+    this.sendForEngine(FeedId.RENDER_INPUT, utf8Encode.encode(JSON.stringify(renderInputFrame(control))));
   }
 
   /**
@@ -555,9 +576,20 @@ export class IngestHost {
       }
       return;
     }
-    const sessions = renderBatchSessions(decoded);
-    if (sessions === null) return;
-    for (const session of sessions) {
+    const batch = renderBatch(decoded);
+    if (batch === null) return;
+    if (batch.v !== RENDERED_FEED_VERSION) {
+      if (this.tugcastRenders || batch.sessions.length === 0) {
+        devLog.warn("ingest", "tugcast renders at another protocol version; rows parse their own text", {
+          theirs: String(batch.v),
+          ours: String(RENDERED_FEED_VERSION),
+        });
+      }
+      this.tugcastRenders = false;
+      return;
+    }
+    this.tugcastRenders = true;
+    for (const session of batch.sessions) {
       for (const engine of this.engines.values()) {
         if (engine.tugSessionId !== session.tugSessionId) continue;
         try {

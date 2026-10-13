@@ -74,6 +74,7 @@ import {
   invalidateCachedParsesByPrefix,
 } from "./markdown/parse-cache";
 import { isRenderedRecord, mergeRenderedMessage } from "./ingest/rendered-merge";
+import { sanitizeRenderedHtml } from "./markdown/rendered-barrier";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { installDevLogSink } from "./dev-log-port";
 import { pathResolutionStore } from "./annotator/path-resolution";
@@ -2183,7 +2184,9 @@ export class CodeSessionStore extends Subscribable {
   /**
    * tugcast's renders: each Message's `.rendered` path, beside its `.text`.
    * A record merges into the record the path holds, so only new HTML crossed
-   * from the Worker; a pending or `null` state replaces it ([P06]).
+   * from the Worker; a pending or `null` state replaces it ([P06]). That new
+   * HTML goes through the page's own sanitize pass first, so nothing tugcast
+   * renders reaches the store, or the DOM, unread by DOMPurify.
    */
   private applyRendered(patch: SessionPatchOf<"rendered-blocks">): void {
     for (const { turnKey, messageKey, state } of patch.payload.messages) {
@@ -2191,9 +2194,10 @@ export class CodeSessionStore extends Subscribable {
       if (isRenderedRecord(state)) {
         const held = this.streamingDocument.get(path);
         const earlier = isRenderedRecord(held) ? held.message : null;
+        const later = { ...state.message, html: sanitizeRenderedHtml(state.message.html) };
         this.streamingDocument.set(
           path,
-          { ...state, message: mergeRenderedMessage(earlier, state.message) },
+          { ...state, message: mergeRenderedMessage(earlier, later) },
           STREAM_SOURCE_TAG,
         );
       } else {

@@ -78,6 +78,8 @@ The `cdylib` target is what wasm-pack consumes; the `rlib` target lets `cargo te
 2. Runs `wasm-pack build --target web --release` on each.
 3. Empties each crate's `pkg/.gitignore` so the auto-generated `**` doesn't fight our policy of tracking the built artifacts.
 
+It builds from inside `tugdeck/crates/`, so rustup reads that workspace's `rust-toolchain.toml`, and it remaps the cargo home and the local std sources out of panic locations, so a package's bytes name no machine.
+
 The Justfile recipe is one line:
 
 ```just
@@ -94,7 +96,9 @@ wasm:
 - The Tug.app build phase doesn't need a Rust toolchain at codesign time.
 - HMR doesn't pause for a multi-second Rust rebuild on a file the developer didn't touch.
 
-The cost: every `just wasm` produces fresh `pkg/` bytes (compiler-version-dependent), and `git status` will show them dirty. Re-add normally (no `-f` needed) when you want the new bytes committed; otherwise `git restore tugdeck/crates/*/pkg/` discards them.
+### The package is current with its source
+
+A package is the build of its crates' source under the pinned toolchain, and nothing else. `tugdeck/crates/rust-toolchain.toml` pins the compiler (a different rustc moves bytes in core's data tables) and names the same release as `tugrust/rust-toolchain.toml`, since tugcast links `tugmark` natively; the two move together. wasm-pack chooses the `wasm-opt` it runs, so its version moves bytes too: the packages are built with wasm-pack 0.15.0, which CI's lint job pins, and a bump moves that pin and rebuilds the packages in one commit. `just wasm-check`, in `just lint`, rebuilds every package and fails on `git diff --exit-code tugdeck/crates/*/pkg` or an untracked file there. So a change to a crate's source commits its rebuilt `pkg/` in the same commit, and a rebuild that dirties `pkg/` with no source change is a toolchain or build-script difference to find, not bytes to discard.
 
 ### Vite watcher exclusion
 

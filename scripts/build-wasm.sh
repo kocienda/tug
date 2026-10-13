@@ -58,6 +58,19 @@ if (( ${#crate_manifests[@]} == 0 )); then
     exit 0
 fi
 
+# rustup reads the toolchain pin from the working directory up, so build
+# from inside the workspace to pick up `tugdeck/crates/rust-toolchain.toml`.
+cd "$CRATES_DIR"
+
+# Panic locations in registry crates carry the absolute path of the cargo
+# home, and std's carry the sysroot's wherever `rust-src` is installed
+# (elsewhere they stay rustc's own `/rustc/<commit>`), so without these the
+# package's bytes would name the machine that built it and
+# `just wasm-check` could only pass on that one.
+RUST_SRC="$(rustc --print sysroot)/lib/rustlib/src/rust"
+RUST_COMMIT="$(rustc -vV | sed -n 's/^commit-hash: //p')"
+export RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$RUST_SRC=/rustc/$RUST_COMMIT ${RUSTFLAGS:-}"
+
 for manifest in "${crate_manifests[@]}"; do
     crate_dir="$(dirname "$manifest")"
     crate_name="$(basename "$crate_dir")"

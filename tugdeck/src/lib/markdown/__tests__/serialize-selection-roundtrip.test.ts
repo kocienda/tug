@@ -297,6 +297,15 @@ describe("round trip — inline constructs with no text node", () => {
     expectRoundTrip("A claim[^1].\n\n[^1]: The note.");
   });
 
+  // The sanitizer moves footnote ids and links under the page's prefix; the
+  // copy carries the label the author wrote, which the HTML round trip above
+  // cannot see, since the prefix is idempotent.
+  test("a footnote copies under the author's label", () => {
+    const copied = copyAll(render("A claim[^1].\n\n[^1]: The note."));
+    expect(copied).toContain("[^1]");
+    expect(copied).not.toContain("tugfn-");
+  });
+
   // [F04] `<hr>` contributed nothing, even when fully inside the range.
   test("a thematic break between paragraphs survives", () => {
     expectRoundTrip("above\n\n---\n\nbelow");

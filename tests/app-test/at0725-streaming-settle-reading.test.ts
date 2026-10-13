@@ -44,6 +44,7 @@
  * @covers tugdeck/src/lib/ingest/session-patch.ts
  * @covers tugdeck/src/lib/ingest/ingest-host.ts
  * @covers tugdeck/src/lib/markdown/parse-counters.ts
+ * @covers tugdeck/src/lib/markdown/rendered-barrier.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -170,7 +171,7 @@ async function noteRestCensus(app: App, label: string): Promise<number | null> {
   const armed = await app.evalJS<boolean>(`(() => {
     if (!window.__tugLead || !window.__tugCommits) return false;
     window.__tugLead.arm();
-    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0, ingest0: window.__tugIngest ? window.__tugIngest.tasks : null, parses0: window.__tug.rowParsesByIdentity() };
+    window.__at0725Rest = { t0: performance.now(), last: performance.now(), commits: [], capped: 0, ingest0: window.__tugIngest ? window.__tugIngest.tasks : null, parses0: window.__tug.rowParsesByIdentity(), barrier0: window.__tug.renderedBarrier() };
     return true;
   })()`);
   if (!armed) {
@@ -214,9 +215,20 @@ async function noteRestCensus(app: App, label: string): Promise<number | null> {
       const d = n - (parses0.byIdentity[id] || 0);
       if ([...live].some((p) => id.startsWith(p))) liveParses += d; else otherParses += d;
     }
+    // The page's sanitize pass over tugcast's renders, over the window: what
+    // the second barrier costs per emission that carried HTML. maxMs is the
+    // slowest emission since launch.
+    const b1 = window.__tug.renderedBarrier(), b0 = rest.barrier0, bd = b1.deltas - b0.deltas;
+    const barrier = {
+      deltasPerSec: Math.round((bd / secs) * 10) / 10,
+      blocksPerDelta: bd > 0 ? Math.round(((b1.blocks - b0.blocks) / bd) * 100) / 100 : 0,
+      msPerDelta: bd > 0 ? Math.round(((b1.totalMs - b0.totalMs) / bd) * 1000) / 1000 : 0,
+      maxMs: Math.round(b1.maxMs * 1000) / 1000,
+    };
     return JSON.stringify({
       seconds: Math.round(secs * 10) / 10,
       ingest,
+      barrier,
       rowParsesPerSec: { liveTurn: Math.round((liveParses / secs) * 10) / 10, other: Math.round((otherParses / secs) * 10) / 10, liveTurns: live.size },
       cappedSlices: rest.capped,
       commitsPerSec: Math.round((seen.length / secs) * 10) / 10,

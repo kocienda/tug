@@ -16,6 +16,7 @@ import {
   type RemoteFindRequest,
 } from "../transcript-find-engine";
 import { DEFAULT_MATCH_LIMIT, type FindOptions, type RowSegment } from "../transcript-search";
+import { textHash } from "../ingest/text-hash";
 import { rowIds } from "./helpers/segments";
 
 const settle = () => new Promise((r) => setTimeout(r, 130));
@@ -174,6 +175,37 @@ describe("TranscriptFindEngine with tugcast's find", () => {
       [0, 0, 5, 7],
     ]);
     expect(projections).toEqual([]);
+  });
+
+  test("a grep search names the texts it holds, and keeps one tugcast leaves out for the unit's new source", async () => {
+    const projections: string[] = [];
+    const fake = new FakeRemote();
+    const engine = new TranscriptFindEngine();
+    engine.setRemote(fake);
+    engine.setIndex([[remote("m1-b1", "first source", projections)]], rowIds);
+    engine.searchDidChange("a+b", GREP);
+    await settle();
+    expect(fake.requests[0]!.knownTexts).toBeUndefined();
+    await fake.answer({ texts: { "m1-b1": "xaab ab" } });
+
+    // The Message's source moved (a heading's marks, say) but its rendered
+    // text did not: tugcast leaves the text out, and the held one serves.
+    engine.setIndex([[remote("m1-b1", "second source", projections)]], rowIds);
+    engine.searchDidChange("ab", GREP);
+    await settle();
+    expect(fake.requests[1]!.knownTexts).toEqual({ "m1-b1": textHash("xaab ab") });
+    await fake.answer({});
+    expect(spans(engine)).toEqual([
+      [0, 0, 2, 4],
+      [0, 0, 5, 7],
+    ]);
+    expect(projections).toEqual([]);
+
+    // A text that did change comes back and replaces the held one.
+    engine.searchDidChange("b", GREP);
+    await settle();
+    await fake.answer({ texts: { "m1-b1": "b" } });
+    expect(spans(engine)).toEqual([[0, 0, 0, 1]]);
   });
 
   test("a gesture lands at the anchor when its answer arrives", async () => {

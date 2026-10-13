@@ -7,6 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RenderedMessageWire } from "@tugproto/rendered";
 import { chooseRenderedBlocks, mergeRenderedMessage, renderedPathFor } from "../rendered-record";
+import { expandRenderedMessage } from "@/lib/ingest/rendered-merge";
 import { textHash } from "@/lib/ingest/text-hash";
 
 function block(hash: string, start: number, end: number) {
@@ -17,6 +18,9 @@ function emission(blocks: string[], html: Record<string, string>): RenderedMessa
   return {
     messageKey: "m1-b1",
     channel: "text",
+    seq: 1,
+    baseSeq: 0,
+    blocksFrom: 0,
     blocks: blocks.map((h, i) => block(h, i * 10, i * 10 + 10)),
     html,
     textLength: blocks.length * 10,
@@ -50,39 +54,71 @@ describe("mergeRenderedMessage", () => {
     const only = emission(["1"], { "1": "<p>x</p>" });
     expect(mergeRenderedMessage(null, only)).toBe(only);
   });
+
+  test("a block-list diff is read against the record it names, and the result is whole", () => {
+    const first = emission(["1", "2"], { "1": "<p>one</p>", "2": "<p>tw</p>" });
+    const diff = { ...emission(["3"], { "3": "<p>two</p>" }), seq: 2, baseSeq: 1, blocksFrom: 1 };
+    const merged = mergeRenderedMessage(first, diff);
+    expect(merged.blocks.map((b) => b.hash)).toEqual(["1", "3"]);
+    expect([merged.seq, merged.baseSeq, merged.blocksFrom]).toEqual([2, 0, 0]);
+    expect(merged.html).toEqual({ "1": "<p>one</p>", "3": "<p>two</p>" });
+    expect(expandRenderedMessage(first, diff)?.blocks.map((b) => b.hash)).toEqual(["1", "3"]);
+  });
+
+  test("a diff off a record it does not name reads as nothing, and stays as it came", () => {
+    const first = emission(["1", "2"], {});
+    const skipped = { ...emission(["3"], {}), seq: 3, baseSeq: 2, blocksFrom: 1 };
+    expect(expandRenderedMessage(first, skipped)).toBeNull();
+    expect(expandRenderedMessage(null, skipped)).toBeNull();
+    // A base shorter than the diff's start is not its base either.
+    expect(expandRenderedMessage(first, { ...skipped, baseSeq: 1, blocksFrom: 3 })).toBeNull();
+    // Nor is a record that is itself an unread diff.
+    expect(expandRenderedMessage({ ...first, blocksFrom: 1 }, { ...skipped, baseSeq: 1 })).toBeNull();
+    expect(mergeRenderedMessage(first, skipped)).toBe(skipped);
+  });
 });
 
 describe("chooseRenderedBlocks", () => {
   const whole = emission(["7", "18446744073709551557"], { "7": "<p>a</p>", "18446744073709551557": "<p>b</p>" });
+  /** The row's text, as long as `whole` says its text is. */
+  const ROW = whole.textLength;
 
   test("absent and null parse", () => {
-    expect(chooseRenderedBlocks(undefined)).toBeNull();
-    expect(chooseRenderedBlocks(null)).toBeNull();
+    expect(chooseRenderedBlocks(undefined, ROW)).toBeNull();
+    expect(chooseRenderedBlocks(null, ROW)).toBeNull();
   });
 
   test("pending keeps the DOM as it is", () => {
-    expect(chooseRenderedBlocks({ pending: true })).toBe("keep");
+    expect(chooseRenderedBlocks({ pending: true }, ROW)).toBe("keep");
   });
 
   test("a record missing a block's HTML parses", () => {
     const partial = emission(["7", "8"], { "7": "<p>a</p>" });
-    expect(chooseRenderedBlocks({ streaming: true, current: false, message: partial })).toBeNull();
+    expect(chooseRenderedBlocks({ streaming: true, current: false, message: partial }, ROW)).toBeNull();
   });
 
   test("a finalized record draws when it is current and waits when it is not", () => {
     // The engine's finisher turns a wait that lasts into a `null`.
-    expect(chooseRenderedBlocks({ streaming: false, current: false, message: whole })).toBe("keep");
-    expect(chooseRenderedBlocks({ streaming: false, current: true, message: whole })).not.toBeNull();
+    expect(chooseRenderedBlocks({ streaming: false, current: false, message: whole }, ROW)).toBe("keep");
+    expect(chooseRenderedBlocks({ streaming: false, current: true, message: whole }, ROW)).not.toBeNull();
   });
 
   test("a streaming record draws even when it is not current", () => {
-    const blocks = chooseRenderedBlocks({ streaming: true, current: false, message: whole });
+    const blocks = chooseRenderedBlocks({ streaming: true, current: false, message: whole }, ROW);
     if (blocks === null || blocks === "keep") throw new Error("expected blocks");
     expect(blocks.map((b) => b.html)).toEqual(["<p>a</p>", "<p>b</p>"]);
     expect(blocks.map((b) => b.type)).toEqual(["paragraph", "paragraph"]);
     // The full 64 bits survive into the reconciler's hash.
     expect(blocks[1]!.contentHash).toBe(18446744073709551557n);
     expect(blocks[1]!.startChar).toBe(10);
+  });
+
+  test("a streaming record longer than the row's text parses: it renders text the page does not hold", () => {
+    expect(chooseRenderedBlocks({ streaming: true, current: false, message: whole }, ROW - 1)).toBeNull();
+    // Shorter than the row is the ordinary tick behind, and draws.
+    expect(chooseRenderedBlocks({ streaming: true, current: false, message: whole }, ROW + 5)).not.toBeNull();
+    // A finalized record is held to the text hash instead.
+    expect(chooseRenderedBlocks({ streaming: false, current: true, message: whole }, ROW - 1)).not.toBeNull();
   });
 });
 

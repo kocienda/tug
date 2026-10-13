@@ -52,13 +52,17 @@
  * projected here instead. The last answer's matches and texts are kept per
  * unit, for the source they answered, so a heal re-searches synchronously
  * without asking again, and a gesture lands when its answer arrives. A
- * remote unit whose text is not held yet is published `pending`, so the
- * painter compares it only once its text has come.
+ * request names the hash of every text it asks for that the engine already
+ * holds, and tugcast leaves out each one whose text still hashes the same,
+ * so the engine keeps its copy for the unit's new source rather than
+ * receiving it again. A remote unit whose text is not held yet is published
+ * `pending`, so the painter compares it only once its text has come.
  *
  * @module lib/transcript-find-engine
  */
 
 import type { FindResultFrame } from "@tugproto/rendered";
+import { textHash } from "./ingest/text-hash";
 import { Subscribable } from "./subscribable";
 import {
   compileQuery,
@@ -88,6 +92,8 @@ export interface RemoteFindRequest {
   units: string[];
   /** The mounted remote units whose texts the answer should carry. */
   mountedUnits: string[];
+  /** The hash of each asked unit's text the engine holds, which tugcast leaves out when still current. */
+  knownTexts?: Record<string, string>;
 }
 
 /** tugcast's find, as the session's store asks it. */
@@ -228,7 +234,7 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
   /** Each remote unit's matches, for the source and question they answered. */
   private readonly remoteMatches = new Map<string, { source: string; question: string; spans: Span[] }>();
   /** Each remote unit's rendered text, for the source it was taken from. */
-  private readonly remoteTexts = new Map<string, { source: string; text: string }>();
+  private readonly remoteTexts = new Map<string, { source: string; text: string; hash?: string }>();
   private state: TranscriptFindEngineSnapshot = {
     matches: [],
     activeIndex: -1,
@@ -402,6 +408,7 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
       this.gestureInFlight = gesture;
       const seq = ++this.requestSeq;
       const mounted = this.mountedRemoteUnits();
+      const known = this.knownTexts(options.grep ? [...units, ...mounted] : mounted);
       void remote
         .request({
           query,
@@ -409,11 +416,12 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
           limit: DEFAULT_MATCH_LIMIT,
           units: units.map((u) => u.unit),
           mountedUnits: mounted.map((u) => u.unit),
+          ...(known !== undefined ? { knownTexts: known } : {}),
         })
         .then((answer) => {
           if (seq !== this.requestSeq) return;
           this.gestureInFlight = false;
-          this.takeAnswer(query, options, answer, [...units, ...mounted]);
+          this.takeAnswer(query, options, answer, [...units, ...mounted], known);
           this.recomputeEffectiveIndex();
           this.settle(query, options, gesture);
         });
@@ -515,22 +523,31 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
    * Keep what an answer says: texts for the units it carried, and literal
    * matches for the units it searched. A unit it reports missing — and
    * every unit of an answer that never came — keeps nothing, so the next
-   * search projects it here.
+   * search projects it here. A unit whose held text the request named and
+   * the answer left out keeps that text, now for the unit's current source.
    */
   private takeAnswer(
     query: string,
     options: FindOptions,
     answer: FindResultFrame | null,
     asked: readonly RemoteUnit[],
+    known?: Readonly<Record<string, string>>,
   ): void {
     if (answer === null) return;
     const sourceOf = new Map(asked.map((u) => [u.unit, u.source]));
+    const missing = new Set(answer.missing);
+    for (const unit of Object.keys(known ?? {})) {
+      const held = this.remoteTexts.get(unit);
+      const source = sourceOf.get(unit);
+      if (held === undefined || source === undefined || missing.has(unit)) continue;
+      if (answer.texts !== undefined && unit in answer.texts) continue;
+      this.remoteTexts.set(unit, { ...held, source });
+    }
     for (const [unit, text] of Object.entries(answer.texts ?? {})) {
       const source = sourceOf.get(unit);
       if (source !== undefined) this.remoteTexts.set(unit, { source, text });
     }
     if (options.grep || answer.matches === undefined) return;
-    const missing = new Set(answer.missing);
     const question = questionKey(query, options);
     const spansOf = new Map<string, Span[]>();
     for (const match of answer.matches) {
@@ -542,6 +559,18 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
       if (missing.has(unit)) continue;
       this.remoteMatches.set(unit, { source, question, spans: spansOf.get(unit) ?? [] });
     }
+  }
+
+  /** The hash of each of `units`' texts the engine holds, or `undefined` when it holds none. */
+  private knownTexts(units: readonly RemoteUnit[]): Record<string, string> | undefined {
+    let out: Record<string, string> | undefined;
+    for (const { unit } of units) {
+      const held = this.remoteTexts.get(unit);
+      if (held === undefined) continue;
+      held.hash ??= textHash(held.text);
+      (out ??= {})[unit] = held.hash;
+    }
+    return out;
   }
 
   /** The remote units of rows `first` through `last`, in order. */
@@ -578,10 +607,18 @@ export class TranscriptFindEngine extends Subscribable implements FindEngineDele
     if (remote === null || query === "") return;
     const mounted = this.mountedRemoteUnits();
     if (mounted.length === 0) return;
+    const known = this.knownTexts(mounted);
     void remote
-      .request({ query, options, limit: 0, units: [], mountedUnits: mounted.map((u) => u.unit) })
+      .request({
+        query,
+        options,
+        limit: 0,
+        units: [],
+        mountedUnits: mounted.map((u) => u.unit),
+        ...(known !== undefined ? { knownTexts: known } : {}),
+      })
       .then((answer) => {
-        this.takeAnswer(query, options, answer, mounted);
+        this.takeAnswer(query, options, answer, mounted, known);
         // A unit tugcast holds nothing for is projected here.
         for (const unit of mounted) {
           const known = this.remoteTexts.get(unit.unit);

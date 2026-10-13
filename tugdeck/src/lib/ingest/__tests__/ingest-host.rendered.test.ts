@@ -15,11 +15,16 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { RenderedMessageWire } from "@tugproto/rendered";
+import { RENDERED_FEED_VERSION, type RenderedMessageWire } from "@tugproto/rendered";
 import type { RenderedState } from "@tugproto/ingest";
 import { InProcessIngestChannel } from "../ingest-channel";
 import { ManualClock } from "../testing/manual-clock";
-import { RENDER_FINISHER_MS } from "@/lib/code-session-store/session-engine";
+import {
+  RENDER_FINISHER_MS,
+  RENDER_RESYNC_ASKS,
+  RENDER_RESYNC_BACKOFF_MS,
+  RENDER_RESYNC_MAX_MS,
+} from "@/lib/code-session-store/session-engine";
 import type { SessionBatch } from "../session-patch";
 import { textHash } from "../text-hash";
 import { FakeWebSocket, QUIET_TIMERS, handshake, installFakeWebSocket } from "../testing/fake-websocket";
@@ -46,7 +51,11 @@ interface Wire {
   clock: ManualClock;
 }
 
-function openWire(): Wire {
+/**
+ * A host on a fake socket, handshaken. Unless `hello` is false, tugcast's
+ * answer to the handshake's resync follows: an empty batch at `helloV`.
+ */
+function openWire({ hello = true, helloV = RENDERED_FEED_VERSION }: { hello?: boolean; helloV?: number } = {}): Wire {
   const clock = new ManualClock();
   const channel = new InProcessIngestChannel({ timers: QUIET_TIMERS, sessionTimers: () => clock });
   const batches: SessionBatch[] = [];
@@ -55,6 +64,7 @@ function openWire(): Wire {
   channel.post({ kind: "connect" });
   const ws = FakeWebSocket.last!;
   handshake(ws);
+  if (hello) wire(ws, FeedId.RENDERED, { kind: "render-batch", v: helloV, sessions: [] });
   return { channel, batches, ws, clock };
 }
 
@@ -102,11 +112,14 @@ function turnComplete(ws: FakeWebSocket): void {
   wire(ws, FeedId.CODE_OUTPUT, { type: "turn_complete", tug_session_id: A, msg_id: MSG, seq: 99, result: "success" });
 }
 
-/** A render of `text` with one block per entry of `blocks`, carrying HTML for `withHtml`. */
+/** A whole render of `text` with one block per entry of `blocks`, carrying HTML for `withHtml`. */
 function render(text: string, blocks: string[], withHtml: string[] = blocks): RenderedMessageWire {
   return {
     messageKey: KEY,
     channel: "text",
+    seq: 1,
+    baseSeq: 0,
+    blocksFrom: 0,
     blocks: blocks.map((hash, i) => ({
       hash,
       kind: "paragraph",
@@ -123,7 +136,7 @@ function render(text: string, blocks: string[], withHtml: string[] = blocks): Re
 }
 
 function renderBatch(ws: FakeWebSocket, tugSessionId: string, messages: RenderedMessageWire[]): void {
-  wire(ws, FeedId.RENDERED, { kind: "render-batch", sessions: [{ tugSessionId, messages }] });
+  wire(ws, FeedId.RENDERED, { kind: "render-batch", v: RENDERED_FEED_VERSION, sessions: [{ tugSessionId, messages }] });
 }
 
 /** Every `.rendered` state the engines posted, in order. */
@@ -133,13 +146,23 @@ function states(batches: SessionBatch[]): { messageKey: string; state: RenderedS
   );
 }
 
-/** Every `RENDER_INPUT` control the host sent, decoded. */
+/** The last `.rendered` state the engines posted. */
+function lastState(batches: SessionBatch[]): RenderedState {
+  const all = states(batches);
+  return all[all.length - 1]!.state;
+}
+
+/** Every `RENDER_INPUT` control the host sent, decoded, each held to carrying the deck's version. */
 function renderInputs(ws: FakeWebSocket): Record<string, unknown>[] {
   return ws.sent
     .filter((d): d is ArrayBuffer => typeof d !== "string")
     .map((d) => decodeFrame(d))
     .filter((f) => f.feedId === FeedId.RENDER_INPUT)
-    .map((f) => JSON.parse(new TextDecoder().decode(f.payload)) as Record<string, unknown>);
+    .map((f) => {
+      const { v, ...control } = JSON.parse(new TextDecoder().decode(f.payload)) as Record<string, unknown>;
+      expect(v).toBe(RENDERED_FEED_VERSION);
+      return control;
+    });
 }
 
 describe("RENDERED routing", () => {
@@ -217,6 +240,40 @@ describe("the engine's render facts", () => {
     sendTurn(channel, `${A}#1`);
     delta(ws, "Hel", true, 0);
     expect(states(batches)).toEqual([{ turnKey: "t-1", messageKey: KEY, state: { pending: true } }] as never);
+  });
+
+  test("until tugcast answers at a version this deck reads, a live Message mints nothing and its row parses", () => {
+    for (const wire of [openWire({ hello: false }), openWire({ helloV: RENDERED_FEED_VERSION + 1 })]) {
+      const { channel, batches, ws, clock } = wire;
+      open(channel, `${A}#1`, A);
+      sendTurn(channel, `${A}#1`);
+      delta(ws, "Hel", true, 0);
+      clock.advance(10 * RENDER_FINISHER_MS);
+      // No pending, so nothing holds the row and no finisher speaks.
+      expect(states(batches)).toEqual([]);
+    }
+
+    // A render at a version this deck reads is taken even then.
+    const { channel, batches, ws } = openWire({ hello: false });
+    open(channel, `${A}#1`, A);
+    sendTurn(channel, `${A}#1`);
+    delta(ws, "Hel", true, 0);
+    renderBatch(ws, A, [render("Hel", ["1"])]);
+    expect(states(batches)).toHaveLength(1);
+    expect(lastState(batches)).toMatchObject({ streaming: true });
+  });
+
+  test("a batch at another version is dropped, and the engines told tugcast does not render", () => {
+    const { channel, batches, ws } = openWire();
+    open(channel, `${A}#1`, A);
+    sendTurn(channel, `${A}#1`);
+    wire(ws, FeedId.RENDERED, {
+      kind: "render-batch",
+      v: RENDERED_FEED_VERSION + 1,
+      sessions: [{ tugSessionId: A, messages: [render("Hel", ["1"])] }],
+    });
+    delta(ws, "Hel", true, 0);
+    expect(states(batches)).toEqual([]);
   });
 
   test("a render that beats its Message's mint is applied at the mint", () => {
@@ -359,6 +416,65 @@ describe("the engine's render facts", () => {
     renderBatch(ws, A, [render("Hel", ["1", "2"], [])]);
     expect(renderInputs(ws).filter((c) => c.messageKey !== undefined)).toHaveLength(1);
   });
+
+  test("a block-list diff is read against the last record, and the record posted whole", () => {
+    const { channel, batches, ws } = openWire();
+    open(channel, `${A}#1`, A);
+    sendTurn(channel, `${A}#1`);
+    delta(ws, "Hel", true, 0);
+    renderBatch(ws, A, [render("Hel", ["1", "2"])]);
+    renderBatch(ws, A, [{ ...render("Hello", ["3", "4"]), seq: 2, baseSeq: 1, blocksFrom: 1 }]);
+    const last = lastState(batches) as { message: RenderedMessageWire };
+    expect(last.message.blocks.map((b) => b.hash)).toEqual(["1", "3", "4"]);
+    expect(last.message.blocksFrom).toBe(0);
+    expect(renderInputs(ws).filter((c) => c.messageKey !== undefined)).toEqual([]);
+  });
+
+  test("a diff off a base the engine does not hold asks for the whole render, backing off per message", () => {
+    const { channel, batches, ws, clock } = openWire();
+    open(channel, `${A}#1`, A);
+    sendTurn(channel, `${A}#1`);
+    delta(ws, "Hel", true, 0);
+    renderBatch(ws, A, [render("Hel", ["1", "2"])]);
+    const posted = states(batches).length;
+    const asks = () => renderInputs(ws).filter((c) => c.kind === "resync" && c.messageKey === KEY).length;
+
+    // Emission 2 was lost: 3 names it as its base.
+    renderBatch(ws, A, [{ ...render("Hello", ["3"]), seq: 3, baseSeq: 2, blocksFrom: 1 }]);
+    expect(states(batches)).toHaveLength(posted);
+    expect(asks()).toBe(1);
+    // A second gap inside the wait asks nothing more.
+    renderBatch(ws, A, [{ ...render("Hello!", ["4"]), seq: 4, baseSeq: 3, blocksFrom: 1 }]);
+    expect(asks()).toBe(1);
+    // The wait doubles with each ask.
+    clock.advance(RENDER_RESYNC_BACKOFF_MS);
+    expect(asks()).toBe(2);
+    clock.advance(RENDER_RESYNC_BACKOFF_MS * 2 - 1);
+    expect(asks()).toBe(2);
+    clock.advance(1);
+    expect(asks()).toBe(3);
+    // The whole render ends the asking.
+    renderBatch(ws, A, [{ ...render("Hello!", ["1", "4"]), seq: 5 }]);
+    expect(lastState(batches)).toMatchObject({ message: { blocks: [{ hash: "1" }, { hash: "4" }] } });
+    clock.advance(RENDER_RESYNC_MAX_MS * 4);
+    expect(asks()).toBe(3);
+    // And a diff from it reads.
+    renderBatch(ws, A, [{ ...render("Hello!!", ["5"]), seq: 6, baseSeq: 5, blocksFrom: 2 }]);
+    expect(lastState(batches)).toMatchObject({
+      message: { blocks: [{ hash: "1" }, { hash: "4" }, { hash: "5" }] },
+    });
+  });
+
+  test("a Message that stays incomplete asks a bounded number of times", () => {
+    const { channel, ws, clock } = openWire();
+    open(channel, `${A}#1`, A);
+    sendTurn(channel, `${A}#1`);
+    delta(ws, "Hel", true, 0);
+    renderBatch(ws, A, [render("Hel", ["1", "2"], ["1"])]);
+    clock.advance(RENDER_RESYNC_MAX_MS * (RENDER_RESYNC_ASKS + 2));
+    const asks = renderInputs(ws).filter((c) => c.kind === "resync" && c.messageKey === KEY);
+    expect(asks).toHaveLength(RENDER_RESYNC_ASKS);
+  });
 });
 
 describe("the controls tugcast paces and holds by", () => {
@@ -388,6 +504,7 @@ describe("find through the host", () => {
     limit: 100,
     units: [KEY],
     mountedUnits: [],
+    knownTexts: { [KEY]: "42" },
   };
 
   /** Every `find-result` patch the host posted, with the handle it went to. */

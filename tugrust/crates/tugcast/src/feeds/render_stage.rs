@@ -10,16 +10,19 @@
 //! bridge's async loop waits on:
 //!
 //! 1. [`RenderStage::take_dirty`] snapshots every dirty message's text into a
-//!    [`RenderJob`] and clears the dirty marks;
-//! 2. [`RenderJob::render`] parses, sanitizes and transforms each snapshot. It
-//!    owns everything it reads, so it runs on a blocking thread while the
-//!    stage keeps ingesting;
+//!    [`RenderJob`] and clears the dirty marks, up to a tick's budget of text;
+//!    what the budget leaves stays dirty, in order, for the next tick;
+//! 2. [`RenderJob::render`] parses, sanitizes and transforms each snapshot,
+//!    the messages in parallel, so a tick costs its slowest message rather
+//!    than the sum. It owns everything it reads, so it runs on a blocking
+//!    thread while the stage keeps ingesting;
 //! 3. [`RenderStage::settle`] records what was emitted and returns the
 //!    emission, one entry per message.
 //!
-//! An emission carries the message's whole ordered block list but HTML only
-//! for hashes it had not emitted before, so the deck receives each block's
-//! HTML once.
+//! An emission carries the message's ordered block list from the first block
+//! that differs from the message's previous emission, and HTML only for
+//! hashes it had not emitted before, so the deck receives each block once.
+//! A resync forgets both, so its emission is whole.
 //!
 //! Replayed history is indexed, not rendered: inside a `replay_started` /
 //! `replay_complete` bracket a message's text is still accumulated, for find,
@@ -27,6 +30,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use rayon::prelude::*;
 use serde::Deserialize;
 
 use super::find_index::{Extracted, UnitText};
@@ -65,6 +69,11 @@ struct MessageRender {
     text: String,
     /// Hashes whose HTML has been emitted for this message.
     last_emitted: HashSet<u64>,
+    /// The block list of the last emission, which the next is a diff from;
+    /// cleared with `last_emitted`.
+    last_blocks: Vec<RenderedBlockWire>,
+    /// The number of the last emission.
+    seq: u64,
     /// Bumped whenever `last_emitted` is cleared, so a render that was in
     /// flight across a resync cannot write back the set it cleared.
     epoch: u64,
@@ -111,6 +120,11 @@ struct JobItem {
     epoch: u64,
 }
 
+/// The text one tick renders at most, summed over its messages. A message
+/// larger than the whole budget still renders, alone, so nothing waits
+/// forever; the rest wait one tick each.
+pub const TICK_BUDGET_BYTES: usize = 256 * 1024;
+
 /// Everything one render reads, owned, so it can run on another thread.
 #[derive(Debug, Default)]
 pub struct RenderJob {
@@ -138,12 +152,13 @@ impl RenderJob {
         self.items.is_empty()
     }
 
-    /// Render every snapshot. Pure and owned: the parse runs here, off the
-    /// bridge's loop ([P08]).
+    /// Render every snapshot, the messages in parallel. Pure and owned: the
+    /// parse runs here, off the bridge's loop ([P08]), and the output keeps
+    /// the job's order.
     pub fn render(self) -> RenderOutput {
         let items = self
             .items
-            .into_iter()
+            .into_par_iter()
             .map(|item| {
                 // Highlight only the blocks whose HTML this emission carries.
                 let blocks = tugmark::render_blocks_with(&item.text, |hash| {
@@ -166,6 +181,10 @@ impl RenderJob {
                     wire: RenderedMessageWire {
                         message_key: item.key,
                         channel: item.channel,
+                        // Numbered and cut to a diff by `settle`.
+                        seq: 0,
+                        base_seq: 0,
+                        blocks_from: 0,
                         blocks: blocks.iter().map(RenderedBlockWire::from).collect(),
                         html,
                         text_length: item.text.encode_utf16().count() as u32,
@@ -221,6 +240,8 @@ impl RenderStage {
                 channel,
                 text: String::new(),
                 last_emitted: HashSet::new(),
+                last_blocks: Vec::new(),
+                seq: 0,
                 epoch: 0,
                 dirty: false,
                 emitted: false,
@@ -256,10 +277,20 @@ impl RenderStage {
         !self.pending.is_empty()
     }
 
-    /// Snapshot every dirty message and clear its mark.
+    /// Snapshot dirty messages, oldest first, up to a tick's budget, and
+    /// clear their marks.
     pub fn take_dirty(&mut self) -> RenderJob {
+        self.take_dirty_within(TICK_BUDGET_BYTES)
+    }
+
+    /// Snapshot dirty messages, oldest first, until their text reaches
+    /// `budget` bytes; the first is always taken. The rest stay dirty and
+    /// pending, in their order, for the next tick.
+    pub fn take_dirty_within(&mut self, budget: usize) -> RenderJob {
         let mut items = Vec::new();
-        for (session, key) in std::mem::take(&mut self.pending) {
+        let mut spent = 0usize;
+        let mut pending = std::mem::take(&mut self.pending).into_iter();
+        for (session, key) in pending.by_ref() {
             let Some(renders) = self.sessions.get_mut(&session) else {
                 continue;
             };
@@ -269,6 +300,11 @@ impl RenderStage {
             if !message.dirty {
                 continue;
             }
+            if !items.is_empty() && spent + message.text.len() > budget {
+                self.pending.push((session, key));
+                break;
+            }
+            spent += message.text.len();
             message.dirty = false;
             items.push(JobItem {
                 text: message.text.clone(),
@@ -279,16 +315,18 @@ impl RenderStage {
                 key,
             });
         }
+        self.pending.extend(pending);
         RenderJob { items }
     }
 
     /// Record what a render emitted and return its emission, grouped by
-    /// session. A message whose session closed while it rendered is
+    /// session, each message's block list cut to a diff from the last one
+    /// emitted. A message whose session closed while it rendered is
     /// dropped; one resynced while it rendered keeps its cleared set, so its
     /// next emission still carries all its HTML.
     pub fn settle(&mut self, output: RenderOutput) -> Vec<RenderedSessionWire> {
         let mut batch: Vec<RenderedSessionWire> = Vec::new();
-        for item in output.items {
+        for mut item in output.items {
             let Some(renders) = self.sessions.get_mut(&item.session) else {
                 continue;
             };
@@ -298,6 +336,19 @@ impl RenderStage {
             if message.epoch == item.epoch {
                 message.last_emitted = item.emitted_hashes;
             }
+            let whole = std::mem::take(&mut item.wire.blocks);
+            let from = message
+                .last_blocks
+                .iter()
+                .zip(&whole)
+                .take_while(|(was, is)| was == is)
+                .count();
+            item.wire.base_seq = if from == 0 { 0 } else { message.seq };
+            item.wire.blocks_from = from as u32;
+            item.wire.blocks = whole[from..].to_vec();
+            message.last_blocks = whole;
+            message.seq += 1;
+            item.wire.seq = message.seq;
             message.emitted = true;
             // A delta that landed during the render leaves the find text
             // stale; the next render refreshes it.
@@ -317,10 +368,9 @@ impl RenderStage {
     /// Forget what was emitted for one message, one session's messages, or
     /// every message, and mark them dirty so their next emission carries
     /// all their HTML ([P07]). Only messages already emitted are re-sent: a
-    /// replayed message was never the deck's to draw from a render. Returns
-    /// true when something turned dirty.
-    pub fn resync(&mut self, session: Option<&str>, message_key: Option<&str>) -> bool {
-        let mut any = false;
+    /// replayed message was never the deck's to draw from a render. What
+    /// turned dirty is rendered at the next tick, as any dirty message is.
+    pub fn resync(&mut self, session: Option<&str>, message_key: Option<&str>) {
         for (id, renders) in &mut self.sessions {
             if session.is_some_and(|s| s != id) {
                 continue;
@@ -333,15 +383,14 @@ impl RenderStage {
                     continue;
                 }
                 message.last_emitted.clear();
+                message.last_blocks.clear();
                 message.epoch += 1;
                 if !message.dirty {
                     message.dirty = true;
                     self.pending.push((id.clone(), key.clone()));
                 }
-                any = true;
             }
         }
-        any
     }
 
     /// Drop everything held for a closed session, render and find alike.
@@ -368,6 +417,7 @@ impl RenderStage {
                     continue;
                 }
                 message.last_emitted = HashSet::new();
+                message.last_blocks = Vec::new();
                 if !message.find_stale {
                     message.text = String::new();
                 }
@@ -491,6 +541,14 @@ mod tests {
         stage.settle(job.render())
     }
 
+    /// The whole block list an emission describes, read against the one
+    /// before it, as the deck reads it.
+    fn whole(prev: &[RenderedBlockWire], wire: &RenderedMessageWire) -> Vec<RenderedBlockWire> {
+        let mut out = prev[..wire.blocks_from as usize].to_vec();
+        out.extend(wire.blocks.iter().cloned());
+        out
+    }
+
     #[test]
     fn the_key_is_the_reducers() {
         assert_eq!(wire_message_key("m1", Some(2)), "m1-b2");
@@ -579,7 +637,8 @@ mod tests {
         assert_eq!(stage.find_text("s1", "m1-b1"), Some("Restored\n"));
         assert!(matches!(stage.find_unit("s1", "nope"), UnitText::Missing));
         // A resync never renders replayed history.
-        assert!(!stage.resync(None, None));
+        stage.resync(None, None);
+        assert!(!stage.is_dirty());
 
         stage.ingest(&bracket("replay_complete", "s1"), 0);
         assert!(stage.ingest(&text("s1", "m2", false, "Live."), 0));
@@ -601,16 +660,53 @@ mod tests {
         stage.ingest(&text("s1", "m1", true, "graph.\n\nSecond"), 0);
         let second = render(&mut stage);
         let message = &second[0].messages[0];
-        assert_eq!(message.blocks.len(), 3);
-        // The heading is unchanged; the paragraph grew and the third is new.
+        // The heading is unchanged, so the list starts after it; the
+        // paragraph grew and the third is new.
+        assert_eq!(
+            (message.seq, message.base_seq, message.blocks_from),
+            (2, 1, 1)
+        );
+        assert_eq!(message.blocks.len(), 2);
+        let blocks = whole(&first[0].messages[0].blocks, message);
+        assert_eq!(blocks.len(), 3);
         assert_eq!(message.html.len(), 2);
-        assert!(!message.html.contains_key(&message.blocks[0].hash));
-        assert!(message.html.contains_key(&message.blocks[1].hash));
-        assert!(message.html.contains_key(&message.blocks[2].hash));
+        assert!(!message.html.contains_key(&blocks[0].hash));
+        assert!(message.html.contains_key(&blocks[1].hash));
+        assert!(message.html.contains_key(&blocks[2].hash));
 
         let source = "# Title\n\nFirst paragraph.\n\nSecond";
         assert_eq!(message.text_length, source.encode_utf16().count() as u32);
         assert_eq!(message.text_hash, tugmark::text_hash(source).to_string());
+    }
+
+    #[test]
+    fn the_block_list_is_a_diff_from_the_first_changed_block() {
+        let mut stage = RenderStage::new();
+        stage.ingest(&text("s1", "m1", true, "One.\n\nTwo.\n\nThree"), 0);
+        let first = render(&mut stage);
+        let one = &first[0].messages[0];
+        assert_eq!((one.seq, one.base_seq, one.blocks_from), (1, 0, 0));
+        assert_eq!(one.blocks.len(), 3);
+
+        // Only the last paragraph moves.
+        stage.ingest(&text("s1", "m1", true, " more"), 0);
+        let second = render(&mut stage);
+        let two = &second[0].messages[0];
+        assert_eq!((two.seq, two.base_seq, two.blocks_from), (2, 1, 2));
+        assert_eq!(two.blocks.len(), 1);
+
+        // A whole frame that rewrites the first block resends the list.
+        stage.ingest(&text("s1", "m1", false, "Zero.\n\nTwo.\n\nThree more"), 0);
+        let third = render(&mut stage);
+        let three = &third[0].messages[0];
+        assert_eq!((three.seq, three.base_seq, three.blocks_from), (3, 0, 0));
+        let blocks: Vec<String> = three.blocks.iter().map(|b| b.hash.clone()).collect();
+        let lone: Vec<String> =
+            tugmark::render_blocks("Zero.\n\nTwo.\n\nThree more", tugmark::Highlight::On)
+                .iter()
+                .map(|b| b.hash.to_string())
+                .collect();
+        assert_eq!(blocks, lone);
     }
 
     #[test]
@@ -634,11 +730,17 @@ mod tests {
         stage.ingest(&text("s1", "m1", false, "One.\n\nTwo."), 0);
         render(&mut stage);
         assert!(!stage.is_dirty());
-        assert!(stage.resync(Some("s1"), Some("m1-b1")));
+        stage.resync(Some("s1"), Some("m1-b1"));
+        assert!(stage.is_dirty());
         let batch = render(&mut stage);
         assert_eq!(batch[0].messages[0].html.len(), 2);
+        // And the whole block list, as a new numbering's first.
+        assert_eq!(batch[0].messages[0].blocks_from, 0);
+        assert_eq!(batch[0].messages[0].base_seq, 0);
+        assert_eq!(batch[0].messages[0].blocks.len(), 2);
         // Only the named message, and only once.
-        assert!(!stage.resync(Some("s2"), None));
+        stage.resync(Some("s2"), None);
+        assert!(!stage.is_dirty());
         assert!(render(&mut stage).is_empty());
     }
 
@@ -649,7 +751,8 @@ mod tests {
         render(&mut stage);
         stage.ingest(&text("s1", "m1", true, "\n\nTwo."), 0);
         let job = stage.take_dirty();
-        assert!(stage.resync(None, None));
+        stage.resync(None, None);
+        assert!(stage.is_dirty());
         stage.settle(job.render());
         // The settle did not write back the set the resync cleared.
         let batch = render(&mut stage);
@@ -666,6 +769,99 @@ mod tests {
         assert!(!stage.has_session("s1"));
     }
 
+    fn keys(batch: &[RenderedSessionWire]) -> Vec<String> {
+        batch
+            .iter()
+            .flat_map(|s| s.messages.iter().map(|m| m.message_key.clone()))
+            .collect()
+    }
+
+    fn tick(stage: &mut RenderStage, budget: usize) -> Vec<RenderedSessionWire> {
+        let job = stage.take_dirty_within(budget);
+        stage.settle(job.render())
+    }
+
+    #[test]
+    fn a_multi_message_batch_renders_in_parallel_as_it_would_in_turn() {
+        let mut stage = RenderStage::new();
+        let mut expected = Vec::new();
+        for i in 0..24 {
+            let session = format!("s{}", i % 3);
+            let body = format!("# Message {i}\n\n```rust\nfn f{i}() {{}}\n```\n\n- item {i}\n");
+            stage.ingest(&text(&session, &format!("m{i}"), false, &body), 0);
+            expected.push((session, format!("m{i}-b1"), body));
+        }
+        let batch = render(&mut stage);
+        // Every message, in the order it turned dirty, grouped by session.
+        let order: Vec<String> = expected.iter().map(|(_, k, _)| k.clone()).collect();
+        let mut seen = keys(&batch);
+        let mut want = order.clone();
+        seen.sort();
+        want.sort();
+        assert_eq!(seen, want);
+        for session in &batch {
+            let in_session: Vec<&String> = order
+                .iter()
+                .zip(&expected)
+                .filter(|(_, (s, _, _))| *s == session.tug_session_id)
+                .map(|(k, _)| k)
+                .collect();
+            let got: Vec<&String> = session.messages.iter().map(|m| &m.message_key).collect();
+            assert_eq!(got, in_session);
+        }
+        // Each one is what a lone render of its text makes.
+        for (session, key, body) in &expected {
+            let message = batch
+                .iter()
+                .find(|s| &s.tug_session_id == session)
+                .and_then(|s| s.messages.iter().find(|m| &m.message_key == key))
+                .unwrap();
+            let lone = tugmark::render_blocks(body, tugmark::Highlight::On);
+            let hashes: Vec<String> = lone.iter().map(|b| b.hash.to_string()).collect();
+            let wire: Vec<String> = message.blocks.iter().map(|b| b.hash.clone()).collect();
+            assert_eq!(wire, hashes, "{key}");
+            for block in &lone {
+                assert_eq!(message.html[&block.hash.to_string()], block.html, "{key}");
+            }
+            assert_eq!(
+                stage.find_text(session, key),
+                Some(tugmark::rendered_text(&lone).as_str())
+            );
+        }
+        assert!(!stage.is_dirty());
+    }
+
+    #[test]
+    fn a_tick_takes_its_budget_and_carries_the_rest_in_order() {
+        let mut stage = RenderStage::new();
+        let body = "x".repeat(100);
+        for i in 0..5 {
+            stage.ingest(&text("s1", &format!("m{i}"), false, &body), 0);
+        }
+        // 250 bytes holds two 100-byte messages; the third would pass it.
+        let first = tick(&mut stage, 250);
+        assert_eq!(keys(&first), ["m0-b1", "m1-b1"]);
+        assert!(stage.is_dirty(), "the remainder waits for the next tick");
+        // A message that turns dirty meanwhile queues behind the remainder.
+        stage.ingest(&text("s1", "m0", true, "y"), 0);
+        let second = tick(&mut stage, 250);
+        assert_eq!(keys(&second), ["m2-b1", "m3-b1"]);
+        let third = tick(&mut stage, 250);
+        assert_eq!(keys(&third), ["m4-b1", "m0-b1"]);
+        assert!(!stage.is_dirty());
+    }
+
+    #[test]
+    fn a_message_larger_than_the_budget_renders_alone() {
+        let mut stage = RenderStage::new();
+        stage.ingest(&text("s1", "big", false, &"z".repeat(500)), 0);
+        stage.ingest(&text("s1", "small", false, "s"), 0);
+        let first = tick(&mut stage, 100);
+        assert_eq!(keys(&first), ["big-b1"]);
+        let second = tick(&mut stage, 100);
+        assert_eq!(keys(&second), ["small-b1"]);
+    }
+
     #[test]
     fn the_idle_sweep_drops_render_state_and_keeps_find_text() {
         let mut stage = RenderStage::new();
@@ -678,7 +874,8 @@ mod tests {
         assert_eq!(stage.find_text("s1", "m1-b1"), Some("Old news.\n"));
         assert_eq!(stage.text("s2", "m2-b1"), Some("Fresh."));
         // A swept message is not resynced: there is nothing left to render.
-        assert!(!stage.resync(Some("s1"), None));
+        stage.resync(Some("s1"), None);
+        assert!(!stage.is_dirty());
     }
 
     /// The catalog's longest streamed turn, filled with corpus text: the
@@ -710,7 +907,15 @@ mod tests {
 
         let mut stage = RenderStage::new();
         let mut cursors: HashMap<String, usize> = HashMap::new();
-        let mut hashes: HashMap<String, Vec<String>> = HashMap::new();
+        let mut lists: HashMap<String, Vec<RenderedBlockWire>> = HashMap::new();
+        let mut take = |batch: Vec<RenderedSessionWire>| {
+            for session in batch {
+                for message in session.messages {
+                    let prev = lists.remove(&message.message_key).unwrap_or_default();
+                    lists.insert(message.message_key.clone(), whole(&prev, &message));
+                }
+            }
+        };
         let mut frames = 0;
         for line in std::fs::read_to_string(&turn).unwrap().lines() {
             let mut value: Value = serde_json::from_str(line).unwrap();
@@ -739,20 +944,14 @@ mod tests {
             frames += 1;
             // A tick every few frames, as the bridge's period would.
             if frames % 7 == 0 {
-                for session in render(&mut stage) {
-                    for message in session.messages {
-                        let list = message.blocks.iter().map(|b| b.hash.clone()).collect();
-                        hashes.insert(message.message_key, list);
-                    }
-                }
+                take(render(&mut stage));
             }
         }
-        for session in render(&mut stage) {
-            for message in session.messages {
-                let list = message.blocks.iter().map(|b| b.hash.clone()).collect();
-                hashes.insert(message.message_key, list);
-            }
-        }
+        take(render(&mut stage));
+        let hashes: HashMap<String, Vec<String>> = lists
+            .into_iter()
+            .map(|(key, list)| (key, list.into_iter().map(|b| b.hash).collect()))
+            .collect();
         assert!(frames > 50, "the turn streams ({frames} frames)");
         assert_eq!(hashes.len(), 2, "thinking and text both rendered");
         // This capture's thinking is redacted to nothing; its text is not.

@@ -437,6 +437,9 @@ describe("tugcast's renders through the Worker", () => {
     store.send("hi", []);
     await store.whenSettled();
     const msgId = FIXTURE_IDS.MSG_ID_N(1);
+    // tugcast's answer to the handshake's resync: it renders, at this version.
+    const hello = new TextEncoder().encode(JSON.stringify({ kind: "render-batch", v: 1, sessions: [] }));
+    fake!.sendBinary(new Uint8Array(encodeFrame({ feedId: FeedId.RENDERED, flags: 0, payload: hello })));
     await page.wire({
       type: "assistant_text",
       status: "partial",
@@ -453,6 +456,7 @@ describe("tugcast's renders through the Worker", () => {
 
     const batch = {
       kind: "render-batch",
+      v: 1,
       sessions: [
         {
           tugSessionId: TUG,
@@ -460,6 +464,9 @@ describe("tugcast's renders through the Worker", () => {
             {
               messageKey: `${msgId}-b1`,
               channel: "text",
+              seq: 1,
+              baseSeq: 0,
+              blocksFrom: 0,
               blocks: [{ hash: "42", kind: "paragraph", startChar: 0, endChar: 5, depth: 0, itemCount: 0, rowCount: 0 }],
               html: { "42": "<p>Hello</p>\n" },
               textLength: 5,

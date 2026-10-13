@@ -136,6 +136,20 @@ jobs:
       - name: Install just
         uses: taiki-e/install-action@just
 
+      # `just lint` runs `wasm-check`, which rebuilds every WASM package and
+      # fails if it differs from the committed one. The bytes depend on the
+      # compiler (pinned in `tugdeck/crates/rust-toolchain.toml`, with the
+      # wasm32 target) and on wasm-pack, which picks the wasm-opt it runs, so
+      # wasm-pack is pinned to the version the packages were built with.
+      - name: Install the WASM toolchain
+        run: rustup toolchain install
+        working-directory: tugdeck/crates
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.0
+
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile --cwd tugdeck

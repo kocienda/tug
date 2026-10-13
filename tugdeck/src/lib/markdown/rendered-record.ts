@@ -36,6 +36,9 @@ export {
  * - a finalized record that is not current: `"keep"`, until tugcast's
  *   render of the final text lands or the engine's finisher writes `null`;
  * - a record with a block whose HTML is missing: `null`, parse;
+ * - a streaming record longer than the row's text (`textLength` past
+ *   `rowTextLength`): `null`, parse. It renders text this page does not
+ *   hold, which a page whose own feed dropped a delta can meet;
  * - a streaming record: its blocks, even when they lag the text by a tick;
  * - a finalized, current record: its blocks.
  *
@@ -44,10 +47,14 @@ export {
  * at once would parse every finished row. The engine's finisher bounds the
  * wait.
  */
-export function chooseRenderedBlocks(state: unknown): SanitizedMarkdownBlock[] | "keep" | null {
+export function chooseRenderedBlocks(
+  state: unknown,
+  rowTextLength: number,
+): SanitizedMarkdownBlock[] | "keep" | null {
   if (isRenderedPending(state)) return "keep";
   if (!isRenderedRecord(state)) return null;
   if (!state.streaming && !state.current) return "keep";
+  if (state.streaming && state.message.textLength > rowTextLength) return null;
   const { blocks, html } = state.message;
   const out: SanitizedMarkdownBlock[] = [];
   for (const block of blocks) {

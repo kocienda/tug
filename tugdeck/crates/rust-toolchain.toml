@@ -1,0 +1,10 @@
+# The toolchain the committed WASM packages are built with. A different
+# rustc changes the bytes of `pkg/*.wasm` (core's data tables move), and
+# `just wasm-check` fails on any difference, so the pin is what lets the
+# check pass on every machine. Move it together with
+# `tugrust/rust-toolchain.toml` and rebuild the packages in the same commit.
+
+[toolchain]
+channel = "1.93.0"
+targets = ["wasm32-unknown-unknown"]
+components = ["rustfmt", "clippy"]

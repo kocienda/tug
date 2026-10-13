@@ -203,9 +203,9 @@ describe("markdown typography — representative document", () => {
   test("footnote reference + definition both render with chrome", () => {
     const html = renderAll(REPRESENTATIVE_MD);
     expect(html).toMatch(
-      /<sup class="footnote-reference"><a href="#src">[^<]+<\/a><\/sup>/,
+      /<sup class="footnote-reference"><a href="#tugfn-src">[^<]+<\/a><\/sup>/,
     );
-    expect(html).toMatch(/<div class="footnote-definition" id="src">/);
+    expect(html).toMatch(/<div class="footnote-definition" id="tugfn-src">/);
   });
 });
 

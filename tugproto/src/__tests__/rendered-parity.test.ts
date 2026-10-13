@@ -12,7 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RenderedFrame, RenderInput } from "../rendered";
+import { renderInputFrame, type RenderedFrame, type RenderInput, type RenderInputFrame } from "../rendered";
 
 const FIXTURE = JSON.parse(
   readFileSync(join(import.meta.dir, "fixtures", "rendered-parity.json"), "utf8"),
@@ -21,6 +21,7 @@ const FIXTURE = JSON.parse(
 const FRAMES: RenderedFrame[] = [
   {
     kind: "render-batch",
+    v: 1,
     sessions: [
       {
         tugSessionId: "s1",
@@ -28,6 +29,9 @@ const FRAMES: RenderedFrame[] = [
           {
             messageKey: "m1:0",
             channel: "text",
+            seq: 2,
+            baseSeq: 1,
+            blocksFrom: 1,
             blocks: [
               { hash: "12638187200555641996", kind: "heading", startChar: 0, endChar: 9, depth: 2, itemCount: 0, rowCount: 0 },
               { hash: "9113197264227342466", kind: "paragraph", startChar: 9, endChar: 21, depth: 0, itemCount: 0, rowCount: 0 },
@@ -51,7 +55,7 @@ const FRAMES: RenderedFrame[] = [
   { kind: "find-result", requestId: "r2", tugSessionId: "s1", invalid: true, missing: [] },
 ];
 
-const INPUTS: RenderInput[] = [
+const CONTROLS: RenderInput[] = [
   { kind: "motion", holder: "h1", held: true, capMs: 600 },
   { kind: "display-period", periodMs: 8.33 },
   { kind: "resync", tugSessionId: "s1" },
@@ -64,8 +68,12 @@ const INPUTS: RenderInput[] = [
     limit: 500,
     units: ["u1", "u2"],
     mountedUnits: ["u1"],
+    knownTexts: { u2: "42" },
   },
 ];
+
+/** Each control as the deck sends it, at its version. */
+const INPUTS: RenderInputFrame[] = CONTROLS.map(renderInputFrame);
 
 describe("rendered payload parity", () => {
   test("RENDERED frames match the fixture", () => {

@@ -1,3 +1,7 @@
+# tugcast links tugmark natively and the page runs it as WASM, so this pin
+# and `tugdeck/crates/rust-toolchain.toml` name the same compiler. Move
+# them together.
+
 [toolchain]
 channel = "1.93.0"
 components = ["rustfmt", "clippy"]

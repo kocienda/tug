@@ -46,6 +46,8 @@
 import { formatAtomTextForCopy } from "@/lib/atom-text";
 import { TUG_ATOM_CHAR, type AtomSegment } from "@/lib/tug-atom-img";
 
+import SANITIZE_ALLOWLIST from "./sanitize-allowlist.json";
+
 export interface Marks {
   bold?: boolean;
   italic?: boolean;
@@ -301,7 +303,7 @@ function chainNodeOf(el: Element): ChainNode | null {
   if (/^H[1-6]$/.test(tag)) return { kind: "heading", el, level: Number(tag[1]) };
   if (tag === "PRE") return { kind: "code", el, lang: langOf(el) };
   if (tag === "DIV" && el.classList.contains("footnote-definition")) {
-    return { kind: "footnote", el, label: el.getAttribute("id") ?? "" };
+    return { kind: "footnote", el, label: authorsLabel(el.getAttribute("id") ?? "") };
   }
   return null;
 }
@@ -366,8 +368,18 @@ function rangeContains(range: Range, el: Element): boolean {
 /** The `[^label]` of a footnote reference, from the link it back-references. */
 function footnoteLabel(ref: Element): string {
   const href = ref.querySelector("a")?.getAttribute("href") ?? "";
-  const fromHref = href.replace(/^#/, "");
+  const fromHref = authorsLabel(href.replace(/^#/, ""));
   return fromHref !== "" ? fromHref : (ref.textContent ?? "").trim();
+}
+
+/**
+ * A footnote label as its author wrote it: the sanitizers move every
+ * footnote id and fragment under the page's prefix (`ID_SHAPE`), which the
+ * copy takes back off.
+ */
+function authorsLabel(id: string): string {
+  const prefix = SANITIZE_ALLOWLIST.ID_SHAPE.prefix;
+  return id.startsWith(prefix) ? id.slice(prefix.length) : id;
 }
 
 /** Inline styling of a text node, from its ancestors up to the block. */

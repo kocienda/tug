@@ -45,6 +45,7 @@ const ALLOW: readonly string[] = [
   "@/lib/code-session-store/end-state",
   "@/lib/code-session-store/lifecycle-state",
   "@/lib/code-session-store/reducer",
+  "@/lib/code-session-store/render-tracker",
   "@/lib/code-session-store/select-goal",
   "@/lib/code-session-store/select-jobs",
   "@/lib/code-session-store/select-scheduled-work",

@@ -365,7 +365,7 @@ export const TugMarkdownBlock: React.FC<TugMarkdownBlockProps> = ({
       // as it came, with no parse on this thread.
       if (renderedPath !== null) {
         const state = streamingStore.get(renderedPath);
-        const chosen = chooseRenderedBlocks(state);
+        const chosen = chooseRenderedBlocks(state, text.length);
         if (chosen === "keep") return;
         if (chosen !== null) {
           renderIncrementalFromBlocks(el, chosen, annotationRef.current, fenceFromRecord);
