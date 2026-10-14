@@ -108,6 +108,18 @@
       "payload": { "advice": "close-request" }
     },
     {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "dispatch", "id": "close" }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "dispatch", "id": "set-column-mode", "payload": { "slot": 0, "mode": "split" } }
+    },
+    {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": "body",
       "kind": "deck-facts",

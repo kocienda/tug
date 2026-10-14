@@ -658,13 +658,34 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
     () => bodyCardsStore.has(props.cardId),
   );
   if (!isBody) return <CardHostImpl {...props} />;
+  return <BodyPlaceholder {...props} />;
+}
+
+/**
+ * The placeholder is the card's node in the shell's responder chain, under
+ * its pane, exactly where `CardHostImpl` registers the card's own node. The
+ * shell makes that node the first responder when it focuses the card, and a
+ * command sent to the first responder walks up from it: with no node the
+ * walk started nowhere, and a Close or a Close All sent to a body card never
+ * reached the pane that handles it. It answers no action itself — the card's
+ * responders are in the body — so everything falls through to the pane.
+ */
+function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps): React.ReactElement {
+  const { ResponderScope, responderRef } = useResponder({
+    id: cardId,
+    parentId: hostStackId,
+    actions: {},
+  });
   return (
-    <CardPortal hostStackId={props.hostStackId}>
-      <div
-        data-body-placeholder
-        data-card-id={props.cardId}
-        style={{ display: (props.isActive ?? true) ? undefined : "none" }}
-      />
+    <CardPortal hostStackId={hostStackId}>
+      <ResponderScope>
+        <div
+          ref={responderRef}
+          data-body-placeholder
+          data-card-id={cardId}
+          style={{ display: isActive ? undefined : "none" }}
+        />
+      </ResponderScope>
     </CardPortal>
   );
 }

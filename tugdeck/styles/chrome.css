@@ -281,6 +281,14 @@
   opacity: 1;
 }
 
+/* A body card's frame lays nothing over its content: the body carries all
+   three recede layers itself (`body/body-page.css`). Off, not merely clear —
+   where panes overlap, a frame beneath a body card's transparent frame
+   would otherwise paint its dim into the body's hole. */
+.tug-pane[data-body-card]::after {
+  display: none;
+}
+
 /* ---- Snap guide lines ----
  * Drawn as a 2px solid accent line (not a 1px dash) so they read clearly even
  * on the light themes, where a thin dashed accent all but vanished. z-index

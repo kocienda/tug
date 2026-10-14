@@ -8,12 +8,41 @@ import WebKit
 final class BodyHostView: NSView {
     override var isFlipped: Bool { true }
 
+    /// Put the containers in their `order`, in place. `sortSubviews` moves
+    /// nothing out of the hierarchy, so a body web view that is the window's
+    /// first responder stays it — `addSubview(_:positioned:relativeTo:)` on
+    /// a view already present removes it first, and a removal resigns the
+    /// first responder inside it to the window.
+    func sortContainers() {
+        sortSubviews({ a, b, _ in
+            let za = (a as? BodyContainerView)?.order ?? 0
+            let zb = (b as? BodyContainerView)?.order ?? 0
+            if za != zb { return za < zb ? .orderedAscending : .orderedDescending }
+            let ia = (a as? BodyContainerView)?.serial ?? 0
+            let ib = (b as? BodyContainerView)?.serial ?? 0
+            return ia < ib ? .orderedAscending : ia > ib ? .orderedDescending : .orderedSame
+        }, context: nil)
+    }
+
     /// Never a hit of its own: a point between bodies is the shell's, and a
     /// point inside a container is answered by the container's web view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
         return hit === self ? nil : hit
     }
+}
+
+/// A body's container: layer-backed, corner-clipped, carrying its stacking
+/// order and its creation serial for `BodyHostView.sortContainers`.
+final class BodyContainerView: NSView {
+    var order = 0
+    let serial: Int
+    init(serial: Int) {
+        self.serial = serial
+        super.init(frame: .zero)
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
 }
 
 /// Every body: a card's content in a WKWebView of its own, in its own
@@ -41,7 +70,7 @@ final class BodyViewController {
     final class Body {
         var cardId: String?
         let webView: ClickThroughWebView
-        let container: NSView
+        let container: BodyContainerView
         var state: State = .loading
         /// What the body is to do once bound: the deck's `BodyIntent`.
         var intent: [String: Any]?
@@ -54,6 +83,10 @@ final class BodyViewController {
         var readyMs: Double?
         /// The frame the last placement gave it, viewport coordinates.
         var frame: CGRect = .zero
+        /// The stacking order the last placement gave it: the pane's
+        /// `z-index`. Containers are kept in this order, so where two panes
+        /// overlap the body in front is the pane in front.
+        var z: Int = 0
         var visible = false
         /// Whether the first fade has run. Until it has, a hidden body is
         /// hidden by layer opacity, never `isHidden`, so WebKit keeps
@@ -62,7 +95,7 @@ final class BodyViewController {
         var deadline: DispatchWorkItem?
         var lastTermination: Date?
 
-        init(cardId: String?, webView: ClickThroughWebView, container: NSView) {
+        init(cardId: String?, webView: ClickThroughWebView, container: BodyContainerView) {
             self.cardId = cardId
             self.webView = webView
             self.container = container
@@ -91,6 +124,8 @@ final class BodyViewController {
     private var radius: CGFloat = 0
     /// The spare's pending creation, so a burst of readies makes one.
     private var pendingSpare: DispatchWorkItem?
+    /// Creation order, for a stable stacking among bodies at one z.
+    private var serials = 0
     #if DEBUG
     /// `TUG_BODY_FORCE_STALL=1` suppresses the first body's `frontendReady`,
     /// so a test can watch the deadline fail it. DEBUG-only.
@@ -188,7 +223,8 @@ final class BodyViewController {
             window?.forwardActivationClick(at: location)
         }
 
-        let container = NSView(frame: .zero)
+        serials += 1
+        let container = BodyContainerView(serial: serials)
         container.wantsLayer = true
         container.layer?.masksToBounds = true
         container.layer?.cornerRadius = radius
@@ -256,17 +292,17 @@ final class BodyViewController {
     /// placement does not name is hidden.
     func place(_ payload: [String: Any]) {
         if let r = (payload["radius"] as? NSNumber)?.doubleValue { radius = CGFloat(r) }
-        var named: [String: (CGRect, Bool)] = [:]
+        var named: [String: (CGRect, Bool, Int)] = [:]
         for entry in payload["bodies"] as? [[String: Any]] ?? [] {
             guard let cardId = entry["cardId"] as? String,
                   let frame = BodyHitRegion.rect(fromPayload: entry) else { continue }
-            named[cardId] = (frame, entry["visible"] as? Bool ?? false)
+            named[cardId] = (frame, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for body in bodies {
             body.container.layer?.cornerRadius = radius
-            guard let cardId = body.cardId, let (frame, visible) = named[cardId] else {
+            guard let cardId = body.cardId, let (frame, visible, z) = named[cardId] else {
                 body.visible = false
                 applyVisibility(body)
                 continue
@@ -274,8 +310,12 @@ final class BodyViewController {
             body.frame = frame
             body.container.frame = frame
             body.visible = visible
+            body.z = z
+            body.container.order = z
             applyVisibility(body)
         }
+        // The containers in the panes' order, back to front, moved in place.
+        hostView.sortContainers()
         CATransaction.commit()
         refreshRegion()
     }
@@ -317,7 +357,11 @@ final class BodyViewController {
     }
 
     private var visibleBodies: [Body] {
-        bodies.filter { $0.visible && $0.state == .ready }
+        // Front to back, so a point over two bodies answers the one in front.
+        bodies.enumerated()
+            .filter { $0.element.visible && $0.element.state == .ready }
+            .sorted { a, b in a.element.z != b.element.z ? a.element.z > b.element.z : a.offset > b.offset }
+            .map(\.element)
     }
 
     /// The body a viewport point passes through to, if any.
@@ -332,11 +376,23 @@ final class BodyViewController {
     /// `bodyFocus`: the named card's body takes the keyboard, or the shell
     /// does when the card has none.
     func focus(cardId: String?) {
+        keyboardCardId = cardId
         if let cardId, let body = body(forCard: cardId) {
             window.makeFirstResponder(body.webView)
         } else {
             window.focusWebView()
         }
+    }
+
+    /// The card whose body the shell last gave the keyboard to, or nil for
+    /// the shell. What the host's own focus moves — the launch reveal's —
+    /// defer to, so they do not take the keyboard back from a body.
+    private(set) var keyboardCardId: String?
+
+    /// Give the keyboard to whoever the shell last named: that card's
+    /// body, or the shell.
+    func focusKeyboardOwner() {
+        focus(cardId: keyboardCardId)
     }
 
     // MARK: - Teardown
@@ -497,6 +553,8 @@ final class BodyViewController {
                     "width": body.frame.width, "height": body.frame.height,
                 ],
                 "visible": body.visible && body.state == .ready,
+                "z": body.z,
+                "firstResponder": window.firstResponder === body.webView,
                 "start": body.warm ? "warm" : "cold",
                 "readyMs": body.readyMs ?? NSNull(),
                 "opacity": Double(body.container.layer?.presentation()?.opacity

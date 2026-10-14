@@ -42,7 +42,7 @@ import { SheetLifecycle, registerSheetLifecycle } from "../lib/sheet-lifecycle";
 import { BannerLifecycle, registerBannerLifecycle } from "../lib/banner-lifecycle";
 import { installLifecycleCascade } from "../lib/lifecycle-cascade";
 import { dispatchAction, registerAction, registerEvalAction } from "../action-dispatch";
-import { dispatchCommand } from "../command-dispatch";
+import { dispatchCommand, setUnhandledCommandFallback } from "../command-dispatch";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { cardSessionBindingStore } from "../lib/card-session-binding-store";
 import { cardServicesStore } from "../lib/card-services-store";
@@ -62,6 +62,7 @@ import { pageZoomStore } from "../lib/page-zoom-store";
 import { initMotionObserver } from "../lib/scale-timing";
 import { initBodyHostMenuState } from "../lib/host-menu-state";
 import { scheduleAfterPaint } from "../lib/after-paint";
+import { setKeyboardYield } from "../lib/keyboard-yield";
 import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
 import { onBus, sendBus } from "../lib/deck-bus";
 import { registerSessionCard } from "../components/tugways/cards/session-card-registration";
@@ -109,6 +110,10 @@ installDomForensics();
 installGestureScope(window);
 followShellTheme();
 document.documentElement.setAttribute("data-body-page", "");
+// A body that is not the key card never focuses anything: a DOM focus
+// asks the window to make this web view the first responder, which would
+// take the keyboard from the page that has it. Until bound, that is always.
+setKeyboardYield(() => true);
 
 const named = new URLSearchParams(window.location.search).get("body");
 const isSpare = named === "spare";
@@ -225,6 +230,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   });
   registerDeckStore(bridge);
   registerCardLifecycle(bridge.cardLifecycle);
+  setKeyboardYield(() => bridge.getFirstResponderCardId() !== cardId);
   const appLifecycle = new AppLifecycle();
   registerAppLifecycle(appLifecycle);
   const sheetLifecycle = new SheetLifecycle();
@@ -245,6 +251,16 @@ async function bindBody(bind: BodyBind): Promise<void> {
     }),
   );
   cardServicesStore.attachBody();
+  // What this page's chain does not answer — a chord its funnel matched
+  // for the deck, a close the pane handles — is the shell's: it dispatches
+  // in its own chain, where the pane and the deck stand.
+  setUnhandledCommandFallback((entry, payload) => {
+    sendBus(connection, "shell", {
+      kind: "card-advice",
+      payload: { advice: "dispatch", id: entry.id, ...(payload !== undefined ? { payload } : {}) },
+    });
+    return true;
+  });
   // The session set follows the card's binding: a rotation seats a new segment.
   cardSessionBindingStore.subscribe(() => {
     const binding = cardSessionBindingStore.getBinding(cardId);

@@ -1250,6 +1250,10 @@ export interface BodyViewSnapshot {
   frame: { x: number; y: number; width: number; height: number };
   /** Placed visible and ready — what the user can see. */
   visible: boolean;
+  /** The pane's stacking order the last placement gave it. */
+  z: number;
+  /** Whether the body's web view is the window's first responder: it has the keyboard. */
+  firstResponder: boolean;
   /** The container's presented opacity (mid-fade reads between 0 and 1). */
   opacity: number;
   /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */

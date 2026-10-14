@@ -32,7 +32,8 @@ import type { TugConnection } from "../connection";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { DeckState } from "../layout-tree";
 import { getResponderChainManager } from "../action-registry";
-import { setKeyCardForwarder } from "../command-dispatch";
+import { dispatchCommand, setKeyCardForwarder } from "../command-dispatch";
+import { setKeyboardYield } from "./keyboard-yield";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { keyboardAccessStore } from "../keyboard-access-store";
@@ -262,6 +263,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         if (paneId !== null) deck.removeCard(paneId, cardId);
         return;
       }
+      case "dispatch":
+        // The body's chain did not answer it; this one does, and never
+        // forwards it back ([P04]: one front door, routed by the entry).
+        dispatchCommand(advice.id, advice.payload, { local: true });
+        return;
     }
   };
 
@@ -323,26 +329,59 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   // ---- Menu commands bound for the key card ----
 
+  /** Whether a shell surface holds the chain ahead of the deck's first-responder card. */
+  const shellAheadNow = (): boolean => {
+    const firstResponderCardId = deck.getFirstResponderCardId();
+    const manager = getResponderChainManager();
+    if (manager === null) return false;
+    const paneId =
+      firstResponderCardId === null ? null : paneOf(deck.getSnapshot(), firstResponderCardId);
+    return shellSurfaceAhead({
+      responder: manager.getFirstResponder() ?? null,
+      paneId,
+      cardId: firstResponderCardId,
+      isWithin: (id, ancestorId) => manager.nodeIsWithin(id, ancestorId),
+    });
+  };
+
+  // ---- The keyboard is the body's while its card is the first responder ----
+  //
+  // A page that focuses a DOM element asks the window to make its web view
+  // the first responder, so the shell parking its key sink would take the
+  // keyboard from the body every time. While a body card is the deck's
+  // first responder and no shell surface holds the chain ahead of it, the
+  // shell parks nothing and, asked to, hands the keyboard to the body again.
+  releases.push(
+    setKeyboardYield(
+      () => {
+        const fr = deck.getFirstResponderCardId();
+        return fr !== null && bodyCardsStore.has(fr) && !shellAheadNow();
+      },
+      () => postFocus(true),
+    ),
+  );
+  // A pointer gesture in the shell makes the shell's web view the first
+  // responder whether or not the deck's first responder changed — a click
+  // on the key card's own title bar changes nothing in the deck, so the
+  // subscription above posts nothing. After the gesture lands, the keyboard
+  // goes back to the body if the shell has yielded it.
+  const onShellPointerUp = (): void => {
+    window.setTimeout(() => {
+      const fr = deck.getFirstResponderCardId();
+      if (fr !== null && bodyCardsStore.has(fr) && !shellAheadNow()) postFocus(true);
+    }, 0);
+  };
+  window.addEventListener("pointerup", onShellPointerUp, true);
+  releases.push(() => window.removeEventListener("pointerup", onShellPointerUp, true));
+
   releases.push(
     setKeyCardForwarder((entry, payload) => {
       const firstResponderCardId = deck.getFirstResponderCardId();
-      const manager = getResponderChainManager();
-      const responder = manager?.getFirstResponder() ?? null;
-      const paneId =
-        firstResponderCardId === null ? null : paneOf(deck.getSnapshot(), firstResponderCardId);
-      const shellResponderAhead =
-        manager !== null &&
-        shellSurfaceAhead({
-          responder,
-          paneId,
-          cardId: firstResponderCardId,
-          isWithin: (id, ancestorId) => manager.nodeIsWithin(id, ancestorId),
-        });
       const target = bodyCommandRoute({
         routing: entry.routing,
         firstResponderCardId,
         isBodyCard: bodyCardsStore.has,
-        shellResponderAhead,
+        shellResponderAhead: shellAheadNow(),
       });
       if (target === null) return false;
       sendBus(

@@ -60,6 +60,7 @@ import { mark as perfMark } from "@/lib/perf-marks";
 import { isFocusDestination } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { TrackedMark } from "./focus-marks";
+import { keyboardYielded, noteKeyboardYield } from "@/lib/keyboard-yield";
 
 /**
  * The behavior a key-view component declares to the engine ([P01]): the pure
@@ -1182,14 +1183,14 @@ export class FocusContext {
     // commit can drop focus to body in WebKit — when the resolved element
     // already holds focus, the placement is already true.
     if (intrinsicallyFocusable || hasFocusableTabIndex) {
-      if (document.activeElement !== el) el.focus({ preventScroll: true });
+      if (document.activeElement !== el && !keyboardYielded()) el.focus({ preventScroll: true });
       return true;
     }
     const tabbable = el.querySelector<HTMLElement>(
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
     );
     if (tabbable) {
-      if (document.activeElement !== tabbable) {
+      if (document.activeElement !== tabbable && !keyboardYielded()) {
         tabbable.focus({ preventScroll: true });
       }
       return true;
@@ -3031,6 +3032,15 @@ export class FocusManager extends Subscribable {
    */
   parkKeySink(): boolean {
     if (typeof document === "undefined") return false;
+    // A page that has yielded the keyboard parks nothing: the sink's
+    // `focus()` would ask the window to make this web view the first
+    // responder, taking the keys from the page that holds them. The park
+    // counts as landed — keys route from the engine's target regardless —
+    // and the page that owns the keyboard is asked to take them again.
+    if (keyboardYielded()) {
+      noteKeyboardYield();
+      return true;
+    }
     const sinks = document.querySelectorAll<HTMLElement>(
       `[${KEY_SINK_ATTRIBUTE}]`,
     );
@@ -3105,6 +3115,7 @@ export class FocusManager extends Subscribable {
       el.setAttribute("tabindex", "-1");
       this.mirroredTabindexEl = el;
     }
+    if (keyboardYielded()) return true;
     el.focus({ preventScroll: true });
     return document.activeElement === el;
   }

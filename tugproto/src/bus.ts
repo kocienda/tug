@@ -79,7 +79,13 @@ export type CardAdvice =
   | { advice: "sheet-reservation"; heightPx: number | null }
   | { advice: "opening-bid"; heightPx: number | null }
   | { advice: "activate" }
-  | { advice: "close-request" };
+  | { advice: "close-request" }
+  /**
+   * A command the body's own chain did not handle — a chord its funnel
+   * matched, or a `dispatch` the shell forwarded — handed to the shell to
+   * dispatch in its own chain, where the pane and the deck answer.
+   */
+  | { advice: "dispatch"; id: string; payload?: Record<string, unknown> };
 
 /** `deck-facts`: what the chrome tells every card about the deck. */
 export interface DeckFacts {

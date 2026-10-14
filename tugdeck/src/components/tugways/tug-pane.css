@@ -1813,6 +1813,17 @@ body {
   inset: 0;
 }
 
+/* The recede's two layers blend into the page's own backdrop, and under a
+   body card that backdrop is a hole: `multiply` or `screen` over nothing
+   paints the wash colour itself, lightening the body instead of dimming it,
+   and bullseye's full-strength wash would cover it. So the shell lays
+   neither over a body card; the body carries the recede itself
+   (`body/body-page.css`), keyed on the facts the shell sends it. */
+.tug-pane[data-body-card] .tug-pane-chrome::before,
+.tug-pane[data-body-card] .tug-pane-chrome::after {
+  display: none;
+}
+
 /*
  * For the length of a still crossing, the content box is a CLIP.
  *

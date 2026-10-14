@@ -1879,7 +1879,14 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         webView.layer?.opacity = 1
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            self.makeFirstResponder(self.webView)
+            // The shell, unless the deck has already given a body the
+            // keyboard — a restore can hand a card to a body before this
+            // fires, and the shell taking it back would strand the keys.
+            if let bodies = self.bodies {
+                bodies.focusKeyboardOwner()
+            } else {
+                self.makeFirstResponder(self.webView)
+            }
             // Remove the startup spinner after the WebView is fully revealed.
             self.spinnerView?.removeFromSuperview()
             self.spinnerView = nil

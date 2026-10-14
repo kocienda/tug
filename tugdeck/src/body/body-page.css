@@ -22,3 +22,55 @@ html[data-body-page] #deck-container {
   display: flex;
   flex-direction: column;
 }
+
+/* The recede a shell pane wears when it is not the focused one — the two
+   layers `.tug-pane-chrome::before/::after` carry in `tug-pane.css`, from
+   the same tokens. The shell cannot lay them over a body card: they blend
+   into the page's backdrop, and under a body the backdrop is a hole. So the
+   body wears them itself, keyed on the focus the shell tells it
+   (`data-focused`, written by `BodyPane`). The bullseye deepening is not
+   carried here yet: the body is not told of it. */
+.body-pane-root::before,
+.body-pane-root::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.body-pane-root::before {
+  background-color: var(--tugx-pane-content-dim-desat-color);
+  mix-blend-mode: saturation;
+  z-index: 10;
+}
+
+.body-pane-root::after {
+  background-color: var(--tugx-pane-content-dim-wash-color);
+  mix-blend-mode: var(--tugx-pane-content-dim-wash-blend);
+  z-index: 11;
+}
+
+.body-pane-root:not([data-focused="true"])::before {
+  opacity: var(--tugx-pane-content-dim-desat-amount);
+}
+
+.body-pane-root:not([data-focused="true"])::after {
+  opacity: var(--tugx-pane-content-dim-wash-amount);
+}
+
+/* The frame dim — the third recede layer (`styles/chrome.css`), on the
+   frame, which carries the same `data-focused`. */
+.body-pane-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--tugx-pane-dim-overlay);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 12;
+}
+
+.body-pane-frame:not([data-focused="true"])::after {
+  opacity: 1;
+}

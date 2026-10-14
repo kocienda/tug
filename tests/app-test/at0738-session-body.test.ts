@@ -38,7 +38,9 @@
  * transcript for the card, the shell's masthead dot reads working during the
  * turn and idle after (from the body's `card-facts`), tugcast lists one body
  * page for the card subscribed to its session alone, and the composited
- * window shows the body's paint in its rect. The history and Changes sheets
+ * window's rect is filled by the body's own pane surface — its commonest
+ * colour, not an ink share, which the shell's grid would satisfy through an
+ * empty placeholder. The history and Changes sheets
  * are opened in the body through the shell's menu path, and a composite of
  * each is kept for the look the clipping question is deferred to. The
  * WebContent processes and their resident size with two bodies and the spare
@@ -383,10 +385,17 @@ const promptPhase = `(function () {
 })()`;
 
 /**
- * The share of the composited window's pixels inside `rect` that differ from
- * the rect's commonest colour: zero when nothing paints there but one fill.
+ * What the composited window paints inside `rect`: its commonest colour, as
+ * `rgb(r, g, b)`, and the share of pixels that differ from it. The colour is
+ * the fact that says WHOSE paint it is — the body's pane surface, or the
+ * shell's canvas showing through an empty placeholder — where the share
+ * alone cannot: the shell's grid is ink too.
  */
-function inkIn(shotPath: string, shot: { width: number; height: number; contentWidth: number; contentHeight: number }, rect: Rect): number {
+function paintIn(
+  shotPath: string,
+  shot: { width: number; height: number; contentWidth: number; contentHeight: number },
+  rect: Rect,
+): { fill: string; ink: number } {
   const png = decodePngFile(shotPath);
   const scale = shot.width / shot.contentWidth;
   const titleBarPx = shot.height - shot.contentHeight * scale;
@@ -400,7 +409,7 @@ function inkIn(shotPath: string, shot: { width: number; height: number; contentW
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
-  if (pixels.length === 0) return 0;
+  if (pixels.length === 0) return { fill: "rgb(0, 0, 0)", ink: 0 };
   let fill = 0;
   let most = -1;
   for (const [key, n] of counts) if (n > most) [fill, most] = [key, n];
@@ -409,7 +418,10 @@ function inkIn(shotPath: string, shot: { width: number; height: number; contentW
       Math.abs(((a >> 8) & 255) - ((b >> 8) & 255)) +
       Math.abs((a & 255) - (b & 255)) >
     24;
-  return pixels.filter((p) => far(p, fill)).length / pixels.length;
+  return {
+    fill: `rgb(${(fill >> 16) & 255}, ${(fill >> 8) & 255}, ${fill & 255})`,
+    ink: pixels.filter((p) => far(p, fill)).length / pixels.length,
+  };
 }
 
 describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
@@ -827,11 +839,63 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         expect(turnPages.length, "tugcast lists one body page for the card").toBe(1);
         expect(turnPages[0].sessions, "the body page takes its own session's frames alone").toEqual([tugSessionId]);
 
+        // Key first: the shell washes an inactive pane, body card or not,
+        // so only a key card's rect reads as the body's own surface.
+        await app.dispatchControlAction("focus-session-card", { cardId: TURN });
+        await pollFor(() => app.getFocusedCardId(), (id) => id === TURN, PLACED_MS);
+        await Bun.sleep(300);
         const frame = (await app.bodies()).find((b) => b.cardId === TURN)!.frame;
         const shot = await app.captureWindow();
-        const ink = inkIn(shot.path, shot, frame);
-        note(`composite ink in the body's rect ${JSON.stringify(frame)}: ${(ink * 100).toFixed(1)}%`);
-        expect(ink, "the composited window shows the body's paint in its rect").toBeGreaterThan(0.01);
+        copyFileSync(shot.path, "/tmp/at0738-turn.png");
+        const paint = paintIn(shot.path, shot, frame);
+        // Both colours as the composite has them: through a 2D canvas, since
+        // a computed style keeps the theme's oklch spelling.
+        const asRgb = (expr: string): string => `(function () {
+          var c = document.createElement("canvas").getContext("2d");
+          c.fillStyle = ${expr}; c.fillRect(0, 0, 1, 1);
+          var d = c.getImageData(0, 0, 1, 1).data;
+          return "rgb(" + d[0] + ", " + d[1] + ", " + d[2] + ")";
+        })()`;
+        const bodySurface = await body.evalJS<string>(asRgb(`getComputedStyle(document.body).backgroundColor`));
+        // What the shell lays over the frame — the frame dim, a normal-blend
+        // layer, composites over the hole as it does over a shell card — so
+        // the rect reads as the body's surface under that layer. The frame's
+        // own `data-focused` is the shell's, read as it stands.
+        const expected = await app.evalJS<{ fill: string; focused: string | null; layer: string }>(`(function () {
+          var pane = document.querySelector('.tug-pane[data-pane-id="${TURN}-pane"]');
+          var s = getComputedStyle(pane, "::after");
+          var c = document.createElement("canvas").getContext("2d");
+          c.fillStyle = ${JSON.stringify(bodySurface)}; c.fillRect(0, 0, 1, 1);
+          c.globalAlpha = parseFloat(s.opacity); c.fillStyle = s.backgroundColor; c.fillRect(0, 0, 1, 1);
+          var d = c.getImageData(0, 0, 1, 1).data;
+          return { fill: "rgb(" + d[0] + ", " + d[1] + ", " + d[2] + ")", focused: pane.getAttribute("data-focused"),
+            layer: s.backgroundColor + " @ " + s.opacity };
+        })()`);
+        const shellCanvas = await app.evalJS<string | null>(
+          `(function () { var f = document.querySelector('[data-deck-canvas-floor]'); return f === null ? null : ${asRgb("getComputedStyle(f).backgroundColor")}; })()`,
+        );
+        const floorClip = await app.evalJS<string | null>(
+          `(function () { var f = document.querySelector('[data-deck-canvas-floor]'); return f === null ? null : f.style.clipPath; })()`,
+        );
+        note(`shell floor clip: ${floorClip}`);
+        note(`shell frame for the card: data-focused=${expected.focused}, frame dim ${expected.layer}, expected fill ${expected.fill}`);
+        note(
+          `composite in the body's rect ${JSON.stringify(frame)}: fill ${paint.fill}, ink ${(paint.ink * 100).toFixed(1)}%; ` +
+            `body surface ${bodySurface}, shell canvas floor ${shellCanvas}`,
+        );
+        expect(shellCanvas, "the shell stands a canvas floor under the deck on a body host").not.toBeNull();
+        expect(paint.fill, "the body's rect is painted by the body, not the shell's canvas").not.toBe(shellCanvas);
+        const bodyFocused = await body.evalJS<string | null>(
+          `document.querySelector(".body-pane-root")?.getAttribute("data-focused") ?? null`,
+        );
+        expect(bodyFocused, "the key card's body reads itself as focused").toBe("true");
+        const channel = (rgb: string): number[] => rgb.match(/\d+/g)!.map(Number);
+        const off = channel(paint.fill).map((v, i) => Math.abs(v - channel(expected.fill)[i]));
+        expect(
+          Math.max(...off),
+          `the body's rect is the body's own surface under the shell's frame layer (fill ${paint.fill}, expected ${expected.fill})`,
+        ).toBeLessThanOrEqual(4);
+        expect(paint.ink, "the body's paint carries its content").toBeGreaterThan(0.01);
 
         // ---- The turn ends ----
 

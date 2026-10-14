@@ -15,6 +15,7 @@
 
 import React, { useCallback, useLayoutEffect, useState } from "react";
 import { composeProviders } from "../lib/compose-providers";
+import { useSyncExternalStore } from "../lib/gesture-scope";
 import { TugThemeProvider } from "../contexts/theme-provider";
 import { TugTooltipProvider } from "../components/tugways/tug-tooltip";
 import { ErrorBoundary } from "../components/chrome/error-boundary";
@@ -51,12 +52,33 @@ export interface BodyRootProps {
  * The card's own responders register beneath it, and its frame carries the
  * node's `data-responder-id` so the content scan finds them in the DOM.
  */
-function BodyPane({ cardId, componentId }: { cardId: string; componentId: string }): React.ReactElement {
+function BodyPane({
+  bridge,
+  cardId,
+  componentId,
+}: {
+  bridge: BodyDeckBridge;
+  cardId: string;
+  componentId: string;
+}): React.ReactElement {
   const paneId = bodyPaneId(cardId);
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
   const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions: {} });
+  // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is
+  // the deck's active pane. Here the deck is this card's, and its active
+  // pane is set exactly when the card is the whole deck's first responder.
+  // Written as an attribute the recede's layers key on ([L02], [L06]).
+  const focused = useSyncExternalStore(
+    bridge.subscribe,
+    () => bridge.getSnapshot().activePaneId !== undefined,
+  );
+  useLayoutEffect(() => {
+    for (const el of [frameEl, rootEl]) {
+      if (el !== null) el.dataset.focused = focused ? "true" : "false";
+    }
+  }, [frameEl, rootEl, focused]);
   const setFrame = useCallback(
     (el: HTMLDivElement | null) => {
       setFrameEl(el);
@@ -114,7 +136,7 @@ export function renderBodyRoot(props: BodyRootProps): React.ReactElement {
     React.createElement(
       React.Fragment,
       null,
-      React.createElement(BodyPane, { cardId: bridge.cardId, componentId }),
+      React.createElement(BodyPane, { bridge, cardId: bridge.cardId, componentId }),
       React.createElement(CanvasOverlayRoot, {}),
     ),
   );

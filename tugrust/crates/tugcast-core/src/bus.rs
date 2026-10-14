@@ -112,6 +112,13 @@ pub enum CardAdvice {
     Activate,
     /// The card asks the chrome to close it.
     CloseRequest,
+    /// A command the body's chain did not handle, for the shell to
+    /// dispatch in its own chain.
+    Dispatch {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payload: Option<serde_json::Value>,
+    },
 }
 
 /// `deck-facts`: what the chrome tells every card about the deck.
@@ -247,6 +254,7 @@ mod tests {
             "opening-bid",
             "activate",
             "close-request",
+            "dispatch",
         ] {
             assert!(
                 has(&|e| match &e.message {

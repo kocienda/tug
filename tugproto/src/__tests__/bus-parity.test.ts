@@ -64,6 +64,13 @@ const DELIVERED: BusDelivered[] = [
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "opening-bid", heightPx: 480 } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "activate" } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-request" } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "dispatch", id: "close" } },
+  {
+    from: BODY_C1,
+    to: "shell",
+    kind: "card-advice",
+    payload: { advice: "dispatch", id: "set-column-mode", payload: { slot: 0, mode: "split" } },
+  },
   {
     from: SHELL,
     to: "body",
@@ -108,6 +115,7 @@ describe("bus envelope parity", () => {
       "opening-bid": true,
       activate: true,
       "close-request": true,
+      dispatch: true,
     };
     const allCommands: Record<CardCommandKind, true> = {
       find: true,

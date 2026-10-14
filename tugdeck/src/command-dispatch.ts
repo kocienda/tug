@@ -70,6 +70,35 @@ export function setKeyCardForwarder(forwarder: KeyCardForwarder): () => void {
 }
 
 /**
+ * Takes a command this document's chain did not handle, and says whether it
+ * took it. A body installs one that hands the command to the shell, whose
+ * chain holds the pane and the deck; the shell installs none.
+ */
+export type UnhandledCommandFallback = (
+  entry: CommandEntry,
+  payload: Record<string, unknown> | undefined,
+) => boolean;
+
+let unhandledFallback: UnhandledCommandFallback | null = null;
+
+/** Install the fallback for commands nothing here handles. Returns the uninstall. */
+export function setUnhandledCommandFallback(fallback: UnhandledCommandFallback): () => void {
+  unhandledFallback = fallback;
+  return () => {
+    if (unhandledFallback === fallback) unhandledFallback = null;
+  };
+}
+
+export interface DispatchCommandOptions {
+  /**
+   * Dispatch in this document only: consult neither the key-card forwarder
+   * nor the unhandled fallback. The shell uses it for a command a body
+   * handed back, which must not be forwarded to the body again.
+   */
+  local?: boolean;
+}
+
+/**
  * The record a `registry` handler receives. An entry with a static payload
  * object ([P05]) overlays it on the caller's frame, so the handler sees the
  * same fields the Swift wire would have sent.
@@ -125,7 +154,9 @@ function resolveValue(
 export function dispatchCommand(
   id: string,
   payload?: Record<string, unknown>,
+  options?: DispatchCommandOptions,
 ): boolean {
+  const local = options?.local === true;
   const entry = COMMANDS_BY_ID.get(id);
   if (entry === undefined) {
     console.warn(`dispatchCommand: unknown command: ${id}`, payload);
@@ -134,13 +165,20 @@ export function dispatchCommand(
     notifyCommandObservers(id, false);
     return false;
   }
+  const unhandled = (): boolean => {
+    if (!local && unhandledFallback !== null && unhandledFallback(entry, payload)) {
+      notifyCommandObservers(id, true);
+      return true;
+    }
+    notifyCommandObservers(id, false);
+    return false;
+  };
 
   if (entry.routing === "registry") {
     const handler = getRegistryHandler(commandWire(entry));
     if (handler === undefined) {
-      console.warn(`dispatchCommand: ${id} has no registered handler`);
-      notifyCommandObservers(id, false);
-      return false;
+      if (local || unhandledFallback === null) console.warn(`dispatchCommand: ${id} has no registered handler`);
+      return unhandled();
     }
     handler(registryPayload(entry, payload));
     notifyCommandObservers(id, true);
@@ -156,7 +194,7 @@ export function dispatchCommand(
     return false;
   }
 
-  if (keyCardForwarder !== null && keyCardForwarder(entry, payload)) {
+  if (!local && keyCardForwarder !== null && keyCardForwarder(entry, payload)) {
     notifyCommandObservers(id, true);
     return true;
   }
@@ -223,8 +261,9 @@ export function dispatchCommand(
     }
   }
 
-  notifyCommandObservers(id, handled);
-  return handled;
+  if (!handled) return unhandled();
+  notifyCommandObservers(id, true);
+  return true;
 }
 
 /**

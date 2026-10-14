@@ -71,6 +71,12 @@ export interface BodyPlacement {
   readonly width: number;
   readonly height: number;
   readonly visible: boolean;
+  /**
+   * The pane's stacking order, its computed `z-index`: the host stacks the
+   * bodies in the same order, so where two panes overlap the body of the
+   * one in front is in front.
+   */
+  readonly z: number;
 }
 
 /** The `placeBodies` message body. */
@@ -93,7 +99,8 @@ export function samePlacement(a: PlaceBodies | null, b: PlaceBodies): boolean {
       p.y !== q.y ||
       p.width !== q.width ||
       p.height !== q.height ||
-      p.visible !== q.visible
+      p.visible !== q.visible ||
+      p.z !== q.z
     ) {
       return false;
     }
@@ -132,6 +139,84 @@ export class PlacementPoster {
 }
 
 // ---------------------------------------------------------------------------
+// The floor
+// ---------------------------------------------------------------------------
+
+/**
+ * The shell is a page above the bodies, and a page paints its canvas — the
+ * `body` colour and the deck root's grid — over everything beneath it. So on
+ * a host that makes bodies the page's own canvas goes transparent
+ * (`html[data-body-host]`, `globals.css`) and the canvas is painted instead
+ * by a floor the placer stands under the deck, cut with a hole at every
+ * visible body's rect so the body shows through. The hole is a `clip-path`
+ * polygon with the even-odd rule: the floor's whole box, then one square
+ * per body, each traced inside it — cheap to composite, and only rewritten
+ * when a placement changes.
+ */
+export const FLOOR_ATTRIBUTE = "data-deck-canvas-floor";
+/** On `html` while a floor stands: the page's own canvas paint stands down. */
+export const BODY_HOST_ATTRIBUTE = "data-body-host";
+
+/** A hole in the floor, in the floor's own px. */
+export interface FloorHole {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * The floor's `clip-path` for these holes: an even-odd `path()` that is the
+ * whole box as one subpath and each hole as another, or `""` (no clip) when
+ * there is none. A `path()`, never a `polygon()`: a polygon is ONE closed
+ * ring, so a box and its holes listed as one would be a single zigzag whose
+ * even-odd fill cuts triangles between the holes — which is what three cards
+ * on a deck showed. Each hole is clamped to the box, and one with no area is
+ * dropped.
+ */
+export function floorClipPath(holes: readonly FloorHole[], width: number, height: number): string {
+  const n = (v: number): number => Math.round(v * 100) / 100;
+  const subpaths: string[] = [];
+  for (const hole of holes) {
+    const x1 = Math.max(0, hole.x);
+    const y1 = Math.max(0, hole.y);
+    const x2 = Math.min(width, hole.x + hole.width);
+    const y2 = Math.min(height, hole.y + hole.height);
+    if (!(x2 > x1 && y2 > y1)) continue;
+    subpaths.push(`M${n(x1)} ${n(y1)}H${n(x2)}V${n(y2)}H${n(x1)}Z`);
+  }
+  if (subpaths.length === 0) return "";
+  return `path(evenodd, "M0 0H${n(width)}V${n(height)}H0Z${subpaths.join("")}")`;
+}
+
+/**
+ * The holes a placement cuts: the union of every visible body's rect, as
+ * disjoint pieces. Even-odd closes what two holes cover twice, and two
+ * bodies can stand on one rect — two panes laid over each other, a card
+ * measured twice — so the rects are first cut along every edge into cells
+ * and each covered cell is one hole, none overlapping another.
+ */
+export function floorHoles(placement: PlaceBodies): FloorHole[] {
+  const rects = placement.bodies
+    .filter((b) => b.visible && b.width > 0 && b.height > 0)
+    .map((b) => ({ x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height }));
+  if (rects.length === 0) return [];
+  const xs = [...new Set(rects.flatMap((r) => [r.x1, r.x2]))].sort((a, b) => a - b);
+  const ys = [...new Set(rects.flatMap((r) => [r.y1, r.y2]))].sort((a, b) => a - b);
+  const holes: FloorHole[] = [];
+  for (let j = 0; j + 1 < ys.length; j++) {
+    for (let i = 0; i + 1 < xs.length; i++) {
+      const cx = (xs[i] + xs[i + 1]) / 2;
+      const cy = (ys[j] + ys[j + 1]) / 2;
+      if (rects.some((r) => cx > r.x1 && cx < r.x2 && cy > r.y1 && cy < r.y2)) {
+        holes.push({ x: xs[i], y: ys[j], width: xs[i + 1] - xs[i], height: ys[j + 1] - ys[j] });
+      }
+    }
+  }
+  return holes;
+}
+
+// ---------------------------------------------------------------------------
 // The measurement
 // ---------------------------------------------------------------------------
 
@@ -160,6 +245,7 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
     const rect = el.getBoundingClientRect();
     const spaceId = deck.spaceOf(cardId);
     if (bodies.length === 0) radius = radiusAt(el);
+    const z = parseInt(getComputedStyle(el.closest(".tug-pane") ?? el).zIndex, 10);
     bodies.push({
       cardId,
       x: rect.x,
@@ -173,6 +259,7 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
         arriving: cardArrivingOf(state, cardId),
         layerShown: spaceId === null || spaceId === activeSpaceId,
       }),
+      z: Number.isFinite(z) ? z : 0,
     });
   }
   return { radius, bodies };
@@ -186,6 +273,8 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
 export class BodyPlacer {
   private readonly poster = new PlacementPoster((p) => postToHost("placeBodies", p));
   private container: HTMLElement | null = null;
+  private floor: HTMLElement | null = null;
+  private floorClip = "";
   private cancelScheduled: CancelAfterPaint | null = null;
   private resizes: ResizeObserver | null = null;
   private readonly observed = new Set<Element>();
@@ -233,9 +322,42 @@ export class BodyPlacer {
     }
     this.lastSkip = null;
     this.measures += 1;
-    this.poster.offer(measurePlacements(this.deck, container));
+    const placement = measurePlacements(this.deck, container);
+    this.poster.offer(placement);
+    this.cutFloor(placement);
     this.observePlaceholders(container);
   };
+
+  /**
+   * Cut the floor at every visible body. The placement's rects are viewport
+   * px; the floor lies inside the zoomed deck root, so they are taken into
+   * its own px through its viewport rect and layout width.
+   */
+  private cutFloor(placement: PlaceBodies): void {
+    const floor = this.floor;
+    if (floor === null) return;
+    const holes = floorHoles(placement);
+    let clip = "";
+    if (holes.length > 0) {
+      const box = floor.getBoundingClientRect();
+      const width = floor.offsetWidth;
+      const height = floor.offsetHeight;
+      const scale = width > 0 ? box.width / width : 1;
+      clip = floorClipPath(
+        holes.map((h) => ({
+          x: (h.x - box.x) / scale,
+          y: (h.y - box.y) / scale,
+          width: h.width / scale,
+          height: h.height / scale,
+        })),
+        width,
+        height,
+      );
+    }
+    if (clip === this.floorClip) return;
+    this.floorClip = clip;
+    floor.style.clipPath = clip;
+  }
 
   /**
    * Start the standing wakes under `container` — the settle's land, a window
@@ -245,7 +367,15 @@ export class BodyPlacer {
   install(container: HTMLElement): () => void {
     if (!hostCapabilitiesStore.get().bodyViews) return () => {};
     this.container = container;
-    installed = this;
+    setInstalled(this);
+    // The floor: the canvas paint, under everything in the container, with
+    // a hole per visible body. The page's own canvas stands down for it.
+    const floor = document.createElement("div");
+    floor.setAttribute(FLOOR_ATTRIBUTE, "");
+    container.prepend(floor);
+    this.floor = floor;
+    this.floorClip = "";
+    document.documentElement.setAttribute(BODY_HOST_ATTRIBUTE, "");
     this.resizes = new ResizeObserver(this.schedule);
     container.addEventListener(IMPOSER_SETTLE_END, this.measure);
     window.addEventListener("resize", this.schedule);
@@ -262,6 +392,10 @@ export class BodyPlacer {
       this.cancelScheduled?.();
       this.cancelScheduled = null;
       this.container = null;
+      floor.remove();
+      this.floor = null;
+      this.floorClip = "";
+      document.documentElement.removeAttribute(BODY_HOST_ATTRIBUTE);
       if (installed === this) installed = null;
     };
   }
@@ -300,6 +434,10 @@ export interface BodyPlacementDiag {
 }
 
 let installed: BodyPlacer | null = null;
+
+function setInstalled(placer: BodyPlacer): void {
+  installed = placer;
+}
 
 /** The installed placer's account, or null when none is installed. Read-only. */
 export function bodyPlacementDiag(): BodyPlacementDiag | null {

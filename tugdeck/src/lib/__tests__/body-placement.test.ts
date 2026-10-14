@@ -8,6 +8,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   bodyVisible,
+  floorClipPath,
+  floorHoles,
   PlacementPoster,
   type BodyShownFacts,
   type PlaceBodies,
@@ -38,10 +40,81 @@ describe("bodyVisible", () => {
   }
 });
 
+describe("the floor", () => {
+  test("a visible body cuts a hole; a hidden one does not", () => {
+    const holes = floorHoles({
+      radius: 6,
+      bodies: [
+        { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
+        { cardId: "b", x: 320, y: 40, width: 300, height: 200, visible: false, z: 0 },
+      ],
+    });
+    expect(holes).toEqual([{ x: 10, y: 40, width: 300, height: 200 }]);
+  });
+
+  test("two bodies on one rect cut one hole", () => {
+    const holes = floorHoles({
+      radius: 6,
+      bodies: [
+        { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
+        { cardId: "b", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
+      ],
+    });
+    expect(holes).toEqual([{ x: 10, y: 40, width: 300, height: 200 }]);
+  });
+
+  test("overlapping bodies cut disjoint holes covering their union", () => {
+    const holes = floorHoles({
+      radius: 6,
+      bodies: [
+        { cardId: "a", x: 0, y: 0, width: 100, height: 100, visible: true, z: 0 },
+        { cardId: "b", x: 50, y: 50, width: 100, height: 100, visible: true, z: 0 },
+      ],
+    });
+    const area = holes.reduce((s, h) => s + h.width * h.height, 0);
+    expect(area).toBe(100 * 100 + 100 * 100 - 50 * 50);
+    for (const p of holes) {
+      for (const q of holes) {
+        if (p === q) continue;
+        const apart = p.x + p.width <= q.x || q.x + q.width <= p.x || p.y + p.height <= q.y || q.y + q.height <= p.y;
+        expect(apart).toBe(true);
+      }
+    }
+  });
+
+  test("no holes is no clip", () => {
+    expect(floorClipPath([], 800, 600)).toBe("");
+    expect(floorClipPath([{ x: 10, y: 10, width: 0, height: 50 }], 800, 600)).toBe("");
+  });
+
+  test("the clip is the box less each hole, even-odd, one subpath each", () => {
+    expect(floorClipPath([{ x: 10, y: 40, width: 300, height: 200 }], 800, 600)).toBe(
+      'path(evenodd, "M0 0H800V600H0ZM10 40H310V240H10Z")',
+    );
+    // Two holes are two closed subpaths, never one ring through both.
+    expect(
+      floorClipPath(
+        [
+          { x: 10, y: 40, width: 100, height: 100 },
+          { x: 300, y: 40, width: 100, height: 100 },
+        ],
+        800,
+        600,
+      ),
+    ).toBe('path(evenodd, "M0 0H800V600H0ZM10 40H110V140H10ZM300 40H400V140H300Z")');
+  });
+
+  test("a hole past the box is clamped to it", () => {
+    expect(floorClipPath([{ x: -20, y: 500, width: 100, height: 200 }], 800, 600)).toBe(
+      'path(evenodd, "M0 0H800V600H0ZM0 500H80V600H0Z")',
+    );
+  });
+});
+
 function placement(x: number, visible = true): PlaceBodies {
   return {
     radius: 6,
-    bodies: [{ cardId: "a", x, y: 40, width: 300, height: 200, visible }],
+    bodies: [{ cardId: "a", x, y: 40, width: 300, height: 200, visible, z: 0 }],
   };
 }
 
