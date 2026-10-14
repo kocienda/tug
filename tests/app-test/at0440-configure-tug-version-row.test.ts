@@ -33,6 +33,10 @@
  *      active dot, Update, and no check. The required claim itself is
  *      suppressed under the harness, so the claim is pinned in
  *      `configure-tug-copy.test.ts`; this pins that the row says it.
+ *   6. The install row keeps one height through a whole download — counting,
+ *      restarted, and paused. The bar rides the plinth's edge strip rather
+ *      than stacking under the detail line, so a row that starts installing
+ *      does not grow and push every step below it down.
  *
  * Reached through Tug ▸ Configure Tug… (`dispatchControlAction("configure-tug")`,
  * the exact action the menu item posts), because the blocking wizard is
@@ -224,6 +228,69 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         const tail = app.tailLog(200);
         if (tail !== "") {
           process.stderr.write(`\n[at0440-configure-tug-too-old] log tail:\n${tail}\n`);
+        }
+        throw err;
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "the install row keeps its height through a download",
+    async () => {
+      const app = await launchTugApp({ testName: "at0440-configure-tug-download-height" });
+      try {
+        await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.bindSession("A", { tugSessionId: `${SID}-download-height` });
+
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("configure-tug", {}), null)`,
+        );
+        await app.waitForCondition<boolean>(present(SETUP), { timeoutMs: 8000 });
+        await app.waitForCondition<boolean>(
+          `/^Version \\d+\\.\\d+\\.\\d+/.test(${text(INSTALL_DETAIL)})`,
+          { timeoutMs: 20_000 },
+        );
+
+        const height = `document.querySelector(${JSON.stringify(INSTALL_ROW)}).offsetHeight`;
+        const floor = await app.evalJS<number>(
+          `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(INSTALL_ROW)})).getPropertyValue("--tugx-step-row-h"))`,
+        );
+        const settled = await app.evalJS<number>(height);
+
+        // Each frame goes through the real action table, the path a tugcast
+        // frame takes. Zero after bytes is a transfer that started over.
+        const bar = `${INSTALL_ROW} [data-testid="configure-tug-bar"]`;
+        const restarted = `${INSTALL_ROW} [data-testid="configure-tug-restarted"]`;
+        const frames: Array<[string, string, Record<string, unknown>, string]> = [
+          ["started", "claude_install_progress", { received: 0, expected: 0, version: "9.9.9" }, present(bar)],
+          ["counting", "claude_install_progress", { received: 40_000_000, expected: 100_000_000, version: "9.9.9" }, `${text(INSTALL_DETAIL)}.indexOf("MB") !== -1`],
+          ["restarted", "claude_install_progress", { received: 0, expected: 100_000_000, version: "9.9.9" }, present(restarted)],
+          ["paused", "claude_download_stopped", { reason: "paused", received: 10_000_000, expected: 100_000_000, version: "9.9.9" }, `${text(INSTALL_DETAIL)}.indexOf("Paused") === 0`],
+        ];
+        const heights: Record<string, number> = { settled };
+        for (const [name, action, payload, ready] of frames) {
+          await app.evalJS<null>(
+            `(window.tugdeck.lab.dispatch(${JSON.stringify(action)}, ${JSON.stringify(payload)}), null)`,
+          );
+          await app.waitForCondition<boolean>(ready, { timeoutMs: 5000 });
+          heights[name] = await app.evalJS<number>(height);
+        }
+        note(`at0440 download heights: ${JSON.stringify({ floor, heights })}`);
+
+        for (const [name, h] of Object.entries(heights)) {
+          expect(h, `the ${name} row fits the row's allocated height`).toBeLessThanOrEqual(floor);
+          expect(h, `the ${name} row is as tall as the settled row`).toBe(settled);
+        }
+      } catch (err) {
+        const tail = app.tailLog(200);
+        if (tail !== "") {
+          process.stderr.write(`\n[at0440-configure-tug-download-height] log tail:\n${tail}\n`);
         }
         throw err;
       } finally {

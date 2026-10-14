@@ -310,6 +310,7 @@ function StepRow({
   body,
   cta,
   secondaryCta,
+  edge,
   returnHome,
 }: {
   stepKey: string;
@@ -331,6 +332,8 @@ function StepRow({
   secondaryCta?: { label: string; onClick: () => void };
   /** This row's button is Return's home and wears the double ring. */
   returnHome: boolean;
+  /** The strip along the plinth's bottom — the download's bar. Costs no height. */
+  edge?: ReactNode;
 }): ReactElement {
   const secondary = secondaryCta && (
     <TugPushButton size="sm" emphasis="ghost" onClick={secondaryCta.onClick}>
@@ -377,6 +380,7 @@ function StepRow({
       detail={detail}
       body={body?.(returnHome)}
       action={action}
+      edge={edge}
     />
   );
 }
@@ -751,6 +755,12 @@ export function ConfigureTug(): ReactElement {
     cta?: { label: string; onClick: () => void; pressWhileBusy?: boolean };
     /** A quieter alternative to the primary CTA, e.g. declining an offer. */
     secondaryCta?: { label: string; onClick: () => void };
+    /**
+     * Chrome along the bottom of the plinth — the download's bar. It goes here
+     * rather than in {@link body} because a stacking slot costs the row a line,
+     * and a row that grows mid-install moves every step under it.
+     */
+    edge?: ReactNode;
   };
 
   // The row above the Claude one, because a machine with no git has no Changes
@@ -775,7 +785,7 @@ export function ConfigureTug(): ReactElement {
     // is still watching for it. Recheck stays the way out.
     ...(toolsCopy.status === "busy"
       ? {
-          body: () => (
+          edge: (
             <TugProgressIndicator
               variant="bar"
               state="running"
@@ -846,20 +856,19 @@ export function ConfigureTug(): ReactElement {
         key,
         status: "busy",
         label,
-        detail: counting ? <ClaudeDownloadDetail /> : "This can take a moment.",
-        body: () => (
-          <>
-            <ClaudeDownloadBar />
-            {downloadRestarted && (
-              <span
-                className="configure-tug-restarted"
-                data-testid="configure-tug-restarted"
-              >
-                A newer version arrived — starting the download over.
-              </span>
-            )}
-          </>
+        // A restart takes the detail line rather than a line of its own under
+        // it: the row holds one height through the whole install, and the bar
+        // still carries the progress while the sentence stands.
+        detail: downloadRestarted ? (
+          <span data-testid="configure-tug-restarted">
+            A newer version arrived — starting the download over.
+          </span>
+        ) : counting ? (
+          <ClaudeDownloadDetail />
+        ) : (
+          "This can take a moment."
         ),
+        edge: <ClaudeDownloadBar />,
         // Pause is only Pause where there are bytes to keep. The script
         // fallback owns its own transfer and the post-download install step
         // is not one, so neither offers it.
@@ -1206,6 +1215,7 @@ export function ConfigureTug(): ReactElement {
                 body={step.body}
                 cta={step.cta}
                 secondaryCta={step.secondaryCta}
+                edge={step.edge}
                 returnHome={step.key === homeKey}
               />
             ))}

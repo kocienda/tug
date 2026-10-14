@@ -189,7 +189,7 @@ export function pendingOpenStepCopy(cardCount: number): {
  * does not say what it costs is an ambush: a user on a metered connection or a
  * nearly-full disk deserves the number before they press it, not after.
  */
-export const COMMAND_LINE_TOOLS_SIZE = "about 3 GB";
+export const COMMAND_LINE_TOOLS_SIZE = "~3 GB";
 
 /** The lifecycle a ConfigureTug row's dot encodes ([D106]). */
 export type HostToolsStepStatus = "active" | "busy" | "error" | "done";
@@ -300,7 +300,7 @@ export function hostToolsCopy(tools: {
   return {
     status: "active",
     label: "Install git",
-    detail: `Tug uses git for changes, commits, and arcs. Apple's Command Line Tools carry it — ${COMMAND_LINE_TOOLS_SIZE}.`,
+    detail: `Comes with Apple Command Line Tools, ${COMMAND_LINE_TOOLS_SIZE}. Install now or later, as needed.`,
     cta: "Install",
     secondaryCta: "Skip for now",
   };

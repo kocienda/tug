@@ -144,6 +144,18 @@ describe.skipIf(!SHOULD_RUN)("AT0441: the git row offers the tools it needs", ()
         const offer = await app.evalJS<string>(text(GIT_DETAIL));
         note(`at0441 offer: ${JSON.stringify(offer)}`);
         expect(offer, "the offer says what it costs").toContain("3 GB");
+        // The offer is the longest prose the row carries, and it has to fit
+        // the plinth ConfigureTug allocates: a detail that wraps past the
+        // row's floor grows the row and pushes every step below it down.
+        const fit = await app.evalJS<{ row: number; floor: number }>(`(function () {
+          var row = document.querySelector(${JSON.stringify(GIT_ROW)});
+          return {
+            row: row.offsetHeight,
+            floor: parseFloat(getComputedStyle(row).getPropertyValue("--tugx-step-row-h")),
+          };
+        })()`);
+        note(`at0441 offer fit: ${JSON.stringify(fit)}`);
+        expect(fit.row, "the offer fits the row's allocated height").toBeLessThanOrEqual(fit.floor);
         expect(
           await app.evalJS<string>(text(GIT_SECONDARY)),
           "the offer is deferrable",
