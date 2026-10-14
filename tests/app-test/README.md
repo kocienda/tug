@@ -442,6 +442,9 @@ Step-by-step:
 2. **Name the file.**
    - Scenario: `tests/app-test/at{NNNN}-<slug>.test.ts`.
    - Smoke: `tests/app-test/harness-smoke/<descriptive>.test.ts`.
+   - Body grounding bar row: `tests/app-test/body-grounding/row-NN-<slug>.test.ts`,
+     one file per row of the bar in that directory's `README.md`, on the
+     app's own event path (`foreground: true`, `@foreground`).
 
 3. **Declare `@covers` in the header docblock.** One line per source path
    or glob the test exercises, at the end of the docblock. Without it the
@@ -614,6 +617,7 @@ tests/app-test/
     log-capture.test.ts       # Per-test log file capture.
     version-handshake.test.ts # EXPECTED_SURFACE_VERSION mismatch error.
     wait-for-condition.test.ts # evalJS error translation, timeout, immediate-truthy.
+  body-grounding/             # The body view grounding bar: one file per row, on the app's own event path.
   at{NNNN}-<slug>.test.ts     # AT-numbered scenario tests; prefix must match inventory.
   bunfig.toml                 # [test] root = "." — no test preload.
   tsconfig.json               # Path alias @/_harness. tsc --noEmit must be clean.

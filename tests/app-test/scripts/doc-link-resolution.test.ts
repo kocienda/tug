@@ -34,7 +34,7 @@
  *
  * This is a pure-logic test (no app launch); it lives beside the other repository
  * checks in this directory and is invisible to `testFiles()`, which only scans the
- * corpus root and `harness-smoke/`.
+ * corpus root, `harness-smoke/` and `body-grounding/`.
  */
 
 import { describe, expect, test } from "bun:test";

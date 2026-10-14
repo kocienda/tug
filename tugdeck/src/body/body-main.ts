@@ -43,9 +43,20 @@ import { BannerLifecycle, registerBannerLifecycle } from "../lib/banner-lifecycl
 import { installLifecycleCascade } from "../lib/lifecycle-cascade";
 import { dispatchAction, registerAction, registerEvalAction } from "../action-dispatch";
 import { dispatchCommand, setUnhandledCommandFallback } from "../command-dispatch";
+import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { cardSessionBindingStore } from "../lib/card-session-binding-store";
 import { cardServicesStore } from "../lib/card-services-store";
+import { attachSessionLedgerStore } from "../lib/session-ledger-store";
+import { attachSessionStateChangesStore } from "../lib/session-state-changes-store";
+import { attachDigestStore } from "../lib/digest-store";
+import { attachOverviewStore } from "../lib/overview-store";
+import { attachSessionActivityStore } from "../lib/session-activity-store";
+import { attachChangesetAllStore, getChangesetAllStore } from "../lib/changeset-all-store";
+import { attachChangesetVerbStore } from "../lib/changeset-verb-store";
+import { attachChangesetDraftStore } from "../lib/changeset-draft-store";
+import { attachChangesetJoinStore } from "../lib/changeset-join-store";
+import { applyHostToolsOfferResultPayload, applyHostToolsResultPayload } from "../lib/host-tools-store";
 import { restoreSessions } from "../lib/session-restore";
 import { interruptLiveSessions, type TerminationVerdict } from "../teardown";
 import {
@@ -60,9 +71,10 @@ import { focusRingModalityStore, normalizeFocusRingModality } from "../focus-rin
 import { applyTheme, followShellTheme, getOnScreenTheme } from "../contexts/theme-provider";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { initMotionObserver } from "../lib/scale-timing";
-import { initBodyHostMenuState } from "../lib/host-menu-state";
+import { applyShellMenuFacts, initBodyHostMenuState } from "../lib/host-menu-state";
 import { scheduleAfterPaint } from "../lib/after-paint";
 import { setKeyboardYield } from "../lib/keyboard-yield";
+import { installDictationBridge } from "../lib/dictation-bridge";
 import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
 import { onBus, sendBus } from "../lib/deck-bus";
 import { registerSessionCard } from "../components/tugways/cards/session-card-registration";
@@ -109,6 +121,11 @@ function postToHost(name: string, body: unknown): void {
 installDomForensics();
 installGestureScope(window);
 followShellTheme();
+// Receive the host's dictation events here too: the host answers the view
+// that sent the `start`, and a body whose composer claimed the mic is that
+// view. Without the receiver a body's start was answered into nothing and
+// its button stood at "starting" (row 5's reading).
+installDictationBridge();
 document.documentElement.setAttribute("data-body-page", "");
 // A body that is not the key card never focuses anything: a DOM focus
 // asks the window to make this web view the first responder, which would
@@ -175,6 +192,14 @@ function bindSpare(cardId: string): Promise<boolean> {
  * from the quiet's own notify; its deadline covers a page whose frames are
  * suspended). The layer turns shown just before, so the card's deferred
  * restore lands while the container is still hidden.
+ *
+ * Then `painted`: the layer's showing re-renders the recede, and the frame
+ * that carries it is handed to the compositor before the SECOND
+ * `requestAnimationFrame` after it runs — a frame callback runs before its
+ * frame's rendering update, so the first rAF precedes that frame and the
+ * second follows its commit. `ready` is the card mounted and quiet; `painted`
+ * is the first frame of its real content gone to the compositor, and it is
+ * what the host shows the container on.
  */
 function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge): void {
   let done = false;
@@ -186,6 +211,9 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge): void {
     scheduleAfterPaint(() => {
       bridge.revealLayer();
       postToHost("frontendReady", {});
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => postToHost("painted", {}));
+      });
     });
   };
   const quiet = (): boolean => {
@@ -254,7 +282,16 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // What this page's chain does not answer — a chord its funnel matched
   // for the deck, a close the pane handles — is the shell's: it dispatches
   // in its own chain, where the pane and the deck stand.
+  //
+  // Cancel is the one command declined rather than forwarded. The funnel
+  // consumes a chord whose dispatch reports it handled, and a fallback that
+  // claimed Cancel would spend every Escape nothing in this page wanted —
+  // the completion popup's, the editor's — before they saw it; and a body
+  // holding the keyboard has no shell surface ahead of it for the shell to
+  // cancel. The shell's own chain declines an unanswered Cancel the same
+  // way, and the key goes on to the surface that owns it ([F17]).
   setUnhandledCommandFallback((entry, payload) => {
+    if (entry.id === TUG_ACTIONS.CANCEL_DIALOG) return false;
     sendBus(connection, "shell", {
       kind: "card-advice",
       payload: { advice: "dispatch", id: entry.id, ...(payload !== undefined ? { payload } : {}) },
@@ -275,6 +312,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   await applyDeckFacts(bind.facts ?? {}, null);
   onBus(connection, "deck-facts", (message) => {
     void applyDeckFacts(message.payload, bridge);
+    if (message.payload.menu !== undefined) applyShellMenuFacts(message.payload.menu);
   });
   onBus(connection, "card-context", (message) => bridge.applyContext(message.payload));
   // A card-scoped menu command the shell routed here runs against this
@@ -343,7 +381,34 @@ async function bindBody(bind: BodyBind): Promise<void> {
 }
 
 (async () => {
+  // The connection-scoped stores the session card reads, attached as the
+  // shell attaches them (`main.tsx`): the ledger behind the picker, the
+  // Z2 state and activity feeds, the digest and overview tails, and the
+  // aggregate changeset with its verb, draft and join overlays. A body
+  // that attached none of these had a Changes shade whose controller read
+  // a store that was never there, so it waited on a project scan that had
+  // long since happened in the shell (row 8's reading, [F08]).
+  attachSessionLedgerStore(connection);
+  attachSessionStateChangesStore(connection);
+  attachDigestStore(connection);
+  attachOverviewStore(connection);
+  attachSessionActivityStore(connection);
+  attachChangesetAllStore(connection);
+  attachChangesetVerbStore(connection);
+  attachChangesetDraftStore(connection);
+  const joinStore = attachChangesetJoinStore(connection);
+  const changesetAll = getChangesetAllStore();
+  if (changesetAll !== null) {
+    changesetAll.subscribe(() => joinStore.observeFeed(changesetAll.getSnapshot()));
+    joinStore.observeFeed(changesetAll.getSnapshot());
+  }
+  // Whether this machine carries a git Tug can use: the shade's non-repo
+  // and no-git notices read the answer, and an unprobed store shows neither.
+  registerAction("host_tools_result", (payload) => applyHostToolsResultPayload(payload));
+  registerAction("host_tools_offer_result", (payload) => applyHostToolsOfferResultPayload(payload));
+  connectionLifecycle.observeConnectionDidReconnect(() => connection.sendControlFrame("check_host_tools"));
   connection.connect();
+  connection.sendControlFrame("check_host_tools");
   await Promise.all([tugbankClient.ready(), initTugmark({ module_or_path: wasmUrl })]);
 
   keyboardAccessStore.initialize(normalizeKeyboardAccessMode(readKeyboardAccess(tugbankClient)));

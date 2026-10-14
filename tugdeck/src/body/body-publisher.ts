@@ -20,7 +20,7 @@ import { cardTitleStore } from "../lib/card-title-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import { sessionRestoreRegistry } from "../lib/session-restore";
 import { readCardCloseAdvice } from "../lib/card-close-advice";
-import { readCardFoldGuard } from "../lib/card-fold";
+import { cardMayFold } from "../lib/card-fold";
 import { sessionPhaseFromSnapshot } from "../lib/code-session-store/use-session-phase";
 
 /** What the publisher reads, each answered fresh on every call. */
@@ -101,7 +101,7 @@ export function installBodyPublisher(
     {
       readFacts: () => readBodyCardFacts(cardId),
       readWaive: () => readCardCloseAdvice(cardId)?.waive === true,
-      readGuarded: () => readCardFoldGuard(cardId),
+      readGuarded: () => cardMayFold(cardId),
       isFirstResponder,
     },
     send,

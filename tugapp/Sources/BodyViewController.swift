@@ -8,12 +8,21 @@ import WebKit
 final class BodyHostView: NSView {
     override var isFlipped: Bool { true }
 
-    /// Put the containers in their `order`, in place. `sortSubviews` moves
-    /// nothing out of the hierarchy, so a body web view that is the window's
-    /// first responder stays it — `addSubview(_:positioned:relativeTo:)` on
-    /// a view already present removes it first, and a removal resigns the
-    /// first responder inside it to the window.
+    /// Put the containers in their `order`, in place, and only when the
+    /// order has changed. `sortSubviews` moves nothing out of the hierarchy,
+    /// so a body web view that is the window's first responder stays it —
+    /// `addSubview(_:positioned:relativeTo:)` on a view already present
+    /// removes it first, and a removal resigns the first responder inside it
+    /// to the window. And a sort that changes nothing is skipped outright:
+    /// re-ordering layer-backed subviews re-parents their layers, which ends
+    /// any animation running on them, and every placement used to pay that
+    /// whether or not a pane had moved in front of another.
     func sortContainers() {
+        let current = subviews.compactMap { $0 as? BodyContainerView }
+        let sorted = current.sorted { a, b in
+            a.order != b.order ? a.order < b.order : a.serial < b.serial
+        }
+        if current.elementsEqual(sorted, by: ===) { return }
         sortSubviews({ a, b, _ in
             let za = (a as? BodyContainerView)?.order ?? 0
             let zb = (b as? BodyContainerView)?.order ?? 0
@@ -48,15 +57,26 @@ final class BodyContainerView: NSView {
 /// Every body: a card's content in a WKWebView of its own, in its own
 /// WebContent process, placed by the host beneath the transparent shell.
 ///
-/// A body's life (`loading → connected → bound → ready → visible / hidden →
-/// destroyed`, with `failed` from any state before ready at the deadline and
-/// on a second WebContent termination within ten seconds) is kept here, and
-/// the shell hears of every transition that matters to it through
-/// `window.__tugBridge.onBodyState`. The shell decides what each body is for
-/// (`bodyCreate`) and where it stands (`placeBodies`); this object makes the
-/// views, binds them, places them, fades the first showing in, and tears them
-/// down. Its message handlers are `MainWindow`'s, which routes a message by
-/// the view that sent it.
+/// A body's life (`loading → connected → bound → ready → painted → visible /
+/// hidden → destroyed`, with `failed` from any state before ready at the
+/// deadline and on a second WebContent termination within ten seconds) is
+/// kept here, and the shell hears of every transition that matters to it
+/// through `window.__tugBridge.onBodyState`. The shell decides what each body
+/// is for (`bodyCreate`) and where it stands (`placeBodies`); this object
+/// makes the views, binds them, places them, shows them, and tears them down.
+/// Its message handlers are `MainWindow`'s, which routes a message by the
+/// view that sent it.
+///
+/// **Showing is the shell's reveal, not the host's.** A body is beneath the
+/// shell page, and what the shell paints over its rect is a lid in the pane's
+/// own surface colour until the body is on screen (`lib/body-placement.ts`).
+/// So the host does not fade a container in — a fade through the floor's
+/// hole would be a fade from the window's background, which is the canvas
+/// showing through — it shows a placed, painted body at once, under the
+/// lid, and reports `shown` to the shell, which lifts the lid in its own
+/// frame. `painted` is the body's word that its first frame of real content
+/// has gone to the compositor; `ready` alone is the card mounted and quiet,
+/// and a container shown on `ready` can be composited empty.
 final class BodyViewController {
     enum State: String {
         case loading
@@ -81,6 +101,11 @@ final class BodyViewController {
         var warm = false
         /// Bind → ready, once ready.
         var readyMs: Double?
+        /// The body has posted `painted`: its first frame of real content
+        /// has gone to the compositor. Cleared when its page is reloaded.
+        var painted = false
+        /// The shell has been told this showing (`shown`); cleared on hide.
+        var shownReported = false
         /// The frame the last placement gave it, viewport coordinates.
         var frame: CGRect = .zero
         /// The stacking order the last placement gave it: the pane's
@@ -88,9 +113,9 @@ final class BodyViewController {
         /// overlap the body in front is the pane in front.
         var z: Int = 0
         var visible = false
-        /// Whether the first fade has run. Until it has, a hidden body is
-        /// hidden by layer opacity, never `isHidden`, so WebKit keeps
-        /// painting the frame the fade will reveal.
+        /// Whether the body has been shown once. Until it has, a hidden body
+        /// is hidden by layer opacity, never `isHidden`, so WebKit keeps
+        /// painting the frame the showing will reveal.
         var shownOnce = false
         var deadline: DispatchWorkItem?
         var lastTermination: Date?
@@ -112,8 +137,6 @@ final class BodyViewController {
     /// the spare is made: late enough to stay out of the way of the page
     /// that just painted.
     static let spareDelay: DispatchTimeInterval = .seconds(1)
-    /// How long the first showing's fade runs.
-    static let fadeSeconds: CFTimeInterval = 0.2
     /// A second WebContent termination inside this window fails the body.
     static let terminationWindow: TimeInterval = 10
 
@@ -126,6 +149,8 @@ final class BodyViewController {
     private var pendingSpare: DispatchWorkItem?
     /// Creation order, for a stable stacking among bodies at one z.
     private var serials = 0
+    /// A `shown` report is pending for the bodies that turned showing.
+    private var shownReportScheduled = false
     #if DEBUG
     /// `TUG_BODY_FORCE_STALL=1` suppresses the first body's `frontendReady`,
     /// so a test can watch the deadline fail it. DEBUG-only.
@@ -228,6 +253,13 @@ final class BodyViewController {
         container.wantsLayer = true
         container.layer?.masksToBounds = true
         container.layer?.cornerRadius = radius
+        // Only the two corners that meet the pane's own rounded corners: the
+        // content box's top corners stand under the masthead, square, and a
+        // radius there showed the floor through them. The host view is
+        // flipped but its layer's geometry is not, so the layer's min-Y
+        // corners are the bottom ones (read off the composite: naming the
+        // max-Y pair rounded the top).
+        container.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         // Hidden by opacity until the first fade: a hidden view is a hidden
         // page to WebKit, which would stop painting it.
         container.layer?.opacity = 0
@@ -260,7 +292,8 @@ final class BodyViewController {
         evaluate(call: "window.__tugBridge?.onBodyBind?.", payload: payload, in: body.webView)
     }
 
-    /// A body posted `frontendReady`: it has painted its card.
+    /// A body posted `frontendReady`: its card is mounted and quiet. It is
+    /// not shown yet — that waits for `painted`.
     func didBecomeReady(_ body: Body) {
         guard let cardId = body.cardId, body.state != .failed else { return }
         #if DEBUG
@@ -281,9 +314,20 @@ final class BodyViewController {
             TugLog.field("start", body.warm ? "warm" : "cold"),
         ])
         notifyShell(["cardId": cardId, "state": "ready", "readyMs": readyMs, "start": body.warm ? "warm" : "cold"])
-        applyVisibility(body)
         // The spare this body may have taken is replaced once it has painted.
         scheduleSpare()
+    }
+
+    /// A body posted `painted`: the frame carrying its card's content has
+    /// gone to the compositor. From here a placement that names it visible
+    /// shows it.
+    func didPaint(_ body: Body) {
+        guard let cardId = body.cardId, body.state == .ready, !body.painted else { return }
+        body.painted = true
+        TugLog.info("bodies", "painted", [TugLog.field("card", cardId)])
+        notifyShell(["cardId": cardId, "state": "painted"])
+        applyVisibility(body)
+        reportShown()
     }
 
     // MARK: - Placement
@@ -318,33 +362,59 @@ final class BodyViewController {
         hostView.sortContainers()
         CATransaction.commit()
         refreshRegion()
+        reportShown()
     }
 
-    /// Show a ready body placed visible, fading it in the first time; hide
-    /// anything else.
+    /// Show a painted body placed visible, at once and in full; hide
+    /// anything else. The reveal the user sees is the shell's lid lifting
+    /// after `shown`, so nothing here animates.
     private func applyVisibility(_ body: Body) {
-        let showing = body.visible && body.state == .ready
+        let showing = body.visible && body.state == .ready && body.painted
         guard let layer = body.container.layer else { return }
         if showing {
+            let wasHidden = body.container.isHidden
             body.container.isHidden = false
-            if !body.shownOnce {
-                body.shownOnce = true
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = 0
-                fade.toValue = 1
-                fade.duration = BodyViewController.fadeSeconds
-                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                layer.add(fade, forKey: "bodyFadeIn")
-            }
+            body.shownOnce = true
             layer.opacity = 1
+            // Hiding a view that held the keyboard made AppKit hand it to
+            // the window, and nothing in the shell changed for it to hand
+            // it back: the deck's first responder is still this card. So a
+            // body the shell last named for the keyboard takes it again the
+            // moment it is shown — a fold's unfold, a slide's land — unless
+            // the shell has since named another owner (row 6's reading).
+            if wasHidden, let cardId = body.cardId, keyboardCardId == cardId,
+               window.firstResponder !== body.webView {
+                window.makeFirstResponder(body.webView)
+            }
         } else if body.shownOnce {
             // Shown before: hide it as any hidden page is, so WebKit
             // throttles a parked or folded body.
             body.container.isHidden = true
+            body.shownReported = false
         } else {
             layer.opacity = 0
+            body.shownReported = false
         }
         refreshRegion()
+    }
+
+    /// Tell the shell of every body that is showing and has not been told
+    /// of: on the next turn of the run loop, after the transaction that
+    /// showed it has gone to the render server, so the shell's lid never
+    /// lifts over a container the compositor has not yet drawn.
+    private func reportShown() {
+        if shownReportScheduled { return }
+        shownReportScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.shownReportScheduled = false
+            for body in self.bodies {
+                guard let cardId = body.cardId, !body.shownReported,
+                      body.visible, body.state == .ready, body.painted else { continue }
+                body.shownReported = true
+                self.notifyShell(["cardId": cardId, "state": "shown"])
+            }
+        }
     }
 
     /// `pointerClaim`: the shell's surfaces over the bodies.
@@ -359,7 +429,7 @@ final class BodyViewController {
     private var visibleBodies: [Body] {
         // Front to back, so a point over two bodies answers the one in front.
         bodies.enumerated()
-            .filter { $0.element.visible && $0.element.state == .ready }
+            .filter { $0.element.visible && $0.element.state == .ready && $0.element.painted }
             .sorted { a, b in a.element.z != b.element.z ? a.element.z > b.element.z : a.offset > b.offset }
             .map(\.element)
     }
@@ -534,6 +604,8 @@ final class BodyViewController {
         body.state = .loading
         body.intent = ["kind": "restore"]
         body.warm = false
+        body.painted = false
+        body.shownReported = false
         notifyShell(["cardId": cardId, "state": "terminated"])
         armDeadline(body)
         webView.load(URLRequest(url: url))
@@ -552,7 +624,8 @@ final class BodyViewController {
                     "x": body.frame.minX, "y": body.frame.minY,
                     "width": body.frame.width, "height": body.frame.height,
                 ],
-                "visible": body.visible && body.state == .ready,
+                "visible": body.visible && body.state == .ready && body.painted,
+                "painted": body.painted,
                 "z": body.z,
                 "firstResponder": window.firstResponder === body.webView,
                 "start": body.warm ? "warm" : "cold",

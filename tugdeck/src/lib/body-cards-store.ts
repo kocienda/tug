@@ -2,11 +2,13 @@
  * Which of the shell's cards are bodies, and where each body is in its life.
  *
  * A card enters at its hand-off (`creating`), and the host's
- * `onBodyState` moves it on: `ready` when the body has painted its card,
- * `failed` when the body never answered. A card leaves when it is destroyed
- * or when its body fails and the shell takes the card back. `CardHost` reads
- * membership to decide between the card's content and the body's
- * placeholder; nothing here knows what a body is for.
+ * `onBodyState` moves it on: `ready` when the body's card is mounted and
+ * quiet, `painted` when its first frame of real content has gone to the
+ * compositor, `failed` when the body never answered. A card leaves when it
+ * is destroyed or when its body fails and the shell takes the card back.
+ * `CardHost` reads membership to decide between the card's content and the
+ * body's placeholder; the placer shows a body only once it is `painted`;
+ * nothing here knows what a body is for.
  *
  * Laws: [L02] read through `useSyncExternalStore`; [L24] structure zone.
  *
@@ -16,7 +18,7 @@
 import type { ArrivalQuiet } from "./arrival-reveal";
 import { Subscribable } from "./subscribable";
 
-export type BodyCardState = "creating" | "ready" | "failed";
+export type BodyCardState = "creating" | "ready" | "painted" | "failed";
 
 export class BodyCardsStore extends Subscribable {
   private readonly states = new Map<string, BodyCardState>();
@@ -65,10 +67,10 @@ export class BodyCardsStore extends Subscribable {
 export const bodyCardsStore = new BodyCardsStore();
 
 /**
- * A bound body card's arrival quiet: quiet once its body has painted
- * (`ready`), or once it has failed and the card is the shell's again. A card
- * not yet handed off is not quiet — the deck's bound covers a hand-off that
- * never comes.
+ * A bound body card's arrival quiet: quiet once its body's card is mounted
+ * and quiet (`ready`, and `painted` after it), or once it has failed and the
+ * card is the shell's again. A card not yet handed off is not quiet — the
+ * deck's bound covers a hand-off that never comes.
  */
 export function bodyReadyQuiet(cardId: string, store: BodyCardsStore = bodyCardsStore): ArrivalQuiet {
   let failed = false;
@@ -80,7 +82,7 @@ export function bodyReadyQuiet(cardId: string, store: BodyCardsStore = bodyCards
       }),
     isQuiet: () => {
       const state = store.stateOf(cardId);
-      return state === "ready" || state === "failed" || failed;
+      return state === "ready" || state === "painted" || state === "failed" || failed;
     },
   };
 }

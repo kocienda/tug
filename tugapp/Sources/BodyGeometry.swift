@@ -74,13 +74,24 @@ enum BodyGeometry {
         CGRect(x: rect.minX, y: height - rect.maxY, width: rect.width, height: rect.height)
     }
 
-    /// Whether this host makes body views: yes in an ordinary launch; under
-    /// the app-test harness (`TUGAPP_TEST_SOCKET` set) only when the test asks
-    /// for them with `TUG_BODY_VIEWS=1`, so the harness corpus keeps running
-    /// every card in the shell until it opts in.
-    static func bodyViewsEnabled(environment: [String: String]) -> Bool {
-        guard environment["TUGAPP_TEST_SOCKET"] != nil else { return true }
-        return environment["TUG_BODY_VIEWS"] == "1"
+    /// The one setting that decides whether bodies exist: `dev.tugapp.deck` /
+    /// `bodies` in tugbank, false unless set. The Layout card's Bodies row
+    /// writes it; the host reads it once, at window creation.
+    static let bodyViewsDomain = "dev.tugapp.deck"
+    static let bodyViewsKey = "bodies"
+
+    /// Whether this host makes body views. `setting` is the tugbank value
+    /// above, and outside the harness it is the whole answer, so the shipping
+    /// build makes no bodies until the grounding bar is green on the real app
+    /// and the user turns them on. Under the app-test harness
+    /// (`TUGAPP_TEST_SOCKET` set) a test also opts in with `TUG_BODY_VIEWS=1`,
+    /// so the corpus keeps running every card in the shell until a file asks;
+    /// outside the harness that variable is not read.
+    static func bodyViewsEnabled(environment: [String: String], setting: Bool) -> Bool {
+        if environment["TUGAPP_TEST_SOCKET"] != nil, environment["TUG_BODY_VIEWS"] == "1" {
+            return true
+        }
+        return setting
     }
 
     /// How long a body has to report ready: `fallback` (the decided ten

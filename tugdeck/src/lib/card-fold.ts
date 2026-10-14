@@ -25,6 +25,7 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import { cardFoldedOf } from "@/deck-store-selectors";
+import { cardModalHoldAdmitsFold, cardModalHoldStore, isCardHeld } from "@/lib/card-modal-hold-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import { openFoldedBody } from "@/lib/folded-body";
 
@@ -110,12 +111,19 @@ export function registerCardFoldGuard(
 }
 
 /**
- * What `cardId`'s fold guard says right now: true when a fold may proceed,
- * which is also the answer for a card that registered none. A body reads its
- * card's guard here to tell the shell, which asks before it folds.
+ * Whether `cardId` may fold, as a question with no gesture in it: true unless
+ * a modal hold that does not admit the fold stands on the card. A body
+ * publishes this to the shell, which asks before its own fold gestures write.
+ *
+ * Not the guard. A card's guard is the fold's own stand-down — it closes the
+ * find bar, exits a landing, hides the shade, and lets a refusing holder say
+ * why — and it runs where the fold runs: in the body, when the shell forwards
+ * `toggle-card-fold` to it. Publishing by running the guard ran that
+ * stand-down on every keystroke in a body instead, which is what closed the
+ * find bar on the first character typed into it (row 5's reading).
  */
-export function readCardFoldGuard(cardId: string): boolean {
-  return foldGuards.get(cardId)?.() ?? true;
+export function cardMayFold(cardId: string): boolean {
+  return cardModalHoldAdmitsFold(cardId) || !isCardHeld(cardModalHoldStore.getSnapshot(), cardId);
 }
 
 /**

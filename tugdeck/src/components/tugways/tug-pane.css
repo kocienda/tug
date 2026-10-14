@@ -1813,6 +1813,29 @@ body {
   inset: 0;
 }
 
+/* The lid. A body is beneath this page, so until the host has it on screen
+   the placeholder paints the pane's own surface over the body's rect — the
+   same token the body paints itself on — and what the user sees of an
+   arriving, unfolding or re-placed body card is a blank card, never the
+   canvas floor through an empty content box nor the window's background
+   through the floor's hole. `data-body-shown` is the placer's word that the
+   host has shown the body (`lib/body-placement.ts`); the lid then lifts in
+   a short fade from the surface to the content. Going back on is instant:
+   the transition is declared on the lifted state alone. */
+.tug-pane-content [data-body-placeholder]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--tugx-pane-bg);
+  opacity: 1;
+  pointer-events: none;
+}
+
+.tug-pane-content [data-body-placeholder][data-body-shown]::before {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
 /* The recede's two layers blend into the page's own backdrop, and under a
    body card that backdrop is a hole: `multiply` or `screen` over nothing
    paints the wash colour itself, lightening the body instead of dimming it,

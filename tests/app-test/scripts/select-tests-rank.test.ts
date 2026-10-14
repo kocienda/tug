@@ -14,7 +14,7 @@
  * script finds the same built binary), each case with a ledger of its own.
  *
  * This is a pure-logic test (no app launch); it lives beside the script it covers and is
- * invisible to `testFiles()`, which only scans the corpus root and `harness-smoke/`.
+ * invisible to `testFiles()`, which only scans the corpus root, `harness-smoke/` and `body-grounding/`.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

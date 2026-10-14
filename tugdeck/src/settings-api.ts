@@ -446,6 +446,31 @@ export function putLayoutMixerOpen(open: boolean): void {
   });
 }
 
+/**
+ * tugbank domain/key holding the body switch: whether the host makes a web
+ * view of its own for each Session card (the per-card web views program).
+ * The host reads it once, at window creation, so a write here applies at the
+ * next launch; absent means off, which is how the shipping build runs until
+ * the grounding bar is green on the real app.
+ */
+export const BODY_VIEWS_DOMAIN = "dev.tugapp.deck";
+export const BODY_VIEWS_KEY = "bodies";
+
+/**
+ * Persist the body switch. Fire-and-forget like `putLayoutMixerOpen`; the
+ * caller writes the tugbank cache optimistically so the row answers the
+ * press. Stored as `Value::Bool`.
+ */
+export function putBodyViews(on: boolean): void {
+  fetch(`/api/defaults/${BODY_VIEWS_DOMAIN}/${BODY_VIEWS_KEY}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "bool", value: on }),
+  }).catch((err) => {
+    console.warn("[settings] PUT bodies failed:", err);
+  });
+}
+
 /** tugbank domain/key holding the app-wide default project directory. */
 export const DEFAULT_PROJECT_PATH_DOMAIN = "dev.tugapp.app";
 export const DEFAULT_PROJECT_PATH_KEY = "default-project-path";

@@ -222,6 +222,7 @@ import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { BlockFoldCue } from "@/components/tugways/body-kinds/affordances/block-fold-cue";
 import { getTugbankClient } from "@/lib/tugbank-singleton";
+import type { TaggedValue } from "@/lib/tugbank-client";
 import {
   pageZoomRowLevels,
   requestPageZoom,
@@ -229,8 +230,11 @@ import {
 } from "@/lib/page-zoom-store";
 import { useTugbankValue } from "@/lib/use-tugbank-value";
 import {
+  BODY_VIEWS_DOMAIN,
+  BODY_VIEWS_KEY,
   LAYOUT_MIXER_OPEN_DOMAIN,
   LAYOUT_MIXER_OPEN_KEY,
+  putBodyViews,
   putLayoutMixerOpen,
 } from "@/settings-api";
 
@@ -249,6 +253,7 @@ const KIND_SENDER_ID = "layout-card-kind";
 const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
 const RESIZE_SENDER_ID = "layout-card-resize";
+const BODIES_SENDER_ID = "layout-card-bodies";
 const ZOOM_SENDER_ID = "layout-card-zoom";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
@@ -262,6 +267,7 @@ const KIND_CAPTION_ID = "layout-card-kind-caption";
 const LAYOUT_CAPTION_ID = "layout-card-layout-caption";
 const WIDTH_CAPTION_ID = "layout-card-width-caption";
 const RESIZE_CAPTION_ID = "layout-card-resize-caption";
+const BODIES_CAPTION_ID = "layout-card-bodies-caption";
 const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
 
 /** The deck rows' focus orders. Distinct, and declared rather than defaulted,
@@ -326,6 +332,12 @@ const LAYOUTS_MIXER_CUE_FOCUS_ORDER = 21;
  *  unreachable by any addressed placement. */
 const LAYOUTS_PLACES_FOCUS_ORDER = 20;
 
+/** The Bodies switch, the section's last row. A sort key past the cue and the
+ *  picture's stop, for the same reason those are past the rows: the sidebar
+ *  rows grow with the registry, and two stops sharing an order share one
+ *  focus key. */
+const LAYOUTS_BODIES_FOCUS_ORDER = 22;
+
 
 /** User-facing label for each kind. */
 const KIND_LABELS: Record<ImpositionKind, string> = {
@@ -359,6 +371,22 @@ const RESIZE_SLOT_ITEMS: TugChoiceItem[] = [
   { value: "keep", label: "Keeps Slot" },
   { value: "release", label: "Releases" },
 ] satisfies { value: ResizeSlot; label: string }[];
+
+/** The body switch's two faces. */
+const BODIES_ITEMS: TugChoiceItem[] = [
+  { value: "off", label: "Off" },
+  { value: "on", label: "On" },
+];
+
+/** The body switch as tugbank holds it: a bool, or the string `true` when the
+ *  `tugbank` CLI wrote it untyped. Absent is off. Module-level so the
+ *  `useTugbankValue` snapshot is reference-stable. */
+function readBodiesOn(entry: TaggedValue | undefined): boolean {
+  if (entry === undefined) return false;
+  if (entry.kind === "bool") return entry.value === true;
+  if (entry.kind === "string") return entry.value === "true";
+  return false;
+}
 
 const SIDE_LABELS: Record<SidebarSide, string> = {
   left: "Left",
@@ -1111,6 +1139,10 @@ export function LayoutContent(
     (entry) => !(entry?.kind === "bool" && entry.value === false),
     true,
   );
+  // The body switch: whether the host makes a web view per Session card. Read
+  // the same way ([L02]); the host applies it at the next launch, so the row
+  // shows what the next launch will do rather than what this one is doing.
+  const bodiesOn = useTugbankValue(BODY_VIEWS_DOMAIN, BODY_VIEWS_KEY, readBodiesOn, false);
   // Every occupied slot, whatever its membership (see `useDeckColumns` for
   // why one card deep still counts): each slot with something to arrange draws
   // a control row.
@@ -1367,6 +1399,18 @@ export function LayoutContent(
           if (isResizeSlot(value)) {
             dispatchCommand(TUG_ACTIONS.SET_RESIZE_SLOT, { resizeSlot: value });
           }
+          return;
+        }
+        if (sender === BODIES_SENDER_ID) {
+          // A setting rather than a deck command: the host reads it at the
+          // next launch, so the write is the whole act. Cache first so the
+          // row answers the press, then the PUT that makes it last.
+          const on = value === "on";
+          const client = getTugbankClient();
+          if (client !== null) {
+            client.setLocalValue(BODY_VIEWS_DOMAIN, BODY_VIEWS_KEY, { kind: "bool", value: on });
+          }
+          putBodyViews(on);
           return;
         }
         if (sender === ZOOM_SENDER_ID) {
@@ -2006,6 +2050,40 @@ export function LayoutContent(
               </div>
             );
           })}
+
+          {/* The body switch: whether each Session card's content is a web
+              view of its own, placed by the host beneath the shell. Off until
+              the grounding bar is green on the real app. The host decides
+              once, at window creation, so the note says what the row cannot
+              show: it applies at the next launch. Not a picture of the deck,
+              so it does not audition: no `data-preview-axis`. */}
+          <div className="layouts-section-row">
+            <TugLabel
+              id={BODIES_CAPTION_ID}
+              size="md"
+              emphasis="proposal"
+              className="layouts-section-caption"
+            >
+              Bodies
+            </TugLabel>
+            <div className="layouts-section-control">
+              <TugChoiceGroup
+                items={BODIES_ITEMS}
+                value={bodiesOn ? "on" : "off"}
+                senderId={BODIES_SENDER_ID}
+                size="xs"
+                sidePadding="xs"
+                reselect
+                focusGroup={LAYOUT_FOCUS_GROUP}
+                focusOrder={LAYOUTS_BODIES_FOCUS_ORDER}
+                aria-labelledby={BODIES_CAPTION_ID}
+                data-testid="layout-card-bodies"
+              />
+              <TugLabel size="xs" emphasis="whisper" data-testid="layout-card-bodies-note">
+                Applies at the next launch
+              </TugLabel>
+            </div>
+          </div>
         </div>
         ) : null}
         </div>

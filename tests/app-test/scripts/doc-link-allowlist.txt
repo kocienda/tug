@@ -77,7 +77,6 @@ tugdeck/src/spikes/spike-session-identity.tsx arc/session-identity.md
 tugdeck/src/spikes/spike-session-identity.tsx arc/session-reference-brief.md
 tuglaws/app-test-harness.md tuglaws/app-test-inventory.md
 tugrust/crates/tugcast/src/boot/feeds.rs arc/dev-atoms.md
-tugrust/crates/tugcast/src/boot/supervisor.rs arc/dev-atoms.md
 tugrust/crates/tugcast/src/feeds/agent_supervisor/bounded_queue.rs arc/tugplan-dev-transcript-resume.md
 tugrust/crates/tugcast/src/feeds/agent_supervisor/control/session.rs arc/tugplan-dev-transcript-resume.md
 tugrust/crates/tugcast/src/feeds/agent_supervisor/ledger_entry.rs arc/tugplan-dev-mid-turn-replay.md

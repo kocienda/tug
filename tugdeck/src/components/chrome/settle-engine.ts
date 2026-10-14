@@ -97,6 +97,7 @@ import {
   landRecorder,
 } from "@/lib/land-frame-record";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
+import { bodyHideUnder } from "@/lib/body-placement";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
   MAX_FLIP_SCALE_DISTORTION,
@@ -2290,6 +2291,9 @@ export function useSettleEngine({
         const movers = armed.filter(({ frame }) =>
           frame.matches(FLOW_OFFSET_FRAME_READERS),
         );
+        // The bodies under the frames the slide carries hide for its length,
+        // as the Last pass hides them for the beats it plans.
+        bodyHideUnder(movers.map(({ frame }) => frame));
         // The first beat. Its start pose is the origin the inverse is scaled
         // about; the inverse itself is held by the effect's `backwards` fill,
         // from the store's own delta rather than a measurement.
@@ -3689,6 +3693,12 @@ export function useSettleEngine({
       if (totalMs > crossing.durationMs) {
         settleSweepRef.current?.(holdCapMs(totalMs, getTugTiming()));
       }
+      // The bodies under the frames these beats carry are hidden here, in
+      // the pass that plans the motion and before its first frame paints,
+      // and shown again by the land's measurement: a body is never shown
+      // under moving chrome (`lib/body-placement.ts`, the interim until the
+      // host carries bodies through a beat itself).
+      bodyHideUnder(choreography.map((c) => c.frame));
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up
       // commit, against the geometry the first frame paints — so the land

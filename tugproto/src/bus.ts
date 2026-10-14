@@ -94,6 +94,21 @@ export interface DeckFacts {
   keyboardAccess: boolean;
   modifierLatch: string[];
   appActive: boolean;
+  /**
+   * The shell's own menu facts for its bodies — the deck's arrangement
+   * projected the way the shell's menu publisher projects it, and the focus
+   * family's travel per direction. A body's one-card deck cannot say how
+   * many panes stand, which slot is where, or whether a card lies to the
+   * right, so the gates it posts for the key card's menu items read these
+   * instead. Absent on a shell that has not projected yet.
+   */
+  menu?: DeckMenuFacts;
+}
+
+/** The shell's menu projection, opaque to the bus: `host-menu-state.ts` writes and reads it. */
+export interface DeckMenuFacts {
+  projection: unknown;
+  focusTravel: unknown;
 }
 
 /** `card-context`: what the chrome tells one body about its own card. */

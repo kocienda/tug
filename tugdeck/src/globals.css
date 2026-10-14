@@ -85,6 +85,13 @@ html[data-body-host] [data-deck-canvas-floor] {
   inset: 0;
   z-index: -1;
   pointer-events: none;
+  /* Its own compositing layer, so the hole the placer cuts (`clip-path`,
+     `lib/body-placement.ts`) is a shape mask the compositor applies rather
+     than a repaint of the whole floor. A pane drag re-cuts the hole every
+     pointer frame; repainted, the floor held the shell's frame back far
+     enough that the body the host had already moved led the chrome by a
+     visible strip. */
+  will-change: transform;
   background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
   background-image:
     linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px),

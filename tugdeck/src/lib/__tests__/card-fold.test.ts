@@ -17,7 +17,8 @@ import { _resetForTest, registerAction } from "@/action-dispatch";
 import type { DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { registerDeckStore } from "@/lib/deck-store-registry";
-import { registerCardFoldGuard, toggleCardFold } from "@/lib/card-fold";
+import { cardMayFold, registerCardFoldGuard, toggleCardFold } from "@/lib/card-fold";
+import { cardModalHoldStore } from "@/lib/card-modal-hold-store";
 
 /** Every SET_CARD_FOLDED the toggle dispatched, in order. */
 let writes: { cardId: unknown; folded: unknown }[] = [];
@@ -90,6 +91,27 @@ describe("toggleCardFold", () => {
     toggleCardFold("session-1");
     expect(asked).toBe(0);
     expect(writes).toEqual([{ cardId: "session-1", folded: false }]);
+    unregister();
+  });
+
+  test("the published verdict asks nothing of the guard, and answers for a hold", () => {
+    installDeck("session-1", false);
+    let asked = 0;
+    const unregister = registerCardFoldGuard("session-1", () => {
+      asked += 1;
+      return true;
+    });
+    // A body publishes this on every input; a guard run here would be the
+    // fold's stand-down on every keystroke.
+    expect(cardMayFold("session-1")).toBe(true);
+    expect(asked).toBe(0);
+    const release = cardModalHoldStore.hold("session-1", { reason: "running", refuse: () => {} });
+    expect(cardMayFold("session-1")).toBe(false);
+    release();
+    const admits = cardModalHoldStore.hold("session-1", { reason: "running", refuse: () => {}, admitsFold: true });
+    expect(cardMayFold("session-1")).toBe(true);
+    admits();
+    expect(asked).toBe(0);
     unregister();
   });
 

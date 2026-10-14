@@ -34,6 +34,7 @@ import React, {
 } from "react";
 import { heldResizeObserver, useSyncExternalStore } from "@/lib/gesture-scope";
 import { bodyCardsStore } from "@/lib/body-cards-store";
+import { bodyFollowFrame } from "@/lib/body-placement";
 import {
   Blocks,
   ChevronsDownUp,
@@ -3480,6 +3481,7 @@ function TugPaneImpl({
     if (dx === 0 && dy === 0) {
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
+      bodyFollowFrame(el);
       store.noteCardDidLand(cardId);
       return;
     }
@@ -3513,9 +3515,21 @@ function TugPaneImpl({
         key: "zone-drop-landing",
       },
     );
+    // The body under the frame rides the landing with it: the tween writes
+    // the transform and nothing commits, so the placer is told each frame
+    // where the frame now stands, and once more at rest.
+    let landed = false;
+    const carryBody = (): void => {
+      if (landed) return;
+      bodyFollowFrame(el);
+      requestAnimationFrame(carryBody);
+    };
+    requestAnimationFrame(carryBody);
     const done = () => {
+      landed = true;
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
+      bodyFollowFrame(el);
       // After the marks come off: the reveal this releases arms a settle,
       // and the settle must see this frame as one it may carry.
       store.noteCardDidLand(cardId);
@@ -3967,6 +3981,10 @@ function TugPaneImpl({
         // before the zone work, so an instrument's ghost and the canvas's own
         // indication are answering the same frame.
         dropZonesRef.current?.gaugeDragFrame(frame);
+        // And the body beneath it, which only the shell can tell the host
+        // about: the content moves with the chrome rather than standing where
+        // the last commit left it.
+        bodyFollowFrame(frame);
         if (latestMetaKey.current) {
           state.live = null;
           autoscrollClockRef.current = null;
@@ -4109,6 +4127,7 @@ function TugPaneImpl({
 
         frame.style.left = `${pos.x}px`;
         frame.style.top = `${pos.y}px`;
+        bodyFollowFrame(frame);
 
         // Hit-test tab bars for drop target visual feedback. [D45, Rule 4]
         const cx = latestDragPointer.current.x;
@@ -4192,6 +4211,7 @@ function TugPaneImpl({
         frame.style.transform = "";
         frame.removeAttribute("data-gesture");
         frame.removeAttribute("data-pointer-owned");
+        bodyFollowFrame(frame);
         clearGuideElements(dragGuideEls);
         setDragDropTarget(null);
         for (const entry of dragTabBarCache.current) {
@@ -4488,6 +4508,7 @@ function TugPaneImpl({
 
         frame.style.left = `${finalPos.x}px`;
         frame.style.top = `${finalPos.y}px`;
+        bodyFollowFrame(frame);
 
         // A dragged pane leaves its slot: the explicit gesture wins, and the
         // dropped rect becomes its free geometry. Resize never passes this.

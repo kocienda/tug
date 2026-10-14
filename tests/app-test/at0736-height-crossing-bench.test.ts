@@ -37,6 +37,7 @@
  * already fans out to the selection ceiling.
  *
  * @motion
+ * @foreground
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/fold-crossing.ts
  */

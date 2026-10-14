@@ -130,6 +130,11 @@ pub struct DeckFacts {
     pub keyboard_access: bool,
     pub modifier_latch: Vec<String>,
     pub app_active: bool,
+    /// The shell's menu projection for its bodies, opaque here: the deck's
+    /// arrangement as the shell's menu publisher projects it, and the focus
+    /// family's travel. Absent until the shell has projected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub menu: Option<serde_json::Value>,
 }
 
 /// `card-context`: what the chrome tells one body about its own card.

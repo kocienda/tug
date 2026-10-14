@@ -390,7 +390,12 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places", () => {
           rows.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row",
         ).toEqual([]);
-        const sidebarRows = rows.slice(5 + placeRows.length);
+        // The section closes on the Bodies switch: the one row that is not
+        // about arranging the deck, kept last so the arrangement rows read as
+        // one run.
+        const trailing = rows.slice(5 + placeRows.length);
+        expect(trailing.at(-1), "the Bodies switch closes the section").toBe("layout-card-bodies");
+        const sidebarRows = trailing.slice(0, -1);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",

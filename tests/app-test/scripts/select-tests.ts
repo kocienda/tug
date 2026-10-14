@@ -310,6 +310,16 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // settle engine and the crossing module that open the other two doors
     // are named beside it.
     "tugdeck/src/components/tugways/tug-list-view.tsx": 22,
+
+    // The menu bar's validator and every item's action. The 21st is the
+    // grounding bar's row 6 (`body-grounding/row-06-menus`), whose subject is
+    // this file's `validateMenuItem` with a body web view as the responder —
+    // the registry tier, the live Undo/Redo pair read off the first
+    // responder's undo manager, and the `sendControl` each action ends in.
+    // No narrower path carries that: the item's action and its validation are
+    // both here, and a test of "every menu item performs with a body first
+    // responder" has nothing else to name.
+    "tugapp/Sources/AppDelegate.swift": 21,
 };
 
 /**
@@ -503,7 +513,14 @@ function testFiles(): string[] {
         .filter((n) => n.endsWith(".test.ts"))
         .sort()
         .map((n) => `harness-smoke/${n}`);
-    return [...smoke, ...bare];
+    // The body grounding bar (`body-grounding/README.md`): one file per row,
+    // each on the app's own event path. Walked here so `@covers`,
+    // `app-test-changed` and the covers check reach them like any other file.
+    const grounding = readdirSync(join(APP_TEST_DIR, "body-grounding"))
+        .filter((n) => n.endsWith(".test.ts"))
+        .sort()
+        .map((n) => `body-grounding/${n}`);
+    return [...smoke, ...bare, ...grounding];
 }
 
 const COVERS_LINE = /^\s*\*?\s*@covers\s+(\S+)/;

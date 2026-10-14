@@ -128,11 +128,26 @@ final class TestHarnessConnection {
     /// the shell; a card with no body is `NoSuchBody`. Adds `bodies`, the
     /// host's list of body views. `captureWindow` stays the composite of
     /// every view. Additive; major stays `1`.
-    static let surfaceVersion = "1.14.0"
+    ///
+    /// `1.15.0`: adds `performMenuItem` — the real `NSMenuItem` found by its
+    /// identifier, validated the way AppKit validates it at open, and its
+    /// action sent through `NSApp.sendAction` to the responder chain, so a
+    /// menu test exercises validation, the action and `sendControl` rather
+    /// than dispatching the control itself. Additive; major stays `1`.
+    ///
+    /// `1.16.0`: adds `captureBurst` — the composited window captured every
+    /// `intervalMs` for `durationMs`, cropped to a content rect and written
+    /// as PNGs, armed and read back like `hostFrames` — so a reveal or a
+    /// departure is read on every frame rather than on the one frame a
+    /// `captureWindow` happens to land on. `bodies` rows carry `painted`.
+    /// Additive; major stays `1`.
+    static let surfaceVersion = "1.16.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
     private weak var webView: WKWebView?
+    /// The one composite burst a connection may have running.
+    private var captureBurst: CaptureBurst?
 
     /// Per-connection tugcode subprocess lifecycle holder. Spawned
     /// via `startTugcode` RPC and torn down on `close()` so a
@@ -263,11 +278,19 @@ final class TestHarnessConnection {
                 return
             }
             dispatchMenuItemState(id: id, identifier: identifier)
+        case "performMenuItem":
+            guard let identifier = obj["identifier"] as? String else {
+                respondError(id: id, name: "ProtocolError", message: "performMenuItem: missing 'identifier'")
+                return
+            }
+            dispatchPerformMenuItem(id: id, identifier: identifier)
         case "screenshot":
             guard let view = targetView(id: id, obj: obj, verb: method) else { return }
             dispatchScreenshot(id: id, in: view)
         case "captureWindow":
             dispatchCaptureWindow(id: id)
+        case "captureBurst":
+            dispatchCaptureBurst(id: id, verbObj: obj)
         case "setWindowContentSize":
             let width = (obj["width"] as? Double) ?? (obj["width"] as? Int).map(Double.init)
             let height = (obj["height"] as? Double) ?? (obj["height"] as? Int).map(Double.init)
@@ -559,6 +582,48 @@ final class TestHarnessConnection {
         }
     }
 
+    /// `{op: "arm", durationMs, intervalMs?, crop?}` starts a burst of
+    /// composited captures of the harness window — every `intervalMs`
+    /// (default 16, floor 8) for `durationMs` (cap 10 000), each cropped to
+    /// `crop` (content points, top-left origin) when given and written as a
+    /// PNG — and answers at once. `{op: "read"}` answers the frames so far
+    /// with `done` once the burst has ended and every PNG is on disk, plus
+    /// the window's scale, content size and background colour, so a reader
+    /// can place and classify what each frame shows. Re-arming replaces a
+    /// running burst's record; the files are the test's to reclaim.
+    private func dispatchCaptureBurst(id: Int, verbObj: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            switch verbObj["op"] as? String {
+            case "arm":
+                guard let window = self.webView?.window else {
+                    self.respondError(id: id, name: "CaptureError", message: "no window")
+                    return
+                }
+                let durationMs = (verbObj["durationMs"] as? NSNumber)?.intValue ?? 2000
+                let intervalMs = (verbObj["intervalMs"] as? NSNumber)?.intValue ?? 16
+                var crop: CGRect?
+                if let c = verbObj["crop"] as? [String: Any],
+                   let x = (c["x"] as? NSNumber)?.doubleValue, let y = (c["y"] as? NSNumber)?.doubleValue,
+                   let w = (c["width"] as? NSNumber)?.doubleValue, let h = (c["height"] as? NSNumber)?.doubleValue {
+                    crop = CGRect(x: x, y: y, width: w, height: h)
+                }
+                let burst = CaptureBurst(window: window, crop: crop, durationMs: durationMs, intervalMs: intervalMs)
+                self.captureBurst = burst
+                burst.start()
+                self.respond(id: id, ok: true, payload: ["value": ["armed": true, "durationMs": durationMs, "intervalMs": intervalMs]])
+            case "read":
+                guard let burst = self.captureBurst else {
+                    self.respondError(id: id, name: "ProtocolError", message: "captureBurst: nothing armed")
+                    return
+                }
+                self.respond(id: id, ok: true, payload: ["value": burst.read()])
+            default:
+                self.respondError(id: id, name: "ProtocolError", message: "captureBurst: op must be 'arm' or 'read'")
+            }
+        }
+    }
+
     /// Size the window's CONTENT to `width` × `height` (either may be
     /// omitted to keep the current value), clamped to the visible frame of
     /// the screen the window is on, inset the way `MainWindow` insets its
@@ -727,6 +792,57 @@ final class TestHarnessConnection {
                 self.respond(id: id, ok: true, payload: ["value": ["found": false]])
             }
         }
+    }
+
+    /// Perform one menu item the way the menu performs it: find the real
+    /// `NSMenuItem` by identifier, let its menu update as it would on open,
+    /// validate it (`validatedEnabled`, the same sweep `menuItemState`
+    /// reports), and when it is enabled send its action with
+    /// `NSApp.sendAction(_:to:from:)` — the responder-chain resolution a
+    /// menu uses, so an item with a nil target reaches the first responder's
+    /// chain exactly as a user's click does. A disabled item is not
+    /// performed, which is also what a menu does. Answers `{found, enabled,
+    /// performed}`; a missing identifier is `{found: false}`.
+    private func dispatchPerformMenuItem(id: Int, identifier: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            guard let mainMenu = NSApp.mainMenu else {
+                self.respondError(id: id, name: "NoMainMenu", message: "NSApp.mainMenu is nil")
+                return
+            }
+            guard let item = Self.findMenuItem(in: mainMenu, identifier: identifier) else {
+                self.respond(id: id, ok: true, payload: ["value": ["found": false]])
+                return
+            }
+            let enabled = self.validatedEnabled(item)
+            var performed = false
+            if enabled, let action = item.action {
+                performed = NSApp.sendAction(action, to: item.target, from: item)
+            }
+            self.respond(id: id, ok: true, payload: [
+                "value": [
+                    "found": true,
+                    "identifier": identifier,
+                    "title": item.title,
+                    "enabled": enabled,
+                    "performed": performed,
+                ] as [String: Any],
+            ])
+        }
+    }
+
+    /// The `NSMenuItem` carrying `identifier`, depth-first through every
+    /// submenu, with each menu's delegate given its `menuNeedsUpdate` first so
+    /// a lazily built submenu holds its items before it is searched.
+    private static func findMenuItem(in menu: NSMenu, identifier: String) -> NSMenuItem? {
+        menu.delegate?.menuNeedsUpdate?(menu)
+        for item in menu.items {
+            if item.identifier?.rawValue == identifier { return item }
+            if let submenu = item.submenu, let hit = findMenuItem(in: submenu, identifier: identifier) {
+                return hit
+            }
+        }
+        return nil
     }
 
     /// Recursively serialize a menu. Must run on the main thread.

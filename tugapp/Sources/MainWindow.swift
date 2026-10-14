@@ -395,9 +395,15 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// word. Made in `init`, after the container exists.
     private(set) var bodies: BodyViewController!
     /// Whether this host makes body views, decided once and told to the
-    /// shell before its first script (`HostCapabilitiesScript`).
+    /// shell before its first script (`HostCapabilitiesScript`). The setting
+    /// is read here, at window creation, so a change to it applies at the
+    /// next launch; `TugbankClient` is configured before the window is made.
     let bodyViewsEnabled = BodyGeometry.bodyViewsEnabled(
-        environment: ProcessInfo.processInfo.environment
+        environment: ProcessInfo.processInfo.environment,
+        setting: ProcessManager.readTugbankBool(
+            domain: BodyGeometry.bodyViewsDomain,
+            key: BodyGeometry.bodyViewsKey
+        )
     )
     /// The view that sent the last dictation `start`, which every dictation
     /// event goes back to.
@@ -1171,8 +1177,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         "hmrUpdate", "openPath", "lookUpInDictionary", "trashPath",
         "restorePath", "thumbnailPath", "exportSession", "updateAction",
         "dictation", "pageZoom", "hostFrames",
-        "bodyHello", "bodyCreate", "placeBodies", "bodyDestroy", "bodyFocus",
-        "pointerClaim",
+        "bodyHello", "painted", "bodyCreate", "placeBodies", "bodyDestroy",
+        "bodyFocus", "pointerClaim",
     ]
 
     /// Names only the shell may post: the deck's own chrome, the window's
@@ -2704,6 +2710,10 @@ extension MainWindow: WKScriptMessageHandler {
         case "bodyHello":
             // A body's page is connected; it waits to be told its card.
             if let fromBody { bodies.didSayHello(fromBody) }
+        case "painted":
+            // A body's first frame of real content has gone to the
+            // compositor: it may be shown. The shell never posts this.
+            if let fromBody { bodies.didPaint(fromBody) }
         case "bodyCreate":
             guard let body = message.body as? [String: Any],
                   let cardId = body["cardId"] as? String,

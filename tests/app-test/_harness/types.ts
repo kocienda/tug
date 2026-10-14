@@ -174,6 +174,17 @@ export type MenuItemState =
   | { found: false };
 
 /**
+ * Result of `performMenuItem`: whether the identifier named an item, whether
+ * AppKit's validation left it enabled, and whether its action was sent.
+ * `performed` is `NSApp.sendAction`'s answer — true when a responder took
+ * the action — and is always false for a disabled item, which a menu would
+ * not perform either. When `found` is `false`, the other fields are absent.
+ */
+export type MenuItemPerformed =
+  | { found: true; identifier: string; title: string; enabled: boolean; performed: boolean }
+  | { found: false };
+
+/**
  * Result of `checkAccessibilityPermission`.
  */
 export interface AccessibilityStatus {

@@ -26,6 +26,7 @@ import type {
   InnerNativeVerb,
   MenuItemSnapshot,
   MenuItemState,
+  MenuItemPerformed,
   NativeModifier,
   NativeMouseButton,
   ScreenRect,
@@ -1141,6 +1142,21 @@ export function menuItemState(
   return caller.rpcCall<MenuItemState>("menuItemState", { identifier });
 }
 
+/**
+ * Perform one native menu item by its `NSUserInterfaceItemIdentifier`, the
+ * way the menu performs it: validated first (`NSMenuItemValidation`), then
+ * its action sent with `NSApp.sendAction` through the responder chain, so the
+ * validator, the action and its `sendControl` all run. A test of a menu
+ * command asserts the effect in the page that should have received it, not
+ * this verb's answer (surface `1.15.0`).
+ */
+export function performMenuItem(
+  caller: HarnessCaller,
+  identifier: string,
+): Promise<MenuItemPerformed> {
+  return caller.rpcCall<MenuItemPerformed>("performMenuItem", { identifier });
+}
+
 // ---- screenshot ----
 
 /**
@@ -1256,6 +1272,8 @@ export interface BodyViewSnapshot {
   firstResponder: boolean;
   /** The container's presented opacity (mid-fade reads between 0 and 1). */
   opacity: number;
+  /** The body has posted `painted`: its first frame of content is composited. `visible` requires it. */
+  painted: boolean;
   /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */
   start: "warm" | "cold";
   /** Bind → ready, once the body has reported ready; null before. */
@@ -1266,6 +1284,55 @@ export interface BodyViewSnapshot {
 /** Every body view the host holds, the spare included. */
 export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
   return caller.rpcCall("bodies", {});
+}
+
+// ---- composite capture burst (surface `1.16.0`) ----
+
+/** One frame of a {@link CaptureBurstReading}. */
+export interface CaptureBurstFrame {
+  /** Ms from arming, host clock. */
+  t: number;
+  /** Wall-clock ms at capture, comparable with the shell's `Date.now()`. */
+  wall: number;
+  /** The frame's PNG — the whole window, or the armed crop. */
+  path: string;
+}
+
+/**
+ * What `captureBurst {op: "read"}` answers: the frames landed so far, `done`
+ * once the burst has ended and every PNG is written, and what a reader needs
+ * to place a frame's pixels — the backing scale, the window's content size in
+ * points, the crop the frames were cut to (content points, when armed with
+ * one) and the window's own background colour as `#rrggbb`, which is what an
+ * open hole with nothing beneath it shows.
+ */
+export interface CaptureBurstReading {
+  done: boolean;
+  frames: CaptureBurstFrame[];
+  scale: number;
+  contentWidth: number;
+  contentHeight: number;
+  crop?: { x: number; y: number; width: number; height: number };
+  windowBackground: string;
+  intervalMs: number;
+  durationMs: number;
+}
+
+/**
+ * Arm a burst of composited window captures — every `intervalMs` (default
+ * 16) for `durationMs`, each cropped to `crop` in content points when given
+ * — or read what it has recorded. A frame-by-frame reading of a reveal or a
+ * departure, where `captureWindow` sees the one frame the test's timing
+ * lands on. The burst runs in the UI process off the main thread; a busy page
+ * cannot stall it.
+ */
+export function captureBurst(
+  caller: HarnessCaller,
+  params:
+    | { op: "arm"; durationMs: number; intervalMs?: number; crop?: { x: number; y: number; width: number; height: number } }
+    | { op: "read" },
+): Promise<CaptureBurstReading | { armed: true; durationMs: number; intervalMs: number }> {
+  return caller.rpcCall("captureBurst", params);
 }
 
 /** What `spikeBody {op: "create"}` answers: the child's cold time and rect. */

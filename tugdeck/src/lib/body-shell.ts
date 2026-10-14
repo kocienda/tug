@@ -37,9 +37,12 @@ import { setKeyboardYield } from "./keyboard-yield";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { keyboardAccessStore } from "../keyboard-access-store";
+import { projectDeckState } from "./host-menu-state";
+import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore } from "./body-cards-store";
 import { bodyCommandRoute, shellSurfaceAhead } from "./body-command-route";
 import { bodyFactsStore } from "./body-facts-store";
+import { bodyShown } from "./body-placement";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore } from "./card-session-binding-store";
@@ -85,12 +88,24 @@ export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardCon
 }
 
 function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
+  const state = deck.getSnapshot();
   return {
     theme: getOnScreenTheme(),
     zoom: pageZoomStore.getFactor(),
     keyboardAccess: keyboardAccessStore.getMode() === "accessibility",
     modifierLatch: [],
-    appActive: deck.getSnapshot().hasFocus,
+    appActive: state.hasFocus,
+    // The arrangement's menu facts, which a body's one-card deck cannot
+    // project for itself: the gates a body posts for its card's Go, View and
+    // Window items read these ([F19]).
+    menu: {
+      projection: projectDeckState(state, deck.getSpacesSnapshot()),
+      focusTravel: focusTravelDirections(
+        state,
+        { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
+        deck.getFirstResponderCardId(),
+      ),
+    },
   };
 }
 
@@ -193,6 +208,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     }),
     deck.subscribeSpaces(() => {
       for (const cardId of heard) sendContext(cardId, false);
+      // The menu facts project the workspaces too, and a workspace made or
+      // renamed moves no deck state.
+      publishDeckFacts();
     }),
     subscribeOnScreenTheme(publishDeckFacts),
     pageZoomStore.subscribe(publishDeckFacts),
@@ -283,6 +301,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         bodyCardsStore.setState(cardId, "ready");
         // The body exists now; if its card holds the keyboard, it takes it.
         if (deck.getFirstResponderCardId() === cardId) postFocus(true);
+        return;
+      case "painted":
+        // Its first frame of content is composited: the placer may show it.
+        bodyCardsStore.setState(cardId, "painted");
+        return;
+      case "shown":
+        // The host's container is placed, opaque and drawn: the lid lifts.
+        bodyShown(cardId);
         return;
       case "terminated":
         // Reloading under the same card: its first `card-facts` is answered

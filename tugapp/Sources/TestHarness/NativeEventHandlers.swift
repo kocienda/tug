@@ -13,6 +13,21 @@ import WebKit
 // per-instance `CGEventSource(stateID: .privateState)` ([Q05]). Gestures run on the main thread; callers (the dispatch
 // table in `TestHarnessConnection`) bounce through `DispatchQueue.main.async`.
 //
+// ## Which mode is evidence for what
+//
+// The session-tap mode is the user's keyboard: the app is activated and its
+// window made key before a key is posted, so the event reaches the window
+// through WindowServer, AppKit's key-equivalent scan offers it to the first
+// responder's view first, a WKWebView forwards it to its page, and only an
+// unconsumed equivalent reaches the menu — the order the app takes in the
+// field. The pid mode (`postToPid`) exists so a run can proceed without
+// taking the developer's screen, and it bypasses that order: an inactive app
+// is handed the event with no WindowServer routing and no activation, so
+// which view answers a chord there says nothing about which view answers it
+// for a user. **Pid mode is never evidence for a chord or a menu command.**
+// A test of either launches `foreground: true` (session mode) and asserts the
+// effect in the page that should have received it.
+//
 // ## Why this shape
 //
 // - Single `CGEventSource` per handler instance: the source's state
@@ -834,7 +849,7 @@ final class NativeEventHandlers {
     /// Already-held modifiers are skipped rather than double-pressed, so a
     /// repeated press is idempotent and its release still lands.
     func pressHeldModifiers(_ modifiers: [ModifierKey]) {
-        activateSelf()
+        activateForKeyboard()
         for mod in modifiers {
             if Self.persistentlyHeldModifiers.contains(mod) { continue }
             // Appended BEFORE the post so the modifier's own keyDown already
@@ -867,7 +882,7 @@ final class NativeEventHandlers {
     }
 
     func nativeKey(key: String, modifiers: [ModifierKey] = []) throws {
-        activateSelf()
+        activateForKeyboard()
         guard let mapping = VirtualKeyMap.lookup(key) else {
             throw NativeEventError.unknownKey(key)
         }
@@ -914,7 +929,7 @@ final class NativeEventHandlers {
     /// 3. **Post-sequence settle** (same as `nativeKey`): trailing
     ///    Shift-release fully drains before the function returns.
     func nativeType(text: String) throws {
-        activateSelf()
+        activateForKeyboard()
         // Reject non-ASCII before posting anything. Inspect the
         // first offending scalar so the error message is actionable.
         for scalar in text.unicodeScalars {
@@ -977,7 +992,7 @@ final class NativeEventHandlers {
         inner: () throws -> Void,
     ) rethrows {
         if !modifiers.isEmpty {
-            activateSelf()
+            activateForKeyboard()
         }
         for mod in modifiers {
             pressModifier(mod)
@@ -1025,6 +1040,29 @@ final class NativeEventHandlers {
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
+    }
+
+    /// Activate for a key the way the user's keyboard finds the app: active,
+    /// AND with a key window, because a session-tap key event goes to the
+    /// active app's key window and nowhere else. `NSApp.activate` alone does
+    /// not make one — a window that was ordered front without activation
+    /// (`orderWindowFrontInactive`, or a launch into the background) stays
+    /// non-key, and a key posted then reaches no window at all while looking
+    /// delivered. The main window, else the first visible one, is made key;
+    /// a window that already is stays as it is, first responder included.
+    ///
+    /// A no-op in pid mode, for `activateSelf`'s reason — and because a key
+    /// delivered there is not evidence for a chord anyway (see the header).
+    private func activateForKeyboard() {
+        if postToOwnPid { return }
+        let work = {
+            NSApp.activate(ignoringOtherApps: true)
+            if NSApp.keyWindow == nil {
+                let window = NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+                window?.makeKeyAndOrderFront(nil)
+            }
+        }
+        if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
     }
 
     /// Put the app's window in front of every other app's at its level,

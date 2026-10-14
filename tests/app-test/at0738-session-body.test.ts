@@ -16,12 +16,15 @@
  * shell instead. And a card-scoped command fired through the shell's menu
  * path (`focus-prompt`) must act in the key body.
  *
- * **Arrival.** A card opened through the picker's New takes the warm spare,
- * and the host fades its container in: the first sample is at opacity ≤ 0.05,
- * the ramp rises monotonically to 1 over 200 ms within the display link's
- * sampling error, no display-link gap lands in it, and the container does not
- * move while it runs. The card opened right after it finds no spare and is
- * made cold; each reports which it was.
+ * **Arrival.** A card opened through the picker's New takes the warm spare.
+ * The host shows its container in ONE step — the sampled opacity is ≤ 0.05
+ * and then 1, never between — because the reveal the user sees is the
+ * shell's lid lifting over a body already composited (`body-grounding/
+ * row-01-arrival` reads that frame by frame); a host fade through the
+ * floor's hole would be a fade from the window's background. The container
+ * does not move while it shows, and a shown body has `painted`. The card
+ * opened right after it finds no spare and is made cold; each reports which
+ * it was.
  *
  * **Fallback.** A body that never says it is ready (`TUG_BODY_FORCE_STALL`)
  * fails at the deadline (`TUG_BODY_READY_DEADLINE_MS`, shortened), and its
@@ -283,55 +286,48 @@ function column(cardIds: string[]): unknown {
   };
 }
 
-/** The fade's duration (`BodyViewController.fadeSeconds`). */
-const FADE_MS = 200;
-
-interface FadeVerdict {
-  /** Opacity of the sample the ramp starts from: the last at or below 0.05. */
+interface ShowVerdict {
+  /** Opacity of the sample before the rise: the last at or below 0.05. */
   firstOpacity: number;
-  /** From that sample to the first at full opacity. */
-  rampMs: number;
-  monotonic: boolean;
-  /** Display-link gaps over the period inside the ramp. */
-  gapsInRamp: number;
-  /** The container's position held still while it could be seen in the ramp. */
+  /** Samples strictly between transparent and opaque: a fade's, and there should be none. */
+  between: number;
+  /** From the last transparent sample to the first opaque one, in ms. */
+  stepMs: number;
+  /** The container's position held still once it could be seen. */
   still: boolean;
-  /** The farthest the seen container strayed from its first seen position, in points. */
+  /** The farthest the shown container strayed from its first shown position, in points. */
   strayed: number;
   periodMs: number;
-  /** The ramp's samples as `t:opacity@x,y`, for a reader of a red. */
-  ramp: string[];
+  /** The samples around the step as `t:opacity@x,y`, for a reader of a red. */
+  around: string[];
 }
 
 /**
- * Read the host's samples of a container fading in. The ramp runs from the
- * last sample at or below 0.05 before the rise to the first sample at full
- * opacity; each end is read off a display-link tick, so each may sit up to a
- * period from the animation's own begin and end.
+ * Read the host's samples of a container being shown: from the last sample
+ * at or below 0.05 to the first at full opacity, with whatever lies between.
  */
-function fadeOf(reading: HostFrameReading): FadeVerdict | null {
+function showOf(reading: HostFrameReading): ShowVerdict | null {
   const samples = reading.samples ?? [];
   const rise = samples.findIndex((s) => s.opacity > 0.05);
   if (rise <= 0) return null;
   const full = samples.findIndex((s, i) => i >= rise && s.opacity >= 0.9999);
   if (full < 0) return null;
-  const ramp = samples.slice(rise - 1, full + 1);
-  const start = ramp[0];
-  const end = ramp[ramp.length - 1];
-  // A move at opacity 0 is a move nobody sees: the frame and the show can
-  // land in one placement, so the sample the ramp starts from may stand
-  // where the container was before it was put.
-  const seen = ramp.filter((s) => s.opacity > 0);
+  const around = samples.slice(rise - 1, full + 1);
+  const start = around[0];
+  const end = around[around.length - 1];
+  // A move at opacity 0 is a move nobody sees: the frame and the show land
+  // in one placement, so the sample before the step may stand where the
+  // container was before it was put.
+  const seen = samples.slice(full).filter((s) => s.opacity > 0);
   const first = seen[0] ?? end;
   return {
     firstOpacity: start.opacity,
-    rampMs: end.t - start.t,
-    monotonic: ramp.every((s, i) => i === 0 || s.opacity >= ramp[i - 1].opacity),
-    gapsInRamp: reading.gapsOverPeriod.filter((g) => g.atMs > start.t && g.atMs <= end.t).length,
+    between: samples.filter((s) => s.opacity > 0.05 && s.opacity < 0.9999).length,
+    stepMs: end.t - start.t,
     still: seen.every((s) => Math.abs(s.x - first.x) < 0.5 && Math.abs(s.y - first.y) < 0.5),
     strayed: Math.max(0, ...seen.map((s) => Math.max(Math.abs(s.x - first.x), Math.abs(s.y - first.y)))),
     periodMs: reading.periodMs,
-    ramp: ramp.map((s) => `${Math.round(s.t)}:${s.opacity.toFixed(2)}@${Math.round(s.x)},${Math.round(s.y)}`),
+    around: around.map((s) => `${Math.round(s.t)}:${s.opacity.toFixed(2)}@${Math.round(s.x)},${Math.round(s.y)}`),
   };
 }
 
@@ -550,7 +546,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
   );
 
   test(
-    "arrives warm from the spare with the host's fade, and cold when there is no spare",
+    "arrives warm from the spare, shown in one step under the shell's lid, and cold when there is no spare",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
@@ -571,8 +567,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         note(`before the opens: ${JSON.stringify(spares.map((b) => ({ cardId: b.cardId, state: b.state })))}`);
         expect(spares.some((b) => b.cardId === null && b.state === "connected"), "a spare body waits, connected").toBe(true);
 
-        // The first open takes the spare, and its fade is sampled alone: a
-        // neighbour binding below it would re-lay the column under the ramp.
+        // The first open takes the spare, and its showing is sampled alone:
+        // a neighbour binding below it would re-lay the column under it.
         await spawnStub(app, WARM, stubDir);
         await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === WARM), PLACED_MS);
         await app.hostFrames({ op: "arm", windowMs: 8_000, layer: WARM });
@@ -607,16 +603,14 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         expect(cold?.state, "the second card's body is ready").toBe("ready");
         expect(warm!.start, "the first card bound the spare").toBe("warm");
         expect(cold!.start, "the second card, with the spare taken, was made cold").toBe("cold");
+        expect(warm!.painted, "a shown body has painted").toBe(true);
 
-        const fade = fadeOf(reading);
-        note(`fade: ${JSON.stringify(fade)}; ${reading.samples?.length ?? 0} samples, period ${reading.periodMs.toFixed(2)} ms`);
-        expect(fade, "the host sampled the container rising from transparent to opaque").not.toBeNull();
-        expect(fade!.firstOpacity, "the ramp starts from a transparent container").toBeLessThanOrEqual(0.05);
-        expect(fade!.monotonic, "opacity only rises through the ramp").toBe(true);
-        expect(fade!.rampMs, "the ramp is no shorter than the fade, less a period").toBeGreaterThanOrEqual(FADE_MS - fade!.periodMs);
-        expect(fade!.rampMs, "the ramp is no longer than the fade, plus a period at each end").toBeLessThanOrEqual(FADE_MS + 2 * fade!.periodMs);
-        expect(fade!.gapsInRamp, "no display-link frame was missed during the ramp").toBe(0);
-        expect(fade!.still, "the container did not move during the ramp").toBe(true);
+        const show = showOf(reading);
+        note(`show: ${JSON.stringify(show)}; ${reading.samples?.length ?? 0} samples, period ${reading.periodMs.toFixed(2)} ms`);
+        expect(show, "the host sampled the container going from transparent to opaque").not.toBeNull();
+        expect(show!.firstOpacity, "the container was transparent before it showed").toBeLessThanOrEqual(0.05);
+        expect(show!.between, "the container shows in one step under the lid — no host fade through the hole").toBe(0);
+        expect(show!.still, "the container did not move once shown").toBe(true);
       } finally {
         await app.close();
       }

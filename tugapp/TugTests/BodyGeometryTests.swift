@@ -54,13 +54,21 @@ final class BodyGeometryTests: XCTestCase {
         check("and flips back", BodyGeometry.flipped(flipped, inHeight: height) == body)
     }
 
-    func testBodiesAreOnUnlessTheHarnessHasNotAskedForThem() {
-        check("an ordinary launch", BodyGeometry.bodyViewsEnabled(environment: [:]))
-        check("under the harness, off", !BodyGeometry.bodyViewsEnabled(environment: ["TUGAPP_TEST_SOCKET": "/tmp/s"]))
+    func testBodiesFollowTheSettingAndTheHarnessCanAskForThem() {
+        let harness = ["TUGAPP_TEST_SOCKET": "/tmp/s"]
+        check("off unless the setting is on", !BodyGeometry.bodyViewsEnabled(environment: [:], setting: false))
+        check("on when the setting is on", BodyGeometry.bodyViewsEnabled(environment: [:], setting: true))
+        check(
+            "outside the harness the variable is not read",
+            !BodyGeometry.bodyViewsEnabled(environment: ["TUG_BODY_VIEWS": "1"], setting: false)
+        )
+        check("under the harness, off", !BodyGeometry.bodyViewsEnabled(environment: harness, setting: false))
         check(
             "under the harness, on when asked",
-            BodyGeometry.bodyViewsEnabled(environment: ["TUGAPP_TEST_SOCKET": "/tmp/s", "TUG_BODY_VIEWS": "1"])
+            BodyGeometry.bodyViewsEnabled(environment: harness.merging(["TUG_BODY_VIEWS": "1"]) { $1 }, setting: false)
         )
+        check("under the harness, on when the setting is seeded", BodyGeometry.bodyViewsEnabled(environment: harness, setting: true))
+        check("the setting's address", BodyGeometry.bodyViewsDomain == "dev.tugapp.deck" && BodyGeometry.bodyViewsKey == "bodies")
     }
 
     func testTheReadyDeadlineIsShortenedOnlyUnderTheHarness() {

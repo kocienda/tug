@@ -56,6 +56,7 @@ import type {
   LedgerSeedSpec,
   MenuItemSnapshot,
   MenuItemState,
+  MenuItemPerformed,
   NativeModifier,
   NativeMouseButton,
   ScreenRect,
@@ -115,6 +116,7 @@ export { TUGCODE_TRANSCRIPT_SCHEMA_VERSION } from "./client";
 export type {
   AccessibilityStatus,
   MenuItemState,
+  MenuItemPerformed,
   LedgerSeedFileEvent,
   LedgerSeedSession,
   LedgerSeedSpec,
@@ -193,8 +195,19 @@ export type {
  * `1.14.0`: the view verbs take an optional `card` and run in that card's
  * body view (`App.body(cardId)` scopes them); adds `bodies`, the host's list
  * of body views. Additive; major stays `1`.
+ *
+ * `1.15.0`: adds `performMenuItem` — the real `NSMenuItem` by identifier,
+ * validated as AppKit validates it at open, its action sent through
+ * `NSApp.sendAction`. Additive; major stays `1`.
+ *
+ * `1.16.0`: adds `captureBurst` — the composited window captured every
+ * `intervalMs` for `durationMs`, cropped to a content rect and written as
+ * PNGs, armed and read back like `hostFrames` — so a reveal or a departure
+ * is read on every frame rather than on the one frame a `captureWindow`
+ * happens to land on. `bodies` rows carry `painted`. Additive; major stays
+ * `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.14.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.16.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -792,6 +805,18 @@ export class App {
   }
 
   /**
+   * Perform one native menu item by its `NSUserInterfaceItemIdentifier`
+   * (e.g. `"view.zoomIn"`), the way the menu performs it: validated, then
+   * its action sent through the responder chain with `NSApp.sendAction`.
+   * Returns `{ found: false }` when absent; a disabled item is found and
+   * not performed. Assert the command's effect where it should land, not
+   * the answer.
+   */
+  performMenuItem(identifier: string): Promise<MenuItemPerformed> {
+    return client.performMenuItem(this as HarnessCaller, identifier);
+  }
+
+  /**
    * Capture the app's WKWebView as a PNG (written to a temp file) and
    * return its path. Uses `WKWebView.takeSnapshot` — captures rendered
    * web content directly, no Screen Recording permission.
@@ -850,6 +875,22 @@ export class App {
     params: { op: "arm"; windowMs: number; layer?: string } | { op: "read" },
   ): ReturnType<typeof client.hostFrames> {
     return client.hostFrames(this as HarnessCaller, params);
+  }
+
+  /**
+   * A burst of composited window captures — see `client.captureBurst`. The
+   * frames a read hands out are reclaimed with the screenshots.
+   */
+  async captureBurst(
+    params: Parameters<typeof client.captureBurst>[1],
+  ): ReturnType<typeof client.captureBurst> {
+    const reading = await client.captureBurst(this as HarnessCaller, params);
+    if ("frames" in reading) {
+      for (const frame of reading.frames) {
+        if (!this.screenshots.includes(frame.path)) this.screenshots.push(frame.path);
+      }
+    }
+    return reading;
   }
 
   /** The display-rate spike's child page — see `client.spikeBody`. */

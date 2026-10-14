@@ -61,6 +61,7 @@ import { dictationStore } from "./dictation-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
 import { resolveColumnMenuFact } from "./layout-selection";
 import { focusTravelDirections } from "./directional-focus";
+import type { DeckMenuFacts } from "@tugproto/bus";
 import {
   cardsSelectionStore,
   subscribeLayoutCursorCard,
@@ -1451,11 +1452,18 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
 
 /**
  * The ids of the menu items that belong to the key card rather than to the
- * deck: those whose command routes to the first responder or the key card.
+ * deck: those whose command routes to the first responder or the key card,
+ * and the native-routed ones AppKit performs on the first responder but
+ * whose enablement is the page's own chain query (Cut, Copy, Paste, Delete,
+ * Select All) — a body with its composer focused is the page whose chain
+ * can answer, and the shell's answer, with nothing of its own focused, is
+ * dark, which left ⌘X beeping at the menu bar from a body (row 5).
  */
 const CARD_SCOPED_MENU_ITEMS: ReadonlySet<string> = new Set(
   COMMANDS.flatMap((entry) =>
-    (entry.routing === "first-responder" || entry.routing === "key-card") &&
+    (entry.routing === "first-responder" ||
+      entry.routing === "key-card" ||
+      (entry.routing === "native" && entry.validate !== undefined)) &&
     entry.menuItemId !== undefined
       ? [entry.menuItemId]
       : [],
@@ -1486,6 +1494,19 @@ export function bodyMenuPayload(payload: MenuStatePayload): Pick<
   };
 }
 
+/** The shell's menu facts a body last received, and the body's projection push. */
+let shellMenuFacts: DeckMenuFacts | null = null;
+let bodyPush: (() => void) | null = null;
+
+/**
+ * A body received the shell's menu facts (`deck-facts.menu`): re-project
+ * from them. A no-op in the shell, which projects its own.
+ */
+export function applyShellMenuFacts(menu: DeckMenuFacts): void {
+  shellMenuFacts = menu;
+  bodyPush?.();
+}
+
 /**
  * Wire the aggregator in a body page, over its bridge's one-card deck. The
  * card's surfaces publish their blocks through the same module functions they
@@ -1497,11 +1518,22 @@ export function initBodyHostMenuState(bridge: IDeckManagerStore): void {
     scheduleAfterPaint,
   );
   activePublisher = publisher;
+  // The shell's arrangement facts, once it has sent them: a body's own deck
+  // is its one card, which cannot say how many panes stand or what lies to
+  // the right, so the gates it posts for the key card's items would read
+  // dark for every Go, View and Window item that asks ([F19]). Until the
+  // shell's facts arrive, the body projects its own.
+  shellMenuFacts = null;
   const push = (): void => {
     publisher.setDeckProjection(
-      projectDeckState(bridge.getSnapshot(), bridge.getSpacesSnapshot()),
+      (shellMenuFacts?.projection as MenuStateDeckProjection | undefined) ??
+        projectDeckState(bridge.getSnapshot(), bridge.getSpacesSnapshot()),
     );
   };
+  bodyPush = push;
+  publisher.setFocusTravelFactSource(
+    () => (shellMenuFacts?.focusTravel as CommandMenuFacts["focusTravel"] | undefined) ?? null,
+  );
   bridge.subscribe(push);
   cardSessionBindingStore.subscribe(push);
   cardTitleStore.subscribe(push);

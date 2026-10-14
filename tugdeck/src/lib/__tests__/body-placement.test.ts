@@ -10,13 +10,15 @@ import {
   bodyVisible,
   floorClipPath,
   floorHoles,
+  paneClipPath,
+  paneHoles,
   PlacementPoster,
   type BodyShownFacts,
   type PlaceBodies,
 } from "../body-placement";
 
 const SHOWN: BodyShownFacts = {
-  ready: true,
+  painted: true,
   active: true,
   folded: false,
   arriving: false,
@@ -25,8 +27,8 @@ const SHOWN: BodyShownFacts = {
 
 describe("bodyVisible", () => {
   const cases: Array<[string, Partial<BodyShownFacts>, boolean]> = [
-    ["ready, active, open, settled, shown", {}, true],
-    ["not yet ready", { ready: false }, false],
+    ["painted, active, open, settled, shown", {}, true],
+    ["ready but not yet painted", { painted: false }, false],
     ["an inactive tab", { active: false }, false],
     ["folded", { folded: true }, false],
     ["arriving", { arriving: true }, false],
@@ -117,6 +119,43 @@ function placement(x: number, visible = true): PlaceBodies {
     bodies: [{ cardId: "a", x, y: 40, width: 300, height: 200, visible, z: 0 }],
   };
 }
+
+describe("a pane behind bodies", () => {
+  const placement: PlaceBodies = {
+    radius: 6,
+    bodies: [
+      { cardId: "front", x: 500, y: 100, width: 400, height: 300, visible: true, z: 5 },
+      { cardId: "hidden", x: 100, y: 100, width: 400, height: 300, visible: false, z: 5 },
+    ],
+  };
+
+  test("wears a hole at a front body's rect that meets its box, in its own px", () => {
+    const holes = paneHoles(placement, { x: 100, y: 50, width: 600, height: 500, layoutWidth: 600, z: 2 });
+    expect(holes).toEqual([{ x: 400, y: 50, width: 400, height: 300 }]);
+  });
+
+  test("wears none for a body behind it, beside it, or hidden", () => {
+    expect(paneHoles(placement, { x: 100, y: 50, width: 600, height: 500, layoutWidth: 600, z: 9 })).toEqual([]);
+    expect(paneHoles(placement, { x: 1000, y: 50, width: 600, height: 500, layoutWidth: 600, z: 2 })).toEqual([]);
+    expect(paneHoles(placement, { x: 100, y: 100, width: 400, height: 300, layoutWidth: 400, z: 2 })).toEqual([]);
+  });
+
+  test("a zoomed pane's holes are in layout px", () => {
+    const holes = paneHoles(placement, { x: 100, y: 50, width: 1200, height: 1000, layoutWidth: 600, z: 2 });
+    expect(holes).toEqual([{ x: 200, y: 25, width: 200, height: 150 }]);
+  });
+
+  test("a parked pane with no box wears none", () => {
+    expect(paneHoles(placement, { x: 0, y: 0, width: 0, height: 0, layoutWidth: 0, z: 2 })).toEqual([]);
+  });
+
+  test("the clip's ring reaches far past the pane, so only the holes cut", () => {
+    expect(paneClipPath([])).toBe("");
+    expect(paneClipPath([{ x: 400, y: 50, width: 400, height: 300 }])).toBe(
+      'path(evenodd, "M-100000 -100000H100000V100000H-100000ZM400 50H800V350H400Z")',
+    );
+  });
+});
 
 describe("PlacementPoster", () => {
   test("an unchanged set posts nothing", () => {

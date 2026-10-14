@@ -86,7 +86,7 @@ test-rust:
 #
 # The app-test line names two directories on purpose. `scripts/` and `_harness/`
 # hold pure-logic tests that spawn no `Tug.app`; the corpus itself lives at the
-# tests/app-test root and under harness-smoke/, and is not reached from here.
+# tests/app-test root and under harness-smoke/ and body-grounding/, and is not reached from here.
 #
 # The tugdeck line runs twice for one reason: `tugdeck/bunfig.toml` pins
 # `[test] root = "src"`, so a test outside `src/` — the audit scripts' own
@@ -536,6 +536,13 @@ app-debug: build wasm
     # $SRCROOT into Info.plist), but writing it explicitly here keeps
     # the user's chosen tree wins over any stale build-time value.
     tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.app source-tree-path "$(pwd)" >/dev/null
+    # Bodies are a switch, off on the shipping build (the grounding brief's
+    # [B01]); the dev instance runs with it on. Seeded only while the key is
+    # absent, so the Layout card's Bodies row on this instance holds across
+    # relaunches instead of being flipped back on at each one.
+    if ! tugrust/target/debug/tugbank --instance "$INSTANCE_ID" read dev.tugapp.deck bodies >/dev/null 2>&1; then
+        tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.deck bodies --type bool true >/dev/null
+    fi
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
     # Scrub the launching instance's env before `open` propagates it: one
     # shared list, in launch-scrubbed.sh, so the launches cannot drift.
@@ -1685,7 +1692,7 @@ app-test-select *PATHS:
 app-test-all:
     #!/usr/bin/env bash
     set -uo pipefail
-    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; })"
+    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; ls body-grounding/*.test.ts | sort; })"
     TUG_APPTEST_SELECTION=all just app-test $FILES
 
 # Every app-test file, on a deck instrumented to record which named functions
@@ -1699,7 +1706,7 @@ app-test-all:
 app-test-reach:
     #!/usr/bin/env bash
     set -uo pipefail
-    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; })"
+    FILES="$(cd tests/app-test && { ls harness-smoke/*.test.ts | sort; ls *.test.ts | sort; ls body-grounding/*.test.ts | sort; })"
     TUG_APPTEST_REACH=1 TUG_APPTEST_SELECTION=reach just app-test $FILES
 
 # Print each test's executed share of the modules it covers, from the recorded
