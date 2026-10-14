@@ -56,6 +56,7 @@ The user, 2026-10-14: "Dragging cards separates the masthead and frame from the 
 10. Workspace switch: every body of the arriving space is shown and placed, every body of the departing space hidden, with no frame showing a body in the wrong place.
 11. Close, close all, reload (⌘R), quit: no body outlives its card, every page saves and terminates under the deadline.
 12. Z2, the composer, paste of text and images, and the picker-to-body handoff.
+13. Arc tracking: an arc run in a body's session shows its lifecycle mark and step fraction in that body's Z2 and its row and track in the shell's Arcs card, from `/arc` through join. Read live 2026-10-14 on the user's deck with `body-view-grounding` executing at step 1/10: the shell's Arcs card had the row ("Executing 1/10") and the body's Z2 had no arc mark at all, because the body page attaches `cardServicesStore.attachBody()` and never `attachSessionLedgerStore`, so `useSessionLedgerRow` in the body's identity row has no ledger and `ArcLifecycleMark` never mounts (`tugdeck/src/body/body-main.ts:253`, `session-identity-row.tsx:967, 1322`). Every store a card's content reads in the document must be attached, or bridged, in the body page; the row's test enumerates them.
 
 A row is green when its test passes through the real path and the reading on the real app agrees. The bar lives in the brief and in `tests/app-test/body-grounding/`, one file per row, each `@covers` the body path.
 
