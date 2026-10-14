@@ -2038,6 +2038,7 @@ impl AgentSupervisor {
             // The router's own reads and the legacy pipeline's verbs.
             A::FeedStats
             | A::SubscribeFeeds
+            | A::PageBind
             | A::EvalResponse
             | A::AskResponse
             | A::Relaunch

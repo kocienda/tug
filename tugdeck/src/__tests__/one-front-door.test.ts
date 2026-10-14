@@ -8,10 +8,11 @@
  * exists to close. They are all converted now; this is what keeps the next
  * one from being written.
  *
- * Two modules may still import it, and both are replaying a control frame
+ * Three modules may still import it, and each is replaying a control frame
  * rather than invoking a command: `main.tsx` (the WKScriptMessage bridge
- * the Swift host posts through) and `test-surface.ts` (the harness verb
- * that simulates one). Everything else calls `dispatchCommand`.
+ * the Swift host posts through), `body/body-main.ts` (a card body's own
+ * CONTROL feed) and `test-surface.ts` (the harness verb that simulates
+ * one). Everything else calls `dispatchCommand`.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -22,6 +23,7 @@ const SRC = join(import.meta.dir, "..");
 
 const CONTROL_FRAME_ENTRY_POINTS = new Set([
   "action-dispatch.ts",
+  "body/body-main.ts",
   "main.tsx",
   "test-surface.ts",
 ]);

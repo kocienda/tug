@@ -1159,6 +1159,9 @@ export function screenshot(
  * UI-process capture (`CGWindowListCreateImage` on the app's own window, no
  * Screen Recording grant needed). Unlike `screenshot`, a frozen web process
  * does not stall it and a compositor-driven animation is seen mid-flight.
+ * It is the composite of every view: the shell and each card's body beneath
+ * it, as the user sees them — where `screenshot` is one view's own paint (the
+ * shell's, or a body's when scoped with `App.body(cardId)`).
  * `width`/`height` are the PNG's pixels; `contentWidth`/`contentHeight` are
  * the window's content view in points, so a page rect maps to pixels by
  * `width / contentWidth`, with the content anchored at the image's bottom.
@@ -1205,6 +1208,95 @@ export function setWindowContentSize(
  */
 export function setPageZoom(caller: HarnessCaller, zoom: number): Promise<number> {
   return caller.rpcCall("setPageZoom", { zoom });
+}
+
+// ---- host frames and the display-rate spike (surface `1.13.0`) ----
+
+/**
+ * A window of the host's display-link ticks — `HostFrameMeter` in the UI
+ * process, which a busy page cannot stall. `samples` are present when the
+ * meter was armed sampling a layer: that layer's presentation position and
+ * opacity on every tick, `t` in ms from arming.
+ */
+export interface HostFrameReading {
+  periodMs: number;
+  ticks: number;
+  expectedTicks: number;
+  missed: number;
+  worstGapMs: number;
+  gapsOverPeriod: Array<{ atMs: number; gapMs: number }>;
+  samples?: Array<{ t: number; x: number; y: number; opacity: number }>;
+}
+
+/**
+ * Arm the host's frame meter for `windowMs`, sampling the named container's
+ * presentation layer when `layer` is given (`"spike"` is the spike child's; a
+ * card id is that card's body), or read what it has recorded. The meter stops
+ * itself at the window's end.
+ */
+export function hostFrames(
+  caller: HarnessCaller,
+  params: { op: "arm"; windowMs: number; layer?: string } | { op: "read" },
+): Promise<HostFrameReading | { armed: true; windowMs: number }> {
+  return caller.rpcCall("hostFrames", params);
+}
+
+/** One body view the host holds, as the `bodies` verb (surface `1.14.0`) reports it. */
+export interface BodyViewSnapshot {
+  /** The card the body is bound to; null for the warm spare. */
+  cardId: string | null;
+  state: "loading" | "connected" | "bound" | "ready" | "failed";
+  /** The body's frame in shell viewport points, top-left origin. */
+  frame: { x: number; y: number; width: number; height: number };
+  /** Placed visible and ready — what the user can see. */
+  visible: boolean;
+  /** The container's presented opacity (mid-fade reads between 0 and 1). */
+  opacity: number;
+  /** Whether the body began as the warm spare (`warm`) or was made for its card (`cold`). */
+  start: "warm" | "cold";
+  /** Bind → ready, once the body has reported ready; null before. */
+  readyMs: number | null;
+  url: string | null;
+}
+
+/** Every body view the host holds, the spare included. */
+export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
+  return caller.rpcCall("bodies", {});
+}
+
+/** What `spikeBody {op: "create"}` answers: the child's cold time and rect. */
+export interface SpikeCreated {
+  coldMs: number;
+  /** The child's rect in shell viewport points, top-left origin. */
+  frame: { x: number; y: number; width: number; height: number };
+}
+
+/** What `spikeBody {op: "run"}` answers. */
+export interface SpikeReading {
+  /** The host display link over the stall. */
+  meter: HostFrameReading;
+  /** Share of host ticks on which the translated container's presentation moved. */
+  presentationAdvancedRatio: number;
+  /** The child's own rAF over the stall, judged by its own pre-stall period. */
+  child: { periodMs: number; ticks: number; expectedTicks: number; worstGapMs: number; pointerdowns: number };
+  /** Consecutive composited captures of the child's rect, and how many differed. */
+  burst: { pairs: number; differing: number };
+}
+
+/**
+ * The display-rate spike (DEBUG builds): a child page in a WKWebView of its
+ * own beneath the deck, shown through a hole cut in the deck's paint. `run`
+ * stalls the deck's main thread for `stallMs` and reads the child's frames,
+ * the render server's and the window's over it.
+ */
+export function spikeBody(caller: HarnessCaller, params: { op: "create" }): Promise<SpikeCreated>;
+export function spikeBody(
+  caller: HarnessCaller,
+  params: { op: "run"; stallMs: number; translatePx: number },
+): Promise<SpikeReading>;
+export function spikeBody(caller: HarnessCaller, params: { op: "destroy" }): Promise<{ destroyed: true }>;
+export function spikeBody(caller: HarnessCaller, params: Record<string, unknown>): Promise<unknown> {
+  return caller.rpcCall("spikeBody", params);
 }
 
 // ---- native gestures ----

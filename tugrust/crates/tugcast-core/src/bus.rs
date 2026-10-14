@@ -8,8 +8,10 @@
 //! `tugproto/src/__tests__/fixtures/bus-parity.json`.
 //!
 //! The vocabulary is closed: a `kind` this module does not name fails to
-//! parse. Each kind's direction (`card-facts` body → shell, `deck-facts`
-//! shell → bodies, …) is its documented use; the router does not enforce it.
+//! parse. Each kind's direction (`card-facts` and `card-advice` body →
+//! shell, `card-command` shell → body, `deck-facts` shell → bodies,
+//! `card-context` shell → one body) is its documented use; the router does
+//! not enforce it.
 
 use std::collections::BTreeMap;
 
@@ -39,11 +41,16 @@ pub enum BusTarget {
 }
 
 /// `card-facts`: what a card shows the chrome about itself.
+///
+/// `masthead` is the deck's `CardMastheadPayload` object (or null), carried
+/// opaquely: tugcast routes it and never reads it. `activity` is the session
+/// phase key `useSessionPhase` computes; `telemetry` carries `canInterrupt`
+/// and `compacted` as 0 or 1.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardFacts {
     pub title: String,
-    pub masthead_line: Option<String>,
+    pub masthead: Option<serde_json::Value>,
     pub activity: Option<String>,
     pub telemetry: BTreeMap<String, f64>,
 }
@@ -58,6 +65,8 @@ pub enum CardCommandKind {
     TurnPrevious,
     TurnNext,
     Chord,
+    /// A card-scoped menu command, by its action id.
+    Dispatch,
 }
 
 /// A key chord a `card-command` forwards.
@@ -76,6 +85,12 @@ pub struct CardCommand {
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chord: Option<BusChord>,
+    /// The action id a `dispatch` command carries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The action's payload, for a `dispatch` that has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
 }
 
 /// `card-advice`: what a card tells the chrome about how to treat it.
@@ -84,18 +99,19 @@ pub struct CardCommand {
 pub enum CardAdvice {
     #[serde(rename_all = "camelCase")]
     FoldGuard { guarded: bool },
+    /// `waive`: the card asks the chrome to close without confirming.
     #[serde(rename_all = "camelCase")]
-    CloseAdvice {
-        confirm: bool,
-        message: Option<String>,
-    },
+    CloseAdvice { waive: bool },
+    /// The height the card's sheet reserves, or null to release it.
     #[serde(rename_all = "camelCase")]
-    SheetReservation { reserved: bool },
+    SheetReservation { height_px: Option<f64> },
+    /// The height the card bids to open at, or null to withdraw the bid.
     #[serde(rename_all = "camelCase")]
-    OpeningBid {
-        width_px: Option<f64>,
-        height_px: Option<f64>,
-    },
+    OpeningBid { height_px: Option<f64> },
+    /// The card asks to be made the key card.
+    Activate,
+    /// The card asks the chrome to close it.
+    CloseRequest,
 }
 
 /// `deck-facts`: what the chrome tells every card about the deck.
@@ -109,6 +125,17 @@ pub struct DeckFacts {
     pub app_active: bool,
 }
 
+/// `card-context`: what the chrome tells one body about its own card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardContext {
+    pub folded: bool,
+    pub arriving: bool,
+    pub first_responder_card_id: Option<String>,
+    pub layer_shown: bool,
+    pub space_id: Option<String>,
+}
+
 /// One bus message: a `kind` and its `payload`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload", rename_all = "kebab-case")]
@@ -117,6 +144,7 @@ pub enum BusMessage {
     CardCommand(CardCommand),
     CardAdvice(CardAdvice),
     DeckFacts(DeckFacts),
+    CardContext(CardContext),
 }
 
 /// The sender of a delivered message, stamped by tugcast from the identity
@@ -203,11 +231,22 @@ mod tests {
         assert!(has(&|e| matches!(e.message, BusMessage::CardFacts(_))));
         assert!(has(&|e| matches!(e.message, BusMessage::CardCommand(_))));
         assert!(has(&|e| matches!(e.message, BusMessage::DeckFacts(_))));
+        assert!(has(&|e| matches!(e.message, BusMessage::CardContext(_))));
+        assert!(has(&|e| matches!(
+            &e.message,
+            BusMessage::CardCommand(CardCommand {
+                command: CardCommandKind::Dispatch,
+                id: Some(_),
+                ..
+            })
+        )));
         for advice in [
             "fold-guard",
             "close-advice",
             "sheet-reservation",
             "opening-bid",
+            "activate",
+            "close-request",
         ] {
             assert!(
                 has(&|e| match &e.message {
@@ -267,6 +306,8 @@ mod tests {
                 command: CardCommandKind::Find,
                 query: Some("needle".into()),
                 chord: None,
+                id: None,
+                payload: None,
             })
         );
         assert!(serde_json::to_value(&parsed).unwrap().get("from").is_none());

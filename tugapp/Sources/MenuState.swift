@@ -298,3 +298,35 @@ struct MenuState {
         }
     }
 }
+
+extension MenuState {
+    /// The blocks that belong to the key card rather than to the deck. A body
+    /// card's are published by its body; the deck's — panes, workspaces,
+    /// recents, theme, the capture and modal flags — stay the shell's.
+    static let cardScopedKeys = ["session", "file", "document", "edit"]
+
+    /// One payload from the shell's and the bodies'.
+    ///
+    /// The shell names its key card in `activeCard.cardId`. When that card is
+    /// a body with a payload of its own, the card-scoped blocks come from the
+    /// body — present or absent as the body says — and `commands` is the
+    /// union of both, the body's gate winning an identifier both report. A
+    /// payload from a body whose card is not the key card changes nothing, so
+    /// a background body can never light the menu for a card the user is not
+    /// in.
+    static func merged(shell: [String: Any], bodies: [String: [String: Any]]) -> [String: Any] {
+        guard let activeCard = shell["activeCard"] as? [String: Any],
+              let cardId = activeCard["cardId"] as? String,
+              let body = bodies[cardId] else { return shell }
+        var merged = shell
+        for key in cardScopedKeys {
+            merged[key] = body[key]
+        }
+        var commands = shell["commands"] as? [String: Any] ?? [:]
+        for (identifier, gate) in body["commands"] as? [String: Any] ?? [:] {
+            commands[identifier] = gate
+        }
+        merged["commands"] = commands
+        return merged
+    }
+}

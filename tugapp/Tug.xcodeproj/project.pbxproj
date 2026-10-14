@@ -59,6 +59,16 @@
 		AA000001000000000000004C /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
 		AA000001000000000000004D /* MenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000047 /* MenuState.swift */; };
 		AA000001000000000000004E /* MenuStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000048 /* MenuStateTests.swift */; };
+		AA0000010000000000000054 /* FrameMeterStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004D /* FrameMeterStats.swift */; };
+		AA0000010000000000000055 /* FrameMeterStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004D /* FrameMeterStats.swift */; };
+		AA0000010000000000000056 /* HostFrameMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004E /* HostFrameMeter.swift */; };
+		AA0000010000000000000057 /* SpikeBodyHandlers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002000000000000004F /* SpikeBodyHandlers.swift */; };
+		AA0000010000000000000058 /* FrameMeterStatsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000050 /* FrameMeterStatsTests.swift */; };
+		AA0000010000000000000059 /* BodyViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000051 /* BodyViewController.swift */; };
+		AA000001000000000000005A /* BodyGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000052 /* BodyGeometry.swift */; };
+		AA000001000000000000005B /* BodyGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000052 /* BodyGeometry.swift */; };
+		AA000001000000000000005C /* HostCapabilitiesScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000053 /* HostCapabilitiesScript.swift */; };
+		AA000001000000000000005D /* BodyGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000020000000000000054 /* BodyGeometryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -108,6 +118,14 @@
 		AA0000020000000000000046 /* UpdateStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateStateTests.swift; sourceTree = "<group>"; };
 		AA0000020000000000000047 /* MenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuState.swift; sourceTree = "<group>"; };
 		AA0000020000000000000048 /* MenuStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuStateTests.swift; sourceTree = "<group>"; };
+		AA000002000000000000004D /* FrameMeterStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameMeterStats.swift; sourceTree = "<group>"; };
+		AA000002000000000000004E /* HostFrameMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostFrameMeter.swift; sourceTree = "<group>"; };
+		AA000002000000000000004F /* SpikeBodyHandlers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpikeBodyHandlers.swift; sourceTree = "<group>"; };
+		AA0000020000000000000050 /* FrameMeterStatsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameMeterStatsTests.swift; sourceTree = "<group>"; };
+		AA0000020000000000000051 /* BodyViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyViewController.swift; sourceTree = "<group>"; };
+		AA0000020000000000000052 /* BodyGeometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyGeometry.swift; sourceTree = "<group>"; };
+		AA0000020000000000000053 /* HostCapabilitiesScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostCapabilitiesScript.swift; sourceTree = "<group>"; };
+		AA0000020000000000000054 /* BodyGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyGeometryTests.swift; sourceTree = "<group>"; };
 		AA0000030000000000000001 /* Tug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tug.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000030000000000000002 /* TugTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TugTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -153,6 +171,11 @@
 				AA000002000000000000004C /* MenuStateSync.swift */,
 				AA0000020000000000000047 /* MenuState.swift */,
 				AA0000020000000000000002 /* MainWindow.swift */,
+				AA000002000000000000004E /* HostFrameMeter.swift */,
+				AA000002000000000000004D /* FrameMeterStats.swift */,
+				AA0000020000000000000051 /* BodyViewController.swift */,
+				AA0000020000000000000052 /* BodyGeometry.swift */,
+				AA0000020000000000000053 /* HostCapabilitiesScript.swift */,
 				AA0000020000000000000003 /* ProcessManager.swift */,
 				AA000002000000000000000A /* TugbankClient.swift */,
 				AA0000020000000000000008 /* TugConfig.swift */,
@@ -189,6 +212,7 @@
 				AA0000020000000000000012 /* NativeEventHandlers.swift */,
 				AA0000020000000000000013 /* AppLifecycleHandlers.swift */,
 				AA0000020000000000000014 /* TugcodeLifecycleHandlers.swift */,
+				AA000002000000000000004F /* SpikeBodyHandlers.swift */,
 			);
 			path = TestHarness;
 			sourceTree = "<group>";
@@ -201,6 +225,8 @@
 				AA0000020000000000000043 /* BridgePathGuardTests.swift */,
 				AA0000020000000000000044 /* DictationStateTests.swift */,
 				AA0000020000000000000048 /* MenuStateTests.swift */,
+				AA0000020000000000000050 /* FrameMeterStatsTests.swift */,
+				AA0000020000000000000054 /* BodyGeometryTests.swift */,
 				AA000002000000000000004B /* MenuBarBuilderTests.swift */,
 				AA0000020000000000000045 /* ShellPathResolverTests.swift */,
 				AA0000020000000000000046 /* UpdateStateTests.swift */,
@@ -314,6 +340,11 @@
 				AA0000010000000000000053 /* MenuStateSync.swift in Sources */,
 				AA000001000000000000004C /* MenuState.swift in Sources */,
 				AA0000010000000000000002 /* MainWindow.swift in Sources */,
+				AA0000010000000000000056 /* HostFrameMeter.swift in Sources */,
+				AA0000010000000000000054 /* FrameMeterStats.swift in Sources */,
+				AA0000010000000000000059 /* BodyViewController.swift in Sources */,
+				AA000001000000000000005A /* BodyGeometry.swift in Sources */,
+				AA000001000000000000005C /* HostCapabilitiesScript.swift in Sources */,
 				AA0000010000000000000003 /* ProcessManager.swift in Sources */,
 				AA000001000000000000000A /* TugbankClient.swift in Sources */,
 				AA0000010000000000000006 /* TugConfig.swift in Sources */,
@@ -327,6 +358,7 @@
 				AA0000010000000000000012 /* NativeEventHandlers.swift in Sources */,
 				AA0000010000000000000013 /* AppLifecycleHandlers.swift in Sources */,
 				AA0000010000000000000014 /* TugcodeLifecycleHandlers.swift in Sources */,
+				AA0000010000000000000057 /* SpikeBodyHandlers.swift in Sources */,
 				AA0000010000000000000016 /* BuildInfo.swift in Sources */,
 				AA0000010000000000000015 /* BranchSlug.swift in Sources */,
 				AA0000010000000000000040 /* BridgePathGuard.swift in Sources */,
@@ -354,6 +386,8 @@
 				AA0000010000000000000048 /* BridgePathGuardTests.swift in Sources */,
 				AA0000010000000000000049 /* DictationStateTests.swift in Sources */,
 				AA000001000000000000004E /* MenuStateTests.swift in Sources */,
+				AA0000010000000000000058 /* FrameMeterStatsTests.swift in Sources */,
+				AA000001000000000000005D /* BodyGeometryTests.swift in Sources */,
 				AA0000010000000000000052 /* MenuBarBuilderTests.swift in Sources */,
 				AA000001000000000000004A /* ShellPathResolverTests.swift in Sources */,
 				AA000001000000000000004B /* UpdateStateTests.swift in Sources */,
@@ -361,6 +395,8 @@
 				AA0000010000000000000043 /* BridgePathGuard.swift in Sources */,
 				AA0000010000000000000044 /* DictationState.swift in Sources */,
 				AA000001000000000000004D /* MenuState.swift in Sources */,
+				AA0000010000000000000055 /* FrameMeterStats.swift in Sources */,
+				AA000001000000000000005B /* BodyGeometry.swift in Sources */,
 				AA0000010000000000000051 /* MenuBarBuilder.swift in Sources */,
 				AA0000010000000000000045 /* ShellPathResolver.swift in Sources */,
 				AA0000010000000000000046 /* UpdateState.swift in Sources */,

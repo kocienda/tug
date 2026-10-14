@@ -4,13 +4,48 @@
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-facts",
-      "payload": { "title": "Dev", "mastheadLine": null, "activity": "idle", "telemetry": { "turns": 4, "costUsd": 0.25 } }
+      "payload": {
+        "title": "Dev",
+        "masthead": { "kind": "session-masthead", "sessionId": "s-1" },
+        "activity": "idle",
+        "telemetry": { "canInterrupt": 0, "compacted": 1 }
+      }
+    },
+    {
+      "from": { "pageId": "body-c2", "role": "body", "cardId": "c2" },
+      "to": "shell",
+      "kind": "card-facts",
+      "payload": { "title": "Session", "masthead": null, "activity": null, "telemetry": {} }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": { "card": "c2" },
       "kind": "card-command",
       "payload": { "command": "find", "query": "needle" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "focus-prompt" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "interrupt" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "turn-previous" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "turn-next" }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
@@ -22,7 +57,13 @@
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": { "card": "c1" },
       "kind": "card-command",
-      "payload": { "command": "interrupt" }
+      "payload": { "command": "dispatch", "id": "copy-session-id" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "dispatch", "id": "set-permission-mode", "payload": { "mode": "plan" } }
     },
     {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
@@ -34,25 +75,55 @@
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
-      "payload": { "advice": "close-advice", "confirm": true, "message": "A turn is running." }
+      "payload": { "advice": "close-advice", "waive": true }
     },
     {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
-      "payload": { "advice": "sheet-reservation", "reserved": false }
+      "payload": { "advice": "sheet-reservation", "heightPx": 240 }
     },
     {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
-      "payload": { "advice": "opening-bid", "widthPx": 640, "heightPx": null }
+      "payload": { "advice": "sheet-reservation", "heightPx": null }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "opening-bid", "heightPx": 480 }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "activate" }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "close-request" }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": "body",
       "kind": "deck-facts",
       "payload": { "theme": "ironclad", "zoom": 1.25, "keyboardAccess": true, "modifierLatch": ["shift"], "appActive": true }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-context",
+      "payload": { "folded": false, "arriving": true, "firstResponderCardId": "c1", "layerShown": true, "spaceId": "space-1" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-context",
+      "payload": { "folded": true, "arriving": false, "firstResponderCardId": null, "layerShown": false, "spaceId": null }
     }
   ]
 }

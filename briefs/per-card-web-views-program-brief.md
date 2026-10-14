@@ -92,3 +92,12 @@ The asks are `briefs/graphics-animations-asks.md`: new cards, folds, column move
 | Stage | Joined | Lead | In-motion | Land | Processes / RSS | Notes |
 |---|---|---|---|---|---|---|
 | before (stage 6) | 2026-10-13 | — | — | — | 1 / 2.9 GB | first frame after commit 77–83 ms (harness); user's aged deck owed |
+| 2 | 2026-10-13 (harness; join owed) | — | — | — | 4 WebContent / 709–717 MB (shell + two bodies + the spare; each 215–219, 180–187, 178–185, 130–133 MB) | no host motion yet, so no gesture reading; a body's bind → ready: warm 109–148 ms, cold 112–127 ms (`ready` at the body's first paint); the arrival fade a 216.7 ms ramp at 16.67 ms with no display-link gap and the seen container still; user's aged deck owed at join |
+
+**Spike reading (stage 2).** 2026-10-13, Apple M4 Max (`Mac16,5`), macOS 27.0.1, 60 Hz display, the harness window in the foreground (`at0737-body-view-spike.test.ts`). One child page (`/?body=spike`, a compositor animation plus one painted log line per frame) in a WKWebView of its own beneath the deck, shown through a hole in the deck's paint, while the deck's main thread ran a 3000 ms synchronous loop. **The premise holds.**
+
+- (a) The child's own rAF over the stall: 180 ticks against 176 expected at its own 17 ms period, worst gap 21 ms (1.24 periods; bar ≤ 1.5).
+- (b) The host display link sampling the child container's presentation layer under a Core Animation translate, over the stall's first half: the position advanced on every tick (ratio 1.00; bar ≥ 0.95). The link itself, over the whole stall: 180/180 ticks at 16.67 ms, none missed.
+- (c) Composited window captures cropped to the child, over the stall's second half: 89 of 89 consecutive pairs differed (bar ≥ 0.90). The translate and the captures take different halves because a moving container makes every crop differ.
+- (d) The child shows through the deck's transparent region in a composited capture; (e) a native click at the child's centre reached the child (one `pointerdown`), the deck's view passing it through.
+- Processes: the child added one WebContent process, 53 MB resident at creation. The spike page's cold time, `load` to painted: 116–132 ms over four launches.

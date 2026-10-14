@@ -99,6 +99,7 @@ import {
   type GestureFrameArmReading,
   type GestureFrameReading,
 } from "./gesture-frame-probe";
+import { requestHostFrames, type HostFrameReading } from "./host-frames";
 
 /** Frames per reading in {@link TugMotionDiagnostics.cost}. */
 export const COST_FRAMES_DEFAULT = 30;
@@ -293,6 +294,12 @@ export interface TugMotionDiagnostics {
   settleBand(): string;
   /** The late frames every settle has recorded, oldest first ([B07]). */
   gaps(): SettleGapReading;
+  /**
+   * The window's frames over the next `windowMs`, read by the host's display
+   * link in the UI process (`host-frames.ts`) — what was shown, whatever this
+   * page's own thread was doing meanwhile.
+   */
+  hostFrames(windowMs?: number): Promise<HostFrameReading>;
   /** Clear the probe's samples and the input ring, and throw the switch back. */
   reset(): void;
   /** Test-mode only: the driver that lights the walk ([D5], #forcing-probe). */
@@ -707,6 +714,10 @@ export const tugMotion: TugMotionDiagnostics = {
       });
     }
     return { now: performance.now(), rows };
+  },
+
+  hostFrames(windowMs) {
+    return requestHostFrames(windowMs);
   },
 
   reset() {

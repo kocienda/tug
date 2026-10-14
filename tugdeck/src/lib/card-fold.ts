@@ -110,6 +110,15 @@ export function registerCardFoldGuard(
 }
 
 /**
+ * What `cardId`'s fold guard says right now: true when a fold may proceed,
+ * which is also the answer for a card that registered none. A body reads its
+ * card's guard here to tell the shell, which asks before it folds.
+ */
+export function readCardFoldGuard(cardId: string): boolean {
+  return foldGuards.get(cardId)?.() ?? true;
+}
+
+/**
  * Toggle `cardId`'s pane between its open and folded forms — the one body of
  * `toggle-card-fold`, whichever door it came through.
  *

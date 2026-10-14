@@ -77,6 +77,7 @@ import type { DeckManager } from "../deck-manager";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { runOpeningCommand } from "./opening-command-runner";
 import { isDirectoryChangeRebind } from "./directory-change";
+import { bodyCardsStore } from "./body-cards-store";
 
 export interface CardServices {
   /**
@@ -252,7 +253,22 @@ class CardServicesStore {
     this._bindingUnsub = cardSessionBindingStore.subscribe(() => {
       this._reconcile();
     });
+    // A card that becomes a body, or comes back from one, changes which
+    // bindings get services here.
+    bodyCardsStore.subscribe(() => {
+      this._reconcile();
+    });
     this._reconcile();
+  }
+
+  /**
+   * Wire the store in a body page: services are built for the body's card's
+   * binding from now on, ahead of every later binding subscriber, as
+   * {@link attachDeckManager} orders them in the shell. No deck is attached —
+   * closing the card is the shell's, which holds its binding.
+   */
+  attachBody(): void {
+    this._ensureInitialized();
   }
 
   /**
@@ -310,6 +326,10 @@ class CardServicesStore {
    * services map. Construct services for new bindings; dispose
    * services for vanished bindings. Notify React subscribers if
    * either map changed.
+   *
+   * A body card's binding gets no services: its session lives in its body,
+   * which builds them there. The shell keeps the binding itself, so
+   * closing the card still closes the session.
    */
   private _reconcile(): void {
     const bindings = cardSessionBindingStore.getSnapshot();
@@ -321,6 +341,7 @@ class CardServicesStore {
     // (and a fresh `request_replay`) — without it, `_reconcile` keyed on
     // cardId alone would keep the old session's transcript on a rebind.
     for (const [cardId, binding] of bindings) {
+      if (bodyCardsStore.has(cardId)) continue;
       const existing = this._services.get(cardId);
       const held = this._heldSwaps.get(cardId);
       if (held !== undefined) {
@@ -350,7 +371,7 @@ class CardServicesStore {
 
     // Dispose for vanished bindings.
     for (const cardId of [...this._services.keys()]) {
-      if (bindings.has(cardId)) continue;
+      if (bindings.has(cardId) && !bodyCardsStore.has(cardId)) continue;
       this._dropHeldSwap(cardId);
       this._dispose(cardId);
       changed = true;

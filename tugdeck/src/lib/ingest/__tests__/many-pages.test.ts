@@ -13,8 +13,11 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import type { BusOutbound } from "@tugproto/bus";
+import type { BusDelivered, BusOutbound } from "@tugproto/bus";
 import { FeedId } from "@/protocol";
+import { TugConnection, type PageRole } from "@/connection";
+import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
+import { onBus, sendBus } from "@/lib/deck-bus";
 import { BUILD_TIMEOUT_MS, PageClient, startRealTugcast, type RealTugcast } from "../testing/real-tugcast";
 
 /** `CLOSE_BAD_HANDSHAKE` in `tugcast-core/src/protocol.rs`. */
@@ -396,7 +399,7 @@ describe("bus", () => {
     send(b1, {
       to: "shell",
       kind: "card-facts",
-      payload: { title: "Dev", mastheadLine: null, activity: "idle", telemetry: {} },
+      payload: { title: "Dev", masthead: null, activity: "idle", telemetry: {} },
     });
     const facts = await shell.waitFor(() => bus(shell).find((j) => j.kind === "card-facts"), "the shell's card-facts");
     expect(facts.from).toEqual({ pageId: "body-bus-1", role: "body", cardId: "c1" });
@@ -425,5 +428,109 @@ describe("bus", () => {
     send(b1, { to: { card: "nobody" }, kind: "card-command", payload: { command: "interrupt" } });
     await socketBarrier(b1);
     expect(refusals(b1)).toEqual([{ type: "error", detail: "bus_undeliverable", to: { card: "nobody" } }]);
+  });
+
+  test("a spare body binds to its card once, and is then addressed as that card", async () => {
+    const shell = page({ role: "shell", page_id: "shell-bind" });
+    const spare = page({ role: "body", page_id: "body-spare", card_id: `spare:${crypto.randomUUID()}` });
+    await Promise.all([shell.connect(), spare.connect()]);
+
+    spare.sendControl("page_bind", { card_id: "c-bound" });
+    const bound = await spare.waitFor(() => controls(spare, "page_bound")[0], "page_bound");
+    expect(bound.card_id).toBe("c-bound");
+    await pagesUntil((ps) => ps.some((p) => p.page_id === "body-spare" && p.card_id === "c-bound"), "the bound card listed");
+
+    // An addressed tell and a bus message to the card reach the bound spare
+    // and not the shell.
+    expect(
+      (await tugcast.httpPost("/api/tell", { action: "tug-test-ping", n: 7, to: { card: "c-bound" } })).status,
+    ).toBe(200);
+    await spare.waitFor(() => controls(spare, "tug-test-ping").some((p) => p.n === 7), "the bound spare's ping");
+    shell.sendJson(FeedId.DECK_BUS, {
+      to: { card: "c-bound" },
+      kind: "card-context",
+      payload: { folded: false, arriving: true, firstResponderCardId: "c-bound", layerShown: true, spaceId: null },
+    } satisfies BusOutbound);
+    const context = await spare.waitFor(
+      () => jsonOn(spare, FeedId.DECK_BUS).find((j) => j.kind === "card-context"),
+      "the bound spare's card-context",
+    );
+    expect(context.from).toEqual({ pageId: "shell-bind", role: "shell", cardId: null });
+    await laneBarrier(shell, spare);
+    expect(controls(shell, "tug-test-ping")).toEqual([]);
+    expect(jsonOn(shell, FeedId.DECK_BUS)).toEqual([]);
+
+    // A second bind is refused and the card stays.
+    spare.sendControl("page_bind", { card_id: "c-other" });
+    const refused = await spare.waitFor(() => controls(spare, "page_bind_refused")[0], "page_bind_refused");
+    expect(refused.detail).toBe("already_bound");
+    const listed = await listedPages();
+    expect(listed.find((p) => p.page_id === "body-spare")?.card_id).toBe("c-bound");
+  });
+});
+
+describe("pages on the deck's own connection", () => {
+  /** A `TugConnection` speaking for `page`, open on the real tugcast. */
+  async function deckPage(page: PageRole): Promise<TugConnection> {
+    const connection = new TugConnection(tugcast.wsUrl, { page });
+    const lifecycle = new ConnectionLifecycle();
+    connection.setLifecycle(lifecycle);
+    const opened = new Promise<void>((resolve) => lifecycle.observeConnectionDidOpen(() => resolve()));
+    connection.connect();
+    await opened;
+    return connection;
+  }
+
+  /** Resolve with the first value `read` returns that is not undefined. */
+  async function until<T>(read: () => T | undefined, what: string): Promise<T> {
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const value = read();
+      if (value !== undefined) return value;
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+      await Bun.sleep(20);
+    }
+  }
+
+  test("a shell and a body exchange facts and context, and the body hears only its session", async () => {
+    const shell = await deckPage({ role: "shell" });
+    const body = await deckPage({ role: "body", cardId: "c-deck" });
+    try {
+      const facts: BusDelivered[] = [];
+      const contexts: BusDelivered[] = [];
+      onBus(shell, "card-facts", (m) => facts.push(m));
+      onBus(body, "card-context", (m) => contexts.push(m));
+
+      sendBus(body, "shell", {
+        kind: "card-facts",
+        payload: { title: "deck/odd-kiln", masthead: null, activity: "idle", telemetry: { canInterrupt: 0, compacted: 0 } },
+      });
+      sendBus(shell, { card: "c-deck" }, {
+        kind: "card-context",
+        payload: { folded: false, arriving: true, firstResponderCardId: "c-deck", layerShown: false, spaceId: null },
+      });
+
+      const fact = await until(() => facts[0], "the shell's card-facts");
+      expect(fact.from).toMatchObject({ role: "body", cardId: "c-deck" });
+      expect(fact.payload).toMatchObject({ title: "deck/odd-kiln", activity: "idle" });
+      const context = await until(() => contexts[0], "the body's card-context");
+      expect(context.from).toMatchObject({ role: "shell", cardId: null });
+      expect(context.payload).toMatchObject({ arriving: true, firstResponderCardId: "c-deck" });
+
+      // The body narrows to its card's session; the router reports the set.
+      body.setSessions(["s-deck"]);
+      const stats: Array<Record<string, unknown>> = [];
+      body.onFrame(FeedId.CONTROL, (payload) => {
+        const json = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>;
+        if (json.type === "feed_stats") stats.push(json);
+      });
+      // A router-internal request, so not a `ControlAction` the deck sends by name.
+      body.send(FeedId.CONTROL, new TextEncoder().encode(JSON.stringify({ action: "feed_stats" })));
+      const reply = await until(() => stats[0], "the body's feed_stats");
+      expect(reply.sessions).toEqual(["s-deck"]);
+    } finally {
+      shell.dispose();
+      body.dispose();
+    }
   });
 });

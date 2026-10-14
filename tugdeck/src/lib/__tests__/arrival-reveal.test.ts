@@ -45,6 +45,20 @@ describe("arrivalRevealDue", () => {
     ).toBe(true);
   });
 
+  test("a card that needs no report reveals on its quiet, and on the bound", () => {
+    // A bound Session card whose content is a body has no sheet to measure;
+    // its body's ready is the quiet.
+    expect(
+      arrivalRevealDue({ reported: false, quiet: true, boundElapsed: false, needsReport: false }),
+    ).toBe(true);
+    expect(
+      arrivalRevealDue({ reported: false, quiet: false, boundElapsed: false, needsReport: false }),
+    ).toBe(false);
+    expect(
+      arrivalRevealDue({ reported: false, quiet: false, boundElapsed: true, needsReport: false }),
+    ).toBe(true);
+  });
+
   test("the bound is short — frames to a few hundred milliseconds, not a scan", () => {
     // [B05]'s ruling, pinned so a later tuning cannot drift it back toward
     // the 2s the retired `ensureListed` carried.

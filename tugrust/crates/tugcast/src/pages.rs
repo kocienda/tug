@@ -11,6 +11,11 @@
 //! remembers when each card's last body page departed, so a body that is
 //! reloading — between its old socket and its new one — is not taken for a
 //! card nobody has.
+//!
+//! A body booted before its card exists says a `spare:` card id in its hello
+//! and takes its real card later, once, with `page_bind`
+//! ([`PageRegistry::bind_card`]). A spare's card is nobody's, so its departure
+//! is not remembered.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -20,11 +25,35 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use parking_lot::Mutex;
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tugcast_core::{Frame, PageIdentity, PageRole};
+use tugcast_core::{Frame, MAX_PAGE_FIELD_LEN, PageIdentity, PageRole};
 
 /// Capacity of the departures channel. A receiver that lags reconciles
 /// against [`PageRegistry::snapshot`] rather than guessing.
 const DEPARTURES_CAPACITY: usize = 64;
+
+/// The card id prefix of a body page that has no card yet.
+pub(crate) const SPARE_CARD_PREFIX: &str = "spare:";
+
+/// Why a `page_bind` was refused: the `detail` of `page_bind_refused`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BindRefusal {
+    /// The sender is not a body holding a `spare:` card.
+    NotSpare,
+    /// The sender was a spare and has already taken its card.
+    AlreadyBound,
+    /// The new card id is empty, too long, or itself a spare's.
+    BadCardId,
+}
+
+impl BindRefusal {
+    pub(crate) const fn detail(self) -> &'static str {
+        match self {
+            BindRefusal::NotSpare => "not_spare",
+            BindRefusal::AlreadyBound => "already_bound",
+            BindRefusal::BadCardId => "bad_card_id",
+        }
+    }
+}
 
 /// Which connections a frame is for, resolved to client ids when it is
 /// published. A connection's forwarder admits a frame only when its own id is
@@ -169,6 +198,9 @@ pub(crate) struct PageRecord {
     pub(crate) card_id: Option<String>,
     pub(crate) connected_at_ms: u64,
     pub(crate) sessions: SessionSubscription,
+    /// Whether this page was a spare and has taken its card.
+    #[serde(skip)]
+    pub(crate) bound_from_spare: bool,
 }
 
 struct Inner {
@@ -217,6 +249,7 @@ impl PageRegistry {
             card_id: identity.card_id.clone(),
             connected_at_ms: now_ms(),
             sessions: SessionSubscription::All,
+            bound_from_spare: false,
         };
         self.inner.lock().pages.insert(client_id, record);
     }
@@ -232,7 +265,7 @@ impl PageRegistry {
                 return;
             };
             if record.role == PageRole::Body {
-                if let Some(card) = record.card_id {
+                if let Some(card) = record.card_id.filter(|c| !c.starts_with(SPARE_CARD_PREFIX)) {
                     inner.departed_cards.insert(card, Instant::now());
                 }
             }
@@ -240,6 +273,38 @@ impl PageRegistry {
         // No receiver is not an error: a service that keeps per-page state
         // may not have started yet.
         let _ = self.departures.send(client_id);
+    }
+
+    /// Give a spare body page its card. Accepted once, from a body whose
+    /// registered card id starts with `spare:`, for a card id that is
+    /// non-empty, at most [`MAX_PAGE_FIELD_LEN`] characters and not itself a
+    /// spare's. A refusal changes nothing; the caller updates the
+    /// connection's own copy of its identity only on `Ok`.
+    pub(crate) fn bind_card(&self, client_id: u64, card: &str) -> Result<(), BindRefusal> {
+        let mut inner = self.inner.lock();
+        let Some(record) = inner.pages.get_mut(&client_id) else {
+            return Err(BindRefusal::NotSpare);
+        };
+        if record.bound_from_spare {
+            return Err(BindRefusal::AlreadyBound);
+        }
+        let spare = record.role == PageRole::Body
+            && record
+                .card_id
+                .as_deref()
+                .is_some_and(|c| c.starts_with(SPARE_CARD_PREFIX));
+        if !spare {
+            return Err(BindRefusal::NotSpare);
+        }
+        if card.is_empty()
+            || card.chars().count() > MAX_PAGE_FIELD_LEN
+            || card.starts_with(SPARE_CARD_PREFIX)
+        {
+            return Err(BindRefusal::BadCardId);
+        }
+        record.card_id = Some(card.to_owned());
+        record.bound_from_spare = true;
+        Ok(())
     }
 
     /// Record which sessions a page's `subscribe_feeds` asked for. An id
@@ -454,6 +519,59 @@ mod tests {
         assert_eq!(parse_target(&json!({"card": 3})), None);
         assert_eq!(parse_target(&json!({"card": "c", "page": "p"})), None);
         assert_eq!(parse_target(&json!(7)), None);
+    }
+
+    #[test]
+    fn a_spare_binds_once_and_is_then_addressed_as_its_card() {
+        let reg = PageRegistry::new();
+        reg.register(2, &shell("s"));
+        reg.register(3, &body("b3", "spare:9f2c"));
+        assert_eq!(reg.bind_card(3, "c1"), Ok(()));
+        assert_eq!(
+            reg.resolve(&PageTarget::Card("c1".into())),
+            Some(Delivery::Client(3))
+        );
+        assert_eq!(reg.resolve(&PageTarget::Card("spare:9f2c".into())), None);
+        assert!(reg.card_live_or_recent("c1", Duration::from_secs(60)));
+        assert_eq!(
+            reg.bind_card(3, "c2"),
+            Err(BindRefusal::AlreadyBound),
+            "a second bind is refused"
+        );
+        assert_eq!(
+            reg.resolve(&PageTarget::Card("c1".into())),
+            Some(Delivery::Client(3))
+        );
+    }
+
+    #[test]
+    fn bind_refuses_a_non_spare_and_a_bad_card_id() {
+        let reg = PageRegistry::new();
+        reg.register(2, &shell("s"));
+        reg.register(3, &body("b3", "c1"));
+        reg.register(4, &body("b4", "spare:a"));
+        assert_eq!(reg.bind_card(2, "c9"), Err(BindRefusal::NotSpare));
+        assert_eq!(reg.bind_card(3, "c9"), Err(BindRefusal::NotSpare));
+        assert_eq!(reg.bind_card(99, "c9"), Err(BindRefusal::NotSpare));
+        assert_eq!(reg.bind_card(4, ""), Err(BindRefusal::BadCardId));
+        assert_eq!(reg.bind_card(4, "spare:b"), Err(BindRefusal::BadCardId));
+        let long = "x".repeat(MAX_PAGE_FIELD_LEN + 1);
+        assert_eq!(reg.bind_card(4, &long), Err(BindRefusal::BadCardId));
+        // Every refusal left the spare a spare, so it can still bind.
+        assert_eq!(reg.bind_card(4, "c2"), Ok(()));
+        assert_eq!(BindRefusal::AlreadyBound.detail(), "already_bound");
+    }
+
+    #[test]
+    fn a_departed_spare_leaves_no_departed_card() {
+        let reg = PageRegistry::new();
+        reg.register(5, &body("b5", "spare:x"));
+        reg.depart(5);
+        assert!(!reg.card_live_or_recent("spare:x", Duration::from_secs(60)));
+        reg.register(6, &body("b6", "spare:y"));
+        reg.bind_card(6, "c3").unwrap();
+        reg.depart(6);
+        assert!(reg.card_live_or_recent("c3", Duration::from_secs(60)));
     }
 
     #[test]

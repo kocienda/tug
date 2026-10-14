@@ -37,6 +37,8 @@ import { createSubscribable, Subscribable } from "@/lib/subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
 import { cardServicesStore } from "./card-services-store";
+import { bodyCardsStore } from "./body-cards-store";
+import { bodyFactsStore } from "./body-facts-store";
 
 /**
  * What the deck looks like from here: cards that may hold a turn, and a way to
@@ -172,6 +174,7 @@ function notifySources(): void {
 let attachedDeck: LiveTurnsDeck | null = null;
 let deckUnsub: (() => void) | null = null;
 let servicesUnsub: (() => void) | null = null;
+let bodiesUnsub: (() => void) | null = null;
 
 /**
  * Wire the singleton to the running deck. Called once from the boot path,
@@ -189,6 +192,7 @@ export function attachLiveTurnsDeck(deck: LiveTurnsDeck): void {
   // Taken here rather than at module load: touching `cardServicesStore` is
   // what initializes it, and importing this module must not.
   servicesUnsub ??= cardServicesStore.subscribe(notifySources);
+  bodiesUnsub ??= bodyCardsStore.subscribe(notifySources);
   notifySources();
 }
 
@@ -198,6 +202,8 @@ export function detachLiveTurnsDeck(): void {
   deckUnsub = null;
   servicesUnsub?.();
   servicesUnsub = null;
+  bodiesUnsub?.();
+  bodiesUnsub = null;
   attachedDeck = null;
   notifySources();
 }
@@ -208,6 +214,17 @@ export const liveTurnsStore = new LiveTurnsStore({
     if (deck === null) return [];
     const sources: LiveTurnSource[] = [];
     for (const card of deck.getSnapshot().cards) {
+      // A body card's session is in its body, which reports whether a turn
+      // is running.
+      if (bodyCardsStore.has(card.id)) {
+        const cardId = card.id;
+        sources.push({
+          title: card.title,
+          isLive: () => bodyFactsStore.canInterrupt(cardId),
+          subscribe: (listener) => bodyFactsStore.subscribe(listener),
+        });
+        continue;
+      }
       const services = cardServicesStore.getServices(card.id);
       if (services === null) continue;
       const store = services.codeSessionStore;

@@ -115,7 +115,20 @@ final class TestHarnessConnection {
     /// 1.0 — and responds once the deck has painted the factor.
     /// `CoordMapping` no longer scales: a viewport coord is a view point at
     /// every factor. The RPC's shape is unchanged; major stays `1`.
-    static let surfaceVersion = "1.12.0"
+    ///
+    /// `1.13.0`: adds `hostFrames` — the host's display-link meter, armed for
+    /// a window and read back, optionally sampling a named container's
+    /// presentation layer — and the DEBUG `spikeBody` verb, a child page in
+    /// its own WKWebView beneath the deck, for the display-rate spike.
+    /// Additive; major stays `1`.
+    ///
+    /// `1.14.0`: the view verbs (`evalJS`, `waitForCondition`,
+    /// `getElementScreenBounds`, `screenshot` and the native verbs) take an
+    /// optional `card`, which runs them in that card's body view instead of
+    /// the shell; a card with no body is `NoSuchBody`. Adds `bodies`, the
+    /// host's list of body views. `captureWindow` stays the composite of
+    /// every view. Additive; major stays `1`.
+    static let surfaceVersion = "1.14.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -195,7 +208,8 @@ final class TestHarnessConnection {
                 return
             }
             let timeoutMs = (obj["timeoutMs"] as? Int) ?? 5000
-            dispatchEvalJS(id: id, script: script, timeoutMs: timeoutMs)
+            guard let view = targetView(id: id, obj: obj, verb: method) else { return }
+            dispatchEvalJS(id: id, script: script, timeoutMs: timeoutMs, in: view)
         case "waitForCondition":
             guard let script = obj["script"] as? String else {
                 respondError(id: id, name: "ProtocolError", message: "waitForCondition: missing 'script'")
@@ -203,7 +217,8 @@ final class TestHarnessConnection {
             }
             let timeoutMs = (obj["timeoutMs"] as? Int) ?? 2000
             let pollMs = (obj["pollMs"] as? Int) ?? 16
-            dispatchWaitForCondition(id: id, script: script, timeoutMs: timeoutMs, pollMs: pollMs)
+            guard let view = targetView(id: id, obj: obj, verb: method) else { return }
+            dispatchWaitForCondition(id: id, script: script, timeoutMs: timeoutMs, pollMs: pollMs, in: view)
         case "nativeClick",
              "nativeDoubleClick",
              "nativeRightClick",
@@ -216,7 +231,8 @@ final class TestHarnessConnection {
              "holdModifier",
              "pressHeldModifiers",
              "releaseHeldModifiers":
-            dispatchNativeVerb(id: id, verbObj: obj)
+            guard let view = targetView(id: id, obj: obj, verb: method) else { return }
+            dispatchNativeVerb(id: id, verbObj: obj, in: view)
         case "checkAccessibilityPermission":
             dispatchCheckAccessibilityPermission(id: id, verbObj: obj)
         case "simulateAppResign",
@@ -237,7 +253,8 @@ final class TestHarnessConnection {
                 respondError(id: id, name: "ProtocolError", message: "getElementScreenBounds: missing 'selector'")
                 return
             }
-            dispatchGetElementScreenBounds(id: id, selector: selector)
+            guard let view = targetView(id: id, obj: obj, verb: method) else { return }
+            dispatchGetElementScreenBounds(id: id, selector: selector, in: view)
         case "menuSnapshot":
             dispatchMenuSnapshot(id: id)
         case "menuItemState":
@@ -247,7 +264,8 @@ final class TestHarnessConnection {
             }
             dispatchMenuItemState(id: id, identifier: identifier)
         case "screenshot":
-            dispatchScreenshot(id: id)
+            guard let view = targetView(id: id, obj: obj, verb: method) else { return }
+            dispatchScreenshot(id: id, in: view)
         case "captureWindow":
             dispatchCaptureWindow(id: id)
         case "setWindowContentSize":
@@ -257,8 +275,53 @@ final class TestHarnessConnection {
         case "setPageZoom":
             let zoom = (obj["zoom"] as? Double) ?? (obj["zoom"] as? Int).map(Double.init)
             dispatchSetPageZoom(id: id, zoom: zoom)
+        case "hostFrames":
+            dispatchHostFrames(id: id, verbObj: obj)
+        case "spikeBody":
+            dispatchSpikeBody(id: id, verbObj: obj)
+        case "bodies":
+            dispatchBodies(id: id)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
+        }
+    }
+
+    // MARK: - Which view a verb runs in
+
+    /// The view a view verb runs in: the shell when the request names no
+    /// `card`, else that card's body view. Responds with the error and
+    /// returns nil when there is no such view. Body lookup reads the window's
+    /// `BodyViewController`, which is main-thread state, so it hops there.
+    private func targetView(id: Int, obj: [String: Any], verb: String) -> WKWebView? {
+        guard let shell = webView else {
+            respondError(id: id, name: "AppCrashedError", message: "WKWebView unavailable")
+            return nil
+        }
+        guard let card = obj["card"], !(card is NSNull) else { return shell }
+        guard let cardId = card as? String else {
+            respondError(id: id, name: "ProtocolError", message: "\(verb): 'card' must be a string")
+            return nil
+        }
+        let lookup = { (shell.window as? MainWindow)?.bodies?.view(for: cardId) }
+        let view = Thread.isMainThread ? lookup() : DispatchQueue.main.sync(execute: lookup)
+        guard let view else {
+            respondError(id: id, name: "NoSuchBody", message: "\(verb): no body for card '\(cardId)'")
+            return nil
+        }
+        return view
+    }
+
+    /// `bodies {}` → every body view the host holds, the spare included with
+    /// a null `cardId`: its state, frame (shell viewport coordinates),
+    /// whether it is placed visible, its presented opacity, and its URL.
+    private func dispatchBodies(id: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow, let bodies = mainWindow.bodies else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            self.respond(id: id, ok: true, payload: ["value": bodies.snapshot()])
         }
     }
 
@@ -335,11 +398,7 @@ final class TestHarnessConnection {
     ///   corner. Useful signal: the element is offscreen due to scroll
     ///   or a layout bug.
     /// - WKWebView detached → `AppCrashedError`.
-    private func dispatchGetElementScreenBounds(id: Int, selector: String) {
-        guard let webView = webView else {
-            respondError(id: id, name: "AppCrashedError", message: "WKWebView unavailable")
-            return
-        }
+    private func dispatchGetElementScreenBounds(id: Int, selector: String, in webView: WKWebView) {
         // Inline script: query selector, throw on miss, serialize rect
         // as a plain object. JSON-stringify-safe. The `Array` return
         // shape wraps x/y/width/height so the WKWebView marshals them
@@ -425,11 +484,7 @@ final class TestHarnessConnection {
     /// which captures the rendered web content directly — no Screen
     /// Recording permission, no separate display capture. The harness
     /// reads the file and is responsible for deleting it.
-    private func dispatchScreenshot(id: Int) {
-        guard let webView = webView else {
-            respondError(id: id, name: "AppCrashedError", message: "WKWebView unavailable")
-            return
-        }
+    private func dispatchScreenshot(id: Int, in webView: WKWebView) {
         let completionState = EvalCompletionState()
         DispatchQueue.main.async {
             let config = WKSnapshotConfiguration()
@@ -558,6 +613,76 @@ final class TestHarnessConnection {
             }
             mainWindow.applyPageZoom(CGFloat(zoom)) { [weak self] in
                 self?.respond(id: id, ok: true, payload: ["value": Double(mainWindow.currentPageZoom)])
+            }
+        }
+    }
+
+    // MARK: - Host frames and the spike
+
+    /// `{op: "arm", windowMs, layer?}` arms the window's display-link meter
+    /// for `windowMs`, sampling the named container's presentation layer
+    /// (`"spike"` is the spike's; a card id is that card's body) per tick;
+    /// `{op: "read"}` returns the reading so far. The meter stops itself at
+    /// the window's end.
+    private func dispatchHostFrames(id: Int, verbObj: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            switch verbObj["op"] as? String {
+            case "arm":
+                let windowMs = (verbObj["windowMs"] as? NSNumber)?.intValue ?? 2000
+                var layer: CALayer?
+                if let name = verbObj["layer"] as? String {
+                    let named = name == "spike"
+                        ? mainWindow.spikeBody.containerLayer
+                        : mainWindow.bodies?.body(forCard: name)?.container.layer
+                    guard let named else {
+                        self.respondError(id: id, name: "NoSuchLayer", message: "hostFrames: no layer named '\(name)'")
+                        return
+                    }
+                    layer = named
+                }
+                mainWindow.hostFrameMeter.arm(windowMs: windowMs, sampling: layer)
+                self.respond(id: id, ok: true, payload: ["value": ["armed": true, "windowMs": windowMs]])
+            case "read":
+                self.respond(id: id, ok: true, payload: ["value": mainWindow.hostFrameMeter.read()])
+            default:
+                self.respondError(id: id, name: "ProtocolError", message: "hostFrames: op must be 'arm' or 'read'")
+            }
+        }
+    }
+
+    /// `{op: "create"}`, `{op: "run", stallMs, translatePx}`, `{op: "destroy"}`
+    /// — see `SpikeBodyHandlers`.
+    private func dispatchSpikeBody(id: Int, verbObj: [String: Any]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            let spike = mainWindow.spikeBody
+            let answer: (Result<[String: Any], SpikeBodyHandlers.SpikeError>) -> Void = { [weak self] result in
+                switch result {
+                case .success(let value): self?.respond(id: id, ok: true, payload: ["value": value])
+                case .failure(let error): self?.respondError(id: id, name: error.name, message: error.message)
+                }
+            }
+            switch verbObj["op"] as? String {
+            case "create":
+                spike.create(completion: answer)
+            case "run":
+                let stallMs = (verbObj["stallMs"] as? NSNumber)?.intValue ?? 3000
+                let translatePx = (verbObj["translatePx"] as? NSNumber)?.doubleValue ?? 120
+                spike.run(stallMs: stallMs, translatePx: translatePx, completion: answer)
+            case "destroy":
+                spike.destroy()
+                self.respond(id: id, ok: true, payload: ["value": ["destroyed": true]])
+            default:
+                self.respondError(id: id, name: "ProtocolError", message: "spikeBody: op must be 'create', 'run' or 'destroy'")
             }
         }
     }
@@ -879,11 +1004,7 @@ final class TestHarnessConnection {
     /// that follows most verb calls also runs against the same
     /// main-thread `evaluateJavaScript` path, so queuing in order
     /// keeps event delivery and JS polling naturally sequenced.
-    private func dispatchNativeVerb(id: Int, verbObj: [String: Any]) {
-        guard let webView = webView else {
-            respondError(id: id, name: "AppCrashedError", message: "WKWebView unavailable")
-            return
-        }
+    private func dispatchNativeVerb(id: Int, verbObj: [String: Any], in webView: WKWebView) {
         // CRITICAL: native verbs post CGEvents and sleep between them
         // (see `nativeDrag`'s interpolation loop). Running them on the
         // main thread blocks WebKit's run loop — which means WebKit
@@ -1134,11 +1255,7 @@ final class TestHarnessConnection {
 
     // MARK: - evalJS
 
-    private func dispatchEvalJS(id: Int, script: String, timeoutMs: Int) {
-        guard let webView = webView else {
-            respondError(id: id, name: "AppCrashedError", message: "WKWebView unavailable")
-            return
-        }
+    private func dispatchEvalJS(id: Int, script: String, timeoutMs: Int, in webView: WKWebView) {
         let completionState = EvalCompletionState()
         DispatchQueue.main.async {
             webView.evaluateJavaScript(script) { [weak self] result, error in
@@ -1187,11 +1304,7 @@ final class TestHarnessConnection {
 
     // MARK: - waitForCondition
 
-    private func dispatchWaitForCondition(id: Int, script: String, timeoutMs: Int, pollMs: Int) {
-        guard let webView = webView else {
-            respondError(id: id, name: "AppCrashedError", message: "WKWebView unavailable")
-            return
-        }
+    private func dispatchWaitForCondition(id: Int, script: String, timeoutMs: Int, pollMs: Int, in webView: WKWebView) {
         let pollState = PollState()
         let deadline = DispatchTime.now() + .milliseconds(timeoutMs)
 

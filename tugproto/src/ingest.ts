@@ -160,6 +160,16 @@ export interface IngestSubscribeControl {
   feeds: number[];
 }
 
+/**
+ * Replace the sessions whose session-scoped frames this page receives
+ * (`init`'s `sessions`); sent with the subscription again now if the wire is
+ * live, and on every later handshake.
+ */
+export interface IngestSessionsControl {
+  kind: "sessions";
+  sessions: "all" | string[];
+}
+
 /** One outbound frame's payload; `bytes` is transferred. */
 export interface IngestSendControl {
   kind: "send";
@@ -259,6 +269,7 @@ export type IngestControl<TEvent = unknown> =
   | IngestForceReconnectControl
   | IngestForceCloseForTestControl
   | IngestSubscribeControl
+  | IngestSessionsControl
   | IngestSendControl
   | IngestVisibilityControl
   | IngestDisplayPeriodControl
@@ -452,6 +463,7 @@ export const INGEST_CONTROL_KINDS = [
   "force-reconnect",
   "force-close-for-test",
   "subscribe",
+  "sessions",
   "send",
   "visibility",
   "display-period",

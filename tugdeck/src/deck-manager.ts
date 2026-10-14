@@ -259,6 +259,7 @@ import {
   type SaveCallbackSource,
 } from "./deck-trace";
 import { cardServicesStore } from "./lib/card-services-store";
+import { bodyCardsStore } from "./lib/body-cards-store";
 import type { CardBinding } from "./protocol";
 import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { spaceBindingsLedgerStore } from "./lib/space-bindings-ledger-store";
@@ -2254,8 +2255,12 @@ export class DeckManager implements IDeckManagerStore {
 
     this.cardStates = new CardStateCache(
       {
+        // A body card's bag is its body's to write: a save from here
+        // would put the shell's stale copy over the body's live one.
         putCardState: (cardId, bag, putOptions) =>
-          this.persistence.putCardStateGuarded(cardId, bag, putOptions),
+          bodyCardsStore.has(cardId)
+            ? Promise.resolve(true)
+            : this.persistence.putCardStateGuarded(cardId, bag, putOptions),
       },
       initialCardStates && !dropBootState ? initialCardStates : undefined,
     );
@@ -2826,10 +2831,20 @@ export class DeckManager implements IDeckManagerStore {
     // form, so the card lands visible at its ordinary policy. So does a host
     // with no window: there is no sheet to lay out and nothing to wait for,
     // and a mark made there would stand forever ([L31]).
+    //
+    // A bound opening ALSO arrives hidden when its card type says the card's
+    // content is drawn elsewhere (`boundArrivalQuiet`: a Session card whose
+    // content is a body). There is no sheet to measure, so the reveal waits
+    // on that quiet alone, or the bound.
+    const boundQuiet =
+      options?.opening === "bound" && typeof window !== "undefined"
+        ? registration.boundArrivalQuiet?.(firstCardId) ?? null
+        : null;
     const arrivesHidden =
-      options?.opening !== "bound" &&
-      registration.openingForm !== undefined &&
-      typeof window !== "undefined";
+      boundQuiet !== null ||
+      (options?.opening !== "bound" &&
+        registration.openingForm !== undefined &&
+        typeof window !== "undefined");
     const arriving = arrivesHidden
       ? arrivingWith(this.deckState.arriving, paneId, true)
       : this.deckState.arriving;
@@ -2919,11 +2934,15 @@ export class DeckManager implements IDeckManagerStore {
     // A card arriving hidden takes both moves from its reveal commit, which
     // is the arrival the reader watches ([B04]); here it opens its watch.
     if (arrivesHidden) {
-      this._watchArrival(
-        paneId,
-        firstCardId,
-        registration.arrivalQuiet?.(firstCardId) ?? null,
-      );
+      if (boundQuiet !== null) {
+        this._watchArrival(paneId, firstCardId, boundQuiet, { needsReport: false });
+      } else {
+        this._watchArrival(
+          paneId,
+          firstCardId,
+          registration.arrivalQuiet?.(firstCardId) ?? null,
+        );
+      }
     } else {
       this._revealAfterArrival(firstCardId);
     }
@@ -2947,11 +2966,15 @@ export class DeckManager implements IDeckManagerStore {
    *
    * A `null` quiet source is a card with nothing to wait on ([B03]): quiet
    * from the first ask, so the first height report reveals it.
+   *
+   * `needsReport: false` is a card with no sheet to measure (a bound card
+   * whose content is drawn elsewhere): its quiet alone reveals it.
    */
   private _watchArrival(
     paneId: string,
     cardId: string,
     quiet: ArrivalQuiet | null,
+    options?: { needsReport?: boolean },
   ): void {
     let boundElapsed = false;
     let disposed = false;
@@ -2972,6 +2995,7 @@ export class DeckManager implements IDeckManagerStore {
         reported: this.deckState.sheetReservations?.[paneId] !== undefined,
         quiet: quiet?.isQuiet() ?? true,
         boundElapsed,
+        needsReport: options?.needsReport ?? true,
       });
       if (!due) return;
       dispose();

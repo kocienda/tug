@@ -24,7 +24,7 @@ pub mod types;
 
 pub use bus::{
     BusChord, BusDelivered, BusFrom, BusMessage, BusOutbound, BusRole, BusTarget, CardAdvice,
-    CardCommand, CardCommandKind, CardFacts, DeckFacts,
+    CardCommand, CardCommandKind, CardContext, CardFacts, DeckFacts,
 };
 pub use control::{ControlAction, DECK_ONLY_ACTIONS, RUST_ONLY_ACTIONS, UnknownControlAction};
 pub use feed::{DEFAULT_BROADCAST_CAPACITY, SnapshotFeed, StreamFeed, spawn_snapshot_feed};

@@ -1,5 +1,6 @@
 import Cocoa
 import UniformTypeIdentifiers
+import WebKit
 
 /// The coarse stages a launch passes through, in order.
 ///
@@ -172,6 +173,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// `menuState` push from tugdeck. All pull-based menu validation
     /// (`validateMenuItem(_:)`) and dynamic menu building read from here.
     private(set) var menuState = MenuState.empty
+    /// The last payload each page pushed: the shell's, and each body's by
+    /// card. `menuState` is their merge for the key card.
+    private var shellMenuPayload: [String: Any] = [:]
+    private var bodyMenuPayloads: [String: [String: Any]] = [:]
 
     /// UTIs a Text card can **edit** — text and everything that conforms to it
     /// (source code, JSON, XML, Markdown, …). The `choosePath` bridge panel
@@ -449,6 +454,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self.window.evaluateJavaScript(
                     "fetch('/auth?token=\(token)',{credentials:'include'}).then(function(){window.tugdeck?.reconnect?.()}).catch(function(){})"
                 )
+                // Every body holds a socket of its own to the restarted
+                // tugcast; each re-authenticates and reconnects the same way.
+                self.window.evaluateInBodies(
+                    "fetch('/auth?token=\(token)',{credentials:'include'}).then(function(){window.tugdeck?.reconnect?.()}).catch(function(){})"
+                )
                 // Maker mode is the user-facing name; the tugcast wire
                 // verb stays `dev_mode` — it genuinely is the
                 // dev-*serving* switch (Vite, watchers, allowlist).
@@ -584,34 +594,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// Run the deck's half of the quit — interrupt live turns, capture and
-    /// persist every card, retry rejected writes — and call `completion`
-    /// once, whatever happens.
+    /// persist every card, retry rejected writes — in the shell and in every
+    /// ready body at once, and call `completion` once, whatever happens.
+    ///
+    /// Each view prepares its own cards: the shell its in-page cards and its
+    /// layout, each body its one card. They run concurrently under the one
+    /// deadline, and a view that fails or has not answered by it is saved
+    /// synchronously instead. The verdict line names every view's result.
     ///
     /// WKWebView fires no `visibilitychange` and no `beforeunload` on app
     /// quit, so this is the only save trigger on exit. It is called before
     /// any child process is signalled: a turn still streaming when the
     /// process group dies is a rug pull.
     private func runDeckTerminationPipeline(completion: @escaping () -> Void) {
+        let views = window.terminationViews()
+        var verdicts: [String: String] = [:]
         var settled = false
         func settle() {
             guard !settled else { return }
             settled = true
+            NSLog(
+                "AppDelegate: termination verdicts — %@",
+                views.map { "\($0.label): \(verdicts[$0.label] ?? "no answer")" }.joined(separator: " | ")
+            )
             completion()
         }
 
-        // Degraded path: the old synchronous save. Strictly no worse than
-        // what shipped before the pipeline, and the only thing left when
-        // the bridge itself is broken.
-        func fallbackSave() {
-            self.window.evaluateJavaScript("window.tugdeck?.saveState?.()")
+        // Degraded path: the old synchronous save, in one view. Strictly no
+        // worse than what shipped before the pipeline, and the only thing
+        // left when that view's bridge is broken.
+        func fallbackSave(_ webView: WKWebView) {
+            webView.evaluateJavaScript("window.tugdeck?.saveState?.()", completionHandler: nil)
         }
 
         let deadline = DispatchWorkItem {
             NSLog(
-                "AppDelegate: termination pipeline did not answer within %.0fs — saving synchronously and tearing down",
+                "AppDelegate: termination pipeline did not answer within %.0fs — saving the silent views synchronously and tearing down",
                 Self.terminationPipelineDeadline
             )
-            fallbackSave()
+            for view in views where verdicts[view.label] == nil {
+                fallbackSave(view.webView)
+            }
             settle()
         }
         DispatchQueue.main.asyncAfter(
@@ -619,20 +642,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             execute: deadline
         )
 
-        NSLog("AppDelegate: applicationShouldTerminate — running the deck termination pipeline")
-        window.callAsyncJavaScript("return await window.tugdeck.prepareForTermination();") { result in
-            deadline.cancel()
-            switch result {
-            case .success(let value):
-                NSLog("AppDelegate: termination verdict — %@", Self.describeVerdict(value))
-            case .failure(let error):
-                NSLog(
-                    "AppDelegate: termination pipeline failed (%@) — saving synchronously instead",
-                    error.localizedDescription
-                )
-                fallbackSave()
+        NSLog("AppDelegate: applicationShouldTerminate — running the deck termination pipeline in %d view(s)", views.count)
+        for view in views {
+            view.webView.callAsyncJavaScript(
+                "return await window.tugdeck.prepareForTermination();",
+                arguments: [:],
+                in: nil,
+                in: .page
+            ) { result in
+                guard !settled else { return }
+                switch result {
+                case .success(let value):
+                    verdicts[view.label] = Self.describeVerdict(value)
+                case .failure(let error):
+                    verdicts[view.label] = "failed (\(error.localizedDescription)) — saved synchronously"
+                    fallbackSave(view.webView)
+                }
+                if verdicts.count == views.count {
+                    deadline.cancel()
+                    settle()
+                }
             }
-            settle()
         }
     }
 
@@ -1764,11 +1794,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.setDevInfo(text: "\(branch) · \(rev) · build \(buildStamp) · load \(loadStamp)")
     }
 
-    /// Replace the cached menu state from the frontend (called by
-    /// MainWindow on every `menuState` message).
+    /// Replace the shell's menu payload (called by MainWindow on every
+    /// `menuState` message from the shell).
     func updateMenuState(_ payload: [String: Any]) {
+        shellMenuPayload = payload
+        applyMenuPayloads()
+    }
+
+    /// Replace one body's menu payload: its card-scoped blocks, which win
+    /// while its card is the key card.
+    func updateBodyMenuState(cardId: String, payload: [String: Any]) {
+        bodyMenuPayloads[cardId] = payload
+        applyMenuPayloads()
+    }
+
+    /// A body went away; its card's blocks go with it.
+    func dropBodyMenuState(cardId: String) {
+        guard bodyMenuPayloads.removeValue(forKey: cardId) != nil else { return }
+        applyMenuPayloads()
+    }
+
+    /// Rebuild `menuState` from the shell's payload and the key card's body.
+    private func applyMenuPayloads() {
         let previousToken = menuState.edit.nativeUndoToken
-        menuState = MenuState(payload: payload)
+        menuState = MenuState(payload: MenuState.merged(shell: shellMenuPayload, bodies: bodyMenuPayloads))
 
         // Native-control undo scoping: the web view's NSUndoManager is
         // per-web-view, so its contents must never outlive focus in one

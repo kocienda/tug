@@ -109,6 +109,7 @@ const CORE_TIER_TRIGGERS = [
     "tests/app-test/_harness/",
     "tugapp/Sources/TestHarness/",
     "tugdeck/src/main.tsx",
+    "tugdeck/src/entry.ts",
     "tugdeck/index.html",
 ];
 
@@ -331,7 +332,16 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // Nothing under `tests/app-test/` is a source, so this claims no files at all; the
     // harness's blast radius is CORE_TIER_TRIGGERS' business, not a declaration's.
     "tests/app-test/_harness/": 0,
-    "tugapp/Sources/TestHarness/": 9,
+    // The host side of the harness: its socket, its verbs and their bridge.
+    // A test naming it is naming the transport every verb rides, which is one
+    // unit whichever file a verb lives in.
+    //
+    // 9 → 10 for `SpikeBodyHandlers.swift`, the `spikeBody` verb that puts a
+    // child web view beneath the deck. It is a verb like the others in the
+    // directory, reached through the same connection and dispatch. Raised in
+    // place, as `internal/` below was: the delete-then-re-add needs two commits
+    // for a key already in `HEAD`. The argument is written here.
+    "tugapp/Sources/TestHarness/": 10,
 
     // The bridge. A single binary with no interior a test could name instead.
     //

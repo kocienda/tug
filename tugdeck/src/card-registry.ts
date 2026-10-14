@@ -351,6 +351,18 @@ export interface CardRegistration {
    */
   arrivalQuiet?: (cardId: string) => ArrivalQuiet | null;
   /**
+   * The card type's word on when a card opened BOUND (`addCard`'s `opening:
+   * "bound"`) has something to show, for a card whose content is drawn
+   * outside the deck's document — a Session card whose content is a body.
+   *
+   * A source here makes a bound opening ARRIVE HIDDEN too: there is no sheet
+   * to measure, so the reveal waits on this quiet alone, or the deck's bound
+   * ([B03]). `null` — or the field omitted — is the ordinary bound opening,
+   * which lands visible in the call. The card type answers per card, since
+   * only it knows whether this card's content is drawn elsewhere.
+   */
+  boundArrivalQuiet?: (cardId: string) => ArrivalQuiet | null;
+  /**
    * Where a fresh pane for this card type opens on the canvas.
    * `"cascade"` (the default) walks the standard cascade origin;
    * `"center"` centers the pane in the live canvas — for app-level

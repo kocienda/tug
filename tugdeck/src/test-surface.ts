@@ -36,6 +36,7 @@
  */
 
 import type { DeckManager } from "./deck-manager";
+import type { IDeckManagerStore } from "./deck-manager-store";
 import type { DeckState, CardStateBag } from "./layout-tree";
 import {
   DEFAULT_SIDEBAR_SIDE,
@@ -84,11 +85,8 @@ import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
 import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
-import {
-  provisionSpawnLine,
-  provisionSpawnTag,
-  sendSpawnSession,
-} from "./lib/session-lifecycle";
+import { sendSpawnSession } from "./lib/session-lifecycle";
+import { fireNewSpawn } from "./lib/session-restore";
 import { sessionLineStore } from "./lib/session-line-store";
 import { applyRestoredShellExchanges } from "./lib/shell-session-store";
 import type { AtomSegment } from "./lib/tug-atom-img";
@@ -496,8 +494,22 @@ import {
  * gate itself, hands the surfaces a commit mid-hold, and opens it again, so
  * "nothing mounts under the beats" is an assertion that can fail. Additive;
  * major stays `2`.
+ *
+ * `2.39.0`: a card's body page carries a `window.__tug` of its own
+ * ({@link BodyTestSurface}): the gesture drivers, the introspection reads,
+ * engine and EM-card observation and the session driver, the same methods
+ * the shell's surface carries, over the body's one card. Additive; major
+ * stays `2`.
+ *
+ * `2.40.0`: `getFirstResponderId` moves to the methods every view carries, so
+ * a body answers it for its own chain, and `getKeyCardId` joins it — the card
+ * the page's chain routes a key-card command to. Additive; major stays `2`.
+ *
+ * `2.41.0`: `sessionSettled` moves to the methods every view carries, so the
+ * harness's session driver, which waits on it after every drive, works in a
+ * body. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.38.0" as const;
+export const SURFACE_VERSION = "2.41.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2103,54 +2115,24 @@ function readSelectionDirection(
  * singleton (`selectionGuard`, `deckTrace`) on each call so rebuilding
  * the surface per test is just `createTugTestSurface(newDeck)`.
  */
-export function createTugTestSurface(deck: DeckManager): TugTestSurface {
-  // --- reset axis effects ([D01]: each axis idempotent) ---
-  const resetDeckAxis = (): void => {
-    // Seed with an empty DeckState. Goes through the same atomic
-    // replace path as a real seed so component registries for
-    // departing cards get discarded, subscribers notify once, and
-    // the snapshot transitions cleanly for useSyncExternalStore.
-    deck.seedDeckState({ state: makeEmptyDeckState() });
-  };
+/**
+ * The store the view methods read — a card's bag and the cards a view holds,
+ * and nothing of the deck's arrangement. The shell's `DeckManager` and a
+ * body's bridge both answer it.
+ */
+type ViewSurfaceStore = Pick<
+  IDeckManagerStore,
+  "invokeSaveCallback" | "getCardState" | "getSnapshot"
+>;
 
-  const resetSelectionGuardAxis = (): void => {
-    selectionGuard.reset();
-  };
-
-  const resetOrchestratorAxis = (): void => {
-    // Component State Preservation Protocol registries are owned by
-    // the deck-manager (see `componentStatePreservationRegistries`).
-    // They have no public
-    // "clear" API because production never wants one — the only
-    // legitimate drop is when a card leaves the deck. The `deck`
-    // axis's `seedDeckState({ state: empty })` already discards
-    // registries for every card that departs; calling it here
-    // gives the orchestrator axis the same idempotent "drop all"
-    // effect. If `resetDeckAxis` already ran in this same `reset`
-    // call the deck is already empty — the seed is a cheap no-op
-    // then, which matches the [D01] contract that every axis is
-    // safe to call when already in its reset state.
-    deck.seedDeckState({ state: makeEmptyDeckState() });
-  };
-
-  const resetTraceAxis = (): void => {
-    deckTrace.clear();
-  };
-
-  const resetStorageAxis = (): void => {
-    // `localStorage.clear()` is synchronous and deterministic; that
-    // covers every persisted value tugdeck currently writes
-    // (notably `td-theme`). Scoped IndexedDB is a placeholder —
-    // tugdeck has no durable IDB today (see MEMORY: IndexedDB is
-    // unwanted infra), but wire the shape now so a future IDB
-    // consumer lands its cleanup here without widening the surface.
-    try {
-      localStorage.clear();
-    } catch {
-      /* storage unavailable (e.g. private mode); nothing to clear. */
-    }
-  };
-
+/**
+ * The surface methods that read one view's own document and the services of
+ * the cards it holds: the gesture drivers, the introspection reads, the
+ * engine and EM-card observation, and the session driver. The shell's surface
+ * and a body's both carry them, so a test asks a body exactly what it asks
+ * the shell.
+ */
+function createViewSurfaceMethods(deck: ViewSurfaceStore) {
   // --- event synthesis ---
   const synthesizeClick = (el: HTMLElement, opts?: ClickOptions): void => {
     const { clientX, clientY } = opts?.clientX !== undefined && opts?.clientY !== undefined
@@ -2225,7 +2207,398 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
   };
 
   return {
+    // Each method reads this view's document or its cards' services.
+    // ---- the responder chain ----
+    /** The chain's current first responder id, or `null`. */
+    getFirstResponderId(): string | null {
+      return getResponderChainManager()?.getFirstResponder() ?? null;
+    },
+
+    /** The card this page's chain routes key-card commands to, or `null`. */
+    getKeyCardId(): string | null {
+      return getResponderChainManager()?.getKeyCard() ?? null;
+    },
+
+    // ---- gesture drivers ----
+    click(selector: string, opts?: ClickOptions): void {
+      const el = queryRequired(selector);
+      synthesizeClick(el, opts);
+    },
+
+    type(selector: string, text: string): void {
+      const el = queryRequired(selector);
+      if (
+        !(el instanceof HTMLInputElement) &&
+        !(el instanceof HTMLTextAreaElement)
+      ) {
+        throw new Error(
+          `[tug] type: selector must match <input> or <textarea>: ${selector}`,
+        );
+      }
+      synthesizeType(el, text);
+    },
+
+    focusElement(selector: string): void {
+      const el = queryRequired(selector);
+      // Direct `.focus()` — fallback
+      // for paths where synthesized pointerdown cannot drive
+      // browser-default focus. Matches [D09] fidelity limits.
+      el.focus();
+    },
+
+    enableDeckTrace(flag: boolean): void {
+      deckTrace.enable(flag);
+      // Persist so the flag survives an in-process `appReload()`:
+      // `attachTugTestSurface` re-applies it on the reloaded page's
+      // boot. Without this, recording silently stops after a reload
+      // and trace-gated assertions (e.g. `awaitEngineReady`) time out.
+      writeDeckTraceEnabled(flag);
+    },
+
+    // ---- introspection (SURFACE_VERSION 1.1.0) ----
+
+    getElementText(selector: string): string {
+      const el = queryRequired(selector);
+      // Form controls don't meaningfully have `.textContent` — return
+      // their `.value` so tests can write a uniform assertion against
+      // whatever kind of element a selector happens to resolve to.
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        return el.value;
+      }
+      return el.textContent ?? "";
+    },
+
+    getElementValue(selector: string): string {
+      const el = queryRequired(selector);
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement
+      ) {
+        return el.value;
+      }
+      throw new Error(
+        `[tug] getElementValue: selector must match <input>/<textarea>/<select>: ${selector}`,
+      );
+    },
+
+    getElementAttribute(selector: string, name: string): string | null {
+      const el = queryRequired(selector);
+      return el.getAttribute(name);
+    },
+
+    getElementBounds(selector: string): ElementBounds {
+      const el = queryRequired(selector);
+      const r = el.getBoundingClientRect();
+      // Flatten the live DOMRect (whose `toJSON` is non-standard
+      // across browsers) into a plain POD for stable JSON transport.
+      return { x: r.left, y: r.top, width: r.width, height: r.height };
+    },
+
+    getElementState(selector: string): ElementStateSnapshot {
+      const el = queryRequired(selector);
+      const rect = el.getBoundingClientRect();
+      // Layout-visibility probe: non-zero layout box AND attached to
+      // the render tree (`offsetParent` is null for `display:none`
+      // descendants; `<body>` is a special case that has no
+      // offsetParent yet is still visible).
+      const hasSize = rect.width > 0 && rect.height > 0;
+      const attached = el.offsetParent !== null || el === document.body;
+      const visible = hasSize && attached;
+      // `disabled` / `readOnly` / `checked` exist on
+      // HTMLInputElement/Textarea/Select/Button — branch via
+      // instanceof so we return stable false rather than reading
+      // undefined on non-form elements.
+      const disabled =
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLButtonElement ||
+        el instanceof HTMLSelectElement
+          ? el.disabled
+          : false;
+      const readOnly =
+        el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+          ? el.readOnly
+          : false;
+      const checked =
+        el instanceof HTMLInputElement &&
+        (el.type === "checkbox" || el.type === "radio")
+          ? el.checked
+          : false;
+      return {
+        tagName: el.tagName,
+        disabled,
+        readOnly,
+        checked,
+        visible,
+        isFocused: document.activeElement === el,
+      };
+    },
+
+    getActiveElement(): ActiveElementInfo | null {
+      const active = document.activeElement;
+      if (
+        active === null ||
+        active === document.body ||
+        !(active instanceof HTMLElement)
+      ) {
+        return null;
+      }
+      const cardEl = active.closest("[data-card-id]");
+      const cardId =
+        cardEl instanceof HTMLElement
+          ? cardEl.getAttribute("data-card-id")
+          : null;
+      const componentStatePreservationKey = active.getAttribute("data-tug-state-key");
+      const id = active.id !== "" ? active.id : null;
+      // Best-effort selector: id is stable when present; otherwise
+      // scope by cardId and tag. We don't promise it re-resolves.
+      const selector =
+        id !== null
+          ? `#${CSS.escape(id)}`
+          : cardId !== null
+          ? `[data-card-id="${CSS.escape(cardId)}"] ${active.tagName.toLowerCase()}`
+          : active.tagName.toLowerCase();
+      return {
+        tagName: active.tagName,
+        id,
+        cardId,
+        componentStatePreservationKey,
+        selector,
+      };
+    },
+
+    // ---- EM-card observation (SURFACE_VERSION 1.2.0) ----
+
+    getEmCardState(cardId: string): EmCardState | null {
+      // Force a save so the bag reflects current engine state
+      // rather than a stale snapshot from the last debounced /
+      // visibilitychange flush. `invokeSaveCallback` no-ops if no
+      // save callback is registered for the cardId, so this is
+      // safe even when the card has no engine.
+      deck.invokeSaveCallback(cardId, "manual");
+      const bag = deck.getCardState(cardId);
+      if (bag === undefined || bag.content === undefined) return null;
+
+      // Look up the card's componentId for the `engine` tag.
+      // `getSnapshot()` reads the same `cards[]` array reactive
+      // consumers see, so a card that was just removed is a
+      // miss — return null in that race rather than synthesizing
+      // a partial state.
+      const snapshot = deck.getSnapshot();
+      const card = snapshot.cards.find((c) => c.id === cardId);
+      if (card === undefined) return null;
+
+      // EM persistence comes in two production shapes plus a
+      // historical migration target:
+      //
+      //   - Raw `TugTextEditingState`: `{ text, atoms, selection }`.
+      //     A standalone editor with its own
+      //     `useCardStatePreservation` returns this directly.
+      //
+      //   - TugPromptEntry wrapper (current):
+      //     `{ route, draft: TugTextEditingState | null }`.
+      //     This is what `TugPromptEntry` (and every card hosting it
+      //     — `gallery-prompt-entry`, session-card) returns. Reach into
+      //     `draft` to get the engine state.
+      //
+      //   - TugPromptEntry legacy wrapper:
+      //     `{ currentRoute, perRoute: { [route]: TugTextEditingState } }`.
+      //     The pre-Step-15 shape, still readable for back-compat so
+      //     a snapshot saved on an older build round-trips through a
+      //     newer test-surface read. The production path migrates
+      //     these forward via `coerceRestorePayload`.
+      //
+      // Detection is shape-based rather than componentId-based so a
+      // future EM factory that adopts any shape works automatically.
+      const content = bag.content as Record<string, unknown>;
+      let engineState: Record<string, unknown> = content;
+      if (
+        typeof content.route === "string" &&
+        "draft" in content
+      ) {
+        // New simplified wrapper — `{ route, draft }`.
+        if (typeof content.draft === "object" && content.draft !== null) {
+          engineState = content.draft as Record<string, unknown>;
+        } else {
+          engineState = {};
+        }
+      } else if (
+        typeof content.currentRoute === "string" &&
+        typeof content.perRoute === "object" &&
+        content.perRoute !== null
+      ) {
+        // Legacy wrapper — `{ currentRoute, perRoute }`.
+        const perRoute = content.perRoute as Record<string, unknown>;
+        const route = content.currentRoute as string;
+        const inner = perRoute[route];
+        if (typeof inner === "object" && inner !== null) {
+          engineState = inner as Record<string, unknown>;
+        }
+      }
+      const text = typeof engineState.text === "string" ? engineState.text : "";
+      const selection =
+        "selection" in engineState ? engineState.selection : null;
+
+      return {
+        kind: "em",
+        engine: card.componentId,
+        text,
+        engineSelection: selection,
+        streamState: "idle",
+        lastTurnSeq: 0,
+      };
+    },
+
+    isEngineReady(cardId: string): boolean {
+      // Walk the trace ring in reverse — the most-recent
+      // `engine-ready` for `cardId` is what the test cares about
+      // (older entries from a different mount cycle are
+      // irrelevant once a new engine for the same id has reported
+      // ready).
+      const events = deckTrace.dump();
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        if (e.kind === "engine-ready" && e.cardId === cardId) return true;
+      }
+      return false;
+    },
+
+    sessionSettled(cardId: string): boolean {
+      return cardServicesStore.getServices(cardId)?.codeSessionStore.isSettled() ?? true;
+    },
+
+    driveSession(cardId: string, action: SessionDriveAction): void {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(
+          `driveSession: card "${cardId}" has no bound session — ` +
+            `call bindSession("${cardId}") first`,
+        );
+      }
+      const store = services.codeSessionStore;
+      switch (action.op) {
+        case "send":
+          store.send(action.text, action.atoms ?? [], { suppress: action.suppress === true });
+          return;
+        case "ingestFrame":
+          store._ingestFrameForTest(action.feedId, action.decoded);
+          return;
+        case "interrupt":
+          store.interrupt();
+          return;
+        case "transportClose":
+          store._simulateTransportForTest("close");
+          return;
+        case "transportReconnect":
+          store._simulateTransportForTest("reconnect");
+          return;
+        case "transportSettled":
+          store.notifyTransportSettled();
+          return;
+        case "loadPrevious":
+          store.loadPrevious(action.amount);
+          return;
+        case "shellExchange": {
+          const startedAtMs = action.startedAtMs ?? Date.now();
+          store.ingestShellExchange({
+            phase: "complete",
+            exchangeId: action.exchangeId,
+            command: action.command,
+            output: action.output,
+            exitCode: action.exitCode ?? 0,
+            cwd: action.cwd,
+            cwdAfter: null,
+            startedAtMs,
+            settledAtMs: startedAtMs,
+          });
+          return;
+        }
+        case "arcNote":
+          // The live arc-note path ([P12]): the reducer seats the sentence
+          // inside the open turn when one is streaming, or as its own quiet
+          // ink row when none is — which seat is exactly what a test drives
+          // this to observe.
+          store.ingestArcNote({
+            exchangeId: action.exchangeId,
+            command: action.command,
+            text: action.text,
+            cwd: action.cwd,
+            timestamp: action.timestamp ?? Date.now(),
+          });
+          return;
+        case "restoreShellExchanges":
+          // The restore path ([P07]), driven with the ledger rows themselves
+          // so the anchor and the clock reach the reducer exactly as the
+          // server's answer delivers them.
+          applyRestoredShellExchanges(store, action.rows);
+          return;
+        default: {
+          const exhaustive: never = action;
+          throw new Error(
+            `driveSession: unknown action ${JSON.stringify(exhaustive)}`,
+          );
+        }
+      }
+    },
+
+  };
+}
+
+export function createTugTestSurface(deck: DeckManager): TugTestSurface {
+  // --- reset axis effects ([D01]: each axis idempotent) ---
+  const resetDeckAxis = (): void => {
+    // Seed with an empty DeckState. Goes through the same atomic
+    // replace path as a real seed so component registries for
+    // departing cards get discarded, subscribers notify once, and
+    // the snapshot transitions cleanly for useSyncExternalStore.
+    deck.seedDeckState({ state: makeEmptyDeckState() });
+  };
+
+  const resetSelectionGuardAxis = (): void => {
+    selectionGuard.reset();
+  };
+
+  const resetOrchestratorAxis = (): void => {
+    // Component State Preservation Protocol registries are owned by
+    // the deck-manager (see `componentStatePreservationRegistries`).
+    // They have no public
+    // "clear" API because production never wants one — the only
+    // legitimate drop is when a card leaves the deck. The `deck`
+    // axis's `seedDeckState({ state: empty })` already discards
+    // registries for every card that departs; calling it here
+    // gives the orchestrator axis the same idempotent "drop all"
+    // effect. If `resetDeckAxis` already ran in this same `reset`
+    // call the deck is already empty — the seed is a cheap no-op
+    // then, which matches the [D01] contract that every axis is
+    // safe to call when already in its reset state.
+    deck.seedDeckState({ state: makeEmptyDeckState() });
+  };
+
+  const resetTraceAxis = (): void => {
+    deckTrace.clear();
+  };
+
+  const resetStorageAxis = (): void => {
+    // `localStorage.clear()` is synchronous and deterministic; that
+    // covers every persisted value tugdeck currently writes
+    // (notably `td-theme`). Scoped IndexedDB is a placeholder —
+    // tugdeck has no durable IDB today (see MEMORY: IndexedDB is
+    // unwanted infra), but wire the shape now so a future IDB
+    // consumer lands its cleanup here without widening the surface.
+    try {
+      localStorage.clear();
+    } catch {
+      /* storage unavailable (e.g. private mode); nothing to clear. */
+    }
+  };
+
+  return {
     version: SURFACE_VERSION,
+    ...createViewSurfaceMethods(deck),
 
     // ---- state seeding ----
     seedDeckState(args: SeedDeckStateArgs): void {
@@ -2289,33 +2662,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       if (opts.trace === true) resetTraceAxis();
     },
 
-    // ---- gesture drivers ----
-    click(selector: string, opts?: ClickOptions): void {
-      const el = queryRequired(selector);
-      synthesizeClick(el, opts);
-    },
-
-    type(selector: string, text: string): void {
-      const el = queryRequired(selector);
-      if (
-        !(el instanceof HTMLInputElement) &&
-        !(el instanceof HTMLTextAreaElement)
-      ) {
-        throw new Error(
-          `[tug] type: selector must match <input> or <textarea>: ${selector}`,
-        );
-      }
-      synthesizeType(el, text);
-    },
-
-    focusElement(selector: string): void {
-      const el = queryRequired(selector);
-      // Direct `.focus()` — fallback
-      // for paths where synthesized pointerdown cannot drive
-      // browser-default focus. Matches [D09] fidelity limits.
-      el.focus();
-    },
-
     isGestureScopePending(): boolean {
       return gestureScope.isPending();
     },
@@ -2375,10 +2721,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // pointerdown/focusin promotion cannot produce. `makeFirstResponder`
       // no-ops with a dev-warn for an unregistered id.
       getResponderChainManager()?.makeFirstResponder(responderId);
-    },
-
-    getFirstResponderId(): string | null {
-      return getResponderChainManager()?.getFirstResponder() ?? null;
     },
 
     getFocusedCardId(): string | null {
@@ -2527,131 +2869,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         audit: probe.auditLedger(),
         ring: probe.geometryRing(),
         floor: probe.extentFloor(),
-      };
-    },
-
-    enableDeckTrace(flag: boolean): void {
-      deckTrace.enable(flag);
-      // Persist so the flag survives an in-process `appReload()`:
-      // `attachTugTestSurface` re-applies it on the reloaded page's
-      // boot. Without this, recording silently stops after a reload
-      // and trace-gated assertions (e.g. `awaitEngineReady`) time out.
-      writeDeckTraceEnabled(flag);
-    },
-
-    // ---- introspection (SURFACE_VERSION 1.1.0) ----
-
-    getElementText(selector: string): string {
-      const el = queryRequired(selector);
-      // Form controls don't meaningfully have `.textContent` — return
-      // their `.value` so tests can write a uniform assertion against
-      // whatever kind of element a selector happens to resolve to.
-      if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement
-      ) {
-        return el.value;
-      }
-      return el.textContent ?? "";
-    },
-
-    getElementValue(selector: string): string {
-      const el = queryRequired(selector);
-      if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLSelectElement
-      ) {
-        return el.value;
-      }
-      throw new Error(
-        `[tug] getElementValue: selector must match <input>/<textarea>/<select>: ${selector}`,
-      );
-    },
-
-    getElementAttribute(selector: string, name: string): string | null {
-      const el = queryRequired(selector);
-      return el.getAttribute(name);
-    },
-
-    getElementBounds(selector: string): ElementBounds {
-      const el = queryRequired(selector);
-      const r = el.getBoundingClientRect();
-      // Flatten the live DOMRect (whose `toJSON` is non-standard
-      // across browsers) into a plain POD for stable JSON transport.
-      return { x: r.left, y: r.top, width: r.width, height: r.height };
-    },
-
-    getElementState(selector: string): ElementStateSnapshot {
-      const el = queryRequired(selector);
-      const rect = el.getBoundingClientRect();
-      // Layout-visibility probe: non-zero layout box AND attached to
-      // the render tree (`offsetParent` is null for `display:none`
-      // descendants; `<body>` is a special case that has no
-      // offsetParent yet is still visible).
-      const hasSize = rect.width > 0 && rect.height > 0;
-      const attached = el.offsetParent !== null || el === document.body;
-      const visible = hasSize && attached;
-      // `disabled` / `readOnly` / `checked` exist on
-      // HTMLInputElement/Textarea/Select/Button — branch via
-      // instanceof so we return stable false rather than reading
-      // undefined on non-form elements.
-      const disabled =
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        el instanceof HTMLButtonElement ||
-        el instanceof HTMLSelectElement
-          ? el.disabled
-          : false;
-      const readOnly =
-        el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
-          ? el.readOnly
-          : false;
-      const checked =
-        el instanceof HTMLInputElement &&
-        (el.type === "checkbox" || el.type === "radio")
-          ? el.checked
-          : false;
-      return {
-        tagName: el.tagName,
-        disabled,
-        readOnly,
-        checked,
-        visible,
-        isFocused: document.activeElement === el,
-      };
-    },
-
-    getActiveElement(): ActiveElementInfo | null {
-      const active = document.activeElement;
-      if (
-        active === null ||
-        active === document.body ||
-        !(active instanceof HTMLElement)
-      ) {
-        return null;
-      }
-      const cardEl = active.closest("[data-card-id]");
-      const cardId =
-        cardEl instanceof HTMLElement
-          ? cardEl.getAttribute("data-card-id")
-          : null;
-      const componentStatePreservationKey = active.getAttribute("data-tug-state-key");
-      const id = active.id !== "" ? active.id : null;
-      // Best-effort selector: id is stable when present; otherwise
-      // scope by cardId and tag. We don't promise it re-resolves.
-      const selector =
-        id !== null
-          ? `#${CSS.escape(id)}`
-          : cardId !== null
-          ? `[data-card-id="${CSS.escape(cardId)}"] ${active.tagName.toLowerCase()}`
-          : active.tagName.toLowerCase();
-      return {
-        tagName: active.tagName,
-        id,
-        cardId,
-        componentStatePreservationKey,
-        selector,
       };
     },
 
@@ -3042,102 +3259,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return readReadyGen();
     },
 
-    // ---- EM-card observation (SURFACE_VERSION 1.2.0) ----
-
-    getEmCardState(cardId: string): EmCardState | null {
-      // Force a save so the bag reflects current engine state
-      // rather than a stale snapshot from the last debounced /
-      // visibilitychange flush. `invokeSaveCallback` no-ops if no
-      // save callback is registered for the cardId, so this is
-      // safe even when the card has no engine.
-      deck.invokeSaveCallback(cardId, "manual");
-      const bag = deck.getCardState(cardId);
-      if (bag === undefined || bag.content === undefined) return null;
-
-      // Look up the card's componentId for the `engine` tag.
-      // `getSnapshot()` reads the same `cards[]` array reactive
-      // consumers see, so a card that was just removed is a
-      // miss — return null in that race rather than synthesizing
-      // a partial state.
-      const snapshot = deck.getSnapshot();
-      const card = snapshot.cards.find((c) => c.id === cardId);
-      if (card === undefined) return null;
-
-      // EM persistence comes in two production shapes plus a
-      // historical migration target:
-      //
-      //   - Raw `TugTextEditingState`: `{ text, atoms, selection }`.
-      //     A standalone editor with its own
-      //     `useCardStatePreservation` returns this directly.
-      //
-      //   - TugPromptEntry wrapper (current):
-      //     `{ route, draft: TugTextEditingState | null }`.
-      //     This is what `TugPromptEntry` (and every card hosting it
-      //     — `gallery-prompt-entry`, session-card) returns. Reach into
-      //     `draft` to get the engine state.
-      //
-      //   - TugPromptEntry legacy wrapper:
-      //     `{ currentRoute, perRoute: { [route]: TugTextEditingState } }`.
-      //     The pre-Step-15 shape, still readable for back-compat so
-      //     a snapshot saved on an older build round-trips through a
-      //     newer test-surface read. The production path migrates
-      //     these forward via `coerceRestorePayload`.
-      //
-      // Detection is shape-based rather than componentId-based so a
-      // future EM factory that adopts any shape works automatically.
-      const content = bag.content as Record<string, unknown>;
-      let engineState: Record<string, unknown> = content;
-      if (
-        typeof content.route === "string" &&
-        "draft" in content
-      ) {
-        // New simplified wrapper — `{ route, draft }`.
-        if (typeof content.draft === "object" && content.draft !== null) {
-          engineState = content.draft as Record<string, unknown>;
-        } else {
-          engineState = {};
-        }
-      } else if (
-        typeof content.currentRoute === "string" &&
-        typeof content.perRoute === "object" &&
-        content.perRoute !== null
-      ) {
-        // Legacy wrapper — `{ currentRoute, perRoute }`.
-        const perRoute = content.perRoute as Record<string, unknown>;
-        const route = content.currentRoute as string;
-        const inner = perRoute[route];
-        if (typeof inner === "object" && inner !== null) {
-          engineState = inner as Record<string, unknown>;
-        }
-      }
-      const text = typeof engineState.text === "string" ? engineState.text : "";
-      const selection =
-        "selection" in engineState ? engineState.selection : null;
-
-      return {
-        kind: "em",
-        engine: card.componentId,
-        text,
-        engineSelection: selection,
-        streamState: "idle",
-        lastTurnSeq: 0,
-      };
-    },
-
-    isEngineReady(cardId: string): boolean {
-      // Walk the trace ring in reverse — the most-recent
-      // `engine-ready` for `cardId` is what the test cares about
-      // (older entries from a different mount cycle are
-      // irrelevant once a new engine for the same id has reported
-      // ready).
-      const events = deckTrace.dump();
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i];
-        if (e.kind === "engine-ready" && e.cardId === cardId) return true;
-      }
-      return false;
-    },
-
     bindSession(
       cardId: string,
       options?: {
@@ -3204,16 +3325,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // A fresh spawn births a line, and tugcast refuses a `new` spawn that
       // names none — so the line and its tag are provisioned exactly as the
       // picker's New provisions them.
-      const lineId = provisionSpawnLine(opts.tugSessionId);
-      sendSpawnSession(
-        connection,
-        cardId,
-        opts.tugSessionId,
-        opts.projectDir,
-        "new",
-        provisionSpawnTag(lineId),
-        lineId,
-      );
+      fireNewSpawn(cardId, opts.tugSessionId, opts.projectDir, connection);
     },
 
     /**
@@ -3335,84 +3447,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         throw new Error(`refreshInkRestore: card "${cardId}" has no bound session`);
       }
       services.shellSessionStore.refreshRestore();
-    },
-
-    sessionSettled(cardId: string): boolean {
-      return cardServicesStore.getServices(cardId)?.codeSessionStore.isSettled() ?? true;
-    },
-
-    driveSession(cardId: string, action: SessionDriveAction): void {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(
-          `driveSession: card "${cardId}" has no bound session — ` +
-            `call bindSession("${cardId}") first`,
-        );
-      }
-      const store = services.codeSessionStore;
-      switch (action.op) {
-        case "send":
-          store.send(action.text, action.atoms ?? [], { suppress: action.suppress === true });
-          return;
-        case "ingestFrame":
-          store._ingestFrameForTest(action.feedId, action.decoded);
-          return;
-        case "interrupt":
-          store.interrupt();
-          return;
-        case "transportClose":
-          store._simulateTransportForTest("close");
-          return;
-        case "transportReconnect":
-          store._simulateTransportForTest("reconnect");
-          return;
-        case "transportSettled":
-          store.notifyTransportSettled();
-          return;
-        case "loadPrevious":
-          store.loadPrevious(action.amount);
-          return;
-        case "shellExchange": {
-          const startedAtMs = action.startedAtMs ?? Date.now();
-          store.ingestShellExchange({
-            phase: "complete",
-            exchangeId: action.exchangeId,
-            command: action.command,
-            output: action.output,
-            exitCode: action.exitCode ?? 0,
-            cwd: action.cwd,
-            cwdAfter: null,
-            startedAtMs,
-            settledAtMs: startedAtMs,
-          });
-          return;
-        }
-        case "arcNote":
-          // The live arc-note path ([P12]): the reducer seats the sentence
-          // inside the open turn when one is streaming, or as its own quiet
-          // ink row when none is — which seat is exactly what a test drives
-          // this to observe.
-          store.ingestArcNote({
-            exchangeId: action.exchangeId,
-            command: action.command,
-            text: action.text,
-            cwd: action.cwd,
-            timestamp: action.timestamp ?? Date.now(),
-          });
-          return;
-        case "restoreShellExchanges":
-          // The restore path ([P07]), driven with the ledger rows themselves
-          // so the anchor and the clock reach the reducer exactly as the
-          // server's answer delivers them.
-          applyRestoredShellExchanges(store, action.rows);
-          return;
-        default: {
-          const exhaustive: never = action;
-          throw new Error(
-            `driveSession: unknown action ${JSON.stringify(exhaustive)}`,
-          );
-        }
-      }
     },
 
     lastSentUserMessage(cardId: string): string | null {
@@ -3697,7 +3731,7 @@ declare global {
      * app code that accidentally reads `window.__tug` in prod
      * never sees a surface it shouldn't be using.
      */
-    __tug?: TugTestSurface;
+    __tug?: TugTestSurface | BodyTestSurface;
   }
 }
 
@@ -3746,5 +3780,22 @@ export function attachTugTestSurface(deck: DeckManager): void {
     if (readDeckTraceEnabled()) {
       deckTrace.enable(true);
     }
+  }
+}
+
+/** A body page's `window.__tug`: the view methods over its one card. */
+export type BodyTestSurface = { version: typeof SURFACE_VERSION } & ReturnType<
+  typeof createViewSurfaceMethods
+>;
+
+/**
+ * Install a body page's `window.__tug` — the same gate as
+ * {@link attachTugTestSurface}, over the body's bridge instead of a deck.
+ */
+export function attachBodyTestSurface(bridge: ViewSurfaceStore): void {
+  if (typeof window === "undefined" || window.__tugTestMode !== true) return;
+  window.__tug = { version: SURFACE_VERSION, ...createViewSurfaceMethods(bridge) };
+  if (readDeckTraceEnabled()) {
+    deckTrace.enable(true);
   }
 }

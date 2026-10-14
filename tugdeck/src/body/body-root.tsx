@@ -1,0 +1,121 @@
+/**
+ * The React root of a card's body page: the deck's provider stack around one
+ * `CardHost`.
+ *
+ * The stack is `DeckManager`'s root render without the members only a deck
+ * has — the canvas, the banner, the bulletins, the app-wide gates — with the
+ * bridge standing in as the deck. `CardHost` finds its content, root and
+ * frame elements by its `hostStackId` in the pane registries rather than by
+ * props, so this root renders the frame / root / content trio a pane would
+ * and registers each under the body's pane id before the host reads them
+ * ([L03]), unregistering on teardown ([L27]). Rendered once, at mount ([L01]).
+ *
+ * @module body/body-root
+ */
+
+import React, { useCallback, useLayoutEffect, useState } from "react";
+import { composeProviders } from "../lib/compose-providers";
+import { TugThemeProvider } from "../contexts/theme-provider";
+import { TugTooltipProvider } from "../components/tugways/tug-tooltip";
+import { ErrorBoundary } from "../components/chrome/error-boundary";
+import { ResponderChainProvider } from "../components/tugways/responder-chain-provider";
+import { TugAlertProvider } from "../components/tugways/tug-alert";
+import { DeckManagerContext } from "../deck-manager-context";
+import { CardLifecycleContext } from "../lib/card-lifecycle";
+import { AppLifecycleContext, type AppLifecycle } from "../lib/app-lifecycle";
+import { SheetLifecycleContext, type SheetLifecycle } from "../lib/sheet-lifecycle";
+import { BannerLifecycleContext, type BannerLifecycle } from "../lib/banner-lifecycle";
+import { SpaceLayerShownContext } from "../components/chrome/space-layer";
+import { CanvasOverlayRoot } from "../components/chrome/canvas-overlay-root";
+import { CardHost } from "../components/chrome/card-host";
+import { useResponder } from "../components/tugways/use-responder";
+import * as paneContentRegistry from "../components/chrome/pane-content-registry";
+import * as paneFrameRegistry from "../components/chrome/pane-frame-registry";
+import * as paneRootRegistry from "../components/chrome/pane-root-registry";
+import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
+
+export interface BodyRootProps {
+  bridge: BodyDeckBridge;
+  componentId: string;
+  appLifecycle: AppLifecycle;
+  sheetLifecycle: SheetLifecycle;
+  bannerLifecycle: BannerLifecycle;
+}
+
+/**
+ * The frame / root / content trio a pane renders, registered under the body's
+ * pane id, and the `card`-kind responder a pane is. The chain finds a page's
+ * key card by walking up from its first responder to a `card` node — in the
+ * shell that is the card's pane — so without one here a key-card command
+ * (Focus Prompt, Find, the turn items) would find no card in the body at all.
+ * The card's own responders register beneath it, and its frame carries the
+ * node's `data-responder-id` so the content scan finds them in the DOM.
+ */
+function BodyPane({ cardId, componentId }: { cardId: string; componentId: string }): React.ReactElement {
+  const paneId = bodyPaneId(cardId);
+  const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
+  const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
+  const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
+  const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions: {} });
+  const setFrame = useCallback(
+    (el: HTMLDivElement | null) => {
+      setFrameEl(el);
+      responderRef(el);
+    },
+    [responderRef],
+  );
+
+  useLayoutEffect(() => {
+    if (frameEl === null) return;
+    paneFrameRegistry.register(paneId, frameEl);
+    return () => paneFrameRegistry.unregister(paneId);
+  }, [paneId, frameEl]);
+  useLayoutEffect(() => {
+    if (rootEl === null) return;
+    paneRootRegistry.register(paneId, rootEl);
+    return () => paneRootRegistry.unregister(paneId);
+  }, [paneId, rootEl]);
+  useLayoutEffect(() => {
+    if (contentEl === null) return;
+    paneContentRegistry.register(paneId, contentEl);
+    return () => paneContentRegistry.unregister(paneId);
+  }, [paneId, contentEl]);
+
+  return (
+    <>
+      <div ref={setFrame} className="body-pane-frame" data-pane-id={paneId}>
+        <div ref={setRootEl} className="body-pane-root" data-card-id={cardId}>
+          <div ref={setContentEl} className="tug-pane-content" data-testid="tug-pane-content" />
+        </div>
+      </div>
+      <ResponderScope>
+        <CardHost cardId={cardId} hostStackId={paneId} componentId={componentId} isActive />
+      </ResponderScope>
+    </>
+  );
+}
+
+export function renderBodyRoot(props: BodyRootProps): React.ReactElement {
+  const { bridge, componentId } = props;
+  return composeProviders(
+    [
+      [TugThemeProvider, null],
+      [TugTooltipProvider, null],
+      [ErrorBoundary, null],
+      [ResponderChainProvider, null],
+      [DeckManagerContext.Provider, { value: bridge }],
+      [CardLifecycleContext.Provider, { value: bridge.cardLifecycle }],
+      [AppLifecycleContext.Provider, { value: props.appLifecycle }],
+      [SheetLifecycleContext.Provider, { value: props.sheetLifecycle }],
+      [BannerLifecycleContext.Provider, { value: props.bannerLifecycle }],
+      [TugAlertProvider, null],
+      [SpaceLayerShownContext.Provider, { value: bridge.layerShownSource }],
+    ],
+    React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(BodyPane, { cardId: bridge.cardId, componentId }),
+      React.createElement(CanvasOverlayRoot, {}),
+    ),
+  );
+}

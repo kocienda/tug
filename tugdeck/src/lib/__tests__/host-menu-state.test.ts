@@ -233,12 +233,13 @@ describe("projectDeckState", () => {
     }
   });
 
-  test("activeCard reflects the focused pane's active card component", () => {
+  test("activeCard reflects the focused pane's active card, its id and component", () => {
     const state = deck(
       [card("a", { componentId: "git" }), card("b", { componentId: "session", closable: false })],
       [pane("p1", ["a"]), pane("p2", ["b"])],
     );
     expect(projectDeckState(state).activeCard).toEqual({
+      cardId: "b",
       component: "session",
       closable: false,
     });

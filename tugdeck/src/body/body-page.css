@@ -1,0 +1,24 @@
+/* A card's body page: one card filling the view, painted on the pane's own
+   surface. `--tugx-pane-bg` is declared on `body`, so `html` names the token
+   it resolves to — the view's backing shows through nowhere. */
+
+html[data-body-page] {
+  background-color: var(--tug7-surface-global-primary-normal-content-rest);
+}
+
+html[data-body-page] body {
+  background-color: var(--tugx-pane-bg);
+}
+
+/* The deck's grid canvas is the shell's; a body's root is the pane. */
+html[data-body-page] #deck-container {
+  background: var(--tugx-pane-bg);
+}
+
+.body-pane-frame,
+.body-pane-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}

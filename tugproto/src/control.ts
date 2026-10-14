@@ -18,6 +18,7 @@
 export const CONTROL_ACTIONS = [
   // Router-internal: answered on the connection, never forwarded.
   "subscribe_feeds",
+  "page_bind",
 
   // Supervisor: session lifecycle.
   "spawn_session",

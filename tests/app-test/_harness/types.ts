@@ -46,7 +46,10 @@ export type RpcMethod =
   | "stopTugcode"
   | "writeTugcodeStdin"
   | "stopTugcast"
-  | "startTugcast";
+  | "startTugcast"
+  | "hostFrames"
+  | "spikeBody"
+  | "bodies";
 
 /**
  * Viewport-space point passed to the native-gesture verbs. `{x, y}` is
@@ -184,16 +187,23 @@ export interface AccessibilityStatus {
  * variant carries `id` (numeric, unique per connection) and a
  * discriminating `method` string.
  */
+//
+// The view verbs — `evalJS`, `waitForCondition`, `getElementScreenBounds`,
+// `screenshot` and the native verbs — carry an optional `card`: present, the
+// verb runs in that card's body view; absent, in the shell. A card with no
+// body answers `NoSuchBody`.
 export type Request =
   | {
       id: number;
       method: "evalJS";
+      card?: string;
       script: string;
       timeoutMs?: number;
     }
   | {
       id: number;
       method: "waitForCondition";
+      card?: string;
       script: string;
       timeoutMs?: number;
       pollMs?: number;
@@ -219,6 +229,7 @@ export type Request =
   | {
       id: number;
       method: "getElementScreenBounds";
+      card?: string;
       selector: string;
     }
   | {
@@ -233,6 +244,7 @@ export type Request =
   | {
       id: number;
       method: "screenshot";
+      card?: string;
     }
   | {
       id: number;
@@ -240,7 +252,12 @@ export type Request =
     }
   | {
       id: number;
+      method: "bodies";
+    }
+  | {
+      id: number;
       method: "nativeClick";
+      card?: string;
       viewportPoint: ViewportPoint;
       button?: NativeMouseButton;
       clickCount?: number;
@@ -250,17 +267,20 @@ export type Request =
   | {
       id: number;
       method: "nativeDoubleClick";
+      card?: string;
       viewportPoint: ViewportPoint;
       button?: NativeMouseButton;
     }
   | {
       id: number;
       method: "nativeRightClick";
+      card?: string;
       viewportPoint: ViewportPoint;
     }
   | {
       id: number;
       method: "nativeDrag";
+      card?: string;
       from: ViewportPoint;
       to: ViewportPoint;
       button?: NativeMouseButton;
@@ -270,6 +290,7 @@ export type Request =
   | {
       id: number;
       method: "nativeDragWithoutRelease";
+      card?: string;
       from: ViewportPoint;
       to: ViewportPoint;
       button?: NativeMouseButton;
@@ -279,40 +300,47 @@ export type Request =
   | {
       id: number;
       method: "nativeMouseDown";
+      card?: string;
       viewportPoint: ViewportPoint;
       button?: NativeMouseButton;
     }
   | {
       id: number;
       method: "nativeMouseUp";
+      card?: string;
       viewportPoint: ViewportPoint;
       button?: NativeMouseButton;
     }
   | {
       id: number;
       method: "nativeKey";
+      card?: string;
       key: string;
       modifiers?: readonly NativeModifier[];
     }
   | {
       id: number;
       method: "nativeType";
+      card?: string;
       text: string;
     }
   | {
       id: number;
       method: "holdModifier";
+      card?: string;
       modifiers: readonly NativeModifier[];
       innerVerbs: readonly InnerNativeVerb[];
     }
   | {
       id: number;
       method: "pressHeldModifiers";
+      card?: string;
       modifiers: readonly NativeModifier[];
     }
   | {
       id: number;
       method: "releaseHeldModifiers";
+      card?: string;
       modifiers: readonly NativeModifier[];
     }
   | {

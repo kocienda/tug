@@ -903,6 +903,39 @@ fn route_bus(
     Ok(())
 }
 
+/// Answer a `page_bind`: a spare body page taking its card.
+///
+/// On acceptance the registry's record and both of the connection's own
+/// copies of its card take the new id — `identity`, which stamps the bus's
+/// `from` and `feed_stats`, and `page_card`, which is what
+/// `authorize_and_claim_input` reads to let a body write the session its card
+/// seats; a bound spare left holding its old card could never write its own
+/// session. The reply is `page_bound` or `page_bind_refused`, and a refusal
+/// changes nothing.
+fn apply_page_bind(
+    pages: &PageRegistry,
+    client_id: u64,
+    identity: &mut PageIdentity,
+    page_card: &mut Option<String>,
+    payload: &serde_json::Value,
+) -> serde_json::Value {
+    let card = payload
+        .get("card_id")
+        .and_then(|c| c.as_str())
+        .unwrap_or("");
+    match pages.bind_card(client_id, card) {
+        Ok(()) => {
+            identity.card_id = Some(card.to_owned());
+            *page_card = Some(card.to_owned());
+            serde_json::json!({ "action": "page_bound", "card_id": card })
+        }
+        Err(refusal) => serde_json::json!({
+            "action": "page_bind_refused",
+            "detail": refusal.detail(),
+        }),
+    }
+}
+
 /// Parse a `subscribe_feeds` payload into a full replacement set (Spec S01).
 ///
 /// `None` means the message was malformed — a missing or non-array `feeds`
@@ -1487,8 +1520,9 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
         return;
     };
     router.pages.register(client_id, &identity);
-    // A body page's card: what lets it write the session its card seats.
-    let page_card = identity.card_id.clone();
+    // A body page's card: what lets it write the session its card seats. A
+    // spare's changes once, at `page_bind`.
+    let mut page_card = identity.card_id.clone();
 
     // Every open card re-announces its session from here; a bridge still in
     // nobody's set once that has settled is an orphan ([B07]). Armed only
@@ -1784,6 +1818,16 @@ async fn handle_client(mut socket: WebSocket, mut router: FeedRouter, session_id
                                                             &sink.global_counters,
                                                         );
                                                         let _ = sink.send_control_json(FeedId::CONTROL, &stats).await;
+                                                    } else if parsed == Some(ControlAction::PageBind) {
+                                                        let reply = apply_page_bind(
+                                                            &router.pages,
+                                                            client_id,
+                                                            &mut sink.identity,
+                                                            &mut page_card,
+                                                            &payload,
+                                                        );
+                                                        info!(client_id, reply = %reply, "page_bind answered");
+                                                        let _ = sink.send_control_json(FeedId::CONTROL, &reply).await;
                                                     } else if parsed == Some(ControlAction::SubscribeFeeds) {
                                                         // A full replacement set (Spec S01).
                                                         // Idempotent, no delta form, no
@@ -3343,7 +3387,7 @@ mod tests {
     fn the_bus_refuses_a_tool_a_stranger_kind_and_a_target_nobody_answers() {
         let (pages, lane) = bus_pages();
         let mut rx = lane.subscribe();
-        let ok = serde_json::json!({"to": "shell", "kind": "card-advice", "payload": {"advice": "sheet-reservation", "reserved": true}});
+        let ok = serde_json::json!({"to": "shell", "kind": "card-advice", "payload": {"advice": "sheet-reservation", "heightPx": 240}});
         let refused = route_bus(
             &pages,
             &lane,
@@ -3366,6 +3410,102 @@ mod tests {
         assert_eq!(undeliverable["to"], serde_json::json!({"card": "nobody"}));
 
         assert!(rx.try_recv().is_err(), "no refusal reaches the page lane");
+    }
+
+    /// A spare body binds to its card: it is answered `page_bound`, a bus
+    /// message to the card reaches it, and the session its new card seats
+    /// is one it may write. A second bind is refused and changes nothing.
+    #[tokio::test]
+    async fn a_spare_that_binds_is_addressed_and_writes_as_its_card() {
+        const SPARE: u64 = 5;
+        let (pages, lane) = bus_pages();
+        let mut identity = page(PageRole::Body, "b-spare", Some("spare:7e1d"));
+        pages.register(SPARE, &identity);
+        let mut page_card = identity.card_id.clone();
+
+        let reply = apply_page_bind(
+            &pages,
+            SPARE,
+            &mut identity,
+            &mut page_card,
+            &serde_json::json!({"action": "page_bind", "card_id": "c9"}),
+        );
+        assert_eq!(
+            reply,
+            serde_json::json!({"action": "page_bound", "card_id": "c9"})
+        );
+        assert_eq!(identity.card_id.as_deref(), Some("c9"));
+        assert_eq!(page_card.as_deref(), Some("c9"));
+
+        // A bus message to the card reaches the bound spare, and its own
+        // messages now carry the card.
+        let mut rx = lane.subscribe();
+        let shell = page(PageRole::Shell, "s", None);
+        let to_card = serde_json::json!({"to": {"card": "c9"}, "kind": "card-command", "payload": {"command": "focus-prompt"}});
+        route_bus(&pages, &lane, &shell, to_card.to_string().as_bytes()).expect("delivered");
+        assert_eq!(delivered(&mut rx).0, Delivery::Client(SPARE));
+        let advice = serde_json::json!({"to": "shell", "kind": "card-advice", "payload": {"advice": "activate"}});
+        route_bus(&pages, &lane, &identity, advice.to_string().as_bytes()).expect("delivered");
+        assert_eq!(delivered(&mut rx).1["from"]["cardId"], "c9");
+
+        // CODE_INPUT for the session the new card seats is forwarded.
+        let ownership: InputOwnership = Arc::new(Mutex::new(HashMap::new()));
+        let client_sessions: ClientSessionAffinity =
+            Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let seats = FixedSeats([("c9", "sess-9")].into());
+        let decision = authorize_and_claim_input(
+            &ownership,
+            Some(&client_sessions),
+            page_card.as_deref().map(|c| (c, &seats as &dyn CardSeats)),
+            FeedId::CODE_INPUT,
+            br#"{"tug_session_id":"sess-9","type":"user_message"}"#,
+            SPARE,
+        )
+        .await;
+        assert_eq!(decision, InputDecision::Forward);
+
+        // A second bind is refused, and the page keeps its card.
+        let again = apply_page_bind(
+            &pages,
+            SPARE,
+            &mut identity,
+            &mut page_card,
+            &serde_json::json!({"action": "page_bind", "card_id": "c10"}),
+        );
+        assert_eq!(
+            again,
+            serde_json::json!({"action": "page_bind_refused", "detail": "already_bound"})
+        );
+        assert_eq!(page_card.as_deref(), Some("c9"));
+    }
+
+    #[test]
+    fn page_bind_from_a_carded_body_or_with_no_card_is_refused() {
+        let (pages, _lane) = bus_pages();
+        let mut identity = page(PageRole::Body, "b1", Some("c1"));
+        let mut page_card = identity.card_id.clone();
+        let reply = apply_page_bind(
+            &pages,
+            2,
+            &mut identity,
+            &mut page_card,
+            &serde_json::json!({"action": "page_bind", "card_id": "c9"}),
+        );
+        assert_eq!(reply["detail"], "not_spare");
+        assert_eq!(page_card.as_deref(), Some("c1"));
+
+        pages.register(6, &page(PageRole::Body, "b6", Some("spare:x")));
+        let mut spare = page(PageRole::Body, "b6", Some("spare:x"));
+        let mut spare_card = spare.card_id.clone();
+        let reply = apply_page_bind(
+            &pages,
+            6,
+            &mut spare,
+            &mut spare_card,
+            &serde_json::json!({"action": "page_bind"}),
+        );
+        assert_eq!(reply["detail"], "bad_card_id");
+        assert_eq!(spare_card.as_deref(), Some("spare:x"));
     }
 
     #[test]

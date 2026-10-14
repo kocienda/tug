@@ -361,4 +361,30 @@ describe("CodeSessionStore — resume_failed CODE_OUTPUT event", () => {
 
     expect(store.getSnapshot().lastError).toBeNull();
   });
+
+  it("keeps resume_failed's error through the errored state that follows it", () => {
+    // One batch carries both: the frame that says why, then the bridge's
+    // terminal state. The card's observer reads the batch's end, so the
+    // cause it routes on has to survive the second.
+    const conn = new TestFrameChannel();
+    const store = constructStore(conn);
+
+    conn.dispatchDecoded(FeedId.CODE_OUTPUT, {
+      type: "resume_failed",
+      reason: "claude exited before session init",
+      stale_session_id: "sess-old-abc",
+      tug_session_id: TUG_A,
+      ipc_version: 2,
+    });
+    const failed = store.getSnapshot().lastError;
+    conn.dispatchDecoded(FeedId.SESSION_STATE, {
+      tug_session_id: TUG_A,
+      state: "errored",
+      detail: "resume_failed",
+    });
+
+    const snap = store.getSnapshot();
+    expect(snap.phase).toBe("errored");
+    expect(snap.lastError).toEqual(failed);
+  });
 });

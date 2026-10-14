@@ -1798,6 +1798,21 @@ body {
   overscroll-behavior: contain;
 }
 
+/* A body card: its content is another web view the host places
+   beneath this page, under the placeholder's rect. The pane's chrome and
+   content stop painting so it shows through; the body paints the pane's
+   surface itself. The placeholder fills the content box, and is what the
+   shell measures. */
+.tug-pane[data-body-card] .tug-pane-chrome,
+.tug-pane[data-body-card] .tug-pane-content {
+  background-color: transparent;
+}
+
+.tug-pane-content [data-body-placeholder] {
+  position: absolute;
+  inset: 0;
+}
+
 /*
  * For the length of a still crossing, the content box is a CLIP.
  *

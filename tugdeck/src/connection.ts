@@ -173,7 +173,19 @@ export interface TugConnectionOptions {
   readonly channel?: IngestChannel;
   /** The motion gate the wire is held behind; the deck's gesture scope by default. */
   readonly motionGate?: MotionGateSource;
+  /**
+   * Which page this is: the deck's shell (the default), or one card's body,
+   * whose hello names its card so tugcast addresses the card's frames to it.
+   */
+  readonly page?: PageRole;
 }
+
+/**
+ * The page a connection speaks for, as its hello says. A body's `cardId` is
+ * null for the warm spare, whose hello says `spare:<pageId>` until a
+ * `page_bind` gives it its card.
+ */
+export type PageRole = { role: "shell" } | { role: "body"; cardId: string | null };
 
 /** What the connection reads of a settle's motion gate ([P08]). */
 export interface MotionGateSource {
@@ -207,6 +219,14 @@ export class TugConnection {
    * shell page across reconnects and host rebuilds.
    */
   private readonly pageId: string = crypto.randomUUID();
+  /** The page this connection speaks for; fixed for its life. */
+  private readonly page: PageRole;
+  /**
+   * The sessions whose session-scoped frames this page receives: every one
+   * for the shell, and for a body the one its card holds, once it knows it.
+   * A rebuilt host is initialized with it.
+   */
+  private sessionScope: "all" | string[] = "all";
   /** What each open session's engine was opened with, so a rebuilt host can open it again. */
   private readonly sessionOpens = new Map<string, SessionOpenOptions>();
   /** Set by `dispose`: no channel is built after it, and nothing more is posted. */
@@ -358,6 +378,8 @@ export class TugConnection {
     this.hostKind = options.host ?? "in-process";
     this.injectedChannel = options.channel ?? null;
     this.motionGate = options.motionGate ?? gestureScope;
+    this.page = options.page ?? { role: "shell" };
+    if (this.page.role === "body") this.sessionScope = [];
   }
 
   /**
@@ -388,7 +410,11 @@ export class TugConnection {
       kind: "init",
       wsUrl: this.url,
       periodMs: this.periodMs,
-      page: { role: "shell", pageId: this.pageId },
+      page:
+        this.page.role === "body"
+          ? { role: "body", pageId: this.pageId, cardId: this.page.cardId ?? `spare:${this.pageId}` }
+          : { role: "shell", pageId: this.pageId },
+      sessions: this.sessionScope,
     });
     // Last, and read back: a channel that had already failed reports it here,
     // and its replacement is the channel to use.
@@ -744,6 +770,25 @@ export class TugConnection {
    */
   send(feedId: FeedIdValue, payload: Uint8Array, flags: number = FrameFlags.DATA): void {
     this.trySend(feedId, payload, flags);
+  }
+
+  /**
+   * This page's id — the one its hello carries. A spare body's card id is
+   * `spare:<pageId>` until it is bound.
+   */
+  getPageId(): string {
+    return this.pageId;
+  }
+
+  /**
+   * Receive session-scoped frames for exactly these sessions (`"all"` for
+   * every one). A body narrows to the session its card holds; the shell
+   * never calls this. Re-sends `subscribe_feeds` with the set now if the
+   * wire is live, and every handshake after carries it.
+   */
+  setSessions(sessions: "all" | readonly string[]): void {
+    this.sessionScope = sessions === "all" ? "all" : [...sessions];
+    this.liveChannel()?.post({ kind: "sessions", sessions: this.sessionScope });
   }
 
   /**

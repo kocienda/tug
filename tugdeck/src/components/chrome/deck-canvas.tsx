@@ -56,6 +56,7 @@ import { CanvasOverlayRoot } from "./canvas-overlay-root";
 import { OpenQuicklyOverlay } from "./open-quickly-overlay";
 import { UpdateTug } from "@/components/tugways/update-tug";
 import { UpdatePill } from "./update-pill";
+import { BodyPlacementBeacon } from "./body-placement-beacon";
 import { DeckCommitBeacon } from "./deck-commit-beacon";
 import { TugSlot } from "@/components/tugways/tug-slot";
 import { usePaneFocusController } from "./pane-focus-controller";
@@ -5175,6 +5176,17 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         );
       })}
       </div>
+      {/*
+        * BodyPlacementBeacon: zero-output; measures every body card's
+        * placeholder after each commit and tells the host where its body
+        * stands. Inert when the host makes no bodies. AFTER containerRef's
+        * div, not beside DeckCommitBeacon above it: a sibling's ref is
+        * attached in the same layout pass that runs the effects, in tree
+        * order, so a beacon ahead of the div would find the ref still empty
+        * at mount — and every pane's own effects have run by the time this
+        * one does.
+        */}
+      <BodyPlacementBeacon containerRef={containerRef} />
       {/*
         * CanvasOverlayRoot: single deck-level container for popup-class
         * overlays (completion menus, popovers, etc.). Mounted as a

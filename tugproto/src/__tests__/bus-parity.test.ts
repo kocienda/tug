@@ -11,13 +11,14 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BUS_KINDS, type BusDelivered } from "../bus";
+import { BUS_KINDS, type BusDelivered, type CardAdvice, type CardCommandKind } from "../bus";
 
 const FIXTURE = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "bus-parity.json"), "utf8")) as {
   delivered: unknown[];
 };
 
 const BODY_C1 = { pageId: "body-c1", role: "body", cardId: "c1" } as const;
+const BODY_C2 = { pageId: "body-c2", role: "body", cardId: "c2" } as const;
 const SHELL = { pageId: "shell-1", role: "shell", cardId: null } as const;
 
 const DELIVERED: BusDelivered[] = [
@@ -25,30 +26,61 @@ const DELIVERED: BusDelivered[] = [
     from: BODY_C1,
     to: "shell",
     kind: "card-facts",
-    payload: { title: "Dev", mastheadLine: null, activity: "idle", telemetry: { turns: 4, costUsd: 0.25 } },
+    payload: {
+      title: "Dev",
+      masthead: { kind: "session-masthead", sessionId: "s-1" },
+      activity: "idle",
+      telemetry: { canInterrupt: 0, compacted: 1 },
+    },
+  },
+  {
+    from: BODY_C2,
+    to: "shell",
+    kind: "card-facts",
+    payload: { title: "Session", masthead: null, activity: null, telemetry: {} },
   },
   { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "find", query: "needle" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "focus-prompt" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "interrupt" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "turn-previous" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "turn-next" } },
   {
     from: SHELL,
     to: { page: "body-c2" },
     kind: "card-command",
     payload: { command: "chord", chord: { key: "k", modifiers: ["meta", "shift"] } },
   },
-  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "interrupt" } },
-  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "dispatch", id: "copy-session-id" } },
   {
-    from: BODY_C1,
-    to: "shell",
-    kind: "card-advice",
-    payload: { advice: "close-advice", confirm: true, message: "A turn is running." },
+    from: SHELL,
+    to: { card: "c1" },
+    kind: "card-command",
+    payload: { command: "dispatch", id: "set-permission-mode", payload: { mode: "plan" } },
   },
-  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", reserved: false } },
-  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "opening-bid", widthPx: 640, heightPx: null } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-advice", waive: true } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", heightPx: 240 } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", heightPx: null } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "opening-bid", heightPx: 480 } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "activate" } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-request" } },
   {
     from: SHELL,
     to: "body",
     kind: "deck-facts",
     payload: { theme: "ironclad", zoom: 1.25, keyboardAccess: true, modifierLatch: ["shift"], appActive: true },
+  },
+  {
+    from: SHELL,
+    to: { card: "c1" },
+    kind: "card-context",
+    payload: { folded: false, arriving: true, firstResponderCardId: "c1", layerShown: true, spaceId: "space-1" },
+  },
+  {
+    from: SHELL,
+    to: { card: "c2" },
+    kind: "card-context",
+    payload: { folded: true, arriving: false, firstResponderCardId: null, layerShown: false, spaceId: null },
   },
 ];
 
@@ -60,5 +92,33 @@ describe("bus envelope parity", () => {
   test("the fixture carries every kind", () => {
     const kinds = new Set(DELIVERED.map((e) => e.kind));
     expect([...kinds].sort()).toEqual([...BUS_KINDS].sort());
+  });
+
+  test("the fixture carries every advice variant and every command", () => {
+    const advice = new Set<CardAdvice["advice"]>();
+    const commands = new Set<CardCommandKind>();
+    for (const e of DELIVERED) {
+      if (e.kind === "card-advice") advice.add(e.payload.advice);
+      if (e.kind === "card-command") commands.add(e.payload.command);
+    }
+    const allAdvice: Record<CardAdvice["advice"], true> = {
+      "fold-guard": true,
+      "close-advice": true,
+      "sheet-reservation": true,
+      "opening-bid": true,
+      activate: true,
+      "close-request": true,
+    };
+    const allCommands: Record<CardCommandKind, true> = {
+      find: true,
+      "focus-prompt": true,
+      interrupt: true,
+      "turn-previous": true,
+      "turn-next": true,
+      chord: true,
+      dispatch: true,
+    };
+    expect([...advice].sort()).toEqual(Object.keys(allAdvice).sort());
+    expect([...commands].sort()).toEqual(Object.keys(allCommands).sort());
   });
 });

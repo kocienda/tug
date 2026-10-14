@@ -48,6 +48,8 @@ import {
   cardSessionBindingStore,
 } from "@/lib/card-session-binding-store";
 import { cardServicesStore } from "@/lib/card-services-store";
+import { bodyCardsStore } from "@/lib/body-cards-store";
+import { bodyFactsStore } from "@/lib/body-facts-store";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
 import type { TugProgressIndicatorPhaseVisual } from "@/components/tugways/tug-progress-indicator";
@@ -221,6 +223,7 @@ export function sessionPhaseFromSnapshot(
  */
 export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
   const cardId = cardIdForSession(sessionId);
+  if (cardId !== null && bodyCardsStore.has(cardId)) return bodyPhaseOf(cardId);
   const services = cardId === null ? null : cardServicesStore.getServices(cardId);
   const joinReady = joinOfferStands(
     arcIdForCard(cardId),
@@ -230,6 +233,14 @@ export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
     services?.codeSessionStore?.getSnapshot() ?? null,
     joinReady,
   );
+}
+
+/**
+ * A body card's phase: the key its body computed and last reported, since no
+ * session store for it exists in this page; `"idle"` before the first report.
+ */
+function bodyPhaseOf(cardId: string): SessionPhaseKey {
+  return (bodyFactsStore.activityOf(cardId) as SessionPhaseKey | null) ?? "idle";
 }
 
 /**
@@ -253,9 +264,18 @@ export function useSessionPhase(sessionId: string): SessionPhaseKey {
     (): SessionPhaseKey => sessionPhaseFromSnapshot(store?.getSnapshot() ?? null, joinReady),
     [store, joinReady],
   );
-  return useSyncExternalStore(store?.subscribe ?? NOOP_SUBSCRIBE, selectPhase, () =>
+  const phase = useSyncExternalStore(store?.subscribe ?? NOOP_SUBSCRIBE, selectPhase, () =>
     sessionPhaseFromSnapshot(null, joinReady),
   );
+  // A body card answers from what its body reported.
+  const isBody = useSyncExternalStore(
+    bodyCardsStore.subscribe,
+    () => cardId !== null && bodyCardsStore.has(cardId),
+  );
+  const bodyPhase = useSyncExternalStore(bodyFactsStore.subscribe, () =>
+    cardId === null ? "idle" : bodyPhaseOf(cardId),
+  );
+  return isBody ? bodyPhase : phase;
 }
 
 /**

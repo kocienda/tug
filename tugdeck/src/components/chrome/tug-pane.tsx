@@ -33,6 +33,7 @@ import React, {
   type CSSProperties,
 } from "react";
 import { heldResizeObserver, useSyncExternalStore } from "@/lib/gesture-scope";
+import { bodyCardsStore } from "@/lib/body-cards-store";
 import {
   Blocks,
   ChevronsDownUp,
@@ -3183,6 +3184,16 @@ function TugPaneImpl({
     ),
   );
 
+  // Whether the frontmost card's content is a body placed beneath this page,
+  // which the pane must let show through.
+  const activeCardIsBody = useSyncExternalStore(
+    bodyCardsStore.subscribe,
+    useCallback(
+      () => activeCardId !== undefined && activeCardId !== null && bodyCardsStore.has(activeCardId),
+      [activeCardId],
+    ),
+  );
+
   // Which hosted card, if any, is held by a modal run — the same shape as
   // `resolveCloseGuard` below and read at the same moment, live at close time
   // ([L07]). `"pane"` scans every hosted card because the gestures carrying
@@ -5517,6 +5528,9 @@ function TugPaneImpl({
       // folded — but every other surface that seats below the title bar
       // still reads it.
       {...(folded ? { "data-folded": "true" } : {})}
+      // The frontmost card is a body: chrome and content paint nothing, so
+      // the body view beneath shows through ([L06]: an attribute, not state).
+      {...(activeCardIsBody ? { "data-body-card": "true" } : {})}
       // The rail tier, stamped here as well as on the bar so the height is a
       // pane fact: the scrim, the sheet clip, and the banner all seat below a
       // 32px bar. CSS cannot read the bar's own attribute from up here —

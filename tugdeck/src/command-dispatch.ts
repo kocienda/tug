@@ -50,6 +50,26 @@ function notifyCommandObservers(id: string, handled: boolean): void {
 }
 
 /**
+ * Takes a command bound for the key card when that card's responders live
+ * in another document (a body), and says whether it took it. The shell
+ * installs one; with none installed every command dispatches here.
+ */
+export type KeyCardForwarder = (
+  entry: CommandEntry,
+  payload: Record<string, unknown> | undefined,
+) => boolean;
+
+let keyCardForwarder: KeyCardForwarder | null = null;
+
+/** Install the forwarder for key-card commands. Returns the uninstall. */
+export function setKeyCardForwarder(forwarder: KeyCardForwarder): () => void {
+  keyCardForwarder = forwarder;
+  return () => {
+    if (keyCardForwarder === forwarder) keyCardForwarder = null;
+  };
+}
+
+/**
  * The record a `registry` handler receives. An entry with a static payload
  * object ([P05]) overlays it on the caller's frame, so the handler sees the
  * same fields the Swift wire would have sent.
@@ -134,6 +154,11 @@ export function dispatchCommand(
     console.warn(`dispatchCommand: ${id} is performed natively and is not JS-routable`);
     notifyCommandObservers(id, false);
     return false;
+  }
+
+  if (keyCardForwarder !== null && keyCardForwarder(entry, payload)) {
+    notifyCommandObservers(id, true);
+    return true;
   }
 
   const manager = getResponderChainManager();

@@ -117,6 +117,7 @@ import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
 import { SessionIdentityRow } from "@/components/tugways/session-identity-row";
 import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
 import { cardServicesStore } from "@/lib/card-services-store";
+import { bodyFactsStore } from "@/lib/body-facts-store";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useSessionBranch } from "@/lib/changeset-all-store";
 import { useOverview } from "@/lib/overview-store";
@@ -447,8 +448,12 @@ function TelemetryBirthRow({
       : () => false,
     () => false,
   );
+  // A body card has no session store here; its body reports the fact.
+  const bodyCompacted = useSyncExternalStore(bodyFactsStore.subscribe, () =>
+    cardId === undefined ? false : bodyFactsStore.compacted(cardId),
+  );
   return (
-    <TelemetryRow label={compacted ? "COMPACTED" : "CREATED"}>
+    <TelemetryRow label={compacted || bodyCompacted ? "COMPACTED" : "CREATED"}>
       {stamp(createdAtMs)}
     </TelemetryRow>
   );

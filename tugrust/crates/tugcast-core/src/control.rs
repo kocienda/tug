@@ -2,7 +2,7 @@
 //! CONTROL feed that some part of tugcast dispatches on.
 //!
 //! Three places in tugcast answer a CONTROL request: the router itself
-//! (`feed_stats`, `subscribe_feeds`), the agent supervisor's per-family
+//! (`feed_stats`, `subscribe_feeds`, `page_bind`), the agent supervisor's per-family
 //! handlers, and the legacy `dispatch_action` pipeline. Each matches on
 //! [`ControlAction`] rather than on a string literal, so the set of actions
 //! tugcast understands is this one enum. An action string that does not parse
@@ -51,6 +51,7 @@ control_actions! {
     // Router-internal: answered on the connection, never forwarded.
     FeedStats => "feed_stats",
     SubscribeFeeds => "subscribe_feeds",
+    PageBind => "page_bind",
 
     // Supervisor: session lifecycle.
     SpawnSession => "spawn_session",

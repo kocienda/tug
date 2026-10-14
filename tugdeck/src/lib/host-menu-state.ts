@@ -441,6 +441,8 @@ export interface MenuStateSpaceEntry {
 
 /** The focused pane's active card; null when the deck has no panes. */
 export interface MenuStateActiveCard {
+  /** The card's id: the host merges a body card's card-scoped blocks by it. */
+  cardId: string;
   component: string;
   closable: boolean;
 }
@@ -785,6 +787,7 @@ export function projectDeckState(
     : undefined;
   const activeCard: MenuStateActiveCard | null = focusedActiveCard
     ? {
+        cardId: focusedActiveCard.id,
         component: focusedActiveCard.componentId,
         closable: focusedActiveCard.closable,
       }
@@ -1443,6 +1446,71 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // reply lands through the bridge's cache, and maker mode cannot change
   // without a page reload, so one round trip answers for the page's life.
   void getSettings();
+  push();
+}
+
+/**
+ * The ids of the menu items that belong to the key card rather than to the
+ * deck: those whose command routes to the first responder or the key card.
+ */
+const CARD_SCOPED_MENU_ITEMS: ReadonlySet<string> = new Set(
+  COMMANDS.flatMap((entry) =>
+    (entry.routing === "first-responder" || entry.routing === "key-card") &&
+    entry.menuItemId !== undefined
+      ? [entry.menuItemId]
+      : [],
+  ),
+);
+
+/**
+ * What a body posts of a payload: the card-scoped blocks and the gates of the
+ * key card's own menu items. The host merges these over the shell's payload
+ * while the body's card is the key card; the deck's own facts —
+ * panes, workspaces, recents, theme, the capture and modal flags — and the
+ * gates of the deck's own commands stay the shell's.
+ */
+export function bodyMenuPayload(payload: MenuStatePayload): Pick<
+  MenuStatePayload,
+  "session" | "file" | "document" | "edit" | "commands"
+> {
+  const commands: Record<string, MenuCommandGate> = {};
+  for (const [id, gate] of Object.entries(payload.commands)) {
+    if (CARD_SCOPED_MENU_ITEMS.has(id)) commands[id] = gate;
+  }
+  return {
+    session: payload.session,
+    file: payload.file,
+    document: payload.document,
+    edit: payload.edit,
+    commands,
+  };
+}
+
+/**
+ * Wire the aggregator in a body page, over its bridge's one-card deck. The
+ * card's surfaces publish their blocks through the same module functions they
+ * call in the shell; what reaches the host is {@link bodyMenuPayload}.
+ */
+export function initBodyHostMenuState(bridge: IDeckManagerStore): void {
+  const publisher = new HostMenuStatePublisher(
+    (payload) => postToHost(bodyMenuPayload(payload) as MenuStatePayload),
+    scheduleAfterPaint,
+  );
+  activePublisher = publisher;
+  const push = (): void => {
+    publisher.setDeckProjection(
+      projectDeckState(bridge.getSnapshot(), bridge.getSpacesSnapshot()),
+    );
+  };
+  bridge.subscribe(push);
+  cardSessionBindingStore.subscribe(push);
+  cardTitleStore.subscribe(push);
+  keymapRegistry.subscribe(() => {
+    publisher.refresh();
+  });
+  dictationStore.subscribe(() => {
+    publisher.refresh();
+  });
   push();
 }
 

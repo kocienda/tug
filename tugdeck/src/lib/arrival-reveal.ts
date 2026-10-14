@@ -83,6 +83,13 @@ export interface ArrivalRevealInput {
   quiet: boolean;
   /** {@link ARRIVAL_REVEAL_BOUND_MS} has elapsed since the hidden commit. */
   boundElapsed: boolean;
+  /**
+   * Whether the reveal waits on a height report at all. False for a card
+   * that arrives hidden with no sheet to measure — a bound Session card
+   * whose content is a body, held only until its body is ready — so its
+   * quiet alone reveals it. Absent is true.
+   */
+  needsReport?: boolean;
 }
 
 /**
@@ -92,9 +99,10 @@ export interface ArrivalRevealInput {
  * that has not yet mounted has nothing to measure — or when the bound has
  * elapsed, whatever the other two say: an expired bound reveals over whatever
  * the card has, including no panel at all, in which case the card arrives at
- * its policy floor and the first live report adjusts it.
+ * its policy floor and the first live report adjusts it. A card that needs no
+ * report reveals on its quiet alone.
  */
 export function arrivalRevealDue(input: ArrivalRevealInput): boolean {
   if (input.boundElapsed) return true;
-  return input.reported && input.quiet;
+  return (input.reported || input.needsReport === false) && input.quiet;
 }

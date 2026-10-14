@@ -284,6 +284,10 @@ export class IngestHost {
       case "subscribe":
         this.subscribe(control.feeds);
         return;
+      case "sessions":
+        this.sessions = control.sessions;
+        if (this.socket?.connected) this.socket.sendSubscription(this.wireSubscription(), this.sessions);
+        return;
       case "send": {
         const socket = this.socketFor("send");
         if (socket !== null && !socket.send(control.feedId, control.flags, new Uint8Array(control.bytes))) {

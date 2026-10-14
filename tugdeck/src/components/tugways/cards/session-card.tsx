@@ -238,6 +238,7 @@ import { TugProgressIndicator } from "../tug-progress-indicator";
 import {
   sessionRestoreRegistry,
   cancelSessionRestore,
+  fireNewSpawn,
   fireRestore,
   getRestoreStartedAt,
   clearRestoreStartedAt,
@@ -1274,16 +1275,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
                   // The `new` arm: a fresh spawn mints its line from the drop
                   // ([P03]). A resume never reaches here — it goes through
                   // `fireRestore`, which offers only a line the deck knows.
-                  const lineId = provisionSpawnLine(sessionId);
-                  sendSpawnSession(
-                    connection,
-                    cardId,
-                    sessionId,
-                    projectDir,
-                    sessionMode,
-                    provisionSpawnTag(lineId),
-                    lineId,
-                  );
+                  fireNewSpawn(cardId, sessionId, projectDir, connection);
                 }
               }, SHEET_EXIT_ANIMATION_MS);
             },

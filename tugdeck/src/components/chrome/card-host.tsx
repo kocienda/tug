@@ -121,6 +121,7 @@ import * as paneContentRegistry from "./pane-content-registry";
 import * as paneFrameRegistry from "./pane-frame-registry";
 import * as paneRootRegistry from "./pane-root-registry";
 import { CardPortal } from "./card-portal";
+import { bodyCardsStore } from "@/lib/body-cards-store";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -643,7 +644,30 @@ function useHostStackFrameElement(hostStackId: string): HTMLDivElement | null {
  * subscriptions (`useIsCardFolded` and the like), so bailing out here costs
  * it nothing it would otherwise have seen.
  */
-export const CardHost = React.memo(CardHostImpl);
+export const CardHost = React.memo(CardHostSwitch);
+
+/**
+ * A body card's content is in another web view, placed by the host under
+ * this card's content box, so the shell mounts none of it: the card stands
+ * here as an empty placeholder filling the box — what the shell measures to
+ * place the body. A card that leaves the bodies mounts its content again.
+ */
+function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
+  const isBody = useSyncExternalStore(
+    bodyCardsStore.subscribe,
+    () => bodyCardsStore.has(props.cardId),
+  );
+  if (!isBody) return <CardHostImpl {...props} />;
+  return (
+    <CardPortal hostStackId={props.hostStackId}>
+      <div
+        data-body-placeholder
+        data-card-id={props.cardId}
+        style={{ display: (props.isActive ?? true) ? undefined : "none" }}
+      />
+    </CardPortal>
+  );
+}
 
 function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: CardHostProps): React.ReactElement | null {
   const store = useDeckManager();

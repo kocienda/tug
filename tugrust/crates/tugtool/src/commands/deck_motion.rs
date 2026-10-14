@@ -66,6 +66,7 @@ pub fn command_name(cmd: &DeckMotionCommands) -> &'static str {
         DeckMotionCommands::Input { .. } => "deck motion input",
         DeckMotionCommands::Probe { .. } => "deck motion probe",
         DeckMotionCommands::Gaps { .. } => "deck motion gaps",
+        DeckMotionCommands::Frames { .. } => "deck motion frames",
         DeckMotionCommands::Demote { .. } => "deck motion demote",
         DeckMotionCommands::Record { .. } => "deck motion record",
         DeckMotionCommands::Chains { .. } => "deck motion chains",
@@ -87,6 +88,11 @@ pub fn command_name(cmd: &DeckMotionCommands) -> &'static str {
 /// `gesture-frame-probe.ts`; the shell supplies it explicitly so the generated
 /// call always carries the cap.
 const GESTURE_WINDOW_DEFAULT_MS: u32 = 8000;
+
+/// How long `frames` watches when it is not told. Mirrors
+/// `HOST_FRAMES_WINDOW_DEFAULT_MS` in `host-frames.ts`; the shell supplies it
+/// explicitly so the generated call always carries the window.
+const HOST_FRAMES_WINDOW_DEFAULT_MS: u32 = 2000;
 
 /// The `window.__tugMotion` call each reading subcommand posts.
 ///
@@ -138,6 +144,10 @@ pub fn eval_code_for(cmd: &DeckMotionCommands) -> Option<String> {
         DeckMotionCommands::Input { .. } => "window.__tugMotion.input()".to_string(),
         DeckMotionCommands::Probe { .. } => "window.__tugMotion.probe()".to_string(),
         DeckMotionCommands::Gaps { .. } => "window.__tugMotion.gaps()".to_string(),
+        DeckMotionCommands::Frames { window, .. } => format!(
+            "window.__tugMotion.hostFrames({})",
+            window.unwrap_or(HOST_FRAMES_WINDOW_DEFAULT_MS)
+        ),
         DeckMotionCommands::Demote { state, .. } => {
             format!("window.__tugMotion.demote({})", state == "on")
         }
@@ -213,6 +223,7 @@ fn target_of(cmd: &DeckMotionCommands) -> (&DeckTarget, Option<&str>) {
         | DeckMotionCommands::Slide { target, .. }
         | DeckMotionCommands::Walk { target, .. } => eval(target),
         DeckMotionCommands::Settle { target, .. }
+        | DeckMotionCommands::Frames { target, .. }
         | DeckMotionCommands::Enable { target }
         | DeckMotionCommands::Disable { target } => (target, None),
     }
@@ -626,6 +637,10 @@ fn render(cmd: &DeckMotionCommands, value: &serde_json::Value) {
         DeckMotionCommands::Input { .. } => render_input(value),
         DeckMotionCommands::Probe { .. } => render_probe(value),
         DeckMotionCommands::Gaps { .. } => match gaps_text(value) {
+            Some(text) => print!("{text}"),
+            None => fallback(value),
+        },
+        DeckMotionCommands::Frames { .. } => match frames_text(value) {
             Some(text) => print!("{text}"),
             None => fallback(value),
         },
@@ -1181,6 +1196,38 @@ pub(crate) fn gaps_text(value: &serde_json::Value) -> Option<String> {
     Some(text)
 }
 
+/// The text `frames` prints, or `None` for a value it cannot read: ticks
+/// against the ticks the window should have held, the frames missed, and the
+/// worst gap in periods, then one line per gap over the period.
+pub(crate) fn frames_text(value: &serde_json::Value) -> Option<String> {
+    let period = value.get("periodMs")?.as_f64()?;
+    let ticks = value.get("ticks")?.as_f64()?;
+    let expected = value.get("expectedTicks")?.as_f64()?;
+    let worst = num_at(value, "worstGapMs");
+    let periods = |ms: f64| if period > 0.0 { ms / period } else { 0.0 };
+    let mut text = format!(
+        "{}/{} ticks at {:.2} ms, {} missed, worst gap {:.1} ms ({:.1} periods)\n",
+        ticks as i64,
+        expected as i64,
+        period,
+        num_at(value, "missed") as i64,
+        worst,
+        periods(worst),
+    );
+    if let Some(gaps) = value.get("gapsOverPeriod").and_then(|g| g.as_array()) {
+        for gap in gaps {
+            let ms = num_at(gap, "gapMs");
+            text.push_str(&format!(
+                "  +{:>6.0} ms  {:>6.1} ms ({:.1} periods)\n",
+                num_at(gap, "atMs"),
+                ms,
+                periods(ms),
+            ));
+        }
+    }
+    Some(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1267,6 +1314,50 @@ mod tests {
             eval_code_for(&DeckMotionCommands::Gaps { target: target() }).as_deref(),
             Some("window.__tugMotion.gaps()")
         );
+    }
+
+    /// The window always rides the call, so a reading taken bare is the same
+    /// 2000 ms one the page would have defaulted to, and a named window is
+    /// passed through.
+    #[test]
+    fn frames_always_carries_its_window() {
+        let bare = DeckMotionCommands::Frames {
+            window: None,
+            target: target(),
+        };
+        assert_eq!(
+            eval_code_for(&bare).as_deref(),
+            Some("window.__tugMotion.hostFrames(2000)")
+        );
+        let windowed = DeckMotionCommands::Frames {
+            window: Some(3000),
+            target: target(),
+        };
+        assert_eq!(
+            eval_code_for(&windowed).as_deref(),
+            Some("window.__tugMotion.hostFrames(3000)")
+        );
+    }
+
+    /// Ticks against expected, the missed count and the worst gap in periods,
+    /// then each gap over the period; a value missing its counts is not read.
+    #[test]
+    fn frames_prints_ticks_missed_and_the_worst_gap() {
+        let value = serde_json::json!({
+            "periodMs": 16.0,
+            "ticks": 118,
+            "expectedTicks": 125,
+            "missed": 3,
+            "worstGapMs": 48.0,
+            "gapsOverPeriod": [{ "atMs": 640.0, "gapMs": 48.0 }],
+        });
+        let text = frames_text(&value).expect("a reading");
+        assert_eq!(
+            text,
+            "118/125 ticks at 16.00 ms, 3 missed, worst gap 48.0 ms (3.0 periods)\n\
+             \x20 +   640 ms    48.0 ms (3.0 periods)\n"
+        );
+        assert!(frames_text(&serde_json::json!({ "ticks": 1 })).is_none());
     }
 
     /// The two classes summed apart, then newest first, each with its age, its

@@ -33,6 +33,9 @@ import { installDictationBridge } from "./lib/dictation-bridge";
 import { installScrollPhaseBridge } from "./lib/scroll-phase-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { attachLiveTurnsDeck } from "./lib/live-turns-store";
+import { installBodyShell } from "./lib/body-shell";
+import { PointerClaimTracker } from "./lib/pointer-claim";
+import { bodyPlacementDiag } from "./lib/body-placement";
 import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
@@ -152,6 +155,7 @@ declare global {
       diag: {
         listCardIds(): string[];
         getDeckState(): unknown;
+        getBodyPlacement(): unknown;
         getSpaces(): unknown;
         getCardState(cardId: string): unknown;
         captureCardState(cardId: string): unknown;
@@ -775,6 +779,15 @@ async function loadMakerTooling(
   // first exists.
   attachLiveTurnsDeck(deck);
 
+  // Session cards hand off to bodies when the host makes them: the shell's
+  // side of each body — its facts, its advice, its context, its focus, its
+  // teardown — is wired here, before the restore pass below hands any off.
+  installBodyShell(connection, deck);
+  // And what the shell raises over a body — a popover, a sheet, a scrim —
+  // keeps the pointer: the host passes everything else through to the body
+  // beneath. Watches the overlay root, which arrives with the deck's mount.
+  new PointerClaimTracker().start();
+
   // Sweep durable card-state bags for cards no longer in the deck. The
   // close path flushes a card's last bag to tugbank but never deletes it,
   // so orphaned bags would accumulate unbounded across the app's life —
@@ -988,6 +1001,11 @@ async function loadMakerTooling(
       listCardIds: () => deck.getSnapshot().cards.map((c) => c.id),
       /** Full active state — for ad-hoc inspection only. */
       getDeckState: () => deck.getSnapshot(),
+      /**
+       * What the shell last told the host about where its bodies stand, and
+       * why it last declined to measure — null when the host makes no bodies.
+       */
+      getBodyPlacement: () => bodyPlacementDiag(),
       /**
        * Every space — its id, name, whether it is active, and its deck ([P03]).
        * The active space's deck is the live one `getDeckState()` returns; the

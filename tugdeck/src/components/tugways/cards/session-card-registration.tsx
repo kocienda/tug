@@ -13,6 +13,8 @@
 
 import { FOLDED_CARD_HEIGHT_PX, registerCard } from "@/card-registry";
 import type { CardIdentityFacts } from "@/card-registry";
+import { bodyReadyQuiet } from "@/lib/body-cards-store";
+import { hostCapabilitiesStore } from "@/lib/body-handoff";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import {
   CONTENT_WIDTH_COMFY_PX,
@@ -164,6 +166,10 @@ export function registerSessionCard(): void {
     // What the hidden card waits on before it is revealed ([B03]): the
     // picker's listing settling or filling its cap, and its rows' synopses.
     arrivalQuiet: () => sessionPickerQuiet(),
+    // A card opened bound on a host that makes bodies is handed to a body,
+    // and is held hidden until that body has painted it, or the bound.
+    boundArrivalQuiet: (cardId) =>
+      hostCapabilitiesStore.get().bodyViews ? bodyReadyQuiet(cardId) : null,
     engineKind: "em",
   });
 }

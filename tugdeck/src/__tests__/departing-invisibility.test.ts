@@ -44,6 +44,9 @@ const PICTURE_READERS: Record<string, number> = {
   // content still answers to the workspace it is leaving.
   "deck-manager.ts": 2,
   "deck-manager-store.ts": 1,
+  // A body's deck answers the door; nothing departs from a one-card deck,
+  // so its picture is its snapshot.
+  "body/body-deck-bridge.ts": 1,
   // Draws every frame, departing ones included.
   "components/chrome/deck-canvas.tsx": 1,
   // Carries the departing frame out and lands it.

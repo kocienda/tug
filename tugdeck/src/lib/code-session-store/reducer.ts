@@ -5403,11 +5403,21 @@ function handleSessionStateErrored(
   // The next `send()` from `errored` re-submits and clears `lastError`
   // on the following `turn_complete(success)`.
   const message = event.detail ?? "session errored";
-  const { slice, effects } = enterErrored({
-    cause: "session_state_errored",
-    message,
-    at: Date.now(),
-  });
+  // The bridge's terminal `errored { detail: "resume_failed" }` follows the
+  // `resume_failed` frame that already said why, and both commonly land in
+  // one batch the store publishes once. Its error is that frame's, kept:
+  // overwritten here, the card's observer would only ever see a generic
+  // `session_state_errored` and never unbind the dead card to its picker.
+  const prior = state.lastError;
+  const { slice, effects } = enterErrored(
+    event.detail === "resume_failed" && prior?.cause === "resume_failed"
+      ? prior
+      : {
+          cause: "session_state_errored",
+          message,
+          at: Date.now(),
+        },
+  );
   return {
     state: {
       ...state,

@@ -105,8 +105,21 @@ export function seedOnScreenTheme(theme: string): void {
   onScreenTheme = theme;
 }
 
-function subscribeOnScreenTheme(listener: () => void): () => void {
+export function subscribeOnScreenTheme(listener: () => void): () => void {
   return onScreenThemeListeners.subscribe(listener);
+}
+
+/**
+ * Set on a page that follows a theme another page chose — a card's body,
+ * whose theme is the shell's. Such a page puts the theme on screen and tells
+ * its own readers, and never sends the host window's canvas color or writes
+ * the global key: both are the shell's.
+ */
+let followsShellTheme = false;
+
+/** Mark this page as one that follows the shell's theme (see {@link followsShellTheme}). */
+export function followShellTheme(): void {
+  followsShellTheme = true;
 }
 
 /**
@@ -116,13 +129,13 @@ function subscribeOnScreenTheme(listener: () => void): () => void {
  * subscribers that bake colors, and the global key.
  */
 function finishThemeChange(theme: string, hostCanvasColor: string | null): void {
-  if (hostCanvasColor !== null) sendCanvasColor(hostCanvasColor);
+  if (hostCanvasColor !== null && !followsShellTheme) sendCanvasColor(hostCanvasColor);
   if (theme !== onScreenTheme) {
     onScreenTheme = theme;
     onScreenThemeListeners.notify();
   }
   notifyThemeChange();
-  themeMirror.write(theme);
+  if (!followsShellTheme) themeMirror.write(theme);
   settleThemeTransitions();
 }
 

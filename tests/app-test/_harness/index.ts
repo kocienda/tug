@@ -43,6 +43,7 @@ import { shortToken, tmuxSocketLabel } from "./fnv1a";
 import { unionReachMaps, type ReachMap } from "./reach-map";
 import { onTestRunEnd } from "./test-cleanup";
 import { RpcClient, type RpcTransport } from "./rpc";
+import { scopeToCard } from "./scope-to-card";
 import {
   QUIESCE_DRAIN_DEADLINE_MS,
   QUIESCE_TEARDOWN_DEADLINE_MS,
@@ -90,6 +91,7 @@ export { enforcedTimeout, TIMEOUT_SCALE } from "./rpc";
 export type {
   ActiveElementInfo,
   AppLifecycleOptions,
+  BodyViewSnapshot,
   CaretState,
   ClickOptions,
   ClientMethodNames,
@@ -182,8 +184,17 @@ export type {
  * root sized to the window ÷ the factor, `pageZoom` held at 1.0 — and
  * resolves once the deck has painted the factor. Native gestures take
  * viewport coords unscaled at every factor. Major stays `1`.
+ *
+ * `1.13.0`: adds `hostFrames` — the host's display-link meter, armed for a
+ * window and read back, optionally sampling a named container's presentation
+ * layer — and the DEBUG `spikeBody` verb, a child page in its own WKWebView
+ * beneath the deck, for the display-rate spike. Additive; major stays `1`.
+ *
+ * `1.14.0`: the view verbs take an optional `card` and run in that card's
+ * body view (`App.body(cardId)` scopes them); adds `bodies`, the host's list
+ * of body views. Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.12.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.14.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -832,6 +843,44 @@ export class App {
    */
   setPageZoom(zoom: number): Promise<number> {
     return client.setPageZoom(this as HarnessCaller, zoom);
+  }
+
+  /** The host's display-link meter — see `client.hostFrames`. */
+  hostFrames(
+    params: { op: "arm"; windowMs: number; layer?: string } | { op: "read" },
+  ): ReturnType<typeof client.hostFrames> {
+    return client.hostFrames(this as HarnessCaller, params);
+  }
+
+  /** The display-rate spike's child page — see `client.spikeBody`. */
+  spikeCreate(): Promise<client.SpikeCreated> {
+    return client.spikeBody(this as HarnessCaller, { op: "create" });
+  }
+
+  spikeRun(params: { stallMs: number; translatePx: number }): Promise<client.SpikeReading> {
+    return client.spikeBody(this as HarnessCaller, { op: "run", ...params });
+  }
+
+  spikeDestroy(): Promise<{ destroyed: true }> {
+    return client.spikeBody(this as HarnessCaller, { op: "destroy" });
+  }
+
+  /**
+   * Every body view the host holds — each card's, and the warm spare's with a
+   * null `cardId` — with its state, frame, visibility, presented opacity and
+   * URL.
+   */
+  bodies(): Promise<client.BodyViewSnapshot[]> {
+    return client.bodies(this as HarnessCaller);
+  }
+
+  /**
+   * The same surface, run in one card's body view instead of the shell: every
+   * request it sends names the card. A card with no body rejects with
+   * `NoSuchBody`. Screenshots it takes are reclaimed with this app's.
+   */
+  body(cardId: string): BodyApp {
+    return new BodyApp(this, cardId, this.screenshots);
   }
 
   /** Unlink every screenshot this app handed out. Idempotent. */
@@ -1753,6 +1802,95 @@ export class App {
     } catch {
       // best-effort
     }
+  }
+}
+
+/**
+ * One card's body view, addressed the way {@link App} addresses the shell.
+ *
+ * It is a {@link HarnessCaller} whose every request passes through
+ * `scopeToCard`, so each typed helper in `./client.ts` — written once
+ * against the caller — runs in the body unchanged: evaluation, polling,
+ * element bounds, the view's own screenshot, and the native gestures, whose
+ * viewport points are the body's own and reach it through the window the way
+ * a real pointer does. `captureWindow` stays on {@link App}: the window is
+ * one composite of every view.
+ */
+export class BodyApp implements HarnessCaller {
+  constructor(
+    private readonly app: App,
+    readonly cardId: string,
+    private readonly screenshots: string[],
+  ) {}
+
+  evalJS<T = unknown>(script: string, opts?: EvalJsOptions): Promise<T> {
+    return this.rpcCall<T>("evalJS", { script, timeoutMs: opts?.timeoutMs });
+  }
+
+  waitForCondition<T = unknown>(
+    script: string,
+    opts?: WaitForConditionOptions,
+  ): Promise<T> {
+    return this.rpcCall<T>("waitForCondition", {
+      script,
+      timeoutMs: opts?.timeoutMs,
+      pollMs: opts?.pollMs,
+    });
+  }
+
+  rpcCall<T = unknown>(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<T> {
+    return this.app.rpcCall<T>(method, scopeToCard(params, this.cardId));
+  }
+
+  /** Screen-CG bounds for `selector` in this body, mapped through its view. */
+  getElementScreenBounds(selector: string): Promise<ScreenRect> {
+    return client.getElementScreenBounds(this, selector);
+  }
+
+  /** This body view's own paint as a PNG; reclaimed with the app's shots. */
+  async screenshot(): Promise<{ path: string }> {
+    const shot = await client.screenshot(this);
+    this.screenshots.push(shot.path);
+    return shot;
+  }
+
+  /** A trusted click at a point in this body's viewport. */
+  nativeClick(viewportPoint: ViewportPoint, opts?: NativeClickOptions): Promise<void> {
+    return client.nativeClick(this, viewportPoint, opts);
+  }
+
+  /** A trusted click at the center of `selector` in this body. */
+  nativeClickAtElement(selector: string, opts?: NativeClickOptions): Promise<void> {
+    return client.nativeClickAtElement(this, selector, opts);
+  }
+
+  nativeDoubleClick(
+    viewportPoint: ViewportPoint,
+    opts?: { button?: NativeMouseButton },
+  ): Promise<void> {
+    return client.nativeDoubleClick(this, viewportPoint, opts);
+  }
+
+  nativeDrag(from: ViewportPoint, to: ViewportPoint, opts?: NativeDragOptions): Promise<void> {
+    return client.nativeDrag(this, from, to, opts);
+  }
+
+  /** Type ASCII text into whatever this body has focused. */
+  nativeType(text: string): Promise<void> {
+    return client.nativeType(this, text);
+  }
+
+  /** Drive this body's card's session — see {@link App.driveSession}. */
+  driveSession(action: client.SessionDriveAction, opts?: EvalJsOptions): Promise<void> {
+    return client.driveSession(this, this.cardId, action, opts);
+  }
+
+  /** This body's card's editor state — see {@link App.getEmCardState}. */
+  getEmCardState(): Promise<client.EmCardState | null> {
+    return client.getEmCardState(this, this.cardId);
   }
 }
 

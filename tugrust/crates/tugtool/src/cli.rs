@@ -1239,6 +1239,18 @@ pub enum DeckMotionCommands {
         #[command(flatten)]
         target: DeckEvalTarget,
     },
+    /// The window's frames as the host's display link saw them: ticks
+    /// against expected, frames missed, the worst gap. Read in the UI
+    /// process, so it reports what the window showed whatever the deck's own
+    /// thread was doing — the reading a card in its own web view is judged
+    /// by.
+    Frames {
+        /// How long to watch, in milliseconds (default 2000).
+        #[arg(long)]
+        window: Option<u32>,
+        #[command(flatten)]
+        target: DeckTarget,
+    },
     /// Still every long-running loop, or let them run again.
     Demote {
         /// `on` or `off`.

@@ -134,4 +134,59 @@ final class MenuStateTests: XCTestCase {
         check("a gate with no enablement states no opinion", state.commands["off"]?.enabled == nil)
         check("a gate with no title keeps the built one", state.commands["off"]?.title == nil)
     }
+
+    // The key card's body publishes the card-scoped blocks; the deck's stay
+    // the shell's; the two `commands` sets are unioned with the body's gate
+    // winning an identifier both report.
+    func testTheKeyCardsBodyMergesIntoTheShell() {
+        let shell: [String: Any] = [
+            "activeCard": ["component": "session", "closable": true, "cardId": "c1"],
+            "panes": [["id": "p1", "title": "Dev", "focused": true]],
+            "spaces": [["id": "s1", "name": "Main", "active": true]],
+            "session": ["cardId": "c1", "sessionBound": false],
+            "commands": ["shared": ["enabled": false], "deckOnly": ["enabled": true]],
+        ]
+        let body: [String: Any] = [
+            "session": ["cardId": "c1", "sessionBound": true, "canChangeSettings": false],
+            "edit": ["undo": true, "redo": false, "undoLabel": "Typing"],
+            "document": ["cardId": "c1"],
+            "panes": [["id": "ignored", "title": "Body", "focused": true]],
+            "commands": ["shared": ["enabled": true], "bodyOnly": ["enabled": true]],
+        ]
+        let state = MenuState(payload: MenuState.merged(shell: shell, bodies: ["c1": body]))
+        check("the body's session block", state.session?.sessionBound == true && state.session?.canChangeSettings == false)
+        check("the body's edit block", state.edit.undo && state.edit.undoLabel == "Typing")
+        check("the body's document block", state.document?.cardId == "c1")
+        check("the shell's panes", state.panes.map(\.id) == ["p1"])
+        check("the shell's workspaces", state.spaces.map(\.id) == ["s1"])
+        check("the body's gate wins a shared identifier", state.commands["shared"]?.enabled == true)
+        check("a deck-only gate stands", state.commands["deckOnly"]?.enabled == true)
+        check("a body-only gate joins", state.commands["bodyOnly"]?.enabled == true)
+    }
+
+    // A body whose card is not the key card changes nothing, and a block the
+    // key card's body leaves out is absent rather than the shell's.
+    func testOnlyTheKeyCardsBodyIsMerged() {
+        let shell: [String: Any] = [
+            "activeCard": ["component": "session", "closable": true, "cardId": "c1"],
+            "session": ["cardId": "c1", "sessionBound": true],
+            "commands": ["shared": ["enabled": false]],
+        ]
+        let other = MenuState(payload: MenuState.merged(
+            shell: shell,
+            bodies: ["c2": ["session": ["cardId": "c2", "sessionBound": false],
+                            "commands": ["shared": ["enabled": true]]]]
+        ))
+        check("another card's body leaves the session block", other.session?.cardId == "c1")
+        check("another card's body leaves the gates", other.commands["shared"]?.enabled == false)
+
+        let noCardId = MenuState(payload: MenuState.merged(
+            shell: ["activeCard": ["component": "session"], "commands": [:] as [String: Any]],
+            bodies: ["c1": ["commands": ["x": ["enabled": true]]]]
+        ))
+        check("a shell that names no card merges nothing", noCardId.commands["x"] == nil)
+
+        let silent = MenuState(payload: MenuState.merged(shell: shell, bodies: ["c1": [:]]))
+        check("a block the key body leaves out is absent", silent.session == nil)
+    }
 }

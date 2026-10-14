@@ -125,6 +125,7 @@ import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
+import { handOffToBody } from "./body-handoff";
 import { FeedId } from "../protocol";
 import type { CardBinding } from "../protocol";
 import {
@@ -714,7 +715,7 @@ export interface RestoreOptions {
  * previous restore is well-defined.
  */
 export function restoreSessions(
-  deck: DeckManager,
+  deck: Pick<DeckManager, "getSnapshot">,
   connection: TugConnection,
   opts?: RestoreOptions,
 ): void {
@@ -982,6 +983,20 @@ export function fireFreshSpawn(
   projectDir: string,
   connection: TugConnection,
 ): void {
+  // A card that becomes a body spawns there, its opening command with it.
+  if (
+    handOffToBody(cardId, () => {
+      const openingCommand = drainOpeningCommand(cardId);
+      return {
+        kind: "fresh",
+        tugSessionId,
+        projectDir,
+        ...(openingCommand !== undefined ? { openingCommand } : {}),
+      };
+    })
+  ) {
+    return;
+  }
   // Drop any prior in-flight restore timer before arming a new hold.
   sessionRestoreRegistry._clear(cardId);
   // Stamp the restore-start clock — the `SessionRestoring` placeholder
@@ -1030,6 +1045,47 @@ export function fireFreshSpawn(
 }
 
 /**
+ * The picker's New: a fresh session in `cardId` on a new line. Provisions the
+ * line and its callsign — or takes the ones `provisioned` names, when another
+ * page already minted them for this spawn — and sends `spawn_session` with
+ * `"new"`. No restore hold: the card is already showing its picker's
+ * departure, and the spawn ack binds it.
+ */
+export function fireNewSpawn(
+  cardId: string,
+  tugSessionId: string,
+  projectDir: string,
+  connection: TugConnection,
+  provisioned?: { lineId: string; tag: string },
+): void {
+  // A card that becomes a body spawns there, on the line minted here.
+  if (
+    handOffToBody(cardId, () => {
+      const lineId = provisionSpawnLine(tugSessionId, provisioned?.lineId);
+      return {
+        kind: "new",
+        tugSessionId,
+        projectDir,
+        lineId,
+        tag: provisionSpawnTag(lineId, provisioned?.tag),
+      };
+    })
+  ) {
+    return;
+  }
+  const lineId = provisionSpawnLine(tugSessionId, provisioned?.lineId);
+  sendSpawnSession(
+    connection,
+    cardId,
+    tugSessionId,
+    projectDir,
+    "new",
+    provisionSpawnTag(lineId, provisioned?.tag),
+    lineId,
+  );
+}
+
+/**
  * Send the `spawn_session(mode=resume)` frame and register the
  * restore expectation. Shared between startup restore and the
  * picker's Retry button.
@@ -1041,6 +1097,17 @@ export function fireRestore(
   connection: TugConnection,
   display?: ResumeDisplayMetadata,
 ): void {
+  // A card that becomes a body resumes there.
+  if (
+    handOffToBody(cardId, () => ({
+      kind: "resume",
+      tugSessionId,
+      projectDir,
+      ...(display !== undefined ? { display } : {}),
+    }))
+  ) {
+    return;
+  }
   // If a previous restore was in flight (Retry after cancel/timeout),
   // drop the old timer before arming a new one.
   sessionRestoreRegistry._clear(cardId);
