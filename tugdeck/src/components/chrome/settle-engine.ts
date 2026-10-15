@@ -2335,6 +2335,7 @@ export function useSettleEngine({
             factor,
             periodMs: settleGapSampler.periodMs(),
             record: recordBeat,
+            planBeat,
             allowCrossing: true,
             frames: movers.map(({ frame }) => ({ frame, first: null, last: { dx: -dx * factor }, beats: [beat] })),
           });
@@ -3759,6 +3760,7 @@ export function useSettleEngine({
           factor,
           periodMs: settleGapSampler.periodMs(),
           record: recordBeat,
+          planBeat,
           allowCrossing: true,
           frames: choreography.map((c) => {
             const first = firstRects.get(c.paneId);

@@ -50,7 +50,6 @@ import {
   rectOf,
   sampleIndexAt,
   samplerState,
-  type Rect,
 } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-16-back-pane-cut";

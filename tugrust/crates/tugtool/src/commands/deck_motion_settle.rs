@@ -1008,7 +1008,10 @@ pub fn window_row(
     span: (f64, f64),
 ) -> Option<WindowRow> {
     let armed = host.get("armedWallMs")?.as_f64()? - wall_t0;
-    let period = host.get("periodMs").and_then(Value::as_f64).unwrap_or(1000.0 / 60.0);
+    let period = host
+        .get("periodMs")
+        .and_then(Value::as_f64)
+        .unwrap_or(1000.0 / 60.0);
     let ticks: Vec<f64> = host
         .get("tickMs")?
         .as_array()?
@@ -1022,7 +1025,11 @@ pub fn window_row(
     if !covered {
         to = last.max(from);
     }
-    let inside: Vec<f64> = ticks.iter().copied().filter(|t| *t >= from && *t <= to).collect();
+    let inside: Vec<f64> = ticks
+        .iter()
+        .copied()
+        .filter(|t| *t >= from && *t <= to)
+        .collect();
     let mut edges = vec![from];
     edges.extend(inside.iter().copied());
     edges.push(to);
@@ -1045,9 +1052,14 @@ pub fn window_row(
     let bodies = names
         .into_iter()
         .map(|card_id| {
-            let planned = body_beats.iter().rev().find(|b| b.card_id == card_id && b.landed.is_none());
+            let planned = body_beats
+                .iter()
+                .rev()
+                .find(|b| b.card_id == card_id && b.landed.is_none());
             let answer = body_beats.iter().rev().find(|b| {
-                b.card_id == card_id && b.landed.is_some() && planned.is_none_or(|p| p.plan_id == b.plan_id)
+                b.card_id == card_id
+                    && b.landed.is_some()
+                    && planned.is_none_or(|p| p.plan_id == b.plan_id)
             });
             let layer = layers.and_then(|l| l.get(&card_id));
             let num = |key: &str| layer.and_then(|l| l.get(key)).and_then(Value::as_f64);
@@ -1086,7 +1098,11 @@ pub fn window_text(row: Option<&WindowRow>, absent: Option<&str>) -> String {
         }
         return out;
     };
-    let cut = if w.covered { "" } else { "; the meter closed before the land" };
+    let cut = if w.covered {
+        ""
+    } else {
+        "; the meter closed before the land"
+    };
     let misses = w.misses();
     let bar = if misses.is_empty() {
         "bar met".to_string()
@@ -1100,7 +1116,9 @@ pub fn window_text(row: Option<&WindowRow>, absent: Option<&str>) -> String {
     );
     for b in &w.bodies {
         let plan = match (b.plan_id, b.beats, b.span_ms) {
-            (Some(id), Some(beats), Some(span)) => format!("plan {id}: {beats} beat(s) over {span:.0} ms"),
+            (Some(id), Some(beats), Some(span)) => {
+                format!("plan {id}: {beats} beat(s) over {span:.0} ms")
+            }
             (Some(id), _, _) => format!("plan {id}"),
             _ => "no plan row".to_string(),
         };
@@ -1244,17 +1262,34 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
     let host = raw.get("host").filter(|v| !v.is_null());
     let span = window.map(|(on, off)| (motion_reading.as_ref().map_or(on, |m| m.at_ms), off));
     let (window_row_reading, window_absent) = match (host, span, t0_epoch_ms) {
-        (None, _, _) => (None, Some("the page asked the host for no reading".to_string())),
+        (None, _, _) => (
+            None,
+            Some("the page asked the host for no reading".to_string()),
+        ),
         (Some(h), _, _) if h.get("error").is_some() => (
             None,
-            Some(h.get("error").and_then(Value::as_str).unwrap_or("the host did not answer").to_string()),
+            Some(
+                h.get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("the host did not answer")
+                    .to_string(),
+            ),
         ),
-        (Some(_), None, _) => (None, Some("the settle mark never went on and off".to_string())),
-        (Some(_), _, None) => (None, Some("the page predates the drive's wall clock".to_string())),
+        (Some(_), None, _) => (
+            None,
+            Some("the settle mark never went on and off".to_string()),
+        ),
+        (Some(_), _, None) => (
+            None,
+            Some("the page predates the drive's wall clock".to_string()),
+        ),
         (Some(h), Some(span), Some(epoch)) => {
             match window_row(h, &body_beats, epoch - clock_drift_ms.unwrap_or(0.0), span) {
                 Some(row) => (Some(row), None),
-                None => (None, Some("the host's reading carries no ticks".to_string())),
+                None => (
+                    None,
+                    Some("the host's reading carries no ticks".to_string()),
+                ),
             }
         }
     };
@@ -1872,7 +1907,10 @@ pub fn reading_extras(r: &Reading) -> String {
             }
         }
     }
-    out.push_str(&window_text(r.window_row.as_ref(), r.window_absent.as_deref()));
+    out.push_str(&window_text(
+        r.window_row.as_ref(),
+        r.window_absent.as_deref(),
+    ));
     match &r.verdict {
         Some(v) => {
             let _ = writeln!(out, "   {}", v.line());
@@ -2853,13 +2891,19 @@ mod tests {
         assert_eq!(w.worst_tick_gap_ms, 66.3);
         assert_eq!(w.bodies.len(), 2);
         assert_eq!(w.bodies[0].card_id, "b1");
-        assert_eq!((w.bodies[0].plan_id, w.bodies[0].beats, w.bodies[0].landed), (Some(7), Some(1), Some(true)));
+        assert_eq!(
+            (w.bodies[0].plan_id, w.bodies[0].beats, w.bodies[0].landed),
+            (Some(7), Some(1), Some(true))
+        );
         assert_eq!(w.bodies[1].landed, Some(false));
         let misses = w.misses();
         assert_eq!(misses.len(), 3, "{misses:?}");
         let text = reading_extras(&r);
         assert!(text.contains("window 40.0→600.0 ms:"), "{text}");
-        assert!(text.contains("bar MISSED: 3 missed tick(s), worst gap 66.3 ms"), "{text}");
+        assert!(
+            text.contains("bar MISSED: 3 missed tick(s), worst gap 66.3 ms"),
+            "{text}"
+        );
         assert!(
             text.contains("body b1: plan 7: 1 beat(s) over 420 ms; advanced on 100.0% of 24 ticks, longest still 0.0 ms; landed, late 0.0 ms"),
             "{text}"
@@ -2901,6 +2945,8 @@ mod tests {
         assert_eq!(r.window_row, None);
         assert!(reading_extras(&r).contains("window: none — hostFrames: no host to ask"));
         let r = reduce(&drive, &json!({"settle": [[2.0, true], [300.0, false]]}));
-        assert!(reading_extras(&r).contains("window: none — the page asked the host for no reading"));
+        assert!(
+            reading_extras(&r).contains("window: none — the page asked the host for no reading")
+        );
     }
 }

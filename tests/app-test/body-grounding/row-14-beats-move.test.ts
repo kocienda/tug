@@ -32,7 +32,7 @@
  * @covers tugapp/Sources/BodyBeats.swift
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "bun:test";
 
 import { launchTugApp } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";

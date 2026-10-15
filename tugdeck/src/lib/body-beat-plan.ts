@@ -49,8 +49,16 @@
  * posted to the host, never React state; [D211] nothing here reads layout.
  */
 
-import { type BodyPlacement, type PaneBox, type PlaceBodies, PANE_CLIP_REACH_PX } from "./body-placement";
+import type { BodyPlacement, PaneBox, PlaceBodies } from "./body-placement";
 import type { BeatKind, SettleTerms } from "./pane-flip";
+
+/**
+ * How far past a pane's box its clip's outer ring reaches, in px: a pane's
+ * clip exists only for its holes, so the ring must cut nothing a pane
+ * paints outside its own box — a popover, a ring, a shadow. It lives here,
+ * below `body-placement`, so the two modules import each other only for types.
+ */
+export const PANE_CLIP_REACH_PX = 100_000;
 
 // ---------------------------------------------------------------------------
 // The wire form

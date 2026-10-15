@@ -109,6 +109,7 @@ import { deckRootElement, pageZoomStore } from "./page-zoom-store";
 import { deferToSetUp, isSetUpPending } from "./set-up-apply";
 import { IMPOSER_SETTLE_END } from "./settle-notice";
 import {
+  PANE_CLIP_REACH_PX,
   cutWindow,
   frameRectBeats,
   paneCutKeyframes,
@@ -124,7 +125,7 @@ import {
   type Insets,
   type Rect,
 } from "./body-beat-plan";
-import { planBeat, type Beat, type BeatRow } from "../components/tugways/tug-animator";
+import type { Beat, BeatOptions, BeatRow } from "../components/tugways/tug-animator";
 import { getTugTiming } from "./scale-timing";
 import { deckTrace } from "../deck-trace";
 
@@ -319,13 +320,6 @@ export interface BodyHole {
   readonly width: number;
   readonly height: number;
 }
-
-/**
- * How far past a pane's box its clip's outer ring reaches, in px: a pane's
- * clip exists only for its holes, so the ring must cut nothing a pane
- * paints outside its own box — a popover, a ring, a shadow.
- */
-export const PANE_CLIP_REACH_PX = 100_000;
 
 /**
  * A pane's `clip-path` for these holes, in the pane's own px: an even-odd
@@ -886,7 +880,7 @@ export class BodyPlacer {
       const landBox: PaneBox = end === undefined ? box : { ...box, x: end.x, y: end.y, width: end.width, height: end.height };
       const landClip = paneClipPath(paneHoles(landed, landBox));
       // `planBeat` scales its own times; the plan's are scaled already.
-      const beat = planBeat({
+      const beat = input.planBeat({
         recipe: "body-cut",
         targets: [{ el: pane, keyframes: keyframes.map((k) => ({ offset: k.offset, clipPath: k.clipPath })) }],
         declares: ["clip-path"],
@@ -1182,6 +1176,11 @@ export interface RunPlanInput {
   readonly periodMs: number;
   /** Where a moving cut's beat row goes: the settle's own beat rows. */
   readonly record?: (row: BeatRow) => void;
+  /**
+   * Plans a moving cut's beat: the animator's `planBeat`, handed in because
+   * the animator is the component layer and `lib` sits below it.
+   */
+  readonly planBeat: (options: BeatOptions) => Beat;
   /** Whether a body whose box changes size is carried as a crossing; refused when false. */
   readonly allowCrossing?: boolean;
 }

@@ -40,7 +40,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { PROMPT_INPUT, bodyOf, composerFocused, composerText, focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { PROMPT_INPUT, bodyOf, composerFocused, composerText, focusBody, pollFor, promptPhase, spawnStub, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-12-composer";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

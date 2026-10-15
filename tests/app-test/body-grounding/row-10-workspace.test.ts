@@ -42,7 +42,6 @@ import {
   placeholderOf,
   readSampler,
   readStanding,
-  rectOf,
   type Rect,
 } from "./_motion";
 

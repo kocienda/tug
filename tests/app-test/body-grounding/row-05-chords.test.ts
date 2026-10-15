@@ -31,7 +31,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, note, type App } from "../_harness";
+import { launchTugApp, note } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import {
   SETTLE_MS,
