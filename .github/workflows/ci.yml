@@ -10,14 +10,13 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
+# Tug is a macOS app, so CI runs on the macOS runner the release and nightly
+# workflows build on, and on nothing else.
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install zsh
-        run: sudo apt-get update && sudo apt-get install -y zsh
 
       # No channel here: `rustup toolchain install` with no argument installs
       # what `tugrust/rust-toolchain.toml` pins, components included, so CI
@@ -65,7 +64,7 @@ jobs:
         working-directory: tugrust
 
   format:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 
@@ -78,7 +77,7 @@ jobs:
         working-directory: tugrust
 
   clippy:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 
@@ -109,9 +108,9 @@ jobs:
   # `just lint` carries clippy and `cargo fmt` as well as the typechecks and
   # oxlint, and `test-standalone` builds tugtool with cargo, so this job
   # installs Rust the way the build job does. The app-test corpus is not here:
-  # it needs a macOS host with a built Tug.app.
+  # it needs a built Tug.app.
   typescript:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
 

@@ -7,7 +7,7 @@
 //! for the machine-global `changes.db`. This keeps the suite fully isolated
 //! from the developer's real ledger and platform-independent: `dirs::data_dir()`
 //! resolves differently on Linux (`XDG_DATA_HOME`) than macOS, so seeding via
-//! `HOME` alone would not survive CI (ubuntu).
+//! `HOME` alone would not survive a Linux host.
 
 mod common;
 use common::tugtool;

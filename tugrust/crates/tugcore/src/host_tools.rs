@@ -112,8 +112,8 @@ pub fn route(resolved: Option<&Path>) -> Route {
 /// because `xcode-select` does, and off macOS `/usr/bin/git` is nothing but
 /// git — the distribution's own, which no modal guards and no developer
 /// directory gates. So on every other platform nothing is the shim and every
-/// resolution is a real git, which is what keeps a Linux CI runner (whose git
-/// is exactly `/usr/bin/git`) from being told it has none.
+/// resolution is a real git, which is what keeps a Linux host (whose git is
+/// exactly `/usr/bin/git`) from being told it has none.
 fn is_shim(path: &Path) -> bool {
     cfg!(target_os = "macos") && path == Path::new(SHIM_GIT)
 }

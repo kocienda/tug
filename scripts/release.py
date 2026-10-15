@@ -739,8 +739,8 @@ def ci_run_for(sha):
 def step_ci(st, force):
     """Wait for ci.yml on the pushed commit, and refuse to dispatch over red.
 
-    release.yml builds on macOS and CI builds on Linux, so a release run can be
-    green over a commit CI cannot build -- 0.8.16 shipped exactly that way,
+    release.yml builds the app and CI runs the tests and lints, so a release run
+    can be green over a commit CI fails -- 0.8.16 shipped exactly that way,
     dispatched seconds after the push and long before CI had an answer. CI runs
     on every push to main, so the pushed HEAD always gets a run; this waits for
     it to be listed, watches it to the end, and lets its conclusion gate the

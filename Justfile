@@ -1096,9 +1096,9 @@ bless:
 # decision to release, so Enter goes on and n is the deliberate answer.
 # Read-only probes and gates run without asking.
 #
-# CI on the pushed commit gates the dispatch. release.yml builds on macOS and
-# ci.yml on Linux, so a release run can be green over a commit CI cannot build;
-# 0.8.16 shipped that way, dispatched before CI had answered. bless only
+# CI on the pushed commit gates the dispatch. release.yml builds the app and
+# ci.yml runs the tests and lints, so a release run can be green over a commit
+# CI fails; 0.8.16 shipped that way, dispatched before CI had answered. bless only
 # reports CI, because an arbitrary HEAD may have no run; the release walk has
 # just pushed, so its HEAD always does, and it waits for that run to finish.
 #

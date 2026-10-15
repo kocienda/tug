@@ -17,3 +17,11 @@ wasm-bindgen = "0.2"
 
 # `[profile.release]` lives at the workspace root (../Cargo.toml).
 # Cargo ignores member-level profiles in a virtual workspace.
+
+# `--strip-producers` drops the section naming the tools that built the
+# package. wasm-bindgen stamps its version there, with a git hash when it is
+# GitHub's prebuilt binary and without one when wasm-pack compiled it, so the
+# section would make the bytes depend on how wasm-pack found wasm-bindgen.
+# It goes before `-O`: stripped after it, the module grows.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["--strip-producers", "-O"]

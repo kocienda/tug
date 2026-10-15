@@ -1394,7 +1394,7 @@ mod tests {
     }
 
     // macOS-gated: this asserts the color-forcing env recipe against BSD `ls`,
-    // which honors `CLICOLOR`/`CLICOLOR_FORCE`. GNU `ls` (Linux CI) ignores
+    // which honors `CLICOLOR`/`CLICOLOR_FORCE`. GNU `ls` (Linux) ignores
     // those and colorizes only via `--color`, so the recipe is a no-op there.
     #[cfg(target_os = "macos")]
     #[tokio::test]
