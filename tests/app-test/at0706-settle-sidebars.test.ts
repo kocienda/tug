@@ -55,12 +55,12 @@ import {
   traceWithSettleFrames,
   wait,
   windowCommits,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 import { settleBarsFor } from "../../tugdeck/src/lib/motion-guard/settle-bar";
 
 const TEST_NAME = "at0706-settle-sidebars";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /** The two re-budgeted legs' bars — resize-to-fit's gap and the sidebars'
  *  show land, by the user's rulings (see the header). They live in
@@ -91,13 +91,13 @@ const SIDEBARS_SHOW_BARS = settleBarsFor("sidebar-show");
  * nowhere else in this file.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0706 — hiding the sidebars and the settled-resize retune, at the bar [${arm.size}]`,
+  `at0706 — hiding the sidebars and the settled-resize retune, at the bar [${arm.label}]`,
   () => {
     test(
       "hiding and showing a two-member rail hold the bar and the resize retune holds its re-budgeted one",
       async () => {
         const { app, tugbankPath } = await launch(4, railBlob(), TEST_NAME, {
-          transcripts: arm.size,
+          transcripts: arm.size, bodies: arm.bodies,
           leadRecorder: true,
         });
         try {

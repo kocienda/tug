@@ -57,6 +57,12 @@ describe("undeclaredBeatProperties", () => {
     expect(undeclaredBeatProperties(keyframes, ["height"])).toEqual(["width"]);
   });
 
+  test("a keyframe's WAAPI name matches its CSS declaration", () => {
+    const cut = [{ clipPath: 'path(evenodd, "M0 0Z")' }, { clipPath: 'path(evenodd, "M1 1Z")' }];
+    expect(undeclaredBeatProperties(cut, ["clip-path"])).toEqual([]);
+    expect(undeclaredBeatProperties(cut, [])).toEqual(["clipPath"]);
+  });
+
   test("a property no beat can declare is refused whatever is declared", () => {
     expect(
       undeclaredBeatProperties([{ left: "0px" }, { left: "10px" }], ["height", "width"]),

@@ -58,6 +58,29 @@ final class FrameMeterStatsTests: XCTestCase {
         check("a moving layer advanced on every tick", FrameMeterStats.advanceRatio(moving) == 1)
     }
 
+    func testTheWorstStillRunIsTheLongestSpanAtOnePosition() {
+        let moving = (0..<30).map { (t: Double($0) * period, x: Double($0), y: 0.0) }
+        check("a layer that moves on every tick never stood still", FrameMeterStats.worstStillMs(moving) == 0)
+        var oneMiss = moving
+        oneMiss[10] = (t: oneMiss[10].t, x: oneMiss[9].x, y: 0)
+        let one = FrameMeterStats.worstStillMs(oneMiss)
+        check("one missed advance stands still for one period", abs(one - period) < 0.001, "\(one)")
+        var twoMiss = oneMiss
+        twoMiss[11] = (t: twoMiss[11].t, x: twoMiss[9].x, y: 0)
+        let two = FrameMeterStats.worstStillMs(twoMiss)
+        check("two missed advances stand still for two periods", abs(two - 2 * period) < 0.001, "\(two)")
+        check("a single sample has no run", FrameMeterStats.worstStillMs([(t: 0, x: 0, y: 0)]) == 0)
+    }
+
+    func testASizeOnlyBeatAdvancesWhenItsPositionStandsStill() {
+        // An origin-anchored layer that only shrinks keeps its position.
+        let shrinking = (0..<30).map { (t: Double($0) * period, state: [10.0, 20.0, 600 - Double($0), 400]) }
+        check("a size change is an advance", FrameMeterStats.advanceRatio(states: shrinking.map(\.state)) == 1)
+        check("and is never still", FrameMeterStats.worstStillMs(states: shrinking) == 0)
+        let frozen = (0..<30).map { (t: Double($0) * period, state: [10.0, 20.0, 600, 400]) }
+        check("a layer that holds its size and place advanced on no tick", FrameMeterStats.advanceRatio(states: frozen.map(\.state)) == 0)
+    }
+
     func testTheMedianIntervalIsTheSeriesOwnPeriod() {
         var ticks = series(count: 12)
         ticks.append(ticks.last! + 80)

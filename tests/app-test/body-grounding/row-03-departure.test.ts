@@ -153,7 +153,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 3: departure", () => {
         expect(reading.done, "the burst finished").toBe(true);
         note(
           `after the close: panes ${JSON.stringify(await app.evalJS<unknown>(`Array.from(document.querySelectorAll(".tug-pane")).map(function (p) { var r = p.getBoundingClientRect(); return [p.getAttribute("data-pane-id"), Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), getComputedStyle(p).zIndex, p.getAttribute("data-focused"), p.getAttribute("data-body-cut"), p.style.getPropertyValue("--tugx-pane-cut").slice(0, 20), getComputedStyle(p, "::after").opacity, getComputedStyle(p, "::after").clipPath.slice(0, 20), getComputedStyle(p.querySelector(".tug-pane-chrome")).clipPath.slice(0, 20)]; })`))}; ` +
-            `floor ${JSON.stringify(await app.evalJS<string>(`document.querySelector("[data-deck-canvas-floor]")?.style.clipPath ?? null`))}; ` +
             `host ${JSON.stringify((await app.bodies()).map((b) => [b.cardId, b.state, b.visible, b.frame]))}; placer ${JSON.stringify(await app.evalJS<unknown>("window.tugdeck.diag.getBodyPlacement()"))}`,
         );
 

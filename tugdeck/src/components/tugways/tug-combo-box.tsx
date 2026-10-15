@@ -64,6 +64,7 @@ import { useFocusable, useFocusManager } from "./use-focusable";
 import { ATTACHED_LIST_ATTRIBUTE, TAB_CONSUME_ATTRIBUTE } from "./focus-manager";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { layoutRectOf } from "@/lib/page-zoom-store";
+import { afterGesture } from "@/lib/gesture-scope";
 
 /** One combo-box row: what to commit, how to render it, and how it behaves. */
 export interface TugComboBoxItem {
@@ -361,7 +362,10 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
     }, [seedItems, syncOpen]);
 
     // Debounced async fetch on value / nonce change. `reqSeqRef` guards against
-    // an out-of-order response.
+    // an out-of-order response. The result is React-facing work that arrives
+    // on its own clock, so it goes through `afterGesture`: at rest it applies
+    // at once, and one that lands inside a settle's motion waits for the
+    // gate's release rather than committing under the beats.
     useEffect(() => {
       if (asyncItems === undefined) {
         setAsyncList([]);
@@ -370,8 +374,10 @@ export const TugComboBox = React.forwardRef<HTMLInputElement, TugComboBoxProps>(
       const handle = setTimeout(() => {
         const seq = (reqSeqRef.current += 1);
         void asyncItems(value).then((next) => {
-          if (seq !== reqSeqRef.current) return;
-          setAsyncList(next);
+          afterGesture(() => {
+            if (seq !== reqSeqRef.current) return;
+            setAsyncList(next);
+          });
         });
       }, DEBOUNCE_MS);
       return () => clearTimeout(handle);

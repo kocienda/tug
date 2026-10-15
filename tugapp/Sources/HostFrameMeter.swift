@@ -16,18 +16,37 @@ import QuartzCore
 /// tells a container the render server is moving from one that has stalled,
 /// and what reads a fade's ramp. Nothing runs while it is not armed: the link
 /// is created by `arm` and invalidated at the window's end.
+///
+/// It samples any number of named layers, and a layer may join while the
+/// meter is armed: a body's container is named by its card id when a beat
+/// plan carries it, with the windows its beats move it in, so a reading of
+/// the window says per body whether its presentation advanced on every tick
+/// it was meant to (`BodyViewController.runPlan`).
 final class HostFrameMeter: NSObject {
+    /// The name a single sampled layer goes under, whose samples `read`
+    /// also reports flat, as it always has.
+    static let singleLayerName = "layer"
+
+    private struct Track {
+        weak var layer: CALayer?
+        var samples: [(t: Double, x: Double, y: Double, opacity: Double, width: Double, height: Double)] = []
+        /// Spans from arming, ms, over which the layer is meant to move.
+        var active: [(fromMs: Double, toMs: Double)] = []
+    }
+
     private weak var view: NSView?
     private var link: CADisplayLink?
     private var endWork: DispatchWorkItem?
-    private weak var sampledLayer: CALayer?
+    private var tracks: [String: Track] = [:]
 
     /// Host time (`CACurrentMediaTime`, s) the meter was armed at.
     private(set) var armedAt: CFTimeInterval = 0
+    /// The wall clock (`Date`, ms since 1970) at the same instant, so a page
+    /// that marks its events with `performance.timeOrigin` can place them.
+    private(set) var armedWallMs: Double = 0
     private var windowMs: Double = 0
     private var timestampsMs: [Double] = []
     private var periodsMs: [Double] = []
-    private var samples: [(t: Double, x: Double, y: Double, opacity: Double)] = []
 
     init(view: NSView) {
         self.view = view
@@ -42,20 +61,49 @@ final class HostFrameMeter: NSObject {
     /// Start a reading of `windowMs`, sampling `layer`'s presentation per tick
     /// when given. Re-arming discards the previous reading.
     func arm(windowMs: Int, sampling layer: CALayer? = nil) {
+        arm(windowMs: windowMs, sampling: layer.map { [Self.singleLayerName: $0] } ?? [:])
+    }
+
+    /// Start a reading of `windowMs`, sampling each named layer's presentation
+    /// per tick. Re-arming discards the previous reading.
+    func arm(windowMs: Int, sampling layers: [String: CALayer]) {
         stop()
         guard let view else { return }
         self.windowMs = Double(max(0, windowMs))
         timestampsMs = []
         periodsMs = []
-        samples = []
-        sampledLayer = layer
+        tracks = layers.mapValues { Track(layer: $0) }
         armedAt = CACurrentMediaTime()
+        armedWallMs = Date().timeIntervalSince1970 * 1000
         let link = view.displayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
         let end = DispatchWorkItem { [weak self] in self?.stop() }
         endWork = end
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(windowMs), execute: end)
+    }
+
+    /// Sample `layer` under `name` from now on, meant to move over each of
+    /// `active` (media times, s). A name already sampled keeps its samples
+    /// and gains the spans. Nothing while the meter is not armed.
+    func track(_ layer: CALayer, named name: String, active: [(from: CFTimeInterval, to: CFTimeInterval)]) {
+        guard isArmed else { return }
+        var track = tracks[name] ?? Track(layer: layer)
+        track.layer = layer
+        track.active += active.map { (fromMs: msSinceArm($0.from), toMs: msSinceArm($0.to)) }
+        tracks[name] = track
+    }
+
+    /// `name` stopped being meant to move at `mediaTime` (s): a newer plan
+    /// or a placement took its beats. Its spans end there, and a span that
+    /// had not begun is dropped.
+    func cut(named name: String, at mediaTime: CFTimeInterval) {
+        guard var track = tracks[name] else { return }
+        let at = msSinceArm(mediaTime)
+        track.active = track.active.compactMap { span in
+            span.fromMs >= at ? nil : (fromMs: span.fromMs, toMs: min(span.toMs, at))
+        }
+        tracks[name] = track
     }
 
     /// Invalidate the link. The reading is kept for `read`.
@@ -71,13 +119,16 @@ final class HostFrameMeter: NSObject {
         timestampsMs.append(t)
         let period = (link.targetTimestamp - link.timestamp) * 1000
         if period > 0 { periodsMs.append(period) }
-        if let layer = sampledLayer {
+        for name in tracks.keys {
+            guard let layer = tracks[name]?.layer else { continue }
             let shown = layer.presentation() ?? layer
-            samples.append((
+            tracks[name]?.samples.append((
                 t: t,
                 x: Double(shown.position.x),
                 y: Double(shown.position.y),
-                opacity: Double(shown.opacity)
+                opacity: Double(shown.opacity),
+                width: Double(shown.bounds.width),
+                height: Double(shown.bounds.height)
             ))
         }
     }
@@ -95,7 +146,9 @@ final class HostFrameMeter: NSObject {
     }
 
     /// The reading over `[fromMs, toMs]` from arming (the whole window by
-    /// default), in Spec S06's `HostFrameReading` shape.
+    /// default), in Spec S06's `HostFrameReading` shape, with `armedWallMs`
+    /// and, per sampled name, its samples, its active spans, and over those
+    /// spans the share of ticks it advanced on and its longest still run.
     func read(fromMs: Double = 0, toMs: Double? = nil) -> [String: Any] {
         let end = toMs ?? windowMs
         var reading = FrameMeterStats.summarize(
@@ -104,22 +157,53 @@ final class HostFrameMeter: NSObject {
             windowStartMs: fromMs,
             windowEndMs: end
         ).dictionary
-        if sampledLayer != nil || !samples.isEmpty {
-            reading["samples"] = samplesIn(fromMs: fromMs, toMs: end).map {
-                ["t": $0.t, "x": $0.x, "y": $0.y, "opacity": $0.opacity]
-            }
+        reading["armedWallMs"] = armedWallMs
+        reading["tickMs"] = timestampsMs.filter { $0 >= fromMs && $0 <= end }
+        let json = { (s: [(t: Double, x: Double, y: Double, opacity: Double, width: Double, height: Double)]) -> [[String: Double]] in
+            s.map { ["t": $0.t, "x": $0.x, "y": $0.y, "opacity": $0.opacity] }
         }
+        if tracks[Self.singleLayerName] != nil {
+            reading["samples"] = json(samplesIn(Self.singleLayerName, fromMs: fromMs, toMs: end))
+        }
+        var layers: [String: Any] = [:]
+        for (name, track) in tracks {
+            var moved = 0
+            var pairs = 0
+            var worstStill = 0.0
+            for span in track.active {
+                let inSpan = samplesIn(name, fromMs: span.fromMs, toMs: span.toMs)
+                guard inSpan.count > 1 else { continue }
+                // Position and size both: a container is origin-anchored, so a
+                // beat that only resizes it moves its bounds and not its position.
+                let states = inSpan.map { (t: $0.t, state: [$0.x, $0.y, $0.width, $0.height]) }
+                pairs += states.count - 1
+                moved += Int((FrameMeterStats.advanceRatio(states: states.map(\.state)) * Double(states.count - 1)).rounded())
+                worstStill = max(worstStill, FrameMeterStats.worstStillMs(states: states))
+            }
+            layers[name] = [
+                "samples": json(samplesIn(name, fromMs: fromMs, toMs: end)),
+                "active": track.active.map { ["fromMs": $0.fromMs, "toMs": $0.toMs] },
+                "activeTicks": pairs,
+                "advancedRatio": pairs > 0 ? Double(moved) / Double(pairs) : NSNull(),
+                "worstStillMs": worstStill,
+            ] as [String: Any]
+        }
+        reading["layers"] = layers
         return reading
     }
 
     /// The share of ticks over `[fromMs, toMs]` on which the sampled layer's
     /// presentation position moved.
     func presentationAdvancedRatio(fromMs: Double, toMs: Double) -> Double {
-        FrameMeterStats.advanceRatio(samplesIn(fromMs: fromMs, toMs: toMs).map { (x: $0.x, y: $0.y) })
+        FrameMeterStats.advanceRatio(
+            samplesIn(Self.singleLayerName, fromMs: fromMs, toMs: toMs).map { (x: $0.x, y: $0.y) }
+        )
     }
 
-    private func samplesIn(fromMs: Double, toMs: Double) -> [(t: Double, x: Double, y: Double, opacity: Double)] {
-        samples.filter { $0.t >= fromMs && $0.t <= toMs }
+    private func samplesIn(
+        _ name: String, fromMs: Double, toMs: Double
+    ) -> [(t: Double, x: Double, y: Double, opacity: Double, width: Double, height: Double)] {
+        (tracks[name]?.samples ?? []).filter { $0.t >= fromMs && $0.t <= toMs }
     }
 }
 

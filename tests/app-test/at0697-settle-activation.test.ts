@@ -82,19 +82,19 @@ import {
   traceMark,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0697-settle-activation";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0697 — the flash waits for the landing, and moves only opacity [${arm.size}]`,
+  `at0697 — the flash waits for the landing, and moves only opacity [${arm.label}]`,
   () => {
     test(
       "four session cards: no ring in the click's frame, an opacity-only ring after it lands",
       async () => {
-        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await home(app);
           await wait(AFTER_LAND_MS);
@@ -170,12 +170,12 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
 );
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0697 — the click task is bounded, and a settling frame holds its cells [${arm.size}]`,
+  `at0697 — the click task is bounded, and a settling frame holds its cells [${arm.label}]`,
   () => {
     test(
       "four session cards: a slide raises no episode, a width change does",
       async () => {
-        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await home(app);
           await wait(AFTER_LAND_MS);
@@ -247,12 +247,12 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
 );
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0697 — the settle records its own frames, and its own violations [${arm.size}]`,
+  `at0697 — the settle records its own frames, and its own violations [${arm.label}]`,
   () => {
     test(
       "four session cards: one row per settle, agreeing with the probe, and none at rest",
       async () => {
-        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -372,7 +372,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
     test(
       "eight cards in shared columns: the height-bearing gesture IS reported, which is what makes the zero above evidence",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
           await wait(AFTER_LAND_MS);
@@ -420,7 +420,10 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
               `blind rather than that gesture being clean`,
           ).toBeGreaterThan(0);
           expect(
-            violations.every((v) => v.endsWith(":height")),
+            // With body views the back panes' cut animates `clip-path` as a
+            // declared breach of [D9] (`body-cut`, priced where the cut moved),
+            // and that is the only other property it may name.
+            violations.every((v) => v.endsWith(":height") || (arm.bodies && v.endsWith(":clipPath"))),
             `and every row names \`height\`, the one property the ` +
               `choreography genuinely animates off the compositor. Anything ` +
               `else here is a new violation worth reading: ` +

@@ -741,6 +741,23 @@ export type DeckTraceEvent = {
       phase: "close" | "open";
     }
   | {
+      // One body a beat plan carries on the host ([B08] of motion-to-the-host),
+      // so a reading of the window can label each body's beats by its card.
+      // Written twice per planned body: at the plan, with `landed` null, and
+      // when the host answers, with `landed` true for its `landed` and false
+      // for `beatsCancelled`. `beats` is how many beats the plan gave it and
+      // `spanMs` the last one's end from `startWallMs`, the plan's t = 0 on
+      // the wall clock.
+      kind: "body-beat";
+      cardId: string;
+      planId: number;
+      beats: number;
+      startWallMs: number;
+      spanMs: number;
+      landed: boolean | null;
+      lateMs: number | null;
+    }
+  | {
       // The settle's own frame-gap record ([B10], [P09], Spec S03). Written
       // once per settle, at release, beside `settle-release` — never when no
       // settle ran, because the sampler that feeds it is armed by the settle
@@ -1050,6 +1067,7 @@ export type DeckTraceEventInput =
   | Omit<Extract<DeckTraceEvent, { kind: "settle-retarget" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-release" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-gate" }>, StampedFields>
+  | Omit<Extract<DeckTraceEvent, { kind: "body-beat" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-frames" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-land" }>, StampedFields>
   | Omit<Extract<DeckTraceEvent, { kind: "settle-beat" }>, StampedFields>

@@ -87,6 +87,7 @@ import { cardServicesStore } from "./lib/card-services-store";
 import { getConnection } from "./lib/connection-singleton";
 import { sendSpawnSession } from "./lib/session-lifecycle";
 import { fireNewSpawn } from "./lib/session-restore";
+import { handOffToBody } from "./lib/body-handoff";
 import { sessionLineStore } from "./lib/session-line-store";
 import { applyRestoredShellExchanges } from "./lib/shell-session-store";
 import type { AtomSegment } from "./lib/tug-atom-img";
@@ -3297,6 +3298,17 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           "spawnSessionResume: shared connection unavailable — the app must " +
             "be connected before a real spawn_session can be driven",
         );
+      }
+      // A card that becomes a body resumes there, as `fireRestore` hands it
+      // off; with body views off this is false and nothing changes.
+      if (
+        handOffToBody(cardId, () => ({
+          kind: "resume",
+          tugSessionId: opts.tugSessionId,
+          projectDir: opts.projectDir,
+        }))
+      ) {
+        return;
       }
       // The genuine production CONTROL frame. tugcast acks with
       // `spawn_session_ok` (which populates the binding) and spawns a real

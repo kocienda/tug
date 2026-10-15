@@ -6,7 +6,7 @@
  * overlap the pane behind would paint its border and content over the
  * body of the pane in front, which the user saw as back borders drawn over
  * front cards. The placer now cuts every pane behind a visible body at
- * that body's rect, the way it cuts the floor (`lib/body-placement.ts`).
+ * that body's rect (`lib/body-placement.ts`).
  *
  * A body card and a Text card stand in a three-up fit on a window too
  * narrow for the band, so their panes overlap; the Text card's file is

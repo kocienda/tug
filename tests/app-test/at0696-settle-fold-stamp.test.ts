@@ -44,14 +44,14 @@ import {
   sampleFold,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0696-settle-fold-stamp";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0696 — the fold's gesture stamp [${arm.size}]`,
+  `at0696 — the fold's gesture stamp [${arm.label}]`,
   () => {
     test(
       "the fold's gesture stamp is spent once — the next settle measures from its own arm",
@@ -63,7 +63,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
         // Unguarded, this activation would report the whole distance back to
         // the fold as dead lead, in the row [D9]'s guard and the bar above both
         // read.
-        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
           await home(app);

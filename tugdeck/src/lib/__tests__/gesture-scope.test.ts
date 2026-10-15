@@ -6,6 +6,7 @@ import {
   GestureScope,
   holdDeliveries,
   installGestureScope,
+  NEVER_HELD,
   observeHeld,
   wrapSubscribe,
   wrappedSubscribeFor,
@@ -576,5 +577,20 @@ describe("holdDeliveries", () => {
     delivery.callback([entry(0.5)], observer);
     release();
     expect(seen).toEqual([[0.5]]);
+  });
+});
+
+describe("NEVER_HELD", () => {
+  it("never reports held and never calls an observer, whatever a scope's gate does", () => {
+    const { scope } = harness();
+    const changes: unknown[] = [];
+    const unsubscribe = NEVER_HELD.observeMotionGate((change) => changes.push(change));
+    const release = scope.holdMotion(10_000);
+    expect(scope.isMotionHeld()).toBe(true);
+    expect(NEVER_HELD.isMotionHeld()).toBe(false);
+    release();
+    unsubscribe();
+    expect(changes).toEqual([]);
+    expect(NEVER_HELD.isMotionHeld()).toBe(false);
   });
 });

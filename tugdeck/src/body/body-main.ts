@@ -30,7 +30,7 @@ import type { DeckFacts } from "@tugproto/bus";
 import { TugConnection } from "../connection";
 import { FeedId } from "../protocol";
 import { installDomForensics } from "../lib/dom-forensics";
-import { installGestureScope } from "../lib/gesture-scope";
+import { installGestureScope, NEVER_HELD } from "../lib/gesture-scope";
 import { setConnection } from "../lib/connection-singleton";
 import { TugbankClient } from "../lib/tugbank-client";
 import { setTugbankClient } from "../lib/tugbank-singleton";
@@ -77,6 +77,7 @@ import { setKeyboardYield } from "../lib/keyboard-yield";
 import { installDictationBridge } from "../lib/dictation-bridge";
 import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
 import { onBus, sendBus } from "../lib/deck-bus";
+import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-episode";
 import { registerSessionCard } from "../components/tugways/cards/session-card-registration";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { BodyDeckBridge } from "./body-deck-bridge";
@@ -102,10 +103,23 @@ interface BodyBind {
   facts?: BindFacts;
 }
 
+/**
+ * What the host passes `onBodyCrossing`: the box is about to change size
+ * under the host's beats (`begin`, with the landing size and the plan's
+ * span), or those beats have landed or been cancelled (`land`).
+ */
+interface BodyCrossing {
+  phase: "begin" | "land";
+  width?: number;
+  height?: number;
+  durationMs?: number;
+}
+
 declare global {
   interface Window {
     __tugBridge?: Record<string, unknown> & {
       onBodyBind?: (bind: BodyBind) => void;
+      onBodyCrossing?: (crossing: BodyCrossing) => void;
     };
   }
 }
@@ -116,6 +130,30 @@ function postToHost(name: string, body: unknown): void {
     webkit?: { messageHandlers?: Record<string, { postMessage: (v: unknown) => void } | undefined> };
   }).webkit?.messageHandlers;
   handlers?.[name]?.postMessage(body);
+}
+
+/**
+ * The page's own surface as sRGB bytes `[r, g, b, a]`, a = 0–255: the
+ * background of the first box that paints one — the card's root, then
+ * `body`, then `html`, which computes transparent here — drawn into a
+ * one-pixel canvas, so whatever colour space a theme token resolves in,
+ * the host reads plain bytes.
+ */
+function pageSurfaceRgba(): number[] | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const g = canvas.getContext("2d");
+  if (g === null) return null;
+  for (const el of [document.getElementById("deck-container"), document.body, document.documentElement]) {
+    if (el === null) continue;
+    g.clearRect(0, 0, 1, 1);
+    g.fillStyle = getComputedStyle(el).backgroundColor;
+    g.fillRect(0, 0, 1, 1);
+    const rgba = [...g.getImageData(0, 0, 1, 1).data];
+    if (rgba[3] > 0) return rgba;
+  }
+  return null;
 }
 
 installDomForensics();
@@ -137,6 +175,8 @@ const isSpare = named === "spare";
 const connection = new TugConnection(`ws://${window.location.host}/ws`, {
   host: "worker",
   page: { role: "body", cardId: isSpare ? null : named },
+  // A body streams through the shell's settles: its frames are its own.
+  motionGate: NEVER_HELD,
 });
 const connectionLifecycle = new ConnectionLifecycle();
 connection.setLifecycle(connectionLifecycle);
@@ -430,6 +470,27 @@ async function bindBody(bind: BodyBind): Promise<void> {
   window.__tugBridge = window.__tugBridge ?? {};
   window.__tugBridge.onBodyBind = (bind: BodyBind) => {
     void bindBody(bind);
+  };
+  // The host is about to carry this card's box to a new size: pin every
+  // preserve scroller across it, as the shell's own crossing does for an
+  // in-document card, and only then tell the host it may set the final
+  // size — the host's resize would race the pin otherwise. The host calls
+  // this in the task it runs the plan in, so the pin costs one hop to this
+  // page and one back, inside a display period. The land ends the episode,
+  // which is the restore.
+  //
+  // The acknowledgement carries the page's own surface as sRGB bytes: the
+  // host paints the container in it for the crossing, so where a shrinking
+  // box is still larger than the page at its final size the strip the page
+  // does not reach is the body's surface, never the floor beneath.
+  let crossing: ResizeEpisodeHandle | null = null;
+  window.__tugBridge.onBodyCrossing = (next: BodyCrossing) => {
+    crossing?.end();
+    crossing = null;
+    if (next.phase !== "begin") return;
+    const root = document.getElementById("deck-container") ?? document.body;
+    crossing = beginResizeEpisode(root, next.durationMs ?? 0);
+    postToHost("crossingReady", { surface: pageSurfaceRgba() });
   };
   postToHost("bodyHello", {});
 })();

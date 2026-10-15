@@ -32,6 +32,9 @@ import {
   STALL_PLANTED_AT_MS,
   TEST_TIMEOUT_MS,
   activateLast,
+  armWindow,
+  expectWindowBar,
+  readWindowRow,
   activePaneId,
   blobFor,
   home,
@@ -44,11 +47,11 @@ import {
   traceMark,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0698-settle-drop-mid-flight";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 /** The sweep leg's wait: the sweep guards twice the settle's window, floored at a second, and room after. */
 const SWEEP_WAIT_MS = 3_000;
 
@@ -84,12 +87,12 @@ const SWEEP_WAIT_MS = 3_000;
  * thing than the one on its label.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0698 — a settle dropped mid-flight leaves no frame at its origin [${arm.size}]`,
+  `at0698 — a settle dropped mid-flight leaves no frame at its origin [${arm.label}]`,
   () => {
     test(
       "a stalled settle, a retarget and a space switch each land the deck with every frame at Last",
       async () => {
-        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
 
@@ -107,6 +110,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           await home(app);
           let mark = await traceMark(app);
           await app.armSettleFrameProbe();
+          await armWindow(app);
           await wait(120);
           await activateLast(app, 4);
           await wait(STALL_PLANTED_AT_MS);
@@ -114,6 +118,9 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           await wait(AFTER_LAND_MS * 2);
           const stalledProbe = await app.takeSettleFrameReading();
           await app.disarmSettleFrameProbe();
+          // The page's stall is the page's: the window, drawn by the host,
+          // misses no frame through it.
+          expectWindowBar("stall leg", await readWindowRow(app));
           const stalledExits = await releaseSources(app, mark);
           const stalledResidue = await residualTranslates(app);
           note(
@@ -144,6 +151,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           await home(app);
           mark = await traceMark(app);
           await app.armSettleFrameProbe();
+          await armWindow(app);
           await wait(120);
           await activateLast(app, 4);
           // Inside the 400ms move beat, and early enough that some tweens
@@ -156,6 +164,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           await wait(AFTER_LAND_MS * 2);
           const retargetProbe = await app.takeSettleFrameReading();
           await app.disarmSettleFrameProbe();
+          expectWindowBar("retarget leg", await readWindowRow(app));
           const retargetExits = await releaseSources(app, mark);
           const retargetResidue = await residualTranslates(app);
           const landedOn = await activePaneId(app);

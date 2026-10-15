@@ -94,7 +94,26 @@ The asks are `briefs/graphics-animations-asks.md`: new cards, folds, column move
 |---|---|---|---|---|---|---|
 | before (stage 6) | 2026-10-13 | — | — | — | 1 / 2.9 GB | first frame after commit 77–83 ms (harness); user's aged deck owed |
 | 2a (grounding) | 2026-10-14, `afc3dd3a1` | — | — | — | switch off on the shipping build: 1 WebContent; on: shell + bodies + one spare | no motion reading (bodies hide under a lid at a beat's start and show at the land); bar of 13 rows green on the Debug bundle through the session tap and `performMenuItem`, read by composite colour; arrival cold 118 ms / warm 148 ms to `ready` with no frame of canvas or bare window; drag lead inside two frames of travel after the floor's compositing layer, one frame of host→shell pipeline latency at the landing spring; 106 menu items performed with a body first responder; the user's deck runs with the switch off |
+| 3 (motion to the host) | | 15–17 ms before, 15–17 after | worst 24 ms before (⌘N, slot), 24 after (flow slide); the window: 0 missed ticks, worst tick gap 16.7 ms, before and after | 17–29 ms before (bullseye 27–29), 17–22 after | 6 WebContent / 1.09–1.10 GB before and after (shell 263, three bodies 205–223, spare 146–148, 46 MB) | harness, body views on, three bodies streaming stub turns through tugcast's feed, quiet instruments; after: every body a gesture moves rides the host's beats (⌘N, slot, flow slide, bullseye: advance 1.00, longest still 0 ms, landed on time), fold keeps the hide-and-show; offset 0.2 periods, skew median 0.04–0.08 periods at rest and −0.04 streaming, 60 Hz only; [B09] closed; read below |
 | 2 | 2026-10-13 (harness; join owed) | — | — | — | 4 WebContent / 709–717 MB (shell + two bodies + the spare; each 215–219, 180–187, 178–185, 130–133 MB) | no host motion yet, so no gesture reading; a body's bind → ready: warm 109–148 ms, cold 112–127 ms (`ready` at the body's first paint); the arrival fade a 216.7 ms ramp at 16.67 ms with no display-link gap and the seen container still; user's aged deck owed at join |
+
+**Motion reading (stage 3).** 2026-10-14, the same machine, 60 Hz, the harness window in the foreground (`tests/app-test/body-grounding/record-reading.test.ts`). The deck: six session cards in a four-up flow with the Layout card on the right rail. The cards in slots 1–3 are bodies, each streaming a stub turn that tugcast replays through its real feed at a delta every 25 ms. Each gesture was read twice through `tugtool deck motion settle --quiet-instruments --count 2`, then twice more with the verb's instruments on for attribution. Before is the arc's base product code, with the head's frame meter and verb so both rows are read by one instrument. After is the arc's head. Every drive was made with all three bodies streaming, checked in each body's own page, because the verb's `--streaming` count reads the shell's document and a body's prompt entry is not there.
+
+Quiet readings. Lead is the drive to the first frame. In-motion is the shell's longest gap inside the motion. Land is the land frame. Ranges are across the two readings.
+
+| Gesture | Lead before / after | In-motion before / after | Land before / after | Bodies on the host's beats, after |
+|---|---|---|---|---|
+| ⌘N | 16–17 / 15–16 ms | 20–24 / 19 ms | 23–25 / 20–21 ms | three, 23 ticks each, advance 1.00, landed on time |
+| fold | 15–16 / 16–17 | 18 / 17–18 | 19–20 / 20–21 | none: the fold hides the body at the commit and shows it at the land |
+| slot | 16 / 16–17 | 18–24 / 18–23 | 20–21 / 20–22 | three, as ⌘N |
+| split | 16–17 / 15–16 | 18 / 18 | 17–18 / 17–18 | none moved: slot 1 holds one card |
+| flow slide | 16–17 / 16–17 | 19–20 / 24 | 19–20 / 20–22 | three, as ⌘N |
+| bullseye | 16–17 / 17 | 19–21 / 19–21 | 27–29 / 21–22 | three, as ⌘N |
+| rails | 16–17 / 16 | 18 / 17 | 21 / 21–22 | none moved: the right rail's going moves no pane |
+
+The window's own frames, read by the host's display link over each motion, missed no tick in any reading, before or after: 15–40 ticks over a motion, worst tick gap 16.7 ms. Split's second reading in each pair had no motion to read (its window is the land alone, one or two ticks). No session batch landed in the shell inside a motion. The instrumented readings sit within 1–5 ms of the quiet ones. Processes: the launch added six WebContent processes, 1086 MB resident before and 1102 MB after: shell 263 MB, three bodies 205–223, the spare 146–148, and one of 46 MB.
+
+The reading was taken in the harness rather than on a dev instance. Three real turns cannot be put in flight there without real `claude` turns that only the user can start. The stub's turns go through the same feed, socket and body pages a real turn does. The user's aged deck is still owed, and is read with the switch on when the user flips it.
 
 **Spike reading (stage 2).** 2026-10-13, Apple M4 Max (`Mac16,5`), macOS 27.0.1, 60 Hz display, the harness window in the foreground (`at0737-body-view-spike.test.ts`). One child page (`/?body=spike`, a compositor animation plus one painted log line per frame) in a WKWebView of its own beneath the deck, shown through a hole in the deck's paint, while the deck's main thread ran a 3000 ms synchronous loop. **The premise holds.**
 

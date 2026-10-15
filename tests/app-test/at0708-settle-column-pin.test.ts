@@ -54,20 +54,30 @@ import {
   SHOWN_FRAMES,
   type ColumnLeg,
   type SettleLandRow,
+  type WindowRow,
+  armWindow,
   bandCensus,
   columnBlob,
+  expectWindowBar,
   home,
   launch,
+  readWindowRow,
   sampleColumnGesture,
   settleLandRows,
   traceMark,
   traceWithSettleFrames,
-  transcriptArms,
+  settleArms,
   wait,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0708-settle-column-pin";
-const ARMS = transcriptArms();
+/**
+ * The transcript arms alone. The pin is read off each transcript's scroller
+ * in the shell's document, and with body views those scrollers are in the
+ * bodies' own pages; a body's transcript holding its bottom through a
+ * crossing is `body-grounding/row-17-crossing.test.ts`'s.
+ */
+const ARMS = settleArms().filter((arm) => !arm.bodies);
 
 /** Slot 0's two members on the column fixture. */
 const REVEALED = "at0622-p1";
@@ -200,6 +210,8 @@ interface Leg {
   readonly land: SettleLandRow | null;
   /** The deck's commits, arms and gate edges across the leg, in order. */
   readonly sequence: readonly string[];
+  /** The window's own frames over the leg, from the host's display link. */
+  readonly window: WindowRow;
 }
 
 /** A frame whose transcript is pinned to its bottom and says so. */
@@ -210,6 +222,7 @@ async function sampleColumnMode(app: App, mode: "split" | "stack"): Promise<Leg>
   const before = await bandCensus(app);
   const mark = await traceMark(app);
   await armRecorder(app);
+  await armWindow(app);
   // A sample or two of the standing geometry before the gesture lands.
   await wait(60);
   await app.evalJS<null>(
@@ -243,6 +256,7 @@ async function sampleColumnMode(app: App, mode: "split" | "stack"): Promise<Leg>
     landAtMs: lands.length === 0 ? null : lands[lands.length - 1].landAtMs,
     land: lands.length === 0 ? null : lands[lands.length - 1],
     sequence,
+    window: await readWindowRow(app),
   };
 }
 
@@ -361,7 +375,7 @@ function expectPinned(label: string, leg: Leg, paneId: string): void {
 }
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0708 — the column pin, at the set-up [${arm.size}]`,
+  `at0708 — the column pin, at the set-up [${arm.label}]`,
   () => {
     let app: App | null = null;
     let tugbankPath = "";
@@ -371,21 +385,21 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
     let rejoin: ColumnLeg | null = null;
 
     beforeAll(async () => {
-      const launched = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size });
+      const launched = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
       app = launched.app;
       tugbankPath = launched.tugbankPath;
       await traceWithSettleFrames(app);
       await home(app);
       split = await sampleColumnMode(app, "split");
-      report(`split [${arm.size}]`, split);
+      report(`split [${arm.label}]`, split);
       stack = await sampleColumnMode(app, "stack");
-      report(`stack [${arm.size}]`, stack);
+      report(`stack [${arm.label}]`, stack);
       // Every column divided and stacked again, by the fixture's own
       // sampler, for the height-bearing gesture's gap bar.
       divide = await sampleColumnGesture(app, "split");
-      note(`at0708 divide [${arm.size}] rows: ${JSON.stringify(divide.rows)}`);
+      note(`at0708 divide [${arm.label}] rows: ${JSON.stringify(divide.rows)}`);
       rejoin = await sampleColumnGesture(app, "stack");
-      note(`at0708 rejoin [${arm.size}] rows: ${JSON.stringify(rejoin.rows)}`);
+      note(`at0708 rejoin [${arm.label}] rows: ${JSON.stringify(rejoin.rows)}`);
     }, BAR_TIMEOUT_MS);
 
     afterAll(async () => {
@@ -413,7 +427,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
         expect(r.rows.length, `${label}: the canvas armed a settle and wrote its record`).toBeGreaterThan(0);
         for (const [i, row] of r.rows.entries()) {
           note(
-            `${label} [${arm.size}] row ${i + 1}: motion gap ${row.motionLongestGapMs.toFixed(0)}ms / ` +
+            `${label} [${arm.label}] row ${i + 1}: motion gap ${row.motionLongestGapMs.toFixed(0)}ms / ` +
               `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks — read, not barred`,
           );
         }
@@ -435,18 +449,18 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
 
     test("[F01] split: the revealed member stays at its bottom on every visible tick", () => {
       expect(split, "the split was sampled").not.toBeNull();
-      expectPinned(`split [${arm.size}]`, split as Leg, REVEALED);
+      expectPinned(`split [${arm.label}]`, split as Leg, REVEALED);
     });
 
     test("[F02] split: the survivor's shrink lands at its bottom", () => {
       expect(split, "the split was sampled").not.toBeNull();
-      expectPinned(`split [${arm.size}]`, split as Leg, SURVIVOR);
+      expectPinned(`split [${arm.label}]`, split as Leg, SURVIVOR);
     });
 
     test("[F03] stack: the held member stays at its bottom, anchored, across the motion", () => {
       expect(stack, "the stack was sampled").not.toBeNull();
       const leg = stack as Leg;
-      expectPinned(`stack [${arm.size}]`, leg, REVEALED);
+      expectPinned(`stack [${arm.label}]`, leg, REVEALED);
       const r = readPin(leg, REVEALED);
       expect(
         r.anchorLostTicks,
@@ -458,7 +472,14 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
 
     test("stack: the survivor's growth stays at its bottom", () => {
       expect(stack, "the stack was sampled").not.toBeNull();
-      expectPinned(`stack [${arm.size}]`, stack as Leg, SURVIVOR);
+      expectPinned(`stack [${arm.label}]`, stack as Leg, SURVIVOR);
+    });
+
+    test("the window misses no frame across the split, the stack, the divide and the rejoin", () => {
+      for (const [label, leg] of [["split", split], ["stack", stack], ["divide", divide], ["rejoin", rejoin]] as const) {
+        expect(leg, `the ${label} was sampled`).not.toBeNull();
+        expectWindowBar(`${label} [${arm.label}]`, (leg as { window: WindowRow }).window);
+      }
     });
   },
 );

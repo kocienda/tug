@@ -105,4 +105,132 @@ enum BodyGeometry {
               let ms = Int(raw), ms > 0 else { return fallback }
         return ms
     }
+
+    /// Where a body's beats begin against the chrome's, in display periods:
+    /// the render server shows a host layer change a little before the
+    /// shell's composite shows the chrome's, and this late start is what
+    /// lines the two up. Shipped as the median lead read at an offset of 0
+    /// (`row-15-skew`): 0.20 periods at 60 Hz, the body a few ms ahead of
+    /// the chrome; `dev.tugapp.deck` / `bodyBeatOffsetPeriods` is the user's
+    /// override of it, never where it lives.
+    static let shippedBeatOffsetPeriods: Double = 0.2
+    static let beatOffsetKey = "bodyBeatOffsetPeriods"
+
+    /// The offset the host runs beats at: `TUG_BODY_BEAT_OFFSET_PERIODS`
+    /// under the harness, so a test reads the skew at any offset without
+    /// writing tugbank; else the tugbank setting; else the shipped value.
+    /// A value that is not a finite number is ignored at either level.
+    static func beatOffsetPeriods(environment: [String: String], setting: Double?) -> Double {
+        if environment["TUGAPP_TEST_SOCKET"] != nil,
+           let raw = environment["TUG_BODY_BEAT_OFFSET_PERIODS"],
+           let periods = Double(raw), periods.isFinite {
+            return periods
+        }
+        if let setting, setting.isFinite { return setting }
+        return shippedBeatOffsetPeriods
+    }
+}
+
+/// The deck canvas's grid as the host's floor draws it, from the shell's
+/// `floorGrid`: the canvas colour, the grid colour, and lines every
+/// `cellPx × zoom` points from the deck root's viewport origin, each
+/// `linePx × zoom` wide, on the top and left edge of each cell — what
+/// `linear-gradient(grid 1px, transparent 1px)` at `background-size: 24px
+/// 24px` paints inside the deck root's `scale(zoom)`. Pure arithmetic over
+/// viewport points, so `TugTests` checks it without a window; the floor
+/// view only fills what `lines(in:scale:)` returns.
+struct FloorGrid: Equatable {
+    /// A colour in sRGB components, 0…1.
+    struct RGBA: Equatable {
+        var r: Double
+        var g: Double
+        var b: Double
+        var a: Double
+    }
+
+    /// Where the lines fall, in viewport points, and how wide each is.
+    struct Lines: Equatable {
+        /// The left edge of each vertical line.
+        var xs: [CGFloat]
+        /// The top edge of each horizontal line.
+        var ys: [CGFloat]
+        var width: CGFloat
+    }
+
+    var canvas = RGBA(r: 0, g: 0, b: 0, a: 1)
+    var grid = RGBA(r: 0, g: 0, b: 0, a: 0)
+    var cellPx: Double = 24
+    var linePx: Double = 1
+    var zoom: Double = 1
+    var originX: Double = 0
+    var originY: Double = 0
+
+    /// The one rounding rule: a position or width in points, on the device
+    /// pixel nearest it at `scale`. Named so the composite reading against
+    /// the page's own grid has one place to change it.
+    static func roundToDevicePixel(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+        guard scale > 0 else { return value }
+        return (value * scale).rounded() / scale
+    }
+
+    /// Every line inside `size`, from the origin onward, at `scale`. A line
+    /// is never narrower than one device pixel, as the page's never is.
+    func lines(in size: CGSize, scale: CGFloat) -> Lines {
+        let step = CGFloat(cellPx * zoom)
+        let onePixel = scale > 0 ? 1 / scale : 1
+        let width = max(onePixel, FloorGrid.roundToDevicePixel(CGFloat(linePx * zoom), scale: scale))
+        guard step > 0 else { return Lines(xs: [], ys: [], width: width) }
+        func positions(from origin: CGFloat, to end: CGFloat) -> [CGFloat] {
+            var out: [CGFloat] = []
+            var k: CGFloat = 0
+            while origin + k * step < end {
+                out.append(FloorGrid.roundToDevicePixel(origin + k * step, scale: scale))
+                k += 1
+            }
+            return out
+        }
+        return Lines(
+            xs: positions(from: CGFloat(originX), to: size.width),
+            ys: positions(from: CGFloat(originY), to: size.height),
+            width: width
+        )
+    }
+
+    /// Read a `floorGrid` body, or nil when a field is missing or a colour
+    /// does not parse.
+    static func from(payload: [String: Any]) -> FloorGrid? {
+        guard let canvas = (payload["canvas"] as? String).flatMap(color(from:)),
+              let grid = (payload["grid"] as? String).flatMap(color(from:)),
+              let cellPx = (payload["cellPx"] as? NSNumber)?.doubleValue,
+              let linePx = (payload["linePx"] as? NSNumber)?.doubleValue,
+              let zoom = (payload["zoom"] as? NSNumber)?.doubleValue,
+              let originX = (payload["originX"] as? NSNumber)?.doubleValue,
+              let originY = (payload["originY"] as? NSNumber)?.doubleValue else { return nil }
+        return FloorGrid(
+            canvas: canvas, grid: grid, cellPx: cellPx, linePx: linePx,
+            zoom: zoom, originX: originX, originY: originY
+        )
+    }
+
+    /// `#rrggbb` or `rgba(r, g, b, a)` — the two forms the shell posts — as
+    /// components, or nil.
+    static func color(from text: String) -> RGBA? {
+        let s = text.trimmingCharacters(in: .whitespaces).lowercased()
+        if s.hasPrefix("#"), s.count == 7, let v = UInt32(s.dropFirst(), radix: 16) {
+            return RGBA(
+                r: Double((v >> 16) & 0xff) / 255,
+                g: Double((v >> 8) & 0xff) / 255,
+                b: Double(v & 0xff) / 255,
+                a: 1
+            )
+        }
+        guard s.hasPrefix("rgba("), s.hasSuffix(")") else { return nil }
+        let parts = s.dropFirst(5).dropLast().split(separator: ",").map {
+            Double($0.trimmingCharacters(in: .whitespaces))
+        }
+        guard parts.count == 4, let r = parts[0], let g = parts[1], let b = parts[2], let a = parts[3] else {
+            return nil
+        }
+        return RGBA(r: r / 255, g: g / 255, b: b / 255, a: a)
+    }
 }

@@ -41,6 +41,7 @@ import {
   judge,
   readSampler,
   readStanding,
+  planDiag,
   rectOf,
   samplerState,
   type Rect,
@@ -96,6 +97,7 @@ async function cameToRest(app: App, folded: boolean): Promise<Rect> {
 
 async function foldLeg(app: App, label: string, toFolded: boolean, standing: Standing, crop: Rect, keep: string): Promise<void> {
   const before = (await rectOf(app, frameOf(A)))!;
+  const runsBefore = (await planDiag(app)).runs;
   await armSampler(app, A);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${label}: the burst armed`).toBe(true);
@@ -114,6 +116,8 @@ async function foldLeg(app: App, label: string, toFolded: boolean, standing: Sta
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
   expect(reading.done, `${label}: the burst finished`).toBe(true);
   const verdict = judge(label, reading, samples, gestureWall, before, after, standing.palette, crop);
+  const plan = await planDiag(app);
+  note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
   const worst = verdict.motion.length > 0 ? verdict.motion.reduce((a, b) => (b.frame.surface < a.frame.surface ? b : a)) : verdict.judged[verdict.judged.length - 1];
   if (worst !== undefined) copyFileSync(worst.path, join(keep, `${label.replace(/\s+/g, "-")}-worst-${Math.round(worst.frame.t)}ms.png`));
   expect(verdict.judged.length, `${label}: frames were captured across the gesture`).toBeGreaterThan(10);

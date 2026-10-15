@@ -41,17 +41,102 @@ final class BodyHostView: NSView {
     }
 }
 
+/// The deck's canvas beneath the bodies: the canvas colour and the grid,
+/// drawn by the host from the shell's `floorGrid` so the shell paints no
+/// floor of its own and cuts nothing for a body to show through. It sits
+/// above the splash and below the bodies, hidden until the shell's first
+/// `floorGrid` and the window's reveal — shown at window creation, its
+/// opaque canvas would cover the splash.
+final class DeckFloorView: NSView {
+    var grid = FloorGrid() {
+        didSet { if grid != oldValue { needsDisplay = true } }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .duringViewResize
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+    override var isOpaque: Bool { true }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
+    /// The canvas, then the horizontal lines, then the vertical ones, each
+    /// composited over what is beneath — where two lines cross, the grid's
+    /// alpha lands twice, as the page's two gradients do. Filled rects from
+    /// `FloorGrid.lines`, never a pattern image, so no tile rounding is
+    /// invented here.
+    override func draw(_ dirtyRect: NSRect) {
+        nsColor(grid.canvas).setFill()
+        dirtyRect.fill()
+        let scale = window?.backingScaleFactor ?? 2
+        let lines = grid.lines(in: bounds.size, scale: scale)
+        nsColor(grid.grid).setFill()
+        let left = FloorGrid.roundToDevicePixel(CGFloat(grid.originX), scale: scale)
+        let top = FloorGrid.roundToDevicePixel(CGFloat(grid.originY), scale: scale)
+        for y in lines.ys {
+            NSRect(x: left, y: y, width: bounds.width - left, height: lines.width).fill(using: .sourceOver)
+        }
+        for x in lines.xs {
+            NSRect(x: x, y: top, width: lines.width, height: bounds.height - top).fill(using: .sourceOver)
+        }
+    }
+
+    /// Never a hit: the floor is paint, and a point on it is the shell's.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func nsColor(_ c: FloorGrid.RGBA) -> NSColor {
+        NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
+    }
+}
+
 /// A body's container: layer-backed, corner-clipped, carrying its stacking
 /// order and its creation serial for `BodyHostView.sortContainers`.
+///
+/// Flipped, so the web view's top-left is its origin: while a crossing
+/// animates the container's bounds, the page stays pinned at the top and
+/// the container clips its bottom edge, never its masthead edge.
 final class BodyContainerView: NSView {
     var order = 0
     let serial: Int
+    override var isFlipped: Bool { true }
+    /// The page's surface the container wears through a crossing, or nil.
+    /// A layer-backed view's layer is AppKit's to draw, so the colour goes
+    /// on in `updateLayer` rather than straight onto the layer.
+    var surface: CGColor? {
+        didSet { needsDisplay = true }
+    }
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = surface
+    }
     init(serial: Int) {
         self.serial = serial
         super.init(frame: .zero)
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+}
+
+/// Calls back when a body's position track stops: `finished` when it ran to
+/// its end, not when a placement or a newer plan removed it.
+final class BeatTrackDelegate: NSObject, CAAnimationDelegate {
+    private let onStop: (Bool) -> Void
+    init(onStop: @escaping (Bool) -> Void) {
+        self.onStop = onStop
+    }
+    func animationDidStop(_ anim: CAAnimation, finished flag: Bool) {
+        onStop(flag)
+    }
 }
 
 /// Every body: a card's content in a WKWebView of its own, in its own
@@ -70,13 +155,24 @@ final class BodyContainerView: NSView {
 /// **Showing is the shell's reveal, not the host's.** A body is beneath the
 /// shell page, and what the shell paints over its rect is a lid in the pane's
 /// own surface colour until the body is on screen (`lib/body-placement.ts`).
-/// So the host does not fade a container in — a fade through the floor's
-/// hole would be a fade from the window's background, which is the canvas
-/// showing through — it shows a placed, painted body at once, under the
-/// lid, and reports `shown` to the shell, which lifts the lid in its own
-/// frame. `painted` is the body's word that its first frame of real content
-/// has gone to the compositor; `ready` alone is the card mounted and quiet,
-/// and a container shown on `ready` can be composited empty.
+/// So the host does not fade a container in — a fade would be a fade from
+/// the floor beneath it, the canvas showing through — it shows a placed,
+/// painted body at once, under the lid, and reports `shown` to the shell,
+/// which lifts the lid in its own frame. `painted` is the body's word that
+/// its first frame of real content has gone to the compositor; `ready`
+/// alone is the card mounted and quiet, and a container shown on `ready`
+/// can be composited empty.
+///
+/// **The floor is the host's.** The canvas colour and the grid beneath the
+/// bodies are a `DeckFloorView` this object shows from the shell's
+/// `floorGrid`, and the shell stands its own canvas down on `floorShown`.
+///
+/// **A body moves with its chrome.** A settle that moves a body's pane posts
+/// a `beatPlan`, and `runPlan` carries the container through each beat as
+/// Core Animation on the chrome's curve from the chrome's start: one track
+/// per property per body over the whole plan, the container's model at the
+/// landing. It reports `landed` when the track runs out, and
+/// `beatsCancelled` when a placement elsewhere or a newer plan takes it.
 final class BodyViewController {
     enum State: String {
         case loading
@@ -119,6 +215,22 @@ final class BodyViewController {
         var shownOnce = false
         var deadline: DispatchWorkItem?
         var lastTermination: Date?
+        /// The beat plan carrying the body now, until it lands or is
+        /// cancelled: the plan's id, the rect it lands at, and how late the
+        /// plan reached the host.
+        var beats: (planId: Int, landing: CGRect, lateMs: Double)?
+        /// The size the plan carrying the body takes its page to, and when
+        /// its first moving beat begins (media time), until the beats land or are
+        /// cancelled; nil when the plan does not resize the body. The page
+        /// keeps its old size until the body has pinned its scrollers and
+        /// posted `crossingReady`.
+        var crossing: (size: CGSize, begin: CFTimeInterval)?
+        /// The last crossing's account, for the harness: its plan, its size,
+        /// and how far ahead of the first beat the body was ready.
+        var lastCrossing: [String: Any]?
+        /// How the container's frame maps to its layer's geometry, solved at
+        /// the body's last plan; nil before one.
+        var mapping: LayerMapping?
 
         init(cardId: String?, webView: ClickThroughWebView, container: BodyContainerView) {
             self.cardId = cardId
@@ -142,6 +254,16 @@ final class BodyViewController {
 
     private unowned let window: MainWindow
     let hostView: BodyHostView
+    /// The canvas beneath the bodies; nil on a host that makes none.
+    let floorView: DeckFloorView?
+    /// When the window began revealing the shell over the splash, or nil
+    /// before it has: until then the floor may not show, or it would cover
+    /// the splash first.
+    private var revealedAt: CFTimeInterval?
+    /// The window's reveal fade, which the floor joins on the same clock.
+    private var revealFade: CAAnimation?
+    /// The shell has posted a `floorGrid`, so the floor has something to draw.
+    private var floorDescribed = false
     private(set) var bodies: [Body] = []
     private(set) var region = BodyHitRegion()
     private var radius: CGFloat = 0
@@ -157,9 +279,10 @@ final class BodyViewController {
     private var stallNextReady = ProcessInfo.processInfo.environment["TUG_BODY_FORCE_STALL"] == "1"
     #endif
 
-    init(window: MainWindow, hostView: BodyHostView) {
+    init(window: MainWindow, hostView: BodyHostView, floorView: DeckFloorView?) {
         self.window = window
         self.hostView = hostView
+        self.floorView = floorView
     }
 
     // MARK: - Lookup
@@ -255,11 +378,11 @@ final class BodyViewController {
         container.layer?.cornerRadius = radius
         // Only the two corners that meet the pane's own rounded corners: the
         // content box's top corners stand under the masthead, square, and a
-        // radius there showed the floor through them. The host view is
-        // flipped but its layer's geometry is not, so the layer's min-Y
-        // corners are the bottom ones (read off the composite: naming the
-        // max-Y pair rounded the top).
-        container.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        // radius there showed the floor through them. A layer's corners are
+        // named in its own geometry, which follows its view's: the container
+        // is flipped, so its max-Y corners are the bottom ones (an unflipped
+        // container rounded its top with this pair, read off the composite).
+        container.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         // Hidden by opacity until the first fade: a hidden view is a hidden
         // page to WebKit, which would stop painting it.
         container.layer?.opacity = 0
@@ -347,9 +470,17 @@ final class BodyViewController {
         for body in bodies {
             body.container.layer?.cornerRadius = radius
             guard let cardId = body.cardId, let (frame, visible, z) = named[cardId] else {
+                cancelBeats(body)
                 body.visible = false
                 applyVisibility(body)
                 continue
+            }
+            // A placement that names a carried body anywhere but its landing
+            // — a drag taking its frame mid-settle — takes it from its beats.
+            // The landing itself, which the shell adopts as posted, leaves
+            // the beats running.
+            if let beats = body.beats, !visible || !Self.near(frame, beats.landing) {
+                cancelBeats(body)
             }
             body.frame = frame
             body.container.frame = frame
@@ -439,6 +570,310 @@ final class BodyViewController {
         guard let index = region.frameIndex(at: point) else { return nil }
         let visible = visibleBodies
         return index < visible.count ? visible[index] : nil
+    }
+
+    // MARK: - Beats
+
+    /// The animation keys a plan's tracks run under: one per property, so a
+    /// later plan's track replaces an earlier one's, and cancelling is
+    /// removing three keys.
+    private static let beatKeys = ["beats-position", "beats-bounds", "beats-opacity"]
+
+    /// `beatPlan`: carry each named body through its beats as Core
+    /// Animation, on the chrome's clock. One anchor pair of the wall and
+    /// media clocks is read for the whole plan, so every body's start is the
+    /// shell's start moved onto the render server's clock.
+    ///
+    /// Each body runs one track per property over the whole plan — never an
+    /// animation per beat, which would show the container's model value,
+    /// the landing, between beats and through a prepare delay. The track
+    /// holds the first beat's opening rect from now until it begins
+    /// (`fillMode = .backwards`), and the container's model is the landing,
+    /// so when the track ends nothing moves.
+    func runPlan(_ payload: [String: Any]) {
+        guard let plan = BeatPlan.from(payload: payload) else { return }
+        let anchor = ClockAnchor(wallMs: Date().timeIntervalSince1970 * 1000, mediaTime: CACurrentMediaTime())
+        let offsetSec = window.bodyBeatOffsetPeriods * displayPeriodSec
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for planned in plan.bodies {
+            guard let body = body(forCard: planned.cardId) else { continue }
+            guard body.visible, body.state == .ready, body.painted,
+                  let layer = body.container.layer,
+                  let track = BodyBeats.planTrack(planned.beats), track.durationMs > 0 else {
+                decline(body, planId: plan.planId, landing: planned.landing.cgRect)
+                continue
+            }
+            cancelBeats(body)
+            let landing = planned.landing.cgRect
+            let crossing = planned.crossing.map { CGSize(width: $0.width, height: $0.height) }
+            guard let mapping = probeMapping(body, landing: landing, holdPage: crossing != nil) else {
+                NSLog("BodyViewController: no layer mapping for %@; its beats are not run", planned.cardId)
+                decline(body, planId: plan.planId, landing: landing)
+                continue
+            }
+            body.mapping = mapping
+            let begin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: track.delayMs, offsetSec: offsetSec)
+            let lateMs = max(0, anchor.mediaTime - begin) * 1000
+            let localBegin = layer.convertTime(begin, from: nil)
+            let position = Self.keyframes(
+                "position", values: track.rects.map { NSValue(point: mapping.position(of: $0)) },
+                track: track, begin: localBegin
+            )
+            let planId = plan.planId
+            position.delegate = BeatTrackDelegate { [weak self, weak body] (finished: Bool) in
+                guard let self, let body, finished, let beats = body.beats, beats.planId == planId,
+                      let cardId = body.cardId else { return }
+                body.beats = nil
+                self.endCrossing(body)
+                self.notifyShell(["cardId": cardId, "state": "landed", "planId": planId, "lateMs": beats.lateMs])
+            }
+            layer.add(position, forKey: Self.beatKeys[0])
+            layer.add(Self.keyframes(
+                "bounds", values: track.rects.map { NSValue(rect: mapping.bounds(of: $0)) },
+                track: track, begin: localBegin
+            ), forKey: Self.beatKeys[1])
+            if let opacities = track.opacities {
+                layer.add(Self.keyframes(
+                    "opacity", values: opacities.map { NSNumber(value: $0) }, track: track, begin: localBegin
+                ), forKey: Self.beatKeys[2])
+            }
+            body.beats = (planId, landing, lateMs)
+            body.frame = landing
+            // A reading of the window armed now samples this container under
+            // its card id, over the beats that move it.
+            let moving = planned.beats.filter { $0.from != $0.to }.map { beat in
+                let from = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: beat.delayMs, offsetSec: offsetSec)
+                return (from: from, to: from + beat.durationMs / 1000)
+            }
+            for meter in window.armedFrameMeters {
+                meter.track(layer, named: planned.cardId, active: moving)
+            }
+            if let crossing {
+                // The lead is measured to the first beat that moves the box:
+                // a prepare beat ahead of it holds First, and the page at its
+                // final size is clipped there exactly as before the plan.
+                let firstMove = planned.beats.first { $0.from != $0.to }?.delayMs ?? track.delayMs
+                let moveBegin = anchor.beginTime(startWallMs: plan.startWallMs, delayMs: firstMove, offsetSec: offsetSec)
+                body.crossing = (crossing, moveBegin)
+                body.lastCrossing = [
+                    "planId": planId, "width": crossing.width, "height": crossing.height,
+                    "readyLeadMs": NSNull(),
+                ]
+                // Tell the body now, in this task, so it pins its scrollers
+                // and acknowledges inside a display period: one hop to its
+                // page and one back, never a round trip through tugcast.
+                let spanMs = planned.beats.map { $0.delayMs + $0.durationMs }.max() ?? 0
+                evaluate(call: "window.__tugBridge?.onBodyCrossing?.", payload: [
+                    "phase": "begin", "width": crossing.width, "height": crossing.height, "durationMs": spanMs,
+                ], in: body.webView)
+            }
+        }
+        CATransaction.commit()
+        refreshRegion()
+    }
+
+    /// Take a body's beats off, and tell the shell when a plan was carrying it.
+    private func cancelBeats(_ body: Body) {
+        guard let beats = body.beats else { return }
+        body.beats = nil
+        for key in Self.beatKeys { body.container.layer?.removeAnimation(forKey: key) }
+        endCrossing(body)
+        if let cardId = body.cardId {
+            // A reading of the window stops judging the beats the body lost.
+            for meter in window.armedFrameMeters {
+                meter.cut(named: cardId, at: CACurrentMediaTime())
+            }
+            notifyShell(["cardId": cardId, "state": "beatsCancelled", "planId": beats.planId])
+        }
+    }
+
+    /// A body the plan names that the host cannot carry — not shown, not
+    /// painted, or with no track or mapping to run — is placed at its
+    /// landing at once, and the shell is told its beats were cancelled.
+    /// The shell adopted the landing as posted when it sent the plan, so
+    /// the land's measurement reads the same rect and posts nothing: left
+    /// where it stood, the body would stay at First under a pane that has
+    /// moved, until some later placement happened to differ.
+    private func decline(_ body: Body, planId: Int, landing: CGRect) {
+        cancelBeats(body)
+        body.frame = landing
+        body.container.frame = landing
+        body.webView.frame = body.container.bounds
+        body.webView.autoresizingMask = Self.pageResizing
+        if let cardId = body.cardId {
+            notifyShell(["cardId": cardId, "state": "beatsCancelled", "planId": planId])
+        }
+    }
+
+    /// Solve the container's frame-to-layer mapping by setting it to three
+    /// frames about `landing` and reading its layer after each, and leave it
+    /// at `landing`, its model value for the plan. The web view's
+    /// autoresizing is off for the probe, so the page is never resized by
+    /// it: the web view is set once, to the landing's bounds — or, for a
+    /// body the plan carries to a new size (`holdPage`), left at the size it
+    /// has, with autoresizing off, until the body is ready for the new one.
+    private func probeMapping(_ body: Body, landing: CGRect, holdPage: Bool) -> LayerMapping? {
+        guard let layer = body.container.layer else { return nil }
+        let container = body.container
+        let held = body.webView.frame.size
+        body.webView.autoresizingMask = []
+        defer {
+            container.frame = landing
+            if holdPage {
+                body.webView.frame = CGRect(origin: .zero, size: held)
+            } else {
+                body.webView.frame = container.bounds
+                body.webView.autoresizingMask = Self.pageResizing
+            }
+        }
+        container.frame = landing
+        let base = layer.position
+        let origin = layer.bounds.origin
+        container.frame = landing.offsetBy(dx: 1, dy: 1)
+        let moved = layer.position
+        container.frame = CGRect(x: landing.minX, y: landing.minY, width: landing.width + 1, height: landing.height + 1)
+        let grown = layer.position
+        return LayerMapping.solve(base: landing, at: base, moved: moved, grown: grown, boundsOrigin: origin)
+    }
+
+    /// How a body's page follows its container outside a crossing.
+    static let pageResizing: NSView.AutoresizingMask = [.width, .height]
+
+    /// `crossingReady`: the body has pinned its scrollers for the crossing
+    /// its plan began. Its page takes the landing size now, once, top-left
+    /// pinned in the flipped container, while the container's own track is
+    /// still at First or in its prepare beat; the container clips it to the
+    /// rect the track has reached. Late or stale — the beats already landed
+    /// or were cancelled — it is ignored, the page already restored.
+    ///
+    /// `surface` is the page's own background as sRGB bytes. The container
+    /// wears it for the crossing: a box that shrinks is larger than the
+    /// page until its track lands, and the strip the page does not reach is
+    /// the body's surface rather than the floor beneath.
+    func crossingReady(_ body: Body, surface: [NSNumber]?) {
+        guard let crossing = body.crossing else { return }
+        let leadMs = (crossing.begin - CACurrentMediaTime()) * 1000
+        body.lastCrossing?["readyLeadMs"] = leadMs
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let surface, surface.count == 4 {
+            let c = surface.map { CGFloat($0.doubleValue) / 255 }
+            body.container.surface = CGColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
+            body.container.displayIfNeeded()
+            body.lastCrossing?["surface"] = surface.map(\.doubleValue)
+        }
+        body.webView.autoresizingMask = []
+        body.webView.frame = CGRect(origin: .zero, size: crossing.size)
+        CATransaction.commit()
+    }
+
+    /// The crossing is over: the page follows its container again, at the
+    /// container's own bounds, and the body restores what it pinned.
+    private func endCrossing(_ body: Body) {
+        guard body.crossing != nil else { return }
+        body.crossing = nil
+        body.lastCrossing?["restored"] = true
+        body.container.surface = nil
+        body.webView.frame = body.container.bounds
+        body.webView.autoresizingMask = Self.pageResizing
+        evaluate(call: "window.__tugBridge?.onBodyCrossing?.", payload: ["phase": "land"], in: body.webView)
+    }
+
+    private static func keyframes(_ keyPath: String, values: [Any], track: BodyBeats.Track, begin: CFTimeInterval) -> CAKeyframeAnimation {
+        let animation = CAKeyframeAnimation(keyPath: keyPath)
+        animation.values = values
+        animation.keyTimes = track.keyTimes.map { NSNumber(value: $0) }
+        animation.timingFunctions = track.timings.map(timingFunction)
+        animation.calculationMode = .linear
+        animation.duration = track.durationMs / 1000
+        animation.beginTime = begin
+        animation.fillMode = .backwards
+        animation.isRemovedOnCompletion = true
+        return animation
+    }
+
+    /// A segment's timing: linear between samples, or a fade's CSS keyword.
+    private static func timingFunction(_ timing: BodyBeats.Timing) -> CAMediaTimingFunction {
+        switch timing {
+        case .linear:
+            return CAMediaTimingFunction(name: .linear)
+        case .easing(let keyword):
+            switch keyword {
+            case "ease": return CAMediaTimingFunction(name: .default)
+            case "ease-in": return CAMediaTimingFunction(name: .easeIn)
+            case "ease-out": return CAMediaTimingFunction(name: .easeOut)
+            case "ease-in-out": return CAMediaTimingFunction(name: .easeInEaseOut)
+            default: return CAMediaTimingFunction(name: .linear)
+            }
+        }
+    }
+
+    /// The display period of the screen the window is on, seconds: the
+    /// unit the beat offset is counted in. 60 Hz when the window has no
+    /// screen yet.
+    private var displayPeriodSec: Double {
+        let fps = window.screen?.maximumFramesPerSecond ?? 60
+        return 1 / Double(max(1, fps))
+    }
+
+    /// Two rects within half a point of each other on every edge.
+    private static func near(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5
+            && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
+    }
+
+    // MARK: - The floor
+
+    /// `floorGrid`: the canvas and grid the floor draws. The floor shows
+    /// once the window reveals the shell; then the shell is told
+    /// `floorShown` on the next turn of the run loop, after the transaction
+    /// that showed it has gone to the render server, and only then stands
+    /// its own canvas down. Every `floorGrid` is answered, not only the one
+    /// that shows the floor: a reloaded shell paints its own canvas over a
+    /// floor already up, and waits for the answer like the first did.
+    func floor(_ payload: [String: Any]) {
+        guard let floorView, let grid = FloorGrid.from(payload: payload) else { return }
+        floorView.grid = grid
+        floorDescribed = true
+        guard revealedAt != nil else { return }
+        showFloor()
+    }
+
+    /// The window is revealing the shell over the splash with `fade`. The
+    /// floor fades in with it, on the fade's own clock, so the splash gives
+    /// way to the deck as one picture: a floor already described starts
+    /// with the fade, and one described while it runs — the shell posts its
+    /// grid when the deck mounts, which can land after the reveal begins —
+    /// joins it mid-way at the opacity the shell has reached. After the
+    /// fade a floor shows at once, beneath a shell already opaque.
+    func shellDidReveal(fade: CAAnimation) {
+        revealedAt = CACurrentMediaTime()
+        revealFade = fade
+        guard floorDescribed else { return }
+        showFloor()
+    }
+
+    /// `floorShown` carries how long after the reveal began the floor
+    /// showed, so a reading can tell that it never stood over the splash.
+    private func showFloor() {
+        guard let floorView, let revealedAt else { return }
+        var sinceRevealMs: Double?
+        if floorView.isHidden {
+            floorView.isHidden = false
+            let now = CACurrentMediaTime()
+            if let layer = floorView.layer, let fade = revealFade?.copy() as? CAAnimation,
+               now - revealedAt < fade.duration {
+                fade.beginTime = layer.convertTime(revealedAt, from: nil)
+                layer.add(fade, forKey: "revealFade")
+            }
+            sinceRevealMs = (now - revealedAt) * 1000
+        }
+        DispatchQueue.main.async { [weak self] in
+            var report: [String: Any] = ["state": "floorShown"]
+            if let sinceRevealMs { report["sinceRevealMs"] = sinceRevealMs }
+            self?.notifyShell(report)
+        }
     }
 
     // MARK: - Focus
@@ -632,9 +1067,26 @@ final class BodyViewController {
                 "readyMs": body.readyMs ?? NSNull(),
                 "opacity": Double(body.container.layer?.presentation()?.opacity
                     ?? body.container.layer?.opacity ?? 0),
+                "presentedFrame": presentedFrame(body),
+                "beatsPlanId": body.beats?.planId ?? NSNull(),
+                "crossing": body.lastCrossing ?? NSNull(),
+                "pageSize": ["width": body.webView.frame.width, "height": body.webView.frame.height],
+                "beatOffsetPeriods": window.bodyBeatOffsetPeriods,
+                "displayPeriodMs": displayPeriodSec * 1000,
                 "url": body.webView.url?.absoluteString ?? NSNull(),
             ]
         }
+    }
+
+    /// Where the render server has the body's container now, viewport
+    /// coordinates: its presentation layer read back through the mapping
+    /// its last plan solved; its placed frame when it has never been planned.
+    private func presentedFrame(_ body: Body) -> [String: Double] {
+        var rect = body.frame
+        if let mapping = body.mapping, let presented = body.container.layer?.presentation() {
+            rect = mapping.frame(position: presented.position, bounds: presented.bounds)
+        }
+        return ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
     }
 
     // MARK: - Calls into pages

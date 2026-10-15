@@ -158,6 +158,7 @@ test-swift:
 # its line here — an unlisted golden is one nothing here can rebuild.
 golden:
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
+    cd tugdeck && BEAT_PLAN_GOLDEN_UPDATE=1 bun test src/lib/__tests__/body-beat-plan.test.ts
     cd tugrust && TUG_DIGEST_GOLDEN_UPDATE=1 cargo nextest run -p tugcast session_digest
     just tugmark-golden
 

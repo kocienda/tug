@@ -28,7 +28,8 @@ launches with `TUG_BODY_VIEWS=1`.
   row that must hold at *every* frame arms `app.captureBurst` over the rect —
   the composited window every 16–33 ms, cropped and written as PNGs — and
   classes each frame's pixels with `_frames.ts`: the pane surface (the lid, or
-  the body on it), the canvas floor, its grid line, the bare window background,
+  the body on it), the canvas floor (the host's, beneath the bodies), its grid
+  line, the bare window background,
   or content. An open hole with nothing beneath it is canvas-coloured paint
   with none of the floor's grid in it.
 
@@ -40,7 +41,7 @@ launches with `TUG_BODY_VIEWS=1`.
 | `row-01-arrival.test.ts` | ⌘N: a new card arrives with nothing of the canvas, grid or an older pane showing through the hole at any frame, cold and warm. |
 | `row-02-drag.test.ts` | A card drags as one piece: masthead, frame and content together under the pointer, landing together. |
 | `row-03-departure.test.ts` | A card departs as one piece, and the hole closes with it. |
-| `row-04-slide.test.ts` | A slide (flow, Go to slot, bullseye, sidebar show/hide, fit) moves each card as one piece; the interim is hide at the beat's start, show at the land. |
+| `row-04-slide.test.ts` | A slide (flow, Go to slot, bullseye, sidebar show/hide, fit) moves each card as one piece: a slide that only moves the card is carried by the host; one that changes its size keeps the interim, hide at the beat's start and show at the land. |
 | `row-05-chords.test.ts` | Every chord in the keyboard files works from a body and from the shell. |
 | `row-06-menus.test.ts` | Every Swift menu command works with a body first responder, including the ones validating against the first responder's undo manager. |
 | `row-07-focus.test.ts` | Activating a card makes its body first responder; typing goes there and nowhere else; the shell's surfaces take and return focus; closing the key card hands focus on. |
@@ -50,6 +51,11 @@ launches with `TUG_BODY_VIEWS=1`.
 | `row-11-lifecycle.test.ts` | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. |
 | `row-12-composer.test.ts` | Z2, the composer, paste of text and images, and the picker-to-body handoff. |
 | `row-13-arc-tracking.test.ts` | An arc bound to a body's session reads in that body's Z2 and on the shell's masthead and Arcs card. The stores a body attaches are enumerated by `tugdeck/src/body/__tests__/body-stores.test.ts`. |
+| `row-14-beats-move.test.ts` | A gesture that only moves body cards (the flow slide out and back, a cross-column stack move) carries each body with its chrome on the host: the lid stays lifted, the content box never shows the floor, the presented container tracks the placeholder, the render server advances it every tick, and it lands on the placeholder to the pixel. |
+| `row-15-skew.test.ts` | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: noted at an offset of 0 (the median sets the shipped offset), and within two frames of travel at the shipped offset, at rest and with three bodies streaming. |
+| `row-16-back-pane-cut.test.ts` | A body carried across a Text card behind it: the back pane's cut moves with the body on the plan's clock, so no frame in motion shows the Text card's ink inside the body; the shell's gap rows over the motion are noted. |
+| `row-17-crossing.test.ts` | Bullseye, a column split and a new card beside the body card (⌘N's action) carry it with its chrome, to a new size where the box changes: `crossingReady` within a display period of the first moving beat, the content box and its bottom strip never the floor, the transcript pinned to its bottom before and after, and the container's top corners square. |
+| `floor-host.test.ts` | The host draws the canvas floor: its colour and grid match the page's own by composite at zoom 0.8, 1.0 and 1.25, and it never shows before the window's reveal. |
 
 A row's file lands with the step that builds the row; a file not yet here is a
 row not yet green.

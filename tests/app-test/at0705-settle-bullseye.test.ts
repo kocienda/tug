@@ -36,11 +36,11 @@ import {
   sampleB09Gesture,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0705-settle-bullseye";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /**
  * Bullseye in and out, against the bar — and [F15] named by a test.
@@ -78,11 +78,11 @@ const ARMS = transcriptArms();
  * clause proved nothing — and everything it reports must be `:width`. Any
  * other property is a second standing violation nobody has written down.
  */
-for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0705 — bullseye, and [F15]'s width [${arm.size}]`, () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0705 — bullseye, and [F15]'s width [${arm.label}]`, () => {
   test(
     "bullseye in and out holds the bar, and the runtime guard reports :width and nothing else",
     async () => {
-      const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+      const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
       try {
         await traceWithSettleFrames(app);
         await home(app);
@@ -96,6 +96,13 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0705 — bul
         await home(app);
         await wait(AFTER_LAND_MS);
         note(`at0705 bullseye fixture at wide: ${await bandCensus(app)}`);
+        // With body views the back panes' cut animates `clip-path`, a
+        // declared [D9] breach priced where the cut moved (`body-cut`); it is
+        // read apart from the width clause, which is [F15]'s.
+        const propsOf = (violations: readonly string[]): string[] =>
+          [...new Set(violations.map((v) => v.slice(v.lastIndexOf(":") + 1)))]
+            .filter((p) => !(arm.bodies && p === "clipPath"))
+            .sort();
 
         const enter = await sampleB09Gesture(
           app,
@@ -110,11 +117,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0705 — bul
             `the clause below is about nothing ([F15])`,
         ).toBeGreaterThan(0);
         expect(
-          [
-            ...new Set(
-              enter.violations.map((v) => v.slice(v.lastIndexOf(":") + 1)),
-            ),
-          ].sort(),
+          propsOf(enter.violations),
           `bullseye enter: and every property it reported is \`width\` — ` +
             `${JSON.stringify(enter.violations)}. [F15]: width over the ` +
             `scale cap is the second standing [D9] hit, and anything else ` +
@@ -129,11 +132,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0705 — bul
         reportB09("bullseye exit", exit);
         expectBeats("bullseye exit", exit, ["move", "grow"]);
         expect(
-          [
-            ...new Set(
-              exit.violations.map((v) => v.slice(v.lastIndexOf(":") + 1)),
-            ),
-          ].sort(),
+          propsOf(exit.violations),
           `bullseye exit: the same on the way out — ` +
             `${JSON.stringify(exit.violations)}`,
         ).toEqual(["width"]);

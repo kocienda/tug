@@ -866,18 +866,14 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
             layer: s.backgroundColor + " @ " + s.opacity };
         })()`);
         const shellCanvas = await app.evalJS<string | null>(
-          `(function () { var f = document.querySelector('[data-deck-canvas-floor]'); return f === null ? null : ${asRgb("getComputedStyle(f).backgroundColor")}; })()`,
+          `(function () { return document.documentElement.hasAttribute("data-body-host") ? ${asRgb("getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')")} : null; })()`,
         );
-        const floorClip = await app.evalJS<string | null>(
-          `(function () { var f = document.querySelector('[data-deck-canvas-floor]'); return f === null ? null : f.style.clipPath; })()`,
-        );
-        note(`shell floor clip: ${floorClip}`);
         note(`shell frame for the card: data-focused=${expected.focused}, frame dim ${expected.layer}, expected fill ${expected.fill}`);
         note(
           `composite in the body's rect ${JSON.stringify(frame)}: fill ${paint.fill}, ink ${(paint.ink * 100).toFixed(1)}%; ` +
-            `body surface ${bodySurface}, shell canvas floor ${shellCanvas}`,
+            `body surface ${bodySurface}, host canvas floor ${shellCanvas}`,
         );
-        expect(shellCanvas, "the shell stands a canvas floor under the deck on a body host").not.toBeNull();
+        expect(shellCanvas, "the host stands a canvas floor under the deck on a body host, and the shell's canvas stands down for it").not.toBeNull();
         expect(paint.fill, "the body's rect is painted by the body, not the shell's canvas").not.toBe(shellCanvas);
         const bodyFocused = await body.evalJS<string | null>(
           `document.querySelector(".body-pane-root")?.getAttribute("data-focused") ?? null`,

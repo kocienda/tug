@@ -391,6 +391,12 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// meter of its own, held in `pageFrameMeters` until it is answered.
     private(set) lazy var hostFrameMeter = HostFrameMeter(view: containerView)
     private var pageFrameMeters: [String: HostFrameMeter] = [:]
+    /// Every meter reading the window now — the harness's and each page's —
+    /// so a beat plan that arrives during a reading can name its bodies to
+    /// it (`BodyViewController.runPlan`).
+    var armedFrameMeters: [HostFrameMeter] {
+        ([hostFrameMeter] + pageFrameMeters.values).filter(\.isArmed)
+    }
     /// Every body view: created, placed, focused and destroyed at the shell's
     /// word. Made in `init`, after the container exists.
     private(set) var bodies: BodyViewController!
@@ -403,6 +409,15 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         setting: ProcessManager.readTugbankBool(
             domain: BodyGeometry.bodyViewsDomain,
             key: BodyGeometry.bodyViewsKey
+        )
+    )
+    /// The body beats' offset against the chrome, in display periods
+    /// (`BodyGeometry.beatOffsetPeriods`), read beside the switch.
+    let bodyBeatOffsetPeriods = BodyGeometry.beatOffsetPeriods(
+        environment: ProcessInfo.processInfo.environment,
+        setting: ProcessManager.readTugbankDouble(
+            domain: BodyGeometry.bodyViewsDomain,
+            key: BodyGeometry.beatOffsetKey
         )
     )
     /// The view that sent the last dictation `start`, which every dictation
@@ -721,7 +736,17 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let bodyHost = BodyHostView(frame: containerView.bounds)
         bodyHost.autoresizingMask = [.width, .height]
         containerView.addSubview(bodyHost, positioned: .below, relativeTo: webView)
-        bodies = BodyViewController(window: self, hostView: bodyHost)
+        // The canvas beneath the bodies, on a host that makes them: above
+        // the splash, below every body, hidden until the shell describes it
+        // and the window has revealed the shell.
+        var floor: DeckFloorView?
+        if bodyViewsEnabled {
+            let view = DeckFloorView(frame: containerView.bounds)
+            view.autoresizingMask = [.width, .height]
+            containerView.addSubview(view, positioned: .below, relativeTo: bodyHost)
+            floor = view
+        }
+        bodies = BodyViewController(window: self, hostView: bodyHost, floorView: floor)
         self.spinnerView = splashView
         self.splashSpinnerStack = stack
         self.splashWave = wave
@@ -1178,7 +1203,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         "restorePath", "thumbnailPath", "exportSession", "updateAction",
         "dictation", "pageZoom", "hostFrames",
         "bodyHello", "painted", "bodyCreate", "placeBodies", "bodyDestroy",
-        "bodyFocus", "pointerClaim",
+        "bodyFocus", "pointerClaim", "floorGrid", "beatPlan", "crossingReady",
     ]
 
     /// Names only the shell may post: the deck's own chrome, the window's
@@ -1186,7 +1211,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     static let shellOnlyHandlerNames: Set<String> = [
         "sourceTree", "setTheme", "pageZoom", "devBadge", "updateAction",
         "frontendLaunchStalled", "hmrUpdate", "bodyCreate", "placeBodies",
-        "bodyDestroy", "bodyFocus", "pointerClaim", "hostFrames",
+        "bodyDestroy", "bodyFocus", "pointerClaim", "hostFrames", "floorGrid", "beatPlan",
     ]
 
     /// One page's configuration: a fresh content controller carrying every
@@ -1883,6 +1908,9 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         anim.fillMode = .forwards
         webView.layer?.add(anim, forKey: "revealFade")
         webView.layer?.opacity = 1
+        // The host's floor, on a host that makes bodies, fades in with the
+        // shell over the splash rather than covering it before.
+        bodies?.shellDidReveal(fade: anim)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             // The shell, unless the deck has already given a body the
@@ -2732,6 +2760,16 @@ extension MainWindow: WKScriptMessageHandler {
         case "pointerClaim":
             guard let body = message.body as? [String: Any] else { return }
             bodies.claim(body)
+        case "floorGrid":
+            guard let body = message.body as? [String: Any] else { return }
+            bodies.floor(body)
+        case "beatPlan":
+            guard let body = message.body as? [String: Any] else { return }
+            bodies.runPlan(body)
+        case "crossingReady":
+            // A body has pinned its scrollers for its crossing: its page
+            // may take its final size. The shell never posts this.
+            if let fromBody { bodies.crossingReady(fromBody, surface: (message.body as? [String: Any])?["surface"] as? [NSNumber]) }
         default:
             NSLog("MainWindow: unknown script message: %@", message.name)
         }

@@ -113,6 +113,11 @@ const TAIL_MS: u32 = 300;
 /// How long a gesture is recorded for when its settle mark never goes off.
 const CAP_MS: u32 = 4000;
 
+/// How long the host's display-link meter reads the window from the drive
+/// (`__tugMotion.hostFrames`): past any settle's land at the deck's timing,
+/// and short enough that the reply does not hold every drive for the cap.
+const HOST_WINDOW_MS: u32 = 2000;
+
 /// The window a workspace switch is read over. A switch arms no settle, so
 /// it sets no settle mark: its frames are sampled for this long from the swap
 /// (`SPACE_SWITCH_FRAME_WINDOW_MS`, `tugdeck/src/lib/space-switch-frames.ts`),
@@ -902,6 +907,221 @@ pub fn sample_seconds(drives: usize) -> u32 {
     total.div_ceil(1000) as u32
 }
 
+/// One body a beat plan carried on the host, as the window saw it: its
+/// container's presentation sampled on every display-link tick across the
+/// beats that move it (Spec S03 of motion-to-the-host).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct WindowBody {
+    pub card_id: String,
+    /// The plan that carried it; `None` when the host sampled a body the
+    /// trace kept no plan row for.
+    pub plan_id: Option<u64>,
+    pub beats: Option<u64>,
+    /// The last beat's end from the plan's start, ms.
+    pub span_ms: Option<f64>,
+    /// Ticks across its moving beats; 0 when the host never sampled it.
+    pub active_ticks: u64,
+    /// The share of those ticks its presentation advanced on; `None` with none.
+    pub advanced_ratio: Option<f64>,
+    /// Its longest run at one position across those beats, ms.
+    pub worst_still_ms: f64,
+    /// `Some(true)` landed, `Some(false)` cancelled, `None` no answer yet.
+    pub landed: Option<bool>,
+    pub late_ms: Option<f64>,
+}
+
+/// The window's own frames across the motion, read by the host's display
+/// link in the UI process rather than by the page.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct WindowRow {
+    pub period_ms: f64,
+    /// The span judged, relative to the drive: the gate's close (or the
+    /// settle mark's on) to the settle mark's off.
+    pub from_ms: f64,
+    pub to_ms: f64,
+    /// Ticks inside that span.
+    pub ticks: usize,
+    /// For each gap over 1.5 periods inside the span, `round(gap / period) - 1`.
+    pub missed_ticks: usize,
+    pub worst_tick_gap_ms: f64,
+    /// Whether the meter's window reached the span's end; a span it did not
+    /// is judged only as far as its last tick.
+    pub covered: bool,
+    pub bodies: Vec<WindowBody>,
+}
+
+impl WindowRow {
+    /// Spec S03's bar: no missed tick inside the motion, and every carried
+    /// body advanced on at least 95 % of its beats' ticks and stood still no
+    /// longer than one period. The clauses that failed; empty when it holds.
+    pub fn misses(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.missed_ticks > 0 {
+            out.push(format!(
+                "{} missed tick(s), worst gap {:.1} ms",
+                self.missed_ticks, self.worst_tick_gap_ms
+            ));
+        }
+        for b in &self.bodies {
+            match b.advanced_ratio {
+                Some(r) if r < 0.95 => out.push(format!(
+                    "{} advanced on {:.1}% of {} ticks",
+                    b.card_id,
+                    r * 100.0,
+                    b.active_ticks
+                )),
+                None => out.push(format!("{} was not sampled across its beats", b.card_id)),
+                _ => {}
+            }
+            if b.worst_still_ms > self.period_ms * 1.05 {
+                out.push(format!(
+                    "{} stood still {:.1} ms",
+                    b.card_id, b.worst_still_ms
+                ));
+            }
+        }
+        out
+    }
+}
+
+/// One `body-beat` row the page's trace recorded over the drive.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RawBodyBeat {
+    pub card_id: String,
+    pub plan_id: u64,
+    #[serde(default)]
+    pub beats: u64,
+    #[serde(default)]
+    pub span_ms: f64,
+    pub landed: Option<bool>,
+    pub late_ms: Option<f64>,
+}
+
+/// Reduce the host's reading to the window row over `[from, to]` (relative
+/// to the drive). `wall_t0` is the drive on `Date`'s clock, which the host's
+/// `armedWallMs` is on. `None` when the reading carries no ticks.
+pub fn window_row(
+    host: &Value,
+    body_beats: &[RawBodyBeat],
+    wall_t0: f64,
+    span: (f64, f64),
+) -> Option<WindowRow> {
+    let armed = host.get("armedWallMs")?.as_f64()? - wall_t0;
+    let period = host.get("periodMs").and_then(Value::as_f64).unwrap_or(1000.0 / 60.0);
+    let ticks: Vec<f64> = host
+        .get("tickMs")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_f64)
+        .map(|t| armed + t)
+        .collect();
+    let (from, mut to) = span;
+    let last = ticks.iter().copied().reduce(f64::max).unwrap_or(armed);
+    let covered = last >= to - 1.5 * period;
+    if !covered {
+        to = last.max(from);
+    }
+    let inside: Vec<f64> = ticks.iter().copied().filter(|t| *t >= from && *t <= to).collect();
+    let mut edges = vec![from];
+    edges.extend(inside.iter().copied());
+    edges.push(to);
+    let mut missed = 0;
+    let mut worst = 0.0_f64;
+    for pair in edges.windows(2) {
+        let gap = pair[1] - pair[0];
+        worst = worst.max(gap);
+        if gap > 1.5 * period {
+            missed += ((gap / period).round() as usize).saturating_sub(1);
+        }
+    }
+    let layers = host.get("layers").and_then(Value::as_object);
+    let mut names: Vec<String> = body_beats.iter().map(|b| b.card_id.clone()).collect();
+    if let Some(layers) = layers {
+        names.extend(layers.keys().filter(|k| *k != "layer").cloned());
+    }
+    names.sort();
+    names.dedup();
+    let bodies = names
+        .into_iter()
+        .map(|card_id| {
+            let planned = body_beats.iter().rev().find(|b| b.card_id == card_id && b.landed.is_none());
+            let answer = body_beats.iter().rev().find(|b| {
+                b.card_id == card_id && b.landed.is_some() && planned.is_none_or(|p| p.plan_id == b.plan_id)
+            });
+            let layer = layers.and_then(|l| l.get(&card_id));
+            let num = |key: &str| layer.and_then(|l| l.get(key)).and_then(Value::as_f64);
+            WindowBody {
+                plan_id: planned.or(answer).map(|b| b.plan_id),
+                beats: planned.map(|b| b.beats),
+                span_ms: planned.map(|b| round1(b.span_ms)),
+                active_ticks: num("activeTicks").unwrap_or(0.0) as u64,
+                advanced_ratio: num("advancedRatio"),
+                worst_still_ms: round1(num("worstStillMs").unwrap_or(0.0)),
+                landed: answer.and_then(|b| b.landed),
+                late_ms: answer.and_then(|b| b.late_ms),
+                card_id,
+            }
+        })
+        .collect();
+    Some(WindowRow {
+        period_ms: round1(period),
+        from_ms: round1(from),
+        to_ms: round1(to),
+        ticks: inside.len(),
+        missed_ticks: missed,
+        worst_tick_gap_ms: round1(worst),
+        covered,
+        bodies,
+    })
+}
+
+/// The window row's lines, or the one line saying why there is none.
+pub fn window_text(row: Option<&WindowRow>, absent: Option<&str>) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let Some(w) = row else {
+        if let Some(why) = absent {
+            let _ = writeln!(out, "   window: none — {why}");
+        }
+        return out;
+    };
+    let cut = if w.covered { "" } else { "; the meter closed before the land" };
+    let misses = w.misses();
+    let bar = if misses.is_empty() {
+        "bar met".to_string()
+    } else {
+        format!("bar MISSED: {}", misses.join("; "))
+    };
+    let _ = writeln!(
+        out,
+        "   window {:.1}→{:.1} ms: {} host ticks at {:.1} ms, {} missed, worst gap {:.1} ms{cut} — {bar}",
+        w.from_ms, w.to_ms, w.ticks, w.period_ms, w.missed_ticks, w.worst_tick_gap_ms
+    );
+    for b in &w.bodies {
+        let plan = match (b.plan_id, b.beats, b.span_ms) {
+            (Some(id), Some(beats), Some(span)) => format!("plan {id}: {beats} beat(s) over {span:.0} ms"),
+            (Some(id), _, _) => format!("plan {id}"),
+            _ => "no plan row".to_string(),
+        };
+        let advanced = match b.advanced_ratio {
+            Some(r) => format!("advanced on {:.1}% of {} ticks", r * 100.0, b.active_ticks),
+            None => "not sampled across its beats".to_string(),
+        };
+        let answer = match (b.landed, b.late_ms) {
+            (Some(true), late) => format!("landed, late {:.1} ms", late.unwrap_or(0.0)),
+            (Some(false), _) => "cancelled".to_string(),
+            (None, _) => "no answer".to_string(),
+        };
+        let _ = writeln!(
+            out,
+            "     body {}: {plan}; {advanced}, longest still {:.1} ms; {answer}",
+            b.card_id, b.worst_still_ms
+        );
+    }
+    out
+}
+
 /// One drive's reading.
 #[derive(Serialize, Debug, Clone, PartialEq)]
 pub struct Reading {
@@ -952,6 +1172,11 @@ pub struct Reading {
     pub clock_drift_ms: Option<f64>,
     /// With `--frame-phases`, every frame of the drive by phase.
     pub frame_phases: Option<crate::commands::deck_motion_phases::FramePhases>,
+    /// The window's own frames across the motion and each body a beat plan
+    /// carried, from the host's display link; `None` with `window_absent`
+    /// saying why.
+    pub window_row: Option<WindowRow>,
+    pub window_absent: Option<String>,
 }
 
 /// Reduce one `record` op's raw result to a reading.
@@ -1013,6 +1238,26 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         (Some(commits), Some(window)) => Some(main_thread(commits, land_chains.as_deref(), window)),
         _ => None,
     };
+    let t0_epoch_ms = raw.get("t0Epoch").and_then(Value::as_f64);
+    let clock_drift_ms = raw.get("clockDriftMs").and_then(Value::as_f64);
+    let body_beats: Vec<RawBodyBeat> = list(raw, "bodyBeats").unwrap_or_default();
+    let host = raw.get("host").filter(|v| !v.is_null());
+    let span = window.map(|(on, off)| (motion_reading.as_ref().map_or(on, |m| m.at_ms), off));
+    let (window_row_reading, window_absent) = match (host, span, t0_epoch_ms) {
+        (None, _, _) => (None, Some("the page asked the host for no reading".to_string())),
+        (Some(h), _, _) if h.get("error").is_some() => (
+            None,
+            Some(h.get("error").and_then(Value::as_str).unwrap_or("the host did not answer").to_string()),
+        ),
+        (Some(_), None, _) => (None, Some("the settle mark never went on and off".to_string())),
+        (Some(_), _, None) => (None, Some("the page predates the drive's wall clock".to_string())),
+        (Some(h), Some(span), Some(epoch)) => {
+            match window_row(h, &body_beats, epoch - clock_drift_ms.unwrap_or(0.0), span) {
+                Some(row) => (Some(row), None),
+                None => (None, Some("the host's reading carries no ticks".to_string())),
+            }
+        }
+    };
     Reading {
         gesture: drive.gesture,
         args: drive.args.clone(),
@@ -1032,9 +1277,11 @@ pub fn reduce(drive: &Drive, raw: &Value) -> Reading {
         streams: None,
         set_up_chains: set_up.as_ref().map(Vec::len),
         set_up_chain_sites: set_up,
-        t0_epoch_ms: raw.get("t0Epoch").and_then(Value::as_f64),
-        clock_drift_ms: raw.get("clockDriftMs").and_then(Value::as_f64),
+        t0_epoch_ms,
+        clock_drift_ms,
         frame_phases: None,
+        window_row: window_row_reading,
+        window_absent,
     }
 }
 
@@ -1091,6 +1338,7 @@ pub fn record_args(
         "quiet": quiet,
         "tailMs": TAIL_MS,
         "capMs": CAP_MS,
+        "hostMs": HOST_WINDOW_MS,
         "fixedMs": (drive.gesture == "switch").then_some(SWITCH_WINDOW_MS),
     })
 }
@@ -1624,6 +1872,7 @@ pub fn reading_extras(r: &Reading) -> String {
             }
         }
     }
+    out.push_str(&window_text(r.window_row.as_ref(), r.window_absent.as_deref()));
     match &r.verdict {
         Some(v) => {
             let _ = writeln!(out, "   {}", v.line());
@@ -2558,5 +2807,100 @@ mod tests {
             streaming: 3,
         });
         assert!(reading_extras(&r).contains("driven with 3 session(s) mid-turn, 3 streaming text"));
+    }
+
+    /// The host's reading reduces to the window row over the motion — the
+    /// gate's close to the settle mark's off — on the drive's clock, and
+    /// each body a plan carried is labelled by its card.
+    #[test]
+    fn a_window_reading_reduces_to_the_motion_and_labels_bodies_by_card() {
+        let drive = Drive {
+            gesture: "slot",
+            args: json!({"slot": 2}),
+            read: true,
+        };
+        // Armed 5 ms after the drive on the wall clock; ticks every 16.7 ms
+        // from there, with one hole from 188.7 to 255 ms: 66.3 ms, three missed.
+        let mut ticks: Vec<f64> = (0..12).map(|i| f64::from(i) * 16.7).collect();
+        ticks.extend((0..30).map(|i| 250.0 + f64::from(i) * 16.7));
+        let raw = json!({
+            "settle": [[2.0, true], [600.0, false]],
+            "gates": [[40.0, "close"], [610.0, "open"]],
+            "frames": [],
+            "t0Epoch": 10_000.0,
+            "clockDriftMs": 0.0,
+            "host": {
+                "periodMs": 16.7,
+                "armedWallMs": 10_005.0,
+                "tickMs": ticks,
+                "layers": {
+                    "b1": {"activeTicks": 24, "advancedRatio": 1.0, "worstStillMs": 0.0},
+                    "b2": {"activeTicks": 24, "advancedRatio": 0.5, "worstStillMs": 50.1},
+                },
+            },
+            "bodyBeats": [
+                {"cardId": "b1", "planId": 7, "beats": 1, "startWallMs": 10_040.0, "spanMs": 420.0, "landed": null, "lateMs": null},
+                {"cardId": "b2", "planId": 7, "beats": 2, "startWallMs": 10_040.0, "spanMs": 420.0, "landed": null, "lateMs": null},
+                {"cardId": "b1", "planId": 7, "beats": 0, "startWallMs": 0.0, "spanMs": 0.0, "landed": true, "lateMs": 0.0},
+                {"cardId": "b2", "planId": 7, "beats": 0, "startWallMs": 0.0, "spanMs": 0.0, "landed": false, "lateMs": null},
+            ],
+        });
+        let r = reduce(&drive, &raw);
+        let w = r.window_row.as_ref().expect("a window row");
+        assert_eq!((w.from_ms, w.to_ms), (40.0, 600.0));
+        assert!(w.covered);
+        assert_eq!(w.missed_ticks, 3, "{w:?}");
+        assert_eq!(w.worst_tick_gap_ms, 66.3);
+        assert_eq!(w.bodies.len(), 2);
+        assert_eq!(w.bodies[0].card_id, "b1");
+        assert_eq!((w.bodies[0].plan_id, w.bodies[0].beats, w.bodies[0].landed), (Some(7), Some(1), Some(true)));
+        assert_eq!(w.bodies[1].landed, Some(false));
+        let misses = w.misses();
+        assert_eq!(misses.len(), 3, "{misses:?}");
+        let text = reading_extras(&r);
+        assert!(text.contains("window 40.0→600.0 ms:"), "{text}");
+        assert!(text.contains("bar MISSED: 3 missed tick(s), worst gap 66.3 ms"), "{text}");
+        assert!(
+            text.contains("body b1: plan 7: 1 beat(s) over 420 ms; advanced on 100.0% of 24 ticks, longest still 0.0 ms; landed, late 0.0 ms"),
+            "{text}"
+        );
+        assert!(text.contains("body b2: plan 7: 2 beat(s) over 420 ms; advanced on 50.0% of 24 ticks, longest still 50.1 ms; cancelled"), "{text}");
+    }
+
+    /// A window the meter closed before the land is judged to its last tick
+    /// and says so, rather than counting the meter's end as a missed frame.
+    #[test]
+    fn a_window_the_meter_left_early_is_judged_to_its_last_tick() {
+        let host = json!({
+            "periodMs": 16.7,
+            "armedWallMs": 0.0,
+            "tickMs": (0..20).map(|i| f64::from(i) * 16.7).collect::<Vec<_>>(),
+            "layers": {},
+        });
+        let w = window_row(&host, &[], 0.0, (0.0, 2_500.0)).unwrap();
+        assert!(!w.covered);
+        assert_eq!(w.missed_ticks, 0);
+        assert!(w.misses().is_empty());
+        assert!(window_text(Some(&w), None).contains("the meter closed before the land — bar met"));
+    }
+
+    /// A page with no host to ask says so, and a page that never asked says that.
+    #[test]
+    fn a_page_with_no_host_reports_no_window_row() {
+        let drive = Drive {
+            gesture: "fold",
+            args: json!({"card": "c1"}),
+            read: true,
+        };
+        let raw = json!({
+            "settle": [[2.0, true], [300.0, false]],
+            "t0Epoch": 1.0,
+            "host": {"error": "hostFrames: no host to ask"},
+        });
+        let r = reduce(&drive, &raw);
+        assert_eq!(r.window_row, None);
+        assert!(reading_extras(&r).contains("window: none — hostFrames: no host to ask"));
+        let r = reduce(&drive, &json!({"settle": [[2.0, true], [300.0, false]]}));
+        assert!(reading_extras(&r).contains("window: none — the page asked the host for no reading"));
     }
 }

@@ -1,0 +1,221 @@
+[
+  {
+    "name": "flow-slide",
+    "refused": [],
+    "plan": {
+      "planId": 1,
+      "startWallMs": 1760000000000,
+      "bodies": [
+        {
+          "cardId": "c1",
+          "landing": {
+            "x": 121,
+            "y": 96,
+            "width": 398,
+            "height": 483
+          },
+          "beats": [
+            {
+              "kind": "move",
+              "delayMs": 0,
+              "durationMs": 300,
+              "from": {
+                "x": 421,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              },
+              "to": {
+                "x": 121,
+                "y": 96,
+                "width": 398,
+                "height": 483
+              },
+              "progress": [
+                0,
+                0.32,
+                0.71,
+                0.93,
+                1.03,
+                1.01,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "stack-move",
+    "refused": [],
+    "plan": {
+      "planId": 2,
+      "startWallMs": 1760000001000,
+      "bodies": [
+        {
+          "cardId": "ca",
+          "landing": {
+            "x": 41,
+            "y": 396,
+            "width": 498,
+            "height": 263
+          },
+          "beats": [
+            {
+              "kind": "move",
+              "delayMs": 0,
+              "durationMs": 300,
+              "from": {
+                "x": 41,
+                "y": 76,
+                "width": 498,
+                "height": 263
+              },
+              "to": {
+                "x": 41,
+                "y": 396,
+                "width": 498,
+                "height": 263
+              },
+              "progress": [
+                0,
+                0.32,
+                0.71,
+                0.93,
+                1.03,
+                1.01,
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "cardId": "cb",
+          "landing": {
+            "x": 41,
+            "y": 76,
+            "width": 498,
+            "height": 263
+          },
+          "beats": [
+            {
+              "kind": "move",
+              "delayMs": 0,
+              "durationMs": 300,
+              "from": {
+                "x": 41,
+                "y": 396,
+                "width": 498,
+                "height": 263
+              },
+              "to": {
+                "x": 41,
+                "y": 76,
+                "width": 498,
+                "height": 263
+              },
+              "progress": [
+                0,
+                0.32,
+                0.71,
+                0.93,
+                1.03,
+                1.01,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "size-change-refused",
+    "refused": [
+      "cs"
+    ],
+    "plan": {
+      "planId": 3,
+      "startWallMs": 1760000002000,
+      "bodies": []
+    }
+  },
+  {
+    "name": "size-change-crossing",
+    "refused": [],
+    "plan": {
+      "planId": 4,
+      "startWallMs": 1760000003000,
+      "bodies": [
+        {
+          "cardId": "cs",
+          "landing": {
+            "x": 341,
+            "y": 76,
+            "width": 298,
+            "height": 363
+          },
+          "crossing": {
+            "width": 298,
+            "height": 363
+          },
+          "beats": [
+            {
+              "kind": "shrink",
+              "delayMs": 40,
+              "durationMs": 200,
+              "from": {
+                "x": 41,
+                "y": 76,
+                "width": 598,
+                "height": 363
+              },
+              "to": {
+                "x": 41,
+                "y": 76,
+                "width": 298,
+                "height": 363
+              },
+              "progress": [
+                0,
+                0.32,
+                0.71,
+                0.93,
+                1.03,
+                1.01,
+                1
+              ]
+            },
+            {
+              "kind": "move",
+              "delayMs": 240,
+              "durationMs": 300,
+              "from": {
+                "x": 41,
+                "y": 76,
+                "width": 298,
+                "height": 363
+              },
+              "to": {
+                "x": 341,
+                "y": 76,
+                "width": 298,
+                "height": 363
+              },
+              "progress": [
+                0,
+                0.32,
+                0.71,
+                0.93,
+                1.03,
+                1.01,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

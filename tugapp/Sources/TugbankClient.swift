@@ -191,6 +191,17 @@ final class TugbankClient {
         }
     }
 
+    /// A number: an `f64` or `i64` as it is, or a string that reads as one.
+    func getDouble(domain: String, key: String) -> Double? {
+        guard let value = get(domain: domain, key: key) else { return nil }
+        switch value {
+        case .f64(let d): return d
+        case .i64(let i): return Double(i)
+        case .string(let s): return Double(s.trimmingCharacters(in: .whitespaces))
+        default: return nil
+        }
+    }
+
     @discardableResult
     func setString(domain: String, key: String, value: String) -> Bool {
         return set(domain: domain, key: key, value: .string(value))

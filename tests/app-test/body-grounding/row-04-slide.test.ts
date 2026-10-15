@@ -1,6 +1,7 @@
 /**
- * row-04-slide.test.ts — a slide moves a body card as one piece: the
- * interim hides the body at the beat's start and shows it at the land.
+ * row-04-slide.test.ts — a slide moves a body card as one piece: the host
+ * carries the body on the slide's own beats, and a gesture the planner
+ * cannot carry hides it for the motion and shows it at the land.
  *
  * The bar's fourth row ([B02] row 4). A body card stands second in a
  * four-up flow band beside unbound neighbours, with a Layout card on the
@@ -10,29 +11,37 @@
  * gesture the composite is read every frame beside a per-animation-frame
  * sampler of the shell's own rects.
  *
- * What the row forbids is a body standing still under moving chrome. Until
- * the host carries bodies through a beat itself (stage 3), the interim is
- * that the settle engine hides every body under a frame its beats will move
- * in the pass that plans them, and the land's measurement shows it again
- * where the chrome stopped (`lib/body-placement.ts`, `bodyHideUnder`). So
- * on every composited frame where the chrome moves the card's content box
- * is the lid — the pane's own surface colour, which the classifier knows
- * exactly — never the floor, never the bare window, never a body standing
- * where the chrome was; and the shell's own record says the lid is on in
- * every sample where the frame moved. At rest the host's container stands
- * on the placeholder and the lid is lifted.
+ * What the row forbids is a body standing still under moving chrome. The
+ * row's own first text scheduled the interim — hide every body under a
+ * moving frame for the beat, show it at the land — for retirement when the
+ * host carried bodies through a beat itself, and for a slide that only
+ * moves its frames that is now: the settle posts the host a beat plan, and
+ * the host runs the body's container on the chrome's curve from the
+ * chrome's start (`lib/body-beat-plan.ts`, `BodyViewController.runPlan`).
+ * A gesture that also changes the body's size — bullseye's centring, the
+ * sidebars' reflow — is a crossing, and the host carries that too: the body
+ * pins its transcript, the host gives its page the landing size, and the
+ * container, painted in the page's surface, animates its bounds over it.
+ * So on the Go-to-slot, bullseye and sidebar legs the placer must have
+ * planned the card; on every frame where the chrome moves the shell's
+ * record has the lid lifted, the content box shows no more floor than two
+ * frames of travel would uncover, no frame shows the bare window, and the
+ * host's presented container stands within two frames of travel of the
+ * placeholder.
  *
- * The composite is judged while the chrome moves and until the lid lifts,
- * and the body's own paint is not read by colour: a session body's page is
- * the canvas colour over much of its height, and a body that lost focus
- * recedes darker still, so neither can be told from the floor the way the
- * lid can ([B05] is met by the lid's colour, which is exact). Go to slot
- * focuses the slot's card, so after each land the body card is focused
- * again before the next leg.
+ * A gesture the planner refuses keeps the interim — the body hidden under
+ * moving chrome, shown at the land: on every composited frame where the
+ * chrome moves the content box is the lid, the pane's own surface colour,
+ * never the floor and never the bare window, and the shell's record says
+ * the lid is on wherever the frame moved. Each leg reads the placer's own
+ * account of what it planned and is judged by that. At rest, on every leg,
+ * the host's container stands on the placeholder and the lid is lifted.
  *
- * The settle engine's call into the placer is one line and the engine's
- * `@covers` fan-out is at the selection budget, so this file covers the
- * placer, whose interim it reads, and not the engine.
+ * The body's own paint is not read by colour: a session body's page is the
+ * pane surface, the lid's own colour, so the composite says the box is
+ * filled and the shell's record says by which. Go to slot focuses the
+ * slot's card, so after each land the body card is focused again before
+ * the next leg.
  *
  * @foreground
  * @covers tugdeck/src/lib/body-placement.ts
@@ -51,6 +60,7 @@ import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { classifyFrame, describeFrames, framesDiffer, pollFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
+import { judgeCarried, planDiag, pollPresented } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-04-slide";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -245,16 +255,18 @@ interface Leg {
   js: string;
   /** Whether the gesture must move the card's frame for the leg to have tested anything. */
   moves: boolean;
+  /** Whether the host must carry the body: a slide, or a crossing that changes its size as it moves. */
+  carried: boolean;
 }
 
 const LEGS: Leg[] = [
-  { label: "go to slot 2", js: `window.__tug.dispatchControlAction("go-to-slot", { value: 2 })`, moves: true },
-  { label: "go to slot 1", js: `window.__tug.dispatchControlAction("go-to-slot", { value: 1 })`, moves: true },
-  { label: "bullseye in", js: `window.__tug.dispatchControlAction("toggle-bullseye", {})`, moves: true },
-  { label: "bullseye out", js: `window.__tug.dispatchControlAction("toggle-bullseye", {})`, moves: true },
-  { label: "sidebars hide", js: `window.__tug.dispatchControlAction("toggle-sidebars", {})`, moves: true },
-  { label: "sidebars show", js: `window.__tug.dispatchControlAction("toggle-sidebars", {})`, moves: true },
-  { label: "resize sidebars to fit", js: `window.__tug.dispatchControlAction("resize-sidebars-to-fit", {})`, moves: false },
+  { label: "go to slot 2", js: `window.__tug.dispatchControlAction("go-to-slot", { value: 2 })`, moves: true, carried: true },
+  { label: "go to slot 1", js: `window.__tug.dispatchControlAction("go-to-slot", { value: 1 })`, moves: true, carried: true },
+  { label: "bullseye in", js: `window.__tug.dispatchControlAction("toggle-bullseye", {})`, moves: true, carried: true },
+  { label: "bullseye out", js: `window.__tug.dispatchControlAction("toggle-bullseye", {})`, moves: true, carried: true },
+  { label: "sidebars hide", js: `window.__tug.dispatchControlAction("toggle-sidebars", {})`, moves: true, carried: true },
+  { label: "sidebars show", js: `window.__tug.dispatchControlAction("toggle-sidebars", {})`, moves: true, carried: true },
+  { label: "resize sidebars to fit", js: `window.__tug.dispatchControlAction("resize-sidebars-to-fit", {})`, moves: false, carried: false },
 ];
 
 interface Judged {
@@ -267,14 +279,21 @@ interface Judged {
 
 async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: string): Promise<void> {
   const before = await expectAtRest(app, `${leg.label}: before`);
+  const runsBefore = (await planDiag(app)).runs;
   await armSampler(app);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${leg.label}: the burst armed`).toBe(true);
   const gestureWall = Date.now();
   await app.evalJS<null>(`(${leg.js}, null)`);
+  // The host's presented container, read as fast as the round trip allows
+  // until the settle is over.
+  let polling = true;
+  const presentedRead = pollPresented(app, CARD, () => !polling, SETTLE_MS + 2_000);
 
   // The settle: seen, then over. A gesture that armed none is said so.
   const settle = await pollFor(() => samplerState(app), (s) => s.saw && !s.now, SETTLE_MS);
+  polling = false;
+  const presented = await presentedRead;
   note(`${leg.label}: settle seen ${settle.saw}, running ${settle.now}, ${settle.count} shell samples so far`);
   const lid = await pollFor(
     async () => ({
@@ -300,6 +319,32 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
   expect(reading.done, `${leg.label}: the burst finished`).toBe(true);
   const scale = reading.scale;
+
+  // ---- What the placer decided: carried by the host, or the interim ----
+  const plan = await planDiag(app);
+  const fresh = plan.runs > runsBefore;
+  const carried = fresh && (plan.last?.planned.includes(CARD) ?? false);
+  note(
+    `${leg.label}: ${plan.runs - runsBefore} plan run(s); ${carried ? "the host carried the body" : "the interim hid the body"}` +
+      (fresh && plan.last !== null ? `; last plan ${JSON.stringify(plan.last)}` : ""),
+  );
+  if (leg.carried) {
+    expect(carried, `${leg.label}: the host carries the body through the gesture`).toBe(true);
+    expect(plan.last?.landed.some((l) => l.cardId === CARD), `${leg.label}: the host said the body landed`).toBe(true);
+  }
+  if (carried) {
+    const v = judgeCarried(leg.label, reading, samples, presented, gestureWall, before, after, palette, crop);
+    if (leg.moves) {
+      expect(travelled, `${leg.label}: the gesture moved the card`).toBeGreaterThan(20);
+      expect(v.motion, `${leg.label}: frames were captured while the chrome moved`).toBeGreaterThan(3);
+      expect(v.tracked, `${leg.label}: the host was read while the chrome moved`).toBeGreaterThan(0);
+    }
+    expect(v.lidOnWhileMoving, `${leg.label}: the lid stays lifted in every sample where the frame moved`).toBe(0);
+    expect(v.bare, `${leg.label}: no frame shows the bare window`).toBe(0);
+    expect(v.floorOffenders.length, `${leg.label}: on every frame where the chrome moves the body fills its content box`).toBe(0);
+    expect(v.worstTrackPx, `${leg.label}: the host's container stands within two frames of travel of the placeholder`).toBeLessThanOrEqual(v.trackBarPx);
+    return;
+  }
 
   // ---- The shell's own record: the lid is on wherever the frame moved ----
   let fastestStep = 0;
@@ -377,7 +422,7 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 4: slide", () => {
   test(
-    "across every slide the body hides at the beat's start and shows with its chrome at the land",
+    "across every slide the body moves with its chrome, carried by the host or hidden until the land",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({

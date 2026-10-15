@@ -7,9 +7,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  bodyHoles,
   bodyVisible,
-  floorClipPath,
-  floorHoles,
   paneClipPath,
   paneHoles,
   PlacementPoster,
@@ -42,9 +41,9 @@ describe("bodyVisible", () => {
   }
 });
 
-describe("the floor", () => {
+describe("the holes bodies cut", () => {
   test("a visible body cuts a hole; a hidden one does not", () => {
-    const holes = floorHoles({
+    const holes = bodyHoles({
       radius: 6,
       bodies: [
         { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
@@ -55,7 +54,7 @@ describe("the floor", () => {
   });
 
   test("two bodies on one rect cut one hole", () => {
-    const holes = floorHoles({
+    const holes = bodyHoles({
       radius: 6,
       bodies: [
         { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
@@ -66,7 +65,7 @@ describe("the floor", () => {
   });
 
   test("overlapping bodies cut disjoint holes covering their union", () => {
-    const holes = floorHoles({
+    const holes = bodyHoles({
       radius: 6,
       bodies: [
         { cardId: "a", x: 0, y: 0, width: 100, height: 100, visible: true, z: 0 },
@@ -84,31 +83,24 @@ describe("the floor", () => {
     }
   });
 
-  test("no holes is no clip", () => {
-    expect(floorClipPath([], 800, 600)).toBe("");
-    expect(floorClipPath([{ x: 10, y: 10, width: 0, height: 50 }], 800, 600)).toBe("");
+  test("a hole with no area is no clip", () => {
+    expect(paneClipPath([{ x: 10, y: 10, width: 0, height: 50 }])).toBe("");
   });
 
-  test("the clip is the box less each hole, even-odd, one subpath each", () => {
-    expect(floorClipPath([{ x: 10, y: 40, width: 300, height: 200 }], 800, 600)).toBe(
-      'path(evenodd, "M0 0H800V600H0ZM10 40H310V240H10Z")',
-    );
-    // Two holes are two closed subpaths, never one ring through both.
+  test("two holes are two closed subpaths, never one ring through both", () => {
     expect(
-      floorClipPath(
-        [
-          { x: 10, y: 40, width: 100, height: 100 },
-          { x: 300, y: 40, width: 100, height: 100 },
-        ],
-        800,
-        600,
-      ),
-    ).toBe('path(evenodd, "M0 0H800V600H0ZM10 40H110V140H10ZM300 40H400V140H300Z")');
+      paneClipPath([
+        { x: 10, y: 40, width: 100, height: 100 },
+        { x: 300, y: 40, width: 100, height: 100 },
+      ]),
+    ).toBe(
+      'path(evenodd, "M-100000 -100000H100000V100000H-100000ZM10 40H110V140H10ZM300 40H400V140H300Z")',
+    );
   });
 
-  test("a hole past the box is clamped to it", () => {
-    expect(floorClipPath([{ x: -20, y: 500, width: 100, height: 200 }], 800, 600)).toBe(
-      'path(evenodd, "M0 0H800V600H0ZM0 500H80V600H0Z")',
+  test("a hole past the ring is clamped to it", () => {
+    expect(paneClipPath([{ x: 99_950, y: 0, width: 100, height: 10 }])).toBe(
+      'path(evenodd, "M-100000 -100000H100000V100000H-100000ZM99950 0H100000V10H99950Z")',
     );
   });
 });
@@ -190,5 +182,18 @@ describe("PlacementPoster", () => {
     // The last body going is news: the host hides what the set no longer names.
     expect(poster.offer({ radius: 6, bodies: [] })).toBe(true);
     expect(posted).toHaveLength(2);
+  });
+
+  test("a beat plan's landing is adopted without posting, and the land's identical measurement posts nothing", () => {
+    const posted: PlaceBodies[] = [];
+    const poster = new PlacementPoster((p) => posted.push(p));
+    poster.offer(placement(10));
+    poster.adopt(placement(300));
+    expect(posted).toHaveLength(1);
+    expect(poster.lastPosted?.bodies[0].x).toBe(300);
+    expect(poster.offer(placement(300))).toBe(false);
+    expect(posted).toHaveLength(1);
+    // A land that measures somewhere else is news.
+    expect(poster.offer(placement(301))).toBe(true);
   });
 });

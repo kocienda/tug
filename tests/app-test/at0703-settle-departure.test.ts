@@ -45,11 +45,11 @@ import {
   traceWithSettleFrames,
   wait,
   windowCommits,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0703-settle-departure";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /**
  * A card's departure from a split column, against the bar.
@@ -76,13 +76,13 @@ const ARMS = transcriptArms();
  * and the bar waits on that cause.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0703 — a card's departure from a split column [${arm.size}]`,
+  `at0703 — a card's departure from a split column [${arm.label}]`,
   () => {
     test(
       "the same card closed out of the column it arrived in, across depart and room",
       async () => {
         const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, {
-          transcripts: arm.size,
+          transcripts: arm.size, bodies: arm.bodies,
           leadRecorder: true,
         });
         try {

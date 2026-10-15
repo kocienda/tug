@@ -48,11 +48,11 @@ import {
   sampleB09Gesture,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0704-settle-walk";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /**
  * The walk across the band, both directions, against the bar.
@@ -67,11 +67,11 @@ const ARMS = transcriptArms();
  * out runs against a band whose far slots have never been laid out at their
  * final width, and the walk home runs against frames that have.
  */
-for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0704 — the walk across the band [${arm.size}]`, () => {
+for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(`at0704 — the walk across the band [${arm.label}]`, () => {
   test(
     "go-to-slot out and home holds the bar in both directions",
     async () => {
-      const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size });
+      const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
       try {
         await traceWithSettleFrames(app);
         await home(app);

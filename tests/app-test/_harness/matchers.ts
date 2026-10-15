@@ -260,6 +260,16 @@ export type DeckTraceEventShape = {
       phase: "close" | "open";
     }
   | {
+      kind: "body-beat";
+      cardId: string;
+      planId: number;
+      beats: number;
+      startWallMs: number;
+      spanMs: number;
+      landed: boolean | null;
+      lateMs: number | null;
+    }
+  | {
       /** The settle's own frame-gap record, written once at release ([B10]). */
       kind: "settle-frames";
       panes: number;
@@ -416,6 +426,7 @@ export const HARNESS_KNOWN_TRACE_KINDS = [
   "settle-retarget",
   "settle-release",
   "settle-gate",
+  "body-beat",
   "settle-frames",
   "settle-land",
   "settle-beat",
@@ -686,6 +697,10 @@ export function summarizeEvent(e: DeckTraceEventShape): string {
       return `settle-release ${e.source}`;
     case "settle-gate":
       return `settle-gate ${e.phase}`;
+    case "body-beat":
+      return e.landed === null
+        ? `body-beat ${e.cardId} plan=${e.planId} beats=${e.beats} span=${e.spanMs.toFixed(0)}ms`
+        : `body-beat ${e.cardId} plan=${e.planId} ${e.landed ? `landed late=${e.lateMs ?? 0}ms` : "cancelled"}`;
     case "settle-frames":
       return (
         `settle-frames panes=${e.panes} ticks=${e.ticks} ` +

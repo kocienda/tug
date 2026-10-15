@@ -15,8 +15,9 @@
 import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
-import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
+import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
 import { classifyFrame, describeFrames, framesDiffer, pollFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
+import { focusBody } from "./_bodies";
 
 export interface Rect {
   x: number;
@@ -266,4 +267,321 @@ export function judge(
   );
   if (offenders.length > 0) note(`${label}: frames where the content box is not the lid\n${describeFrames(offenders.map((j) => j.frame))}`);
   return { judged, motion, bare, offenders, movingSamples, shownWhileMoving };
+}
+
+// ---------------------------------------------------------------------------
+// A body the host carries through the beats
+// ---------------------------------------------------------------------------
+
+/** The host's body snapshot with the beat fields the `bodies` verb carries. */
+type CarriedSnapshot = BodyViewSnapshot & { presentedFrame?: Rect; beatsPlanId?: number | null };
+
+/** One reading of where the render server has a body's container. */
+export interface Presented {
+  /** The midpoint of the round trip that read it. */
+  wall: number;
+  frame: Rect;
+  planId: number | null;
+}
+
+/**
+ * Poll the host's presented frame of `cardId` — its presentation layer, read
+ * back as a viewport rect — until `stop()` holds or `maxMs` passes.
+ */
+export async function pollPresented(app: App, cardId: string, stop: () => boolean, maxMs = 8_000): Promise<Presented[]> {
+  const out: Presented[] = [];
+  const deadline = Date.now() + maxMs;
+  while (!stop() && Date.now() < deadline) {
+    const t0 = Date.now();
+    const body = (await bodyOf(app, cardId)) as CarriedSnapshot | null;
+    const t1 = Date.now();
+    if (body?.presentedFrame !== undefined) out.push({ wall: (t0 + t1) / 2, frame: body.presentedFrame, planId: body.beatsPlanId ?? null });
+  }
+  return out;
+}
+
+/** The placer's account of its beat plans (`tugdeck.diag.getBodyPlacement()`). */
+export interface PlanDiag {
+  runs: number;
+  last: {
+    planId: number | null;
+    planned: string[];
+    refused: string[];
+    reasons: Record<string, string>;
+    landed: { cardId: string; lateMs: number | null }[];
+    cancelled: string[];
+  } | null;
+  inFlight: string[];
+}
+
+export const planDiag = (app: App): Promise<PlanDiag> =>
+  app.evalJS<PlanDiag>(`(function () {
+    var d = window.tugdeck.diag.getBodyPlacement();
+    return { runs: d ? d.planRuns : 0, last: d ? d.lastPlan : null, inFlight: d ? d.inFlight : [] };
+  })()`);
+
+export interface CarriedVerdict {
+  /** Composite frames judged in motion. */
+  motion: number;
+  /** In-motion frames whose content box shows more floor than the bar allows. */
+  floorOffenders: Judged[];
+  floorBar: number;
+  /** Frames anywhere in the burst showing the bare window. */
+  bare: number;
+  /** Shell samples where the frame moved and the lid was on. */
+  lidOnWhileMoving: number;
+  movingSamples: number;
+  fastestStep: number;
+  /** Host readings taken while the chrome moved, and the worst edge gap between them and the placeholder. */
+  tracked: number;
+  worstTrackPx: number;
+  trackBarPx: number;
+}
+
+/** The placeholder's rect at `wall`, linear between the shell's samples either side. */
+function placeholderAt(samples: readonly Sample[], wall: number): Rect | null {
+  const i = sampleIndexAt(samples, wall);
+  if (i < 0) return null;
+  const a = samples[i].placeholder;
+  const next = samples[i + 1];
+  if (a === null) return null;
+  if (next === undefined || next.placeholder === null || next.wall === samples[i].wall) return a;
+  const f = (wall - samples[i].wall) / (next.wall - samples[i].wall);
+  const b = next.placeholder;
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, width: a.width + (b.width - a.width) * f, height: a.height + (b.height - a.height) * f };
+}
+
+/**
+ * Judge a gesture whose body the host carries: the lid stays lifted while
+ * the chrome moves, no frame shows the bare window, the content box shows
+ * no more floor than the leading or trailing strip two frames of travel
+ * would uncover, and the host's presented frame stands within two frames
+ * of travel of the placeholder on every reading taken while the chrome
+ * moved.
+ *
+ * The lid and a session body's page are one colour — the pane surface — so
+ * the composite cannot say which of the two fills the box; the shell's own
+ * record of the lid can, and the floor share says the box is filled at all.
+ */
+export function judgeCarried(
+  label: string,
+  reading: CaptureBurstReading,
+  samples: readonly Sample[],
+  presented: readonly Presented[],
+  gestureWall: number,
+  before: Rect,
+  after: Rect,
+  palette: Palette,
+  crop: Rect,
+): CarriedVerdict {
+  const scale = reading.scale;
+  let movingSamples = 0;
+  let lidOnWhileMoving = 0;
+  let fastestStep = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1].placeholder;
+    const b = samples[i].placeholder;
+    if (a === null || b === null) continue;
+    const step = edgeGap(a, b);
+    if (step <= MOVED_PX) continue;
+    movingSamples += 1;
+    fastestStep = Math.max(fastestStep, step);
+    if (!samples[i].shown) lidOnWhileMoving += 1;
+  }
+  const moved = (k: number): boolean => {
+    const p = k >= 0 ? samples[k].placeholder : null;
+    return p !== null && edgeGap(p, before) > MOVED_PX && edgeGap(p, after) > MOVED_PX;
+  };
+  const standing = reading.frames.find((f) => f.wall >= gestureWall) ?? reading.frames[0];
+  const width = Math.max(1, before.width);
+  const floorBar = Math.min(0.5, (2 * fastestStep) / width + 0.02);
+  const judged: Judged[] = [];
+  let bare = 0;
+  for (const f of reading.frames) {
+    if (f.wall < gestureWall) continue;
+    const whole = classifyFrame(f, palette);
+    if (showsBareHole(whole)) bare += 1;
+    const i = sampleIndexAt(samples, f.wall);
+    if (i < 0 || samples[i].placeholder === null) continue;
+    const box = intersect(samples[i].placeholder!, crop);
+    const region = {
+      x: (box.x - crop.x + CORNER_INSET_PX) * scale,
+      y: (box.y - crop.y + CORNER_INSET_PX) * scale,
+      width: (box.width - 2 * CORNER_INSET_PX) * scale,
+      height: (box.height - 2 * CORNER_INSET_PX) * scale,
+    };
+    if (!(region.width > 0 && region.height > 0)) continue;
+    const inMotion = moved(i) && moved(i - 1) && framesDiffer(f, standing);
+    judged.push({ frame: classifyFrame(f, palette, 8, region), whole, path: f.path, inMotion });
+  }
+  const motion = judged.filter((j) => j.inMotion);
+  // Floor is canvas paint that carries the grid: a body that lost focus
+  // recedes toward the canvas colour, but no body draws the grid's lines.
+  // And it is mostly canvas with the lines through it: a box that reads as
+  // grid with no canvas around it is a neighbouring pane's surface, which a
+  // DOM rect judged under fast travel reaches past the shell's paint lag.
+  const floorOf = (j: Judged): number =>
+    (j.frame.grid > 0.002 && j.frame.canvas >= j.frame.grid ? j.frame.canvas + j.frame.grid : 0) + j.frame.bare;
+  const floorOffenders = motion.filter((j) => floorOf(j) > floorBar);
+  let tracked = 0;
+  let worstTrackPx = 0;
+  for (const p of presented) {
+    const i = sampleIndexAt(samples, p.wall);
+    if (!(moved(i) && moved(i - 1))) continue;
+    const at = placeholderAt(samples, p.wall);
+    if (at === null) continue;
+    tracked += 1;
+    worstTrackPx = Math.max(worstTrackPx, edgeGap(p.frame, at));
+  }
+  const trackBarPx = 2 * fastestStep;
+  const pct = (v: number): string => (v * 100).toFixed(2) + "%";
+  const worstFloor = motion.length > 0 ? motion.reduce((a, b) => (floorOf(b) > floorOf(a) ? b : a)) : null;
+  note(
+    `${label}: ${samples.length} shell samples, ${movingSamples} with the placeholder moving (fastest step ${fastestStep.toFixed(1)} px), ${lidOnWhileMoving} of those with the lid on; ` +
+      `${judged.length} frames captured, ${motion.length} judged in motion` +
+      (worstFloor === null ? "" : `; the most floor in the content box ${pct(floorOf(worstFloor))} at ${Math.round(worstFloor.frame.t)} ms (${describeFrames([worstFloor.frame])}), bar ${pct(floorBar)}`) +
+      `; ${bare} show a bare hole; host read ${presented.length} times, ${tracked} while the chrome moved, worst edge gap to the placeholder ${worstTrackPx.toFixed(1)} px (bar ${trackBarPx.toFixed(1)} px)`,
+  );
+  if (floorOffenders.length > 0) note(`${label}: frames where the content box shows the floor\n${describeFrames(floorOffenders.map((j) => j.frame))}`);
+  return { motion: motion.length, floorOffenders, floorBar, bare, lidOnWhileMoving, movingSamples, fastestStep, tracked, worstTrackPx, trackBarPx };
+}
+
+/**
+ * The share of host ticks on which the sampled body's presentation moved,
+ * over the span the host moved it: from the first tick off its opening
+ * position to the last tick short of its closing one. A stall inside the
+ * motion — the render server not advancing the layer — is a tick that did
+ * not move.
+ */
+export function advancedRatio(samples: readonly { t: number; x: number; y: number }[]): { ratio: number; ticks: number; spanMs: number } {
+  if (samples.length < 3) return { ratio: 0, ticks: samples.length, spanMs: 0 };
+  const same = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => a.x === b.x && a.y === b.y;
+  const first = samples.findIndex((s) => !same(s, samples[0]));
+  let last = -1;
+  for (let i = samples.length - 1; i >= 0; i--) {
+    if (!same(samples[i], samples[samples.length - 1])) {
+      last = i + 1;
+      break;
+    }
+  }
+  if (first < 0 || last <= first) return { ratio: 0, ticks: 0, spanMs: 0 };
+  let moved = 0;
+  let pairs = 0;
+  for (let i = first; i <= last; i++) {
+    pairs += 1;
+    if (!same(samples[i], samples[i - 1])) moved += 1;
+  }
+  return { ratio: moved / pairs, ticks: pairs, spanMs: samples[last].t - samples[first - 1].t };
+}
+
+/** How long a carried gesture's composite burst and host frame meter run. */
+const CARRY_BURST_MS = 2_500;
+/** How long a carried gesture's settle may take. */
+const CARRY_SETTLE_MS = 6_000;
+/** The share of host ticks the presentation must advance on across its motion. */
+const ADVANCED_BAR = 0.95;
+/** How far the container may stand from the placeholder at rest, in px: the pixel. */
+const REST_PX = 1;
+
+/** The container, presented and placed, stands on the placeholder to the pixel. */
+export async function expectPresentedAtRest(app: App, cardId: string, label: string): Promise<void> {
+  const placeholder = await rectOf(app, placeholderOf(cardId));
+  const body = (await bodyOf(app, cardId)) as (Awaited<ReturnType<typeof bodyOf>> & { presentedFrame?: Rect; beatsPlanId?: number | null }) | null;
+  expect(placeholder, `${label}: the placeholder stands`).not.toBeNull();
+  expect(body?.presentedFrame, `${label}: the host reports a presented frame`).toBeDefined();
+  const placed = edgeGap(placeholder!, body!.frame);
+  const presented = edgeGap(placeholder!, body!.presentedFrame!);
+  note(`${label}: placeholder ${JSON.stringify(placeholder)}; presented ${JSON.stringify(body!.presentedFrame)}; placed gap ${placed.toFixed(2)} px, presented gap ${presented.toFixed(2)} px; beats ${body!.beatsPlanId}`);
+  expect(placed, `${label}: the placed container stands on the placeholder to the pixel`).toBeLessThanOrEqual(REST_PX);
+  expect(presented, `${label}: the presented container stands on the placeholder to the pixel`).toBeLessThanOrEqual(REST_PX);
+  expect(body!.beatsPlanId ?? null, `${label}: no beats are left running`).toBeNull();
+}
+
+/**
+ * One gesture that moves body cards without resizing them, judged as the
+ * host carrying them: arm the shell's sampler, the host's display link on
+ * `card`'s container and the composite burst over `crop`; run `js`; read the
+ * host's presented frame until the settle is over; then judge. `onSettled`
+ * runs the moment the settle is seen over, before anything else is read, for
+ * a row that reads what happened under the settle while it is fresh.
+ */
+export async function carryLeg(
+  app: App,
+  card: string,
+  moved: readonly string[],
+  label: string,
+  js: string,
+  standing: Standing,
+  crop: Rect,
+  onSettled?: () => Promise<void>,
+): Promise<void> {
+  const before = await expectAtRest(app, card, `${label}: before`);
+  const runsBefore = (await planDiag(app)).runs;
+  await armSampler(app, card);
+  const meter = (await app.hostFrames({ op: "arm", windowMs: CARRY_BURST_MS, layer: card })) as { armed: true };
+  expect(meter.armed, `${label}: the host's frame meter armed`).toBe(true);
+  await app.captureBurst({ op: "arm", durationMs: CARRY_BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
+  const gestureWall = Date.now();
+  await app.evalJS<null>(`(${js}, null)`);
+  let polling = true;
+  const presentedRead = pollPresented(app, card, () => !polling, CARRY_SETTLE_MS + 2_000);
+  const settle = await pollFor(() => samplerState(app), (s) => s.saw && !s.now, CARRY_SETTLE_MS);
+  polling = false;
+  const presented = await presentedRead;
+  note(`${label}: settle seen ${settle.saw}, running ${settle.now}`);
+  await onSettled?.();
+
+  const plan = await pollFor(
+    () => planDiag(app),
+    (p) => p.runs > runsBefore && moved.every((id) => p.last?.landed.some((l) => l.cardId === id) ?? false),
+    3_000,
+  );
+  note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
+  for (const id of moved) {
+    expect(plan.last?.planned.includes(id), `${label}: ${id} is carried by the host`).toBe(true);
+    expect(plan.last?.landed.some((l) => l.cardId === id), `${label}: the host said ${id} landed`).toBe(true);
+  }
+  expect(plan.last?.cancelled ?? [], `${label}: no carried body was cancelled`).toEqual([]);
+
+  // The body card the gesture focused away from is focused again, so the
+  // landed frame reads as the body's own paint.
+  await focusBody(app, card, { composer: false });
+  await Bun.sleep(300);
+  const after = await expectAtRest(app, card, `${label}: after`);
+  for (const id of moved) await expectPresentedAtRest(app, id, `${label}: ${id} at rest`);
+  const travelled = edgeGap(before, after);
+  note(`${label}: ${card} travelled ${travelled.toFixed(1)} px`);
+  expect(travelled, `${label}: the gesture moved the card`).toBeGreaterThan(20);
+
+  const samples = await readSampler(app);
+  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, CARRY_BURST_MS + 5_000);
+  expect(reading.done, `${label}: the burst finished`).toBe(true);
+  const v = judgeCarried(label, reading, samples, presented, gestureWall, before, after, standing.palette, crop);
+  expect(v.motion, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(3);
+  expect(v.lidOnWhileMoving, `${label}: the lid stays lifted in every sample where the frame moved`).toBe(0);
+  expect(v.bare, `${label}: no frame shows the bare window`).toBe(0);
+  expect(v.floorOffenders.length, `${label}: on every frame where the chrome moves the body fills its content box`).toBe(0);
+  expect(v.tracked, `${label}: the host was read while the chrome moved`).toBeGreaterThan(0);
+  expect(v.worstTrackPx, `${label}: the host's container stands within two frames of travel of the placeholder`).toBeLessThanOrEqual(v.trackBarPx);
+
+  const wait = gestureWall + CARRY_BURST_MS + 150 - Date.now();
+  if (wait > 0) await Bun.sleep(wait);
+  const host = (await app.hostFrames({ op: "read" })) as HostFrameReading;
+  const advance = advancedRatio(host.samples ?? []);
+  note(
+    `${label}: host ticks ${host.ticks}/${host.expectedTicks}, missed ${host.missed}, worst gap ${host.worstGapMs.toFixed(1)} ms, period ${host.periodMs.toFixed(2)} ms; ` +
+      `${card}'s presentation moved on ${(advance.ratio * 100).toFixed(1)}% of ${advance.ticks} ticks over ${advance.spanMs.toFixed(0)} ms`,
+  );
+  expect(advance.ticks, `${label}: the host saw ${card}'s presentation move`).toBeGreaterThan(3);
+  expect(advance.ratio, `${label}: ${card}'s presentation advanced on at least ${ADVANCED_BAR * 100}% of host ticks across its motion`).toBeGreaterThanOrEqual(ADVANCED_BAR);
+}
+
+/** The palette from `card`'s standing body, and a crop across the window at its content box's top. */
+export async function standUp(app: App, card: string): Promise<{ standing: Standing; crop: Rect }> {
+  const start = await expectAtRest(app, card, `${card}: at the start`);
+  const standing = await readStanding(app, card, start);
+  const frame = (await rectOf(app, frameOf(card)))!;
+  const crop = { x: 0, y: Math.floor(frame.y), width: standing.contentWidth, height: Math.min(320, Math.floor(start.y + start.height - frame.y)) };
+  note(`${card}: crop ${JSON.stringify(crop)} at scale ${standing.scale}`);
+  return { standing, crop };
 }

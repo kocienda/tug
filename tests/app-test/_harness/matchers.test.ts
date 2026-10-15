@@ -527,6 +527,16 @@ const EVENT_FIXTURES: Record<
     kind: "settle-gate",
     phase: "close",
   },
+  "body-beat": {
+    kind: "body-beat",
+    cardId: "c1",
+    planId: 3,
+    beats: 2,
+    startWallMs: 1_700_000_000_000,
+    spanMs: 412,
+    landed: null,
+    lateMs: null,
+  },
   "settle-frames": {
     kind: "settle-frames",
     panes: 4,

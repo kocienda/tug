@@ -572,12 +572,19 @@ export function group(options?: {
  * which under a settle's own load is tens of ms late. `durationMs` is raw and
  * scaled by getTugTiming(), as animate()'s is. The caller owns the returned
  * animation and cancels it when the thing it times is called off.
+ *
+ * `startTime`, when given, is the document-timeline time the clock starts
+ * at, rather than the rendering update its creating task ends in — the
+ * explicit start a settle shares with the beats it times (see
+ * {@link BeatOptions.startTime}).
  */
-export function timelineMark(el: Element, durationMs: number): Animation {
-  return el.animate(null, {
+export function timelineMark(el: Element, durationMs: number, startTime?: number): Animation {
+  const mark = el.animate(null, {
     duration: Math.max(1, durationMs * getTugTiming()),
     fill: "none",
   });
+  if (startTime !== undefined) mark.startTime = startTime;
+  return mark;
 }
 
 // ---------------------------------------------------------------------------
@@ -633,8 +640,12 @@ const KEYFRAME_META_KEYS: ReadonlySet<string> = new Set([
   "composite",
 ]);
 
-/** A property a beat animates knowing it breaks the transform/opacity rule. */
-export type BeatDeclaredProperty = "height" | "width";
+/**
+ * A property a beat animates knowing it breaks the transform/opacity rule.
+ * `clip-path` is the back pane's moving cut, which follows a body the host
+ * carries ([B04]): the shell writes it once and the engine interpolates.
+ */
+export type BeatDeclaredProperty = "height" | "width" | "clip-path";
 
 /**
  * The properties a keyframe list animates, sorted. Timing and composition keys
@@ -656,15 +667,17 @@ export function beatAnimatedProperties(
 /**
  * The properties in `keyframes` a beat may not animate: anything but
  * `transform` and `opacity` that the beat has not declared. Empty is the
- * answer a beat must get before it is planned.
+ * answer a beat must get before it is planned. A keyframe names a property
+ * as WAAPI does (`clipPath`), a declaration as CSS does (`clip-path`).
  */
 export function undeclaredBeatProperties(
   keyframes: Keyframe[] | PropertyIndexedKeyframes,
   declares: readonly BeatDeclaredProperty[],
 ): string[] {
   const declared = new Set<string>(declares);
+  const css = (prop: string): string => prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
   return beatAnimatedProperties(keyframes).filter(
-    (prop) => !BEAT_PROPERTIES.has(prop) && !declared.has(prop),
+    (prop) => !BEAT_PROPERTIES.has(prop) && !declared.has(css(prop)),
   );
 }
 
@@ -756,6 +769,13 @@ export interface BeatOptions {
   slotCancelMode?: "snap-to-end" | "hold-at-current";
   /** Known breaches of the transform/opacity rule this beat carries. */
   declares?: readonly BeatDeclaredProperty[];
+  /**
+   * The document-timeline time (ms) every effect starts at, its delay on top.
+   * Omitted, an effect starts at the rendering update its planning task ends
+   * in. Given, both the shell and the host know the start as a number, which
+   * is what lets the host start a body's beats on the chrome's clock.
+   */
+  startTime?: number;
   /** Called once, at the landing, before the row is written. */
   onLand?: (landing: BeatLanding) => void;
   /** Where the beat's row goes. */
@@ -827,6 +847,9 @@ export function planBeat(options: BeatOptions): Beat {
       slotCancelMode: options.slotCancelMode,
     }),
   }));
+  if (options.startTime !== undefined) {
+    for (const entry of entries) entry.anim.raw.startTime = options.startTime;
+  }
   const anims = entries.map((entry) => entry.anim);
 
   // Each effect's start time, once its clock resolves. A cancelled effect's

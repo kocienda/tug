@@ -86,7 +86,7 @@ import { expect } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import type { SettleFrameReading } from "./_harness/client";
 import { testTmpDir } from "./_harness/test-cleanup";
-import { bindAndSettle, type TranscriptSize } from "./real-transcript-fixture";
+import { bindAndSettle, transcriptArms, type TranscriptSize } from "./real-transcript-fixture";
 import {
   DEFAULT_SETTLE_BARS,
   GAP_FRAMES_BAR as SETTLE_GAP_FRAMES_BAR,
@@ -508,6 +508,8 @@ export interface BarLeg {
   readonly row: SettleFramesRow;
   readonly before: number;
   readonly after: number;
+  /** The window's own frames over the leg, from the host's display link. */
+  readonly window: WindowRow;
 }
 
 export async function sampleBarActivation(
@@ -520,6 +522,7 @@ export async function sampleBarActivation(
   const before = await flowOffset(app);
   const mark = await traceMark(app);
   await app.armSettleFrameProbe();
+  await armWindow(app);
   // A short head of quiet ticks before the gesture — the classifier derives the
   // display's frame period from exactly these, so the reading's whole scale
   // depends on there being some.
@@ -551,6 +554,7 @@ export async function sampleBarActivation(
     row: rows[rows.length - 1] as SettleFramesRow,
     before,
     after,
+    window: await readWindowRow(app),
   };
 }
 
@@ -679,6 +683,7 @@ export function expectBar(leg: string, r: BarLeg): void {
     [...probe.violations],
     `${leg}: and by the bench probe's, over the wider window`,
   ).toEqual([]);
+  expectWindowBar(leg, r.window);
 }
 
 /** How a launch binds its session cards. */
@@ -709,6 +714,12 @@ export interface LaunchOptions {
    * loops cost needs the deck seen.
    */
   readonly foreground?: boolean;
+  /**
+   * Launch with body views (`TUG_BODY_VIEWS=1`): every session card's
+   * content in a web view of its own, carried on the host's beats. The cards
+   * are bound and read in their bodies' pages.
+   */
+  readonly bodies?: boolean;
 }
 
 /** The whale arm's default subjects: the first column's two members. */
@@ -716,6 +727,29 @@ export const DEFAULT_WHALE_CARDS = ["at0622-c1", "at0622-c2"] as const;
 
 /** The two arms every settle leg runs on, shared with every other settle test. */
 export { transcriptArms, type TranscriptArm } from "./real-transcript-fixture";
+
+/** One arm a per-gesture settle file runs its legs on. */
+export interface SettleArm {
+  readonly size: TranscriptSize;
+  readonly skip: boolean;
+  /** Whether the deck runs body views, so the gesture carries bodies on the host. */
+  readonly bodies: boolean;
+  /** The arm's name in a test title. */
+  readonly label: string;
+}
+
+/**
+ * The transcript arms, and the slice arm again with body views on: the same
+ * gesture with every session card in a body the host carries, judged by the
+ * same shell bar and by the window's row with a per-body clause
+ * ({@link expectWindowBar}).
+ */
+export function settleArms(): readonly SettleArm[] {
+  return [
+    ...transcriptArms().map((a) => ({ ...a, bodies: false, label: a.size })),
+    { size: "slice", skip: false, bodies: true, label: "slice, bodies" },
+  ];
+}
 
 /** The session cards on a layout blob's active workspace. */
 export function sessionCardsOf(blob: Record<string, unknown>): string[] {
@@ -743,7 +777,7 @@ export async function launch(
   );
   const app = await launchTugApp({
     testName,
-    env: { ...opts.env, TUGBANK_PATH: tugbankPath },
+    env: { ...opts.env, TUGBANK_PATH: tugbankPath, ...(opts.bodies === true ? { TUG_BODY_VIEWS: "1" } : {}) },
     skipAccessibilityPreflight: true,
     persistInTestMode: true,
     restoreInTestMode: true,
@@ -763,6 +797,7 @@ export async function launch(
     size: opts.transcripts ?? "slice",
     whaleCards: opts.whaleCards ?? DEFAULT_WHALE_CARDS,
     label: testName,
+    bodies: opts.bodies === true,
   });
   // The seeded copies under `~/.claude/projects/` remove themselves when the
   // test run ends (each seeder registers with `onTestRunEnd`).
@@ -814,6 +849,8 @@ export interface ColumnLeg {
   readonly probe: SettleFrameReading;
   /** Every settle the four dispatches armed, in release order. */
   readonly rows: readonly SettleFramesRow[];
+  /** The window's own frames over the leg, from the host's display link. */
+  readonly window: WindowRow;
 }
 
 export async function sampleColumnGesture(
@@ -822,6 +859,7 @@ export async function sampleColumnGesture(
 ): Promise<ColumnLeg> {
   const mark = await traceMark(app);
   await app.armSettleFrameProbe();
+  await armWindow(app);
   await wait(120);
   for (let slot = 0; slot < 4; slot += 1) {
     await app.evalJS<null>(
@@ -849,7 +887,7 @@ export async function sampleColumnGesture(
   const probe = await app.takeSettleFrameReading();
   await app.disarmSettleFrameProbe();
   const rows = await settleFrameRows(app, mark);
-  return { probe, rows };
+  return { probe, rows, window: await readWindowRow(app) };
 }
 
 /**
@@ -893,6 +931,7 @@ export function expectColumnBar(leg: string, r: ColumnLeg): void {
         `frame`,
     ).toBeLessThanOrEqual(GAP_FRAMES_BAR);
   }
+  expectWindowBar(leg, r.window);
 }
 
 // ---------------------------------------------------------------------------
@@ -953,6 +992,8 @@ export interface FoldLeg {
   readonly row: SettleFramesRow;
   readonly before: number;
   readonly after: number;
+  /** The window's own frames over the leg, from the host's display link. */
+  readonly window: WindowRow;
 }
 
 /**
@@ -978,6 +1019,7 @@ export async function sampleFold(
   const before = await paneHeightOf(app, FOLD_PANE_ID);
   const mark = await traceMark(app);
   await app.armSettleFrameProbe();
+  await armWindow(app);
   await wait(120);
   await app.evalJS<null>(
     `(window.__tug.dispatchControlAction("set-card-folded", ` +
@@ -1003,6 +1045,7 @@ export async function sampleFold(
     row: rows[rows.length - 1] as SettleFramesRow,
     before,
     after,
+    window: await readWindowRow(app),
   };
 }
 
@@ -1045,6 +1088,7 @@ export function expectFoldBar(leg: string, r: FoldLeg): void {
       `${row.motionLongestGapFrames.toFixed(2)} frames over ${row.ticks} ticks on ` +
       `${row.panes} panes, with ${row.motionGapsOverOneFrame} gap(s) over one frame`,
   ).toBeLessThanOrEqual(FOLD_GAP_FRAMES_BAR);
+  expectWindowBar(leg, r.window);
 }
 
 export function reportFold(leg: string, r: FoldLeg): void {
@@ -2205,6 +2249,8 @@ export interface B09Leg {
   readonly land: SettleLandRow | null;
   /** The deck's commits, arms and gate edges across the leg, in order. */
   readonly sequence: readonly string[];
+  /** The window's own frames over the leg, from the host's display link. */
+  readonly window: WindowRow;
 }
 
 /**
@@ -2232,17 +2278,16 @@ export async function sampleB09Gesture(
   const mark = await traceMark(app);
   await armBeatCensus(app);
   await app.armSettleFrameProbe();
+  await armWindow(app, stallMs);
   await wait(120);
   await app.evalJS<null>(`(${gestureJs}, null)`);
-  // Planted after the dispatch and after the canvas has taken a sample or
-  // two, so it burns between two of the canvas's own samples rather than
-  // ahead of its first — the same reasoning `STALL_PLANTED_AT_MS` carries for
-  // the activation leg, and the whole of why a forced leg falsifies the ROW
-  // rather than only the bench probe.
-  if (stallMs > 0) {
-    await wait(STALL_PLANTED_AT_MS);
-    await app.forceSettleStall(stallMs);
-  }
+  // A forced stall is planted inside the motion: the window's tap plants it
+  // when the motion gate closes behind the launched beats
+  // ({@link armWindow}'s `stallMs`), so it burns between two of the canvas's
+  // own motion samples rather than in the set-up, which the motion clause
+  // leaves out by design. A fixed delay from the dispatch landed in the
+  // set-up on a deck whose set-up posts beat plans to the host, and one
+  // planted after the test saw the close landed after the land.
   await wait(AFTER_LAND_MS);
   try {
     await app.waitForCondition<boolean>(
@@ -2286,6 +2331,7 @@ export async function sampleB09Gesture(
     violations,
     land: lands.length === 0 ? null : lands[lands.length - 1],
     sequence,
+    window: await readWindowRow(app),
   };
 }
 
@@ -2339,6 +2385,14 @@ export function reportB09(leg: string, r: B09Leg): void {
  * settle's own row, which every bar below still reads.
  */
 export function expectBeats(leg: string, r: B09Leg, expected: readonly string[]): void {
+  // With body views the back pane's cut runs as beats of its own on the pane
+  // a carried body crosses (`body-cut`, [B04] of motion-to-the-host); they
+  // are the cut, not the choreography, and are read apart from it.
+  const cuts = r.beatRows.filter((row) => row.recipe === "body-cut");
+  const chrome = r.beatRows.filter((row) => row.recipe !== "body-cut");
+  for (const row of cuts) {
+    expect(row.landing, `${leg}: a body-cut beat was cut short`).toBe("finished");
+  }
   expect(
     [...r.beats],
     `${leg}: the settle ran the choreography this leg is named for, in order ` +
@@ -2347,10 +2401,10 @@ export function expectBeats(leg: string, r: B09Leg, expected: readonly string[])
       `settle that arrived on time along the wrong path`,
   ).toEqual([...expected]);
   expect(
-    r.beatRows.map((row) => row.recipe),
-    `${leg}: every beat wrote its own row, in order — saw ${JSON.stringify(r.beatRows)}`,
+    chrome.map((row) => row.recipe),
+    `${leg}: every beat wrote its own row, in order — saw ${JSON.stringify(chrome)}`,
   ).toEqual([...expected]);
-  for (const row of r.beatRows) {
+  for (const row of chrome) {
     expect(row.targets, `${leg}: the ${row.recipe} beat carried no layers`).toBeGreaterThan(0);
     expect(row.landing, `${leg}: the ${row.recipe} beat was cut short`).toBe("finished");
     expect(
@@ -2434,6 +2488,7 @@ export function expectB09Bar(
   noteBeatStarts(leg, r.beatRows, probe.framePeriodMs);
   expectMotionSealed(leg, row);
   expectLand(leg, r.land, bandShrinks(r.before, r.after), bars.landFrames);
+  expectWindowBar(leg, r.window);
 }
 
 /** Whether any frame standing on both sides of the band got smaller (`settle-bar.ts`). */
@@ -2619,3 +2674,196 @@ export function expectLand(
   ).toBe(true);
 }
 
+// ---------------------------------------------------------------------------
+// The window's own frames ([B08] of motion-to-the-host)
+// ---------------------------------------------------------------------------
+
+/**
+ * How long the host's meter reads the window from a leg's arming: past the
+ * longest leg's land, the four-dispatch column gesture included. A leg that
+ * outruns it is judged to the meter's last tick, and its row says so.
+ */
+export const WINDOW_METER_MS = 8_000;
+
+/** One body the host carried on a plan in the leg, as its display link saw it. */
+export interface WindowBody {
+  readonly cardId: string;
+  /** Ticks across the beats that move it. */
+  readonly activeTicks: number;
+  /** The share of those ticks its presentation advanced on; null with none. */
+  readonly advancedRatio: number | null;
+  /** Its longest run at one position across those beats, ms. */
+  readonly worstStillMs: number;
+}
+
+/**
+ * The window's own frames across the motion: the host's display-link ticks
+ * inside every span the shell's motion gate stood closed, and each body a
+ * beat plan carried. The verb's window row (`tugtool deck motion settle`),
+ * read through the harness's meter rather than the page's.
+ */
+export interface WindowRow {
+  readonly periodMs: number;
+  /** Each close-to-open span of the shell's gate — or, for a settle that
+   *  closes none, each arm-to-release span — ms from the meter's arming. */
+  readonly spans: readonly { fromMs: number; toMs: number }[];
+  readonly ticks: number;
+  /** For each gap over 1.5 periods inside a span, `round(gap / period) - 1`. */
+  readonly missedTicks: number;
+  readonly worstTickGapMs: number;
+  /** Whether the meter's window reached the last span's end. */
+  readonly covered: boolean;
+  readonly bodies: readonly WindowBody[];
+}
+
+/**
+ * Arm the host's display-link meter over the window for the leg, and tap
+ * the shell's trace for the motion's edges. The tap keeps every
+ * `settle-gate`, `settle-arm` and `settle-release` row the page offers
+ * `__deckTrace.record`, stamped on the wall clock, in a list of its own: a
+ * settle that commits as it lands fills the trace's ring past the edges
+ * before the leg's last read, and a ring read by mark would find them gone.
+ * Installed once per page, emptied here. With `stallMs`, the tap plants that
+ * long a task on the probe's tick one frame after the gate next closes.
+ */
+export async function armWindow(app: App, stallMs = 0): Promise<void> {
+  await app.evalJS<null>(
+    `(function () {
+      var trace = window.__deckTrace;
+      if (window.__tugWindowGate === undefined) {
+        var record = trace.record;
+        window.__tugWindowGate = [];
+        trace.record = function (event) {
+          if (event.kind === "settle-gate" && event.phase === "close" && window.__tugWindowStallMs > 0) {
+            // One frame on, so the motion has taken a sample in front of the
+            // stall and the probe burns it between two of the motion's own.
+            var stallMs = window.__tugWindowStallMs;
+            requestAnimationFrame(function () { window.__tug.forceSettleStall(stallMs); });
+            window.__tugWindowStallMs = 0;
+          }
+          if (event.kind === "settle-gate" || event.kind === "settle-arm" || event.kind === "settle-release") {
+            window.__tugWindowGate.push({
+              kind: event.kind,
+              phase: event.kind === "settle-gate" ? event.phase : event.kind === "settle-arm" ? "close" : "open",
+              wall: performance.timeOrigin + performance.now(),
+            });
+          }
+          return record.call(trace, event);
+        };
+      }
+      window.__tugWindowGate.length = 0;
+      window.__tugWindowStallMs = ${stallMs};
+      return null;
+    })()`,
+  );
+  await app.hostFrames({ op: "arm", windowMs: WINDOW_METER_MS });
+}
+
+interface MeterReading {
+  periodMs: number;
+  armedWallMs?: number;
+  tickMs?: number[];
+  layers?: Record<string, { activeTicks: number; advancedRatio: number | null; worstStillMs: number }>;
+}
+
+/**
+ * Read the host's meter, armed by {@link armWindow}, against the shell's
+ * motion gate edges its tap kept. The edges are on the page's
+ * `performance.timeOrigin` clock and the meter's on `Date`'s, so the page's
+ * drift between the two is read in the same task and taken out.
+ */
+export async function readWindowRow(app: App): Promise<WindowRow> {
+  const host = (await app.hostFrames({ op: "read" })) as unknown as MeterReading;
+  const gate = await app.evalJS<{
+    edges: { kind: string; phase: string; wall: number }[];
+    driftMs: number;
+  }>(
+    `(function () {
+      return {
+        edges: (window.__tugWindowGate || []).slice(),
+        driftMs: performance.timeOrigin + performance.now() - Date.now(),
+      };
+    })()`,
+  );
+  const period = host.periodMs;
+  const armed = host.armedWallMs ?? 0;
+  const at = (wall: number): number => wall - gate.driftMs - armed;
+  const spans: { fromMs: number; toMs: number }[] = [];
+  let from: number | null = null;
+  // A settle that launches beats closes the motion gate, and its motion is
+  // close to open. One that closes none — the settled resize's retune — is
+  // judged from its arm to its release instead.
+  const gateEdges = gate.edges.filter((e) => e.kind === "settle-gate");
+  for (const e of gateEdges.length > 0 ? gateEdges : gate.edges) {
+    if (e.phase === "close" && from === null) from = at(e.wall);
+    else if (e.phase === "open" && from !== null) {
+      spans.push({ fromMs: from, toMs: at(e.wall) });
+      from = null;
+    }
+  }
+  const ticks = host.tickMs ?? [];
+  const last = ticks.length === 0 ? 0 : ticks[ticks.length - 1];
+  // No settle row reached the tap: the settle the leg reads armed before the
+  // window did. The whole window is judged, from its arming to its last tick.
+  if (spans.length === 0 && ticks.length > 0) spans.push({ fromMs: 0, toMs: last });
+  const covered = spans.every((s) => last >= s.toMs - 1.5 * period);
+  let missed = 0;
+  let worst = 0;
+  let inside = 0;
+  for (const span of spans) {
+    const to = Math.max(span.fromMs, Math.min(span.toMs, last));
+    const within = ticks.filter((t) => t >= span.fromMs && t <= to);
+    inside += within.length;
+    const edges = [span.fromMs, ...within, to];
+    for (let i = 1; i < edges.length; i += 1) {
+      const gap = edges[i] - edges[i - 1];
+      worst = Math.max(worst, gap);
+      if (gap > 1.5 * period) missed += Math.max(0, Math.round(gap / period) - 1);
+    }
+  }
+  const bodies = Object.entries(host.layers ?? {})
+    .filter(([name]) => name !== "layer")
+    .map(([cardId, l]) => ({
+      cardId,
+      activeTicks: l.activeTicks,
+      advancedRatio: l.advancedRatio,
+      worstStillMs: l.worstStillMs,
+    }));
+  return { periodMs: period, spans, ticks: inside, missedTicks: missed, worstTickGapMs: worst, covered, bodies };
+}
+
+/**
+ * Spec S03's bar on the window: the shell's motion gate closed, no host tick
+ * was missed while it stood closed, and every body a plan carried advanced
+ * on at least 95 % of its beats' ticks and stood still no longer than one
+ * display period. With body views off there are no bodies, and the bar is
+ * the window's ticks alone.
+ */
+export function expectWindowBar(leg: string, w: WindowRow): void {
+  note(
+    `${leg} window: ${w.ticks} host ticks at ${w.periodMs.toFixed(2)} ms over ` +
+      `${w.spans.map((s) => `${s.fromMs.toFixed(0)}→${s.toMs.toFixed(0)}`).join(", ")} ms, ` +
+      `${w.missedTicks} missed, worst gap ${w.worstTickGapMs.toFixed(1)} ms` +
+      (w.covered ? "" : ", the meter closed before the last span's end") +
+      w.bodies
+        .map((b) => `; ${b.cardId} advanced on ${((b.advancedRatio ?? 0) * 100).toFixed(1)}% of ${b.activeTicks} ticks, longest still ${b.worstStillMs.toFixed(1)} ms`)
+        .join(""),
+  );
+  expect(w.spans.length, `${leg}: a settle ran, so there is a motion to judge`).toBeGreaterThan(0);
+  expect(
+    w.missedTicks,
+    `${leg}: the window missed no frame while the motion ran — worst host tick gap ${w.worstTickGapMs.toFixed(1)} ms against a ${w.periodMs.toFixed(2)} ms period`,
+  ).toBe(0);
+  // A body whose plan was taken before its first beat began was never meant
+  // to move; the host drops those spans, and there is nothing to judge.
+  for (const b of w.bodies.filter((body) => body.activeTicks > 0)) {
+    expect(
+      b.advancedRatio ?? 0,
+      `${leg}: ${b.cardId}'s container advanced on at least 95% of the host's ticks across its beats`,
+    ).toBeGreaterThanOrEqual(0.95);
+    expect(
+      b.worstStillMs,
+      `${leg}: ${b.cardId}'s container stood still no longer than one display period`,
+    ).toBeLessThanOrEqual(w.periodMs * 1.05);
+  }
+}

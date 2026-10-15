@@ -283,6 +283,16 @@ class ProcessManager {
         return value.caseInsensitiveCompare("true") == .orderedSame
     }
 
+    /// Read a number from tugbank, or nil when the key is missing or its
+    /// value does not read as one.
+    static func readTugbankDouble(domain: String, key: String) -> Double? {
+        if let client = TugbankClient.shared {
+            return client.getDouble(domain: domain, key: key)
+        }
+        guard let value = readTugbank(domain: domain, key: key) else { return nil }
+        return Double(value)
+    }
+
     /// Write a string value to tugbank.
     @discardableResult
     static func writeTugbank(domain: String, key: String, value: String) -> Bool {

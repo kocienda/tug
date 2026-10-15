@@ -35,11 +35,11 @@ import {
   sampleB09Gesture,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0702-settle-appear";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /**
  * A card appearing and a card leaving, each against the bar.
@@ -74,12 +74,12 @@ const ARMS = transcriptArms();
  * window. The reading is in `briefs/zero-red-app-tests-brief.md`.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0702 — a card appears, at the bar [${arm.size}]`,
+  `at0702 — a card appears, at the bar [${arm.label}]`,
   () => {
     test(
       "a card arriving into a split column holds the bar across room and arrive",
       async () => {
-        const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(8, columnBlob(), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
           await home(app);

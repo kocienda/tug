@@ -97,7 +97,9 @@ import {
   landRecorder,
 } from "@/lib/land-frame-record";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
-import { bodyHideUnder } from "@/lib/body-placement";
+import { bodyHideUnder, bodyRunPlan } from "@/lib/body-placement";
+import { viewportRect, type FrameBeat } from "@/lib/body-beat-plan";
+import { hostCapabilitiesStore } from "@/lib/body-handoff";
 import { useCardLifecycle } from "@/lib/card-lifecycle";
 import {
   MAX_FLIP_SCALE_DISTORTION,
@@ -130,7 +132,7 @@ import {
   dropPendingFlash,
 } from "@/lib/flash-pane-border";
 import { tugDevLogStore } from "@/lib/tug-dev-log-store/tug-dev-log-store";
-import { layoutRectOf } from "@/lib/page-zoom-store";
+import { layoutRectOf, pageZoomFactor } from "@/lib/page-zoom-store";
 import {
   FLOW_OFFSET_FRAME_READERS,
   writeCanvasFlowOffset,
@@ -307,6 +309,25 @@ function postDisplayPeriod(): void {
   if (conn === null) return;
   postedDisplayPeriodMs = periodMs;
   conn.setDisplayPeriod(periodMs);
+}
+
+/**
+ * The settle's start on the document timeline, when the host carries bodies:
+ * the next frame after planning, as a number both sides know. Every chrome
+ * beat of the settle starts at it and the beat plan's wall-clock start is
+ * read from it, so the host starts a body's beats on the chrome's clock.
+ * Undefined without bodies, where the chrome keeps its implicit start — the
+ * rendering update the planning task ends in, within a frame of this.
+ */
+function settleStartTime(): number | undefined {
+  if (!hostCapabilitiesStore.get().bodyViews) return undefined;
+  const now = document.timeline.currentTime;
+  return typeof now === "number" ? now + settleGapSampler.periodMs() : undefined;
+}
+
+/** A layout-px rect from the settle's record, as the planner's viewport px. */
+function viewportRectOf(rect: DOMRect, factor: number): { x: number; y: number; width: number; height: number } {
+  return viewportRect({ x: rect.left, y: rect.top, width: rect.width, height: rect.height }, factor);
 }
 
 /** {@link putSettlingMarkOn}'s inverse: the container's mark and every frame's. */
@@ -2291,9 +2312,33 @@ export function useSettleEngine({
         const movers = armed.filter(({ frame }) =>
           frame.matches(FLOW_OFFSET_FRAME_READERS),
         );
-        // The bodies under the frames the slide carries hide for its length,
-        // as the Last pass hides them for the beats it plans.
-        bodyHideUnder(movers.map(({ frame }) => frame));
+        // The bodies under the frames the slide carries ride it on the host,
+        // on the slide's own curve from the slide's own start; a body the
+        // planner cannot carry hides for the slide's length, as it did
+        // before the host carried any. The prelaunch measured nothing, so
+        // each frame's First is the placer's last box, and its Last is that
+        // box less `dx`: `First - Last = dx` in layout px.
+        const startTime = settleStartTime();
+        if (startTime === undefined) {
+          bodyHideUnder(movers.map(({ frame }) => frame));
+        } else {
+          const factor = pageZoomFactor();
+          const beat: FrameBeat = {
+            kind: "move",
+            terms: { dx, dy: 0 },
+            delayMs: 0,
+            durationMs: curve.durationMs * getTugTiming(),
+            progress: curve.progress,
+          };
+          bodyRunPlan({
+            startTime,
+            factor,
+            periodMs: settleGapSampler.periodMs(),
+            record: recordBeat,
+            allowCrossing: true,
+            frames: movers.map(({ frame }) => ({ frame, first: null, last: { dx: -dx * factor }, beats: [beat] })),
+          });
+        }
         // The first beat. Its start pose is the origin the inverse is scaled
         // about; the inverse itself is held by the effect's `backwards` fill,
         // from the store's own delta rather than a measurement.
@@ -2310,6 +2355,7 @@ export function useSettleEngine({
           slotCancelMode: "hold-at-current",
           easing: "linear",
           key: "imposer-flip-move",
+          startTime,
           record: recordBeat,
           onLand: () => {
             if (prelaunchRef.current?.token !== token) return;
@@ -3693,12 +3739,47 @@ export function useSettleEngine({
       if (totalMs > crossing.durationMs) {
         settleSweepRef.current?.(holdCapMs(totalMs, getTugTiming()));
       }
-      // The bodies under the frames these beats carry are hidden here, in
-      // the pass that plans the motion and before its first frame paints,
-      // and shown again by the land's measurement: a body is never shown
-      // under moving chrome (`lib/body-placement.ts`, the interim until the
-      // host carries bodies through a beat itself).
-      bodyHideUnder(choreography.map((c) => c.frame));
+      // The bodies under the frames these beats carry are planned here, in
+      // the pass that plans the motion and before its first frame paints:
+      // each rides its frame's beats on the host, on the curves and delays
+      // the chrome's own beats are built from, from the one start every beat
+      // of this settle shares. A body the planner cannot carry — one whose
+      // box changes size, one placed somewhere its frame is not — is hidden
+      // for the motion and shown again by the land's measurement, as every
+      // body was before the host carried any (`lib/body-placement.ts`).
+      const startTime = settleStartTime();
+      if (startTime === undefined) {
+        bodyHideUnder(choreography.map((c) => c.frame));
+      } else {
+        const factor = pageZoomFactor();
+        const timing = getTugTiming();
+        const delayOf = new Map(schedule.map((b) => [b.kind, b.delayMs]));
+        bodyRunPlan({
+          startTime,
+          factor,
+          periodMs: settleGapSampler.periodMs(),
+          record: recordBeat,
+          allowCrossing: true,
+          frames: choreography.map((c) => {
+            const first = firstRects.get(c.paneId);
+            return {
+              frame: c.frame,
+              first: first === undefined ? null : viewportRectOf(first, factor),
+              last: viewportRectOf(lastRectOf(c.frame), factor),
+              beats: c.beats.map((b) => {
+                const curve = beatCurve(b.kind);
+                return {
+                  kind: b.kind,
+                  terms: b.terms,
+                  delayMs: (delayOf.get(b.kind) ?? 0) * timing,
+                  durationMs: curve.durationMs * timing,
+                  progress: curve.progress,
+                };
+              }),
+            };
+          }),
+        });
+      }
       // The land, pre-paid ([B04]): each settled interior pays its pin, its
       // restore, its extent rebase and its re-window now, inside the set-up
       // commit, against the geometry the first frame paints — so the land
@@ -3768,7 +3849,7 @@ export function useSettleEngine({
           begin();
           return;
         }
-        const marker = timelineMark(el, delayMs);
+        const marker = timelineMark(el, delayMs, startTime);
         beatMarkers.push(marker);
         void marker.finished.then(
           () => {
@@ -3798,6 +3879,7 @@ export function useSettleEngine({
         let landedByArm = false;
         const beat = planBeat({
           ...options,
+          startTime,
           record: recordBeat,
           onLand: () => {
             if (

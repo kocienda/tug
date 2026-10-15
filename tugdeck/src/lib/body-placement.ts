@@ -48,12 +48,18 @@
  * a body never stands still under moving chrome or shows the window through
  * an open hole as its chrome leaves.
  *
- * **The panes are cut the same way.** The shell paints every pane above every
- * body, so where two panes overlap the back pane's border and chrome would
- * lie over the front card's body. Each pane behind a visible body wears an
- * even-odd `clip-path` with a hole at every front body's rect, written from
- * the same placement that cuts the floor, so the shell paints nothing of a
- * back card inside a front body's rect ([F16]).
+ * **The floor is the host's.** Beneath the bodies the host draws the canvas
+ * colour and the grid itself, from the `floorGrid` this posts once per theme
+ * and zoom, so the shell cuts no floor and nothing in it follows a body.
+ * The page's own canvas stands down only once the host says its floor is on
+ * screen (`floorShown`).
+ *
+ * **The panes are cut.** The shell paints every pane above every body, so
+ * where two panes overlap the back pane's border and chrome would lie over
+ * the front card's body. Each pane behind a visible body wears an even-odd
+ * `clip-path` with a hole at every front body's rect, written from the
+ * placement, so the shell paints nothing of a back card inside a front
+ * body's rect ([F16]).
  *
  * A set unchanged since the last post posts nothing.
  *
@@ -64,22 +70,26 @@
  * the hand while the content stood where the last commit put it. So the
  * gesture tells the placer each frame it moves the frame
  * ({@link bodyFollowFrame}), and the placer re-posts that one body at the
- * rect its placeholder now has and moves the floor's hole with it. The host
+ * rect its placeholder now has and re-cuts the panes behind it. The host
  * places it in a transaction with no animation, so the body stands where
  * the chrome stands, frame for frame.
  *
  * **A beat carrying a frame.** A settle's beats tween a frame from where it
  * stood to where the commit put it, and the placer measures nothing until
  * the land — so for the beat's length the body would stand still at its
- * First rect while the chrome slid away from it, and jump at the land. Until
- * the host carries bodies through a beat itself, the interim is to hide:
- * the settle engine tells the placer which frames its beats will move
- * ({@link bodyHideUnder}) in the pass that plans them, before their first
- * frame paints, and the placer hides every body under those frames at the
- * rects it had, closes their holes and puts their lids on. The chrome moves
- * carrying a blank card; the land's measurement posts the body visible at
- * its new rect, the host shows it under the lid, and the lid lifts. A body
- * is never shown under moving chrome.
+ * First rect while the chrome slid away from it, and jump at the land. So
+ * the host carries it: in the pass that plans the beats, before their first
+ * frame paints, the settle engine hands the placer the frames its beats will
+ * move ({@link bodyRunPlan}), and the placer plans each body under them
+ * (`lib/body-beat-plan.ts`) and posts the host a `beatPlan` — each beat's
+ * rects, curve and delay from a start both sides know. The host runs the
+ * body's container as Core Animation on it, and the planned landing is
+ * adopted as posted, so the land's measurement is not news. A body the
+ * planner refuses — one whose box changes size, one whose placement is not
+ * where its frame stands — is hidden for the motion instead: at the rect it
+ * had, its holes closed and its lid on, and the land's measurement shows it
+ * again where the chrome stopped. A body is never shown standing still
+ * under moving chrome.
  *
  * Laws: [L06] (the rects are appearance, posted to the host and never React
  * state), [L03] (measured in a layout effect), [L22] (direct observation of
@@ -94,9 +104,29 @@ import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
 import { bodyCardsStore } from "./body-cards-store";
 import { hostCapabilitiesStore, postToHost } from "./body-handoff";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
-import { pageZoomStore } from "./page-zoom-store";
+import { subscribeOnScreenTheme } from "../contexts/theme-provider";
+import { deckRootElement, pageZoomStore } from "./page-zoom-store";
 import { deferToSetUp, isSetUpPending } from "./set-up-apply";
 import { IMPOSER_SETTLE_END } from "./settle-notice";
+import {
+  cutWindow,
+  frameRectBeats,
+  paneCutKeyframes,
+  planBodyBeats,
+  shellWallMs,
+  sweptUnionCut,
+  type BeatPlan,
+  type BodyBeat,
+  type BodyBeats,
+  type CarriedFrame,
+  type CutFront,
+  type FrameBeat,
+  type Insets,
+  type Rect,
+} from "./body-beat-plan";
+import { planBeat, type Beat, type BeatRow } from "../components/tugways/tug-animator";
+import { getTugTiming } from "./scale-timing";
+import { deckTrace } from "../deck-trace";
 
 // ---------------------------------------------------------------------------
 // The rule
@@ -192,6 +222,15 @@ export class PlacementPoster {
     this.post(placement);
     return true;
   }
+
+  /**
+   * Take `placement` as what the host already holds, without posting it.
+   * For rects the host reaches on its own — a beat plan's landing — so the
+   * measurement that reads the same rects at the land is not news.
+   */
+  adopt(placement: PlaceBodies): void {
+    this.last = placement;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,16 +240,16 @@ export class PlacementPoster {
 /**
  * The shell is a page above the bodies, and a page paints its canvas — the
  * `body` colour and the deck root's grid — over everything beneath it. So on
- * a host that makes bodies the page's own canvas goes transparent
- * (`html[data-body-host]`, `globals.css`) and the canvas is painted instead
- * by a floor the placer stands under the deck, cut with a hole at every
- * visible body's rect so the body shows through. The hole is a `clip-path`
- * polygon with the even-odd rule: the floor's whole box, then one square
- * per body, each traced inside it — cheap to composite, and only rewritten
- * when a placement changes.
+ * a host that makes bodies the canvas is the host's: a floor view beneath
+ * the bodies (`DeckFloorView`, `BodyViewController.swift`) draws the canvas
+ * colour and the grid, from the `floorGrid` the placer posts once per theme
+ * and zoom. The shell cuts nothing for it, and nothing in the shell follows
+ * a body across it. The page's own canvas stands down
+ * (`html[data-body-host]`, `globals.css`) only once the host answers
+ * `floorShown` — its floor is on screen — so no frame shows the splash or
+ * the bare window where the canvas belongs.
  */
-export const FLOOR_ATTRIBUTE = "data-deck-canvas-floor";
-/** On `html` while a floor stands: the page's own canvas paint stands down. */
+/** On `html` once the host's floor is on screen: the page's own canvas paint stands down. */
 export const BODY_HOST_ATTRIBUTE = "data-body-host";
 /**
  * On a body placeholder once the host has shown its body: the lid lifts.
@@ -218,8 +257,63 @@ export const BODY_HOST_ATTRIBUTE = "data-body-host";
  */
 export const BODY_SHOWN_ATTRIBUTE = "data-body-shown";
 
-/** A hole in the floor, in the floor's own px. */
-export interface FloorHole {
+/** The canvas colour and grid the host's floor draws, in viewport points. */
+export interface FloorGrid {
+  /** `#rrggbb`. */
+  readonly canvas: string;
+  /** `#rrggbb`, or `rgba(r, g, b, a)` for a grid with alpha. */
+  readonly grid: string;
+  /** The grid's cell, layout px. */
+  readonly cellPx: number;
+  /** The line's width, layout px. */
+  readonly linePx: number;
+  /** The deck root's scale. */
+  readonly zoom: number;
+  /** The deck root's viewport origin, where the first lines fall. */
+  readonly originX: number;
+  readonly originY: number;
+}
+
+/** The grid's cell and line, as `globals.css` paints them on the deck root. */
+const GRID_CELL_PX = 24;
+const GRID_LINE_PX = 1;
+
+const CANVAS_TOKEN = "--tug7-surface-global-primary-normal-canvas-rest";
+const GRID_TOKEN = "--tug7-surface-global-primary-normal-grid-rest";
+
+/**
+ * A CSS colour as the host can draw it: `#rrggbb` when opaque, else
+ * `rgba(r, g, b, a)`, or null for an empty value. The tokens are `oklch()`
+ * strings, which the host does not parse, so the colour is resolved the way
+ * the page paints it, through a 2D canvas's sRGB pixel.
+ */
+function resolveColor(value: string): string | null {
+  if (value.trim() === "") return null;
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (ctx === null) return null;
+  ctx.fillStyle = value;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+  if (a === 255) return `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+  return `rgba(${r}, ${g}, ${b}, ${Math.round((a / 255) * 1000) / 1000})`;
+}
+
+/** Whether two `floorGrid`s say the same thing to the host. */
+export function sameFloorGrid(a: FloorGrid | null, b: FloorGrid): boolean {
+  return (
+    a !== null &&
+    a.canvas === b.canvas &&
+    a.grid === b.grid &&
+    a.cellPx === b.cellPx &&
+    a.linePx === b.linePx &&
+    a.zoom === b.zoom &&
+    a.originX === b.originX &&
+    a.originY === b.originY
+  );
+}
+
+/** A hole a body cuts in a pane behind it, in the pane's own px. */
+export interface BodyHole {
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -227,36 +321,27 @@ export interface FloorHole {
 }
 
 /**
- * The floor's `clip-path` for these holes: an even-odd `path()` that is the
- * whole box as one subpath and each hole as another, or `""` (no clip) when
- * there is none. A `path()`, never a `polygon()`: a polygon is ONE closed
- * ring, so a box and its holes listed as one would be a single zigzag whose
- * even-odd fill cuts triangles between the holes — which is what three cards
- * on a deck showed. Each hole is clamped to the box, and one with no area is
- * dropped.
- */
-export function floorClipPath(holes: readonly FloorHole[], width: number, height: number): string {
-  return evenOddClip(holes, 0, 0, width, height);
-}
-
-/**
  * How far past a pane's box its clip's outer ring reaches, in px: a pane's
  * clip exists only for its holes, so the ring must cut nothing a pane
  * paints outside its own box — a popover, a ring, a shadow.
  */
-const PANE_CLIP_REACH_PX = 100_000;
+export const PANE_CLIP_REACH_PX = 100_000;
 
 /**
- * A pane's `clip-path` for these holes, in the pane's own px: the same
- * even-odd path as the floor's, with an outer ring far past the pane's
- * box, or `""` when there is no hole.
+ * A pane's `clip-path` for these holes, in the pane's own px: an even-odd
+ * `path()` that is an outer ring far past the pane's box as one subpath and
+ * each hole as another, or `""` (no clip) when there is none. A `path()`,
+ * never a `polygon()`: a polygon is ONE closed ring, so a box and its holes
+ * listed as one would be a single zigzag whose even-odd fill cuts triangles
+ * between the holes — which is what three cards on a deck showed. Each hole
+ * is clamped to the ring, and one with no area is dropped.
  */
-export function paneClipPath(holes: readonly FloorHole[]): string {
+export function paneClipPath(holes: readonly BodyHole[]): string {
   const r = PANE_CLIP_REACH_PX;
   return evenOddClip(holes, -r, -r, r, r);
 }
 
-function evenOddClip(holes: readonly FloorHole[], x0: number, y0: number, x1: number, y1: number): string {
+function evenOddClip(holes: readonly BodyHole[], x0: number, y0: number, x1: number, y1: number): string {
   const n = (v: number): number => Math.round(v * 100) / 100;
   const subpaths: string[] = [];
   for (const hole of holes) {
@@ -272,20 +357,21 @@ function evenOddClip(holes: readonly FloorHole[], x0: number, y0: number, x1: nu
 }
 
 /**
- * The holes a placement cuts: the union of every visible body's rect, as
- * disjoint pieces. Even-odd closes what two holes cover twice, and two
- * bodies can stand on one rect — two panes laid over each other, a card
- * measured twice — so the rects are first cut along every edge into cells
- * and each covered cell is one hole, none overlapping another.
+ * The holes a placement's visible bodies cut, in viewport px: the union of
+ * their rects, as disjoint pieces. Even-odd closes what two holes cover
+ * twice, and two bodies can stand on one rect — two panes laid over each
+ * other, a card measured twice — so the rects are first cut along every
+ * edge into cells and each covered cell is one hole, none overlapping
+ * another.
  */
-export function floorHoles(placement: PlaceBodies): FloorHole[] {
+export function bodyHoles(placement: PlaceBodies): BodyHole[] {
   const rects = placement.bodies
     .filter((b) => b.visible && b.width > 0 && b.height > 0)
     .map((b) => ({ x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height }));
   if (rects.length === 0) return [];
   const xs = [...new Set(rects.flatMap((r) => [r.x1, r.x2]))].sort((a, b) => a - b);
   const ys = [...new Set(rects.flatMap((r) => [r.y1, r.y2]))].sort((a, b) => a - b);
-  const holes: FloorHole[] = [];
+  const holes: BodyHole[] = [];
   for (let j = 0; j + 1 < ys.length; j++) {
     for (let i = 0; i + 1 < xs.length; i++) {
       const cx = (xs[i] + xs[i + 1]) / 2;
@@ -316,7 +402,7 @@ export interface PaneBox {
  * paints nothing inside them ([F16]). A pane in no body's way, or in front
  * of them all, wears none.
  */
-export function paneHoles(placement: PlaceBodies, pane: PaneBox): FloorHole[] {
+export function paneHoles(placement: PlaceBodies, pane: PaneBox): BodyHole[] {
   if (!(pane.width > 0 && pane.height > 0 && pane.layoutWidth > 0)) return [];
   const scale = pane.width / pane.layoutWidth;
   const fronts = placement.bodies.filter(
@@ -330,7 +416,7 @@ export function paneHoles(placement: PlaceBodies, pane: PaneBox): FloorHole[] {
       b.y < pane.y + pane.height &&
       b.y + b.height > pane.y,
   );
-  return floorHoles({ radius: placement.radius, bodies: fronts }).map((h) => ({
+  return bodyHoles({ radius: placement.radius, bodies: fronts }).map((h) => ({
     x: (h.x - pane.x) / scale,
     y: (h.y - pane.y) / scale,
     width: h.width / scale,
@@ -415,16 +501,6 @@ export function hiddenSince(deck: IDeckManagerStore, placement: PlaceBodies): Pl
   return changed ? { radius: placement.radius, bodies } : null;
 }
 
-/** The floor's viewport box and its layout size, as the last measurement read them. */
-interface FloorBox {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-  readonly layoutWidth: number;
-  readonly layoutHeight: number;
-}
-
 /**
  * The shell's placer: measures when asked, unless a settle holds the
  * geometry, and posts what changed. One per deck, started by the deck's
@@ -433,10 +509,10 @@ interface FloorBox {
 export class BodyPlacer {
   private readonly poster = new PlacementPoster((p) => postToHost("placeBodies", p));
   private container: HTMLElement | null = null;
-  private floor: HTMLElement | null = null;
-  private floorClip = "";
-  /** The floor's box and layout size, read in the last measurement. */
-  private floorBox: FloorBox | null = null;
+  /** The last `floorGrid` posted, so a re-post that says nothing new is not sent. */
+  private floorGrid: FloorGrid | null = null;
+  /** The host's first `floorShown`, for {@link bodyPlacementDiag}. */
+  private floorReport: FloorShownReport | null = null;
   /** Every pane's box and order, read in the last measurement, and the cut each wears. */
   private paneBoxes = new Map<HTMLElement, PaneBox>();
   private readonly paneClips = new Map<HTMLElement, string>();
@@ -449,6 +525,22 @@ export class BodyPlacer {
   /** Why the last measurement was declined, for {@link bodyPlacementDiag}. */
   private lastSkip: string | null = null;
   private measures = 0;
+  /** The last beat plan's id; each plan takes the next. */
+  private planSerial = 0;
+  /** The bodies a posted plan is carrying, until the host says it landed or was cancelled. */
+  private readonly inFlight = new Map<string, { planId: number; landing: Rect }>();
+  /** What the last {@link runPlan} decided, and what the host has said of it since. */
+  private lastPlan: BeatPlanReport | null = null;
+  /** How many times {@link runPlan} has run, so a reader can tell its last report is new. */
+  private planRuns = 0;
+  /**
+   * The moving cut each back pane wears through a plan, and the static cut
+   * it lands on. A newer plan or any placement cancels it; a cut that runs
+   * out writes its landing cut, since the animator commits the last keyframe.
+   */
+  private readonly cutBeats = new Map<HTMLElement, { beat: Beat; landClip: string }>();
+  /** How the last plan cut each pane it touched, for {@link bodyPlacementDiag}. */
+  private lastCuts: Record<string, "moving" | "union"> = {};
 
   constructor(private readonly deck: IDeckManagerStore) {}
 
@@ -469,11 +561,17 @@ export class BodyPlacer {
     this.measure();
   };
 
-  /** Measure once on the far side of the next paint. Coalesces. */
+  /**
+   * Re-post the floor and measure, once, on the far side of the next paint.
+   * Coalesces. The floor is posted here rather than in {@link measure} so
+   * a deck with no bodies still has one, and so the per-commit measurement
+   * pays no token read.
+   */
   schedule = (): void => {
     if (this.cancelScheduled !== null) return;
     this.cancelScheduled = scheduleAfterPaint(() => {
       this.cancelScheduled = null;
+      this.postFloor();
       this.measure();
     });
   };
@@ -496,13 +594,11 @@ export class BodyPlacer {
     this.lastSkip = null;
     this.measures += 1;
     const placement = measurePlacements(this.deck, container);
-    this.floorBox = this.readFloorBox();
     this.paneBoxes = this.readPaneBoxes(container);
     this.poster.offer(placement);
     // A measurement is the whole truth: a body it shows is no longer one a
     // pending hide may take back after the paint, and `shown` may lift its lid.
     for (const b of placement.bodies) if (b.visible) this.hiding.delete(b.cardId);
-    this.cutFloor(placement);
     this.cutPanes(placement);
     this.lidHidden(placement, container);
     this.observePlaceholders(container);
@@ -510,10 +606,11 @@ export class BodyPlacer {
 
   /**
    * Hide, now, every body the last placement showed whose facts no longer
-   * show it: post the placement with those marked hidden, close their holes,
-   * and put their lids on. No DOM is read — the rects are the last posted,
-   * the floor's box the last measured — so this runs inside a settle's
-   * set-up without a layout of its own ([D211]).
+   * show it: post the placement with those marked hidden, close the holes
+   * they cut in the panes behind them, and put their lids on. No DOM is
+   * read — the rects are the last posted, the panes' boxes the last
+   * measured — so this runs inside a settle's set-up without a layout of
+   * its own ([D211]).
    */
   private hideWhatLeft(): void {
     const last = this.poster.lastPosted;
@@ -535,7 +632,6 @@ export class BodyPlacer {
     for (const b of next.bodies) {
       if (!b.visible && (last?.bodies.some((p) => p.cardId === b.cardId && p.visible) ?? false)) this.hiding.add(b.cardId);
     }
-    this.cutFloor(next);
     this.cutPanes(next);
     this.lidHidden(next, container);
     this.cancelHidePost ??= scheduleAfterPaint(() => {
@@ -562,10 +658,10 @@ export class BodyPlacer {
   /**
    * A gesture moved `frame` without a commit: a pane drag's pointer frame,
    * its cancel, or its drop landing's tween. Re-post every body whose
-   * placeholder stands in the frame at the rect it has now, and cut the
-   * floor to match. Reads the placeholders' rects, which is the one answer
-   * that cannot drift from what the user sees under the hand; a frame
-   * carrying no posted body posts nothing.
+   * placeholder stands in the frame at the rect it has now, and re-cut the
+   * panes behind it to match. Reads the placeholders' rects, which is the
+   * one answer that cannot drift from what the user sees under the hand; a
+   * frame carrying no posted body posts nothing.
    */
   follow(frame: HTMLElement): void {
     const last = this.poster.lastPosted;
@@ -591,7 +687,6 @@ export class BodyPlacer {
       const rect = frame.getBoundingClientRect();
       this.paneBoxes.set(frame, { ...box, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
     }
-    this.cutFloor(next);
     this.cutPanes(next);
   }
 
@@ -603,15 +698,18 @@ export class BodyPlacer {
    * land's measurement shows them again where the chrome has come to rest.
    */
   hideUnder(frames: readonly HTMLElement[]): void {
+    const under = new Set<string>();
+    for (const frame of frames) {
+      for (const cardId of bodiesIn(frame)) under.add(cardId);
+    }
+    this.hideCards(under);
+  }
+
+  /** Hide, now, every shown body named in `under`, at the rect it had, and lid it ([D211]: no layout). */
+  private hideCards(under: ReadonlySet<string>): void {
     const last = this.poster.lastPosted;
     const container = this.container;
     if (last === null || container === null) return;
-    const under = new Set<string>();
-    for (const frame of frames) {
-      for (const el of frame.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
-        if (el.dataset.cardId !== undefined) under.add(el.dataset.cardId);
-      }
-    }
     if (under.size === 0) return;
     let changed = false;
     const bodies = last.bodies.map((b) => {
@@ -622,6 +720,236 @@ export class BodyPlacer {
     if (!changed) return;
     const next: PlaceBodies = { radius: last.radius, bodies };
     this.hideNow(next, container);
+  }
+
+  /**
+   * A settle is about to move `input.frames`: plan the bodies under them to
+   * move with the chrome, post the plan, and hide only the bodies the
+   * planner refuses, as {@link hideUnder} hides every one.
+   *
+   * The planned bodies' landing rects are adopted as posted — the host
+   * reaches them on its own — so the land's measurement, which reads the
+   * same rects, posts nothing and nothing snaps. No layout is read: the
+   * placement and the panes' boxes are the last measurement's ([D211]).
+   */
+  runPlan(input: RunPlanInput): void {
+    const last = this.poster.lastPosted;
+    if (last === null || this.container === null) return;
+    this.planRuns += 1;
+    const frames: CarriedFrame[] = [];
+    const bodiesInFrame = new Map<string, string[]>();
+    const insets = new Map<string, Insets>();
+    const unplannable = new Set<string>();
+    input.frames.forEach((f, i) => {
+      const cardIds = bodiesIn(f.frame);
+      if (cardIds.length === 0) return;
+      const box = this.paneBoxes.get(f.frame);
+      const first = f.first ?? (box === undefined ? null : { x: box.x, y: box.y, width: box.width, height: box.height });
+      if (first === null) {
+        for (const cardId of cardIds) unplannable.add(cardId);
+        return;
+      }
+      const paneId = `frame-${i}`;
+      const lastRect = "dx" in f.last ? { ...first, x: first.x + f.last.dx } : f.last;
+      frames.push({ paneId, first, last: lastRect, beats: f.beats });
+      bodiesInFrame.set(paneId, cardIds);
+      if (box === undefined) return;
+      for (const cardId of cardIds) {
+        const b = last.bodies.find((p) => p.cardId === cardId);
+        if (b === undefined) continue;
+        insets.set(cardId, {
+          top: b.y - box.y,
+          left: b.x - box.x,
+          right: box.x + box.width - (b.x + b.width),
+          bottom: box.y + box.height - (b.y + b.height),
+        });
+      }
+    });
+    const out = planBodyBeats({
+      frames,
+      placement: last,
+      insets,
+      bodiesInFrame,
+      stillShown: (cardId) => {
+        const facts = shownFactsOf(this.deck, cardId);
+        return facts !== null && bodyVisible(facts);
+      },
+      factor: input.factor,
+      allowCrossing: input.allowCrossing === true,
+    });
+    let planId: number | null = null;
+    if (out.plan.length > 0) {
+      planId = ++this.planSerial;
+      const plan: BeatPlan = { planId, startWallMs: shellWallMs(input.startTime), bodies: out.plan };
+      postToHost("beatPlan", plan);
+      for (const b of out.plan) {
+        deckTrace.record({
+          kind: "body-beat",
+          cardId: b.cardId,
+          planId,
+          beats: b.beats.length,
+          startWallMs: plan.startWallMs,
+          spanMs: Math.max(0, ...b.beats.map((beat) => beat.delayMs + beat.durationMs)),
+          landed: null,
+          lateMs: null,
+        });
+      }
+      const landings = new Map(out.plan.map((b) => [b.cardId, b.landing]));
+      for (const b of out.plan) this.inFlight.set(b.cardId, { planId, landing: b.landing });
+      this.poster.adopt({
+        radius: last.radius,
+        bodies: last.bodies.map((b) => {
+          const r = landings.get(b.cardId);
+          return r === undefined ? b : { ...b, x: r.x, y: r.y, width: r.width, height: r.height };
+        }),
+      });
+    }
+    this.lastPlan = {
+      planId,
+      planned: out.plan.map((b) => b.cardId),
+      refused: [...out.refused, ...unplannable],
+      reasons: out.reasons,
+      landed: [],
+      cancelled: [],
+    };
+    const refused = new Set([...out.refused, ...unplannable]);
+    this.hideCards(refused);
+    this.cutMoving(input, out.plan, last, refused);
+  }
+
+  /**
+   * Cut every back pane the plan moves geometry around: a pane behind a
+   * planned body whose rect meets it at any sample, or a pane that moves
+   * under a body standing still. Each gets a `clip-path` beat on the plan's
+   * start, keyed to the samples of the beat that moves the geometry, so the
+   * hole rides with the body as the host carries it ([B04]); where two front
+   * bodies overlap inside one pane, even-odd would close what both cover,
+   * and the pane wears the swept union for the motion's length instead.
+   */
+  private cutMoving(input: RunPlanInput, plan: readonly BodyBeats[], last: PlaceBodies, refused: ReadonlySet<string>): void {
+    this.cancelCuts();
+    this.lastCuts = {};
+    const timing = getTugTiming();
+    const planned = new Map(plan.map((b) => [b.cardId, b]));
+    // Every moving frame's own walk, whether or not it holds a body.
+    const own = new Map<HTMLElement, BodyBeat[]>();
+    input.frames.forEach((f, i) => {
+      const box = this.paneBoxes.get(f.frame);
+      const first = f.first ?? (box === undefined ? null : { x: box.x, y: box.y, width: box.width, height: box.height });
+      if (first === null) return;
+      const lastRect = "dx" in f.last ? { ...first, x: first.x + f.last.dx } : f.last;
+      const beats = frameRectBeats({ paneId: `frame-${i}`, first, last: lastRect, beats: f.beats }, input.factor);
+      if (beats !== null) own.set(f.frame, beats);
+    });
+    // Where the bodies stand when the plan lands: the planned at their
+    // landings, the rest where they are, the refused hidden.
+    const landed: PlaceBodies = {
+      radius: last.radius,
+      bodies: last.bodies.map((b) => {
+        const p = planned.get(b.cardId);
+        if (p !== undefined) return { ...b, ...p.landing };
+        return refused.has(b.cardId) ? { ...b, visible: false } : b;
+      }),
+    };
+    for (const [pane, box] of this.paneBoxes) {
+      if (!pane.isConnected) continue;
+      const fronts = last.bodies.filter((b) => b.visible && b.z > box.z && !refused.has(b.cardId));
+      const moving: CutFront[] = fronts.map((b) => planned.get(b.cardId) ?? { x: b.x, y: b.y, width: b.width, height: b.height });
+      const paneBeats = own.get(pane);
+      const window = cutWindow([...(paneBeats ?? []), ...moving.flatMap((f) => ("beats" in f ? f.beats : []))], input.periodMs);
+      if (window === null) continue;
+      // A period's reach either side: the cut is the main thread's, the body the compositor's.
+      const keyframes = paneCutKeyframes({ box, ...(paneBeats !== undefined ? { beats: paneBeats } : {}) }, moving, window, input.periodMs);
+      if (keyframes === null) continue;
+      const name = pane.dataset.paneId ?? `pane-${box.z}`;
+      if (keyframes === "union") {
+        // The fronts' First and Last in the pane's own frame, which moves.
+        const end = paneBeats?.[paneBeats.length - 1]?.to;
+        const dx = end === undefined ? 0 : end.x - box.x;
+        const dy = end === undefined ? 0 : end.y - box.y;
+        const union = sweptUnionCut(
+          box,
+          moving.map((f) => {
+            if (!("beats" in f)) return { first: f, last: { ...f, x: f.x - dx, y: f.y - dy } };
+            const first = f.beats.length > 0 ? f.beats[0].from : f.landing;
+            return { first, last: { ...f.landing, x: f.landing.x - dx, y: f.landing.y - dy } };
+          }),
+        );
+        pane.style.clipPath = union;
+        if (union === "") this.paneClips.delete(pane);
+        else this.paneClips.set(pane, union);
+        this.lastCuts[name] = "union";
+        continue;
+      }
+      if (!(timing > 0)) continue;
+      const end = paneBeats?.[paneBeats.length - 1]?.to;
+      const landBox: PaneBox = end === undefined ? box : { ...box, x: end.x, y: end.y, width: end.width, height: end.height };
+      const landClip = paneClipPath(paneHoles(landed, landBox));
+      // `planBeat` scales its own times; the plan's are scaled already.
+      const beat = planBeat({
+        recipe: "body-cut",
+        targets: [{ el: pane, keyframes: keyframes.map((k) => ({ offset: k.offset, clipPath: k.clipPath })) }],
+        declares: ["clip-path"],
+        durationMs: window.durationMs / timing,
+        delayMs: window.delayMs / timing,
+        easing: "linear",
+        fill: "both",
+        startTime: input.startTime,
+        key: "body-cut",
+        ...(input.record !== undefined ? { record: input.record } : {}),
+      });
+      this.cutBeats.set(pane, { beat, landClip });
+      this.lastCuts[name] = "moving";
+      void beat.anims[0].finished.then(
+        () => {
+          // The animator committed the last keyframe; the pane lands on its static cut.
+          if (this.cutBeats.get(pane)?.beat !== beat) return;
+          this.cutBeats.delete(pane);
+          pane.style.clipPath = landClip;
+          if (landClip === "") this.paneClips.delete(pane);
+          else this.paneClips.set(pane, landClip);
+        },
+        () => {
+          /* cancelled: whoever cancelled it writes the static cut */
+        },
+      );
+    }
+  }
+
+  /** Stop every moving cut where it stands; the caller writes the static cut. */
+  private cancelCuts(): void {
+    for (const { beat } of this.cutBeats.values()) {
+      for (const anim of beat.anims) anim.raw.cancel();
+    }
+    this.cutBeats.clear();
+  }
+
+  /** The host ran `cardId`'s beats of plan `planId` to their end. */
+  landed(cardId: string, planId: number, lateMs: number | null): void {
+    this.traceAnswer(cardId, planId, true, lateMs);
+    if (this.inFlight.get(cardId)?.planId === planId) this.inFlight.delete(cardId);
+    if (this.lastPlan?.planId === planId) this.lastPlan.landed.push({ cardId, lateMs });
+  }
+
+  /** A placement or a newer plan took `cardId` before plan `planId` landed it. */
+  beatsCancelled(cardId: string, planId: number): void {
+    this.traceAnswer(cardId, planId, false, null);
+    if (this.inFlight.get(cardId)?.planId === planId) this.inFlight.delete(cardId);
+    if (this.lastPlan?.planId === planId) this.lastPlan.cancelled.push(cardId);
+  }
+
+  /** The `body-beat` row that closes the one `runPlan` wrote for `cardId`. */
+  private traceAnswer(cardId: string, planId: number, landed: boolean, lateMs: number | null): void {
+    deckTrace.record({
+      kind: "body-beat",
+      cardId,
+      planId,
+      beats: 0,
+      startWallMs: 0,
+      spanMs: 0,
+      landed,
+      lateMs,
+    });
   }
 
   /**
@@ -640,51 +968,48 @@ export class BodyPlacer {
       ?.setAttribute(BODY_SHOWN_ATTRIBUTE, "");
   }
 
-  private readFloorBox(): FloorBox | null {
-    const floor = this.floor;
-    if (floor === null) return null;
-    const box = floor.getBoundingClientRect();
-    return {
-      x: box.x,
-      y: box.y,
-      width: box.width,
-      height: box.height,
-      layoutWidth: floor.offsetWidth,
-      layoutHeight: floor.offsetHeight,
-    };
+  /**
+   * The host's floor is on screen: the page's own canvas stands down. Until
+   * now the page painted it, so no frame between showed anything else.
+   */
+  floorShown(sinceRevealMs: number | null): void {
+    if (this.container === null) return;
+    this.floorReport ??= { sinceRevealMs };
+    document.documentElement.setAttribute(BODY_HOST_ATTRIBUTE, "");
   }
 
   /**
-   * Cut the floor at every visible body. The placement's rects are viewport
-   * px; the floor lies inside the zoomed deck root, so they are taken into
-   * its own px through its viewport rect and layout width, both read in the
-   * last measurement.
+   * Post `floorGrid` — the canvas and grid colours, the deck root's zoom and
+   * its viewport origin — when it says something new. Reads the tokens and
+   * the deck root's rect, so never inside a settle's set-up: there it waits
+   * for the set-up's end ([D211]).
    */
-  private cutFloor(placement: PlaceBodies): void {
-    const floor = this.floor;
-    if (floor === null) return;
-    const holes = floorHoles(placement);
-    let clip = "";
-    const box = this.floorBox;
-    if (holes.length > 0 && box !== null) {
-      const width = box.layoutWidth;
-      const height = box.layoutHeight;
-      const scale = width > 0 ? box.width / width : 1;
-      clip = floorClipPath(
-        holes.map((h) => ({
-          x: (h.x - box.x) / scale,
-          y: (h.y - box.y) / scale,
-          width: h.width / scale,
-          height: h.height / scale,
-        })),
-        width,
-        height,
-      );
-    }
-    if (clip === this.floorClip) return;
-    this.floorClip = clip;
-    floor.style.clipPath = clip;
+  private postFloor(): void {
+    if (this.container === null) return;
+    if (deferToSetUp(this.postFloorKey, () => this.postFloor())) return;
+    const root = deckRootElement();
+    // The theme files declare their tokens on `body`.
+    const styles = getComputedStyle(document.body);
+    const canvas = resolveColor(styles.getPropertyValue(CANVAS_TOKEN));
+    const grid = resolveColor(styles.getPropertyValue(GRID_TOKEN));
+    if (canvas === null || grid === null) return;
+    const origin = root.getBoundingClientRect();
+    const next: FloorGrid = {
+      canvas,
+      grid,
+      cellPx: GRID_CELL_PX,
+      linePx: GRID_LINE_PX,
+      zoom: pageZoomStore.getFactor(),
+      originX: origin.x,
+      originY: origin.y,
+    };
+    if (sameFloorGrid(this.floorGrid, next)) return;
+    this.floorGrid = next;
+    postToHost("floorGrid", next);
   }
+
+  /** The key {@link postFloor} defers under, apart from the measurement's. */
+  private readonly postFloorKey = {};
 
   /** Every pane's box, layout width and stacking order, read once. */
   private readPaneBoxes(container: HTMLElement): Map<HTMLElement, PaneBox> {
@@ -711,6 +1036,7 @@ export class BodyPlacer {
    * closes holes, and a drag re-reads the one frame it moved.
    */
   private cutPanes(placement: PlaceBodies): void {
+    this.cancelCuts();
     for (const [pane, box] of this.paneBoxes) {
       const clip = pane.isConnected ? paneClipPath(paneHoles(placement, box)) : "";
       if ((this.paneClips.get(pane) ?? "") === clip) continue;
@@ -734,25 +1060,22 @@ export class BodyPlacer {
     if (!hostCapabilitiesStore.get().bodyViews) return () => {};
     this.container = container;
     setInstalled(this);
-    // The floor: the canvas paint, under everything in the container, with
-    // a hole per visible body. The page's own canvas stands down for it.
-    const floor = document.createElement("div");
-    floor.setAttribute(FLOOR_ATTRIBUTE, "");
-    container.prepend(floor);
-    this.floor = floor;
-    this.floorClip = "";
-    this.floorBox = null;
-    document.documentElement.setAttribute(BODY_HOST_ATTRIBUTE, "");
+    // The floor is the host's: post its grid now, and again on a theme or
+    // zoom change. The page's own canvas stands down on `floorShown`.
+    this.floorGrid = null;
+    this.postFloor();
     this.resizes = new ResizeObserver(this.schedule);
     container.addEventListener(IMPOSER_SETTLE_END, this.measure);
     window.addEventListener("resize", this.schedule);
     const releaseZoom = pageZoomStore.subscribe(this.schedule);
     const releaseBodies = bodyCardsStore.subscribe(this.schedule);
+    const releaseTheme = subscribeOnScreenTheme(this.schedule);
     return () => {
       container.removeEventListener(IMPOSER_SETTLE_END, this.measure);
       window.removeEventListener("resize", this.schedule);
       releaseZoom();
       releaseBodies();
+      releaseTheme();
       this.resizes?.disconnect();
       this.resizes = null;
       this.observed.clear();
@@ -762,10 +1085,9 @@ export class BodyPlacer {
       this.cancelHidePost = null;
       this.hiding.clear();
       this.container = null;
-      floor.remove();
-      this.floor = null;
-      this.floorClip = "";
-      this.floorBox = null;
+      this.floorGrid = null;
+      this.floorReport = null;
+      this.cancelCuts();
       for (const pane of this.paneClips.keys()) pane.style.clipPath = "";
       this.paneClips.clear();
       this.paneBoxes.clear();
@@ -796,6 +1118,13 @@ export class BodyPlacer {
       lastPosted: this.poster.lastPosted,
       lastSkip: this.lastSkip,
       measures: this.measures,
+      floorGrid: this.floorGrid,
+      floorShown: this.floorReport,
+      lastPlan: this.lastPlan,
+      lastCuts: this.lastCuts,
+      cutsRunning: this.cutBeats.size,
+      planRuns: this.planRuns,
+      inFlight: [...this.inFlight.keys()],
     };
   }
 }
@@ -805,6 +1134,75 @@ export interface BodyPlacementDiag {
   readonly lastPosted: PlaceBodies | null;
   readonly lastSkip: string | null;
   readonly measures: number;
+  /** The last `floorGrid` posted, or null before one. */
+  readonly floorGrid: FloorGrid | null;
+  /** The host's first `floorShown`, or null before it came. */
+  readonly floorShown: FloorShownReport | null;
+  /** The last beat plan the placer ran, or null before one. */
+  readonly lastPlan: BeatPlanReport | null;
+  /** How many settles have handed the placer frames to plan. */
+  readonly planRuns: number;
+  /** The bodies a plan is carrying now. */
+  readonly inFlight: readonly string[];
+  /** How the last plan cut each back pane it touched, by `data-pane-id`. */
+  readonly lastCuts: Readonly<Record<string, "moving" | "union">>;
+  /** Moving cuts still running. */
+  readonly cutsRunning: number;
+}
+
+/** What one {@link BodyPlacer.runPlan} decided and what the host has said of it. */
+export interface BeatPlanReport {
+  /** Null when nothing was planned and nothing posted. */
+  readonly planId: number | null;
+  readonly planned: readonly string[];
+  readonly refused: readonly string[];
+  readonly reasons: Readonly<Record<string, string>>;
+  readonly landed: { cardId: string; lateMs: number | null }[];
+  readonly cancelled: string[];
+}
+
+/** One frame a settle hands {@link bodyRunPlan}. */
+export interface RunPlanFrame {
+  readonly frame: HTMLElement;
+  /** Its visual rect before the settle, viewport px; null when the settle measured none, and the placer's last box stands in. */
+  readonly first: Rect | null;
+  /** Its rect at rest after the settle, viewport px, or how far it travels from `first` across the page. */
+  readonly last: Rect | { readonly dx: number };
+  readonly beats: readonly FrameBeat[];
+}
+
+/** What a settle hands {@link bodyRunPlan}. */
+export interface RunPlanInput {
+  readonly frames: readonly RunPlanFrame[];
+  /** The settle's start on the document timeline (ms): every chrome beat's `startTime`. */
+  readonly startTime: number;
+  /** The page-zoom factor the frames' terms scale by. */
+  readonly factor: number;
+  /** The display period (ms) a cut spanning beats of different windows is sampled at. */
+  readonly periodMs: number;
+  /** Where a moving cut's beat row goes: the settle's own beat rows. */
+  readonly record?: (row: BeatRow) => void;
+  /** Whether a body whose box changes size is carried as a crossing; refused when false. */
+  readonly allowCrossing?: boolean;
+}
+
+/** The body cards whose placeholder stands in `frame`. Reads no layout. */
+function bodiesIn(frame: HTMLElement): string[] {
+  const ids: string[] = [];
+  for (const el of frame.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
+    if (el.dataset.cardId !== undefined) ids.push(el.dataset.cardId);
+  }
+  return ids;
+}
+
+/**
+ * What the host's first `floorShown` said: how long after the window's
+ * reveal began its floor showed — never negative, since a floor shown
+ * before the reveal would have covered the splash — or null when the
+ * floor was already up (a reloaded shell).
+ */
+export interface FloorShownReport {
+  readonly sinceRevealMs: number | null;
 }
 
 let installed: BodyPlacer | null = null;
@@ -823,6 +1221,11 @@ export function bodyShown(cardId: string): void {
   installed?.shown(cardId);
 }
 
+/** The host's floor is on screen: the installed placer stands the page's canvas down. */
+export function floorShown(sinceRevealMs: number | null): void {
+  installed?.floorShown(sinceRevealMs);
+}
+
 /**
  * A gesture moved `frame` without a commit: the installed placer re-posts
  * the bodies under it at the rects they have now. A no-op when the host
@@ -838,4 +1241,23 @@ export function bodyFollowFrame(frame: HTMLElement): void {
  */
 export function bodyHideUnder(frames: readonly HTMLElement[]): void {
   installed?.hideUnder(frames);
+}
+
+/**
+ * A settle is about to move `input.frames`: the installed placer plans the
+ * bodies under them to move with the chrome and hides only those it cannot
+ * carry. A no-op when the host makes no bodies.
+ */
+export function bodyRunPlan(input: RunPlanInput): void {
+  installed?.runPlan(input);
+}
+
+/** The host ran a body's planned beats to their end. */
+export function bodyBeatsLanded(cardId: string, planId: number, lateMs: number | null): void {
+  installed?.landed(cardId, planId, lateMs);
+}
+
+/** The host gave up a body's planned beats before they landed. */
+export function bodyBeatsCancelled(cardId: string, planId: number): void {
+  installed?.beatsCancelled(cardId, planId);
 }

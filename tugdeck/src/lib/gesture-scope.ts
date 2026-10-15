@@ -339,6 +339,20 @@ export class GestureScope {
 export const gestureScope = new GestureScope();
 
 /**
+ * The motion gate a body's connection is held behind: one that never closes
+ * ([B06] of motion-to-the-host). The settle is the shell's — its engine closes
+ * `gestureScope`'s gate while the shell's beats run — and a body streams
+ * through every one of them, because its frames are its own process's and
+ * the host carries its view on the shell's beats without the body drawing.
+ * So nothing a body's page does, the test surface's `holdMotion` included,
+ * parks its wire.
+ */
+export const NEVER_HELD: Pick<GestureScope, "isMotionHeld" | "observeMotionGate"> = Object.freeze({
+  isMotionHeld: (): boolean => false,
+  observeMotionGate: (_listener: (change: MotionGateChange) => void): (() => void) => () => {},
+});
+
+/**
  * Pure: an observer callback that waits out a closed motion gate ([B05] of
  * set-up-and-go-fixups) — for `IntersectionObserver` and `ResizeObserver`
  * alike.

@@ -37,11 +37,14 @@ import {
   traceMark,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
+  armWindow,
+  expectWindowBar,
+  readWindowRow,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0700-settle-rail-hide-carries";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /**
  * A gesture whose whole cost is that it commits more than once inside one
@@ -86,12 +89,12 @@ const ARMS = transcriptArms();
  * predicate the way [F03] describes.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0700 — two commits in one task carry every frame they move [${arm.size}]`,
+  `at0700 — two commits in one task carry every frame they move [${arm.label}]`,
   () => {
     test(
       "hiding a two-member rail moves the band and leaves no frame uncarried",
       async () => {
-        const { app, tugbankPath } = await launch(4, railBlob(), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(4, railBlob(), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -107,6 +110,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           );
           await app.armSettleFrameProbe();
           await armDepartureCensus(app);
+          await armWindow(app);
           // The quiet head the classifier derives the display's period from.
           await wait(120);
           await app.dispatchControlAction("toggle-sidebars");
@@ -119,6 +123,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           );
           const probe = await app.takeSettleFrameReading();
           await app.disarmSettleFrameProbe();
+          expectWindowBar("rail hide", await readWindowRow(app));
           const departures = await readDepartureCensus(app);
           const after = await frameOrigins(app);
           note(`at0700 two-commit probe: ${JSON.stringify(probe)}`);

@@ -44,14 +44,17 @@ import {
   traceMark,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
+  armWindow,
+  expectWindowBar,
+  readWindowRow,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0699-settle-retarget";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0699 — a settle interrupted mid-flight leaves no frame stranded [${arm.size}]`,
+  `at0699 — a settle interrupted mid-flight leaves no frame stranded [${arm.label}]`,
   () => {
     test(
       "a fold retargeted at 140ms, and a resize interrupted by a fold, strand no frame at the first gesture's end pose",
@@ -59,6 +62,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
         // The folds land on c2, c3 and c4; the heights this leg reads are p2's and p4's.
         const { app, tugbankPath } = await launch(4, blobFor(4), TEST_NAME, {
           transcripts: arm.size,
+          bodies: arm.bodies,
           whaleCards: ["at0622-c2", "at0622-c4"],
         });
         try {
@@ -73,6 +77,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           await home(app);
           let mark = await traceMark(app);
           await app.armSettleFrameProbe();
+          await armWindow(app);
           // The classifier derives the display's period from the quiet head,
           // so the whole reading's scale depends on there being one.
           await wait(120);
@@ -95,6 +100,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           );
           const slideProbe = await app.takeSettleFrameReading();
           await app.disarmSettleFrameProbe();
+          expectWindowBar("fold retargeted by a fold", await readWindowRow(app));
           const slideRows = await settleFrameRows(app, mark);
           const slideRow = slideRows[slideRows.length - 1] as SettleFramesRow;
           const afterSlide = await paneHeightOf(app, "at0622-p2");
@@ -163,6 +169,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           const foldHeightBefore = await paneHeightOf(app, "at0622-p4");
           mark = await traceMark(app);
           await app.armSettleFrameProbe();
+          await armWindow(app);
           await wait(120);
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("set-content-width", ` +
@@ -182,6 +189,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           );
           const foldProbe = await app.takeSettleFrameReading();
           await app.disarmSettleFrameProbe();
+          expectWindowBar("resize retargeted by a fold", await readWindowRow(app));
           const foldRows = await settleFrameRows(app, mark);
           const foldRow = foldRows[foldRows.length - 1] as SettleFramesRow;
           const foldHeightAfter = await paneHeightOf(app, "at0622-p4");

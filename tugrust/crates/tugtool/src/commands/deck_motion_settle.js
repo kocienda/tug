@@ -35,6 +35,13 @@
 // rendering update is a different gesture. With `tasks` it runs inside
 // `lead.run("gesture", …)`, so the recorder names the gesture's own task.
 //
+// With `hostMs`, the host's display-link meter is armed at the drive for that
+// long (`__tugMotion.hostFrames`), and the reading waits for its reply: the
+// window's ticks from the UI process, and each body a beat plan carried
+// sampled under its card id. `bodyBeats` is the trace's `body-beat` rows over
+// the drive, which name those bodies' plans. A page with no host to ask
+// reports `host: {error}`, which the shell end prints as no window row.
+//
 // With `quiet` the drive carries no instrument but the rAF pump: no
 // zero-timer heartbeat (`beats` is empty), no MutationObserver, and the commit
 // census stilled (`__tugCommits.quiet`). The pump reads the settle mark off
@@ -137,6 +144,8 @@
     var setTimeout = lead ? lead.native.setTimeout : window.setTimeout.bind(window);
     var requestAnimationFrame = lead ? lead.native.requestAnimationFrame : window.requestAnimationFrame.bind(window);
     var MutationObserver = lead ? lead.native.MutationObserver : window.MutationObserver;
+    // The host's reading of the window, asked for at the drive.
+    var hostReading = null;
     var frames = [];
     var beats = [];
     var marks = [];
@@ -300,7 +309,17 @@
         resolve({ error: error });
         return;
       }
-      resolve({
+      var bodyBeats = trace
+        ? trace.since(traceMark)
+            .filter(function (e) { return e.kind === "body-beat"; })
+            .map(function (e) {
+              return {
+                t: rel(e.timestamp), cardId: e.cardId, planId: e.planId, beats: e.beats,
+                startWallMs: e.startWallMs, spanMs: e.spanMs, landed: e.landed, lateMs: e.lateMs,
+              };
+            })
+        : null;
+      var result = {
         frames: frames.filter(function (t) { return t > t0; }).map(rel),
         beats: beats.filter(function (t) { return t >= t0; }).map(rel),
         settle: marks.map(function (m) { return [rel(m[0]), m[1]]; }),
@@ -351,7 +370,17 @@
               };
             })
           : null,
-      });
+        bodyBeats: bodyBeats,
+        host: null,
+      };
+      if (hostReading === null) {
+        resolve(result);
+        return;
+      }
+      hostReading.then(
+        function (reading) { result.host = reading; resolve(result); },
+        function (err) { result.host = { error: String(err && err.message || err) }; resolve(result); }
+      );
     }
 
     // The settle mark has been on and has since gone off.
@@ -381,6 +410,11 @@
           t0 = performance.now();
           t0Epoch = performance.timeOrigin + t0;
           clockDriftMs = t0Epoch - Date.now();
+          if (args.hostMs > 0) {
+            hostReading = motion && typeof motion.hostFrames === "function"
+              ? motion.hostFrames(args.hostMs)
+              : Promise.reject(new Error("this deck has no window.__tugMotion.hostFrames"));
+          }
           var drive = function () { return lab.drive(args.gesture, args.args); };
           var outcome;
           if (args.tasks) {

@@ -42,7 +42,7 @@ import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore } from "./body-cards-store";
 import { bodyCommandRoute, shellSurfaceAhead } from "./body-command-route";
 import { bodyFactsStore } from "./body-facts-store";
-import { bodyShown } from "./body-placement";
+import { bodyBeatsCancelled, bodyBeatsLanded, bodyShown, floorShown } from "./body-placement";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore } from "./card-session-binding-store";
@@ -67,6 +67,12 @@ interface BodyStateReport {
   state?: unknown;
   readyMs?: unknown;
   cause?: unknown;
+  /** `floorShown`: how long after the window's reveal began the floor showed. */
+  sinceRevealMs?: unknown;
+  /** `landed` / `beatsCancelled`: the beat plan the report is about. */
+  planId?: unknown;
+  /** `landed`: how far past its start the plan reached the host, ms. */
+  lateMs?: unknown;
 }
 
 function paneOf(state: DeckState, cardId: string): string | null {
@@ -294,6 +300,12 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const bridge = ((window as unknown as { __tugBridge?: Record<string, unknown> }).__tugBridge ??=
     {});
   bridge.onBodyState = (report: BodyStateReport): void => {
+    // The host's floor is on screen. It names no card, so it is taken
+    // before the card guard below, which would drop it.
+    if (report?.state === "floorShown") {
+      floorShown(typeof report.sinceRevealMs === "number" ? report.sinceRevealMs : null);
+      return;
+    }
     const cardId = typeof report?.cardId === "string" ? report.cardId : null;
     if (cardId === null || !bodyCardsStore.has(cardId)) return;
     switch (report.state) {
@@ -309,6 +321,16 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "shown":
         // The host's container is placed, opaque and drawn: the lid lifts.
         bodyShown(cardId);
+        return;
+      case "landed":
+        // The host ran the body's planned beats to their end.
+        if (typeof report.planId === "number") {
+          bodyBeatsLanded(cardId, report.planId, typeof report.lateMs === "number" ? report.lateMs : null);
+        }
+        return;
+      case "beatsCancelled":
+        // A placement or a newer plan took the body before it landed.
+        if (typeof report.planId === "number") bodyBeatsCancelled(cardId, report.planId);
         return;
       case "terminated":
         // Reloading under the same card: its first `card-facts` is answered

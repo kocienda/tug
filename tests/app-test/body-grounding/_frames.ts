@@ -250,9 +250,11 @@ export const asRgbJs = (expr: string): string => `(function () {
 
 /**
  * The palette as the running app has it: the floor's canvas colour from the
- * shell's computed style, the window's background from the burst's reading,
- * and the surface from a composite frame of the standing body — its
- * commonest colour, which is the pane surface as the window server shows it.
+ * theme's canvas token (the colour the host's floor draws, and the shell's
+ * canvas with bodies off), the window's background from the burst's
+ * reading, and the surface from a composite frame of the standing body —
+ * its commonest colour, which is the pane surface as the window server
+ * shows it.
  */
 export async function readPalette(
   app: App,
@@ -260,7 +262,7 @@ export async function readPalette(
   standingBody: CaptureBurstFrame,
 ): Promise<Palette> {
   const canvas = await app.evalJS<string>(
-    asRgbJs(`getComputedStyle(document.querySelector('[data-deck-canvas-floor]')).backgroundColor`),
+    asRgbJs(`getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')`),
   );
   return {
     surface: fillOf(standingBody),

@@ -78,14 +78,44 @@ enum FrameMeterStats {
     /// layer the render server is animating from one that has stalled. Zero
     /// with fewer than two samples.
     static func advanceRatio(_ positions: [(x: Double, y: Double)]) -> Double {
-        guard positions.count > 1 else { return 0 }
+        advanceRatio(states: positions.map { [$0.x, $0.y] })
+    }
+
+    /// The share of consecutive samples whose state — any list of a layer's
+    /// values, its position and its size — changed. Zero with fewer than two.
+    static func advanceRatio(states: [[Double]]) -> Double {
+        guard states.count > 1 else { return 0 }
         var moved = 0
-        for index in 1..<positions.count {
-            let a = positions[index - 1]
-            let b = positions[index]
-            if a.x != b.x || a.y != b.y { moved += 1 }
+        for index in 1..<states.count where states[index - 1] != states[index] {
+            moved += 1
         }
-        return Double(moved) / Double(positions.count - 1)
+        return Double(moved) / Double(states.count - 1)
+    }
+
+    /// The longest span over which a sampled position stood still: for each
+    /// run of consecutive samples at one position, the time from its first
+    /// sample to its last. A layer that moves on every tick reads 0; one that
+    /// misses a single advance reads one period, and one stalled for two
+    /// ticks reads two. Zero with fewer than two samples.
+    static func worstStillMs(_ samples: [(t: Double, x: Double, y: Double)]) -> Double {
+        worstStillMs(states: samples.map { (t: $0.t, state: [$0.x, $0.y]) })
+    }
+
+    /// The longest span over which a sampled state — position and size —
+    /// stood still, by the same rule as the position-only form.
+    static func worstStillMs(states samples: [(t: Double, state: [Double])]) -> Double {
+        guard samples.count > 1 else { return 0 }
+        var worst = 0.0
+        var runStart = samples[0].t
+        for index in 1..<samples.count {
+            let b = samples[index]
+            if samples[index - 1].state != b.state {
+                runStart = b.t
+            } else {
+                worst = max(worst, b.t - runStart)
+            }
+        }
+        return worst
     }
 
     /// The median spacing of a series, or nil with fewer than two points — a

@@ -37,11 +37,14 @@ import {
   traceMark,
   traceWithSettleFrames,
   wait,
-  transcriptArms,
+  settleArms,
+  armWindow,
+  expectWindowBar,
+  readWindowRow,
 } from "./settle-frames-fixture";
 
 const TEST_NAME = "at0701-settle-arrival-close";
-const ARMS = transcriptArms();
+const ARMS = settleArms();
 
 /**
  * A card arriving, interrupted during its `room` beat by a close.
@@ -93,12 +96,12 @@ const ARMS = transcriptArms();
  * to.
  */
 for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
-  `at0701 — an arrival interrupted by a close keeps its hold [${arm.size}]`,
+  `at0701 — an arrival interrupted by a close keeps its hold [${arm.label}]`,
   () => {
     test(
       "a card arriving, closed into during its room beat, never stands at full opacity before its arrive beat",
       async () => {
-        const { app, tugbankPath } = await launch(3, blobFor(3), TEST_NAME, { transcripts: arm.size });
+        const { app, tugbankPath } = await launch(3, blobFor(3), TEST_NAME, { transcripts: arm.size, bodies: arm.bodies });
         try {
           await traceWithSettleFrames(app);
           await home(app);
@@ -107,6 +110,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           const before = await frameOrigins(app);
           const mark = await traceMark(app);
           await arrivalCensus(app);
+          await armWindow(app);
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("show-card", ` +
               `{ component: "session" }), null)`,
@@ -127,6 +131,7 @@ for (const arm of ARMS) describe.skipIf(!SHOULD_RUN || arm.skip)(
           const samples = await app.evalJS<ArrivalSample[]>(
             `window.__at0622arrival`,
           );
+          expectWindowBar("arrival/close", await readWindowRow(app));
           const after = await frameOrigins(app);
           const retargets = await retargetRows(app, mark);
 
