@@ -62,18 +62,22 @@ import { interruptLiveSessions, type TerminationVerdict } from "../teardown";
 import {
   putCardState,
   readCardStates,
-  readFocusRingModality,
   readKeyboardAccess,
 } from "../settings-api";
 import { keyboardAccessStore, normalizeKeyboardAccessMode } from "../keyboard-access-store";
 import { KEYMAP_DOMAIN, keymapOverrideStore } from "../keymap-override-store";
 import { focusRingModalityStore, normalizeFocusRingModality } from "../focus-ring-modality-store";
+import { applyShellModifierLatch } from "../components/tugways/modifier-latch";
 import { applyTheme, followShellTheme, getOnScreenTheme } from "../contexts/theme-provider";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { initMotionObserver } from "../lib/scale-timing";
 import { applyShellMenuFacts, initBodyHostMenuState } from "../lib/host-menu-state";
 import { scheduleAfterPaint } from "../lib/after-paint";
 import { setKeyboardYield } from "../lib/keyboard-yield";
+import { setFocusWalkEdge } from "../lib/focus-walk-edge";
+import { setLogoutForwarder } from "../lib/logout-store";
+import { createSurfaceMirror, setShellSurfaceHost } from "../lib/shell-surface";
+import { advanceKeyViewFocus, enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
 import { installDictationBridge } from "../lib/dictation-bridge";
 import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
 import { onBus, sendBus } from "../lib/deck-bus";
@@ -156,6 +160,15 @@ function pageSurfaceRgba(): number[] | null {
   return null;
 }
 
+/**
+ * Tell the host the page's surface, for the container to wear behind the
+ * web view, which draws no background of its own: a sliver of the view the
+ * layout viewport does not reach reads the pane's colour, not white.
+ */
+function postSurface(): void {
+  postToHost("bodySurface", { surface: pageSurfaceRgba() });
+}
+
 installDomForensics();
 installGestureScope(window);
 followShellTheme();
@@ -202,13 +215,19 @@ function applyDeckFacts(facts: Partial<DeckFacts>, bridge: BodyDeckBridge | null
   if (typeof facts.keyboardAccess === "boolean") {
     keyboardAccessStore.setMode(facts.keyboardAccess ? "accessibility" : "standard", { persist: false });
   }
+  // Facts, followed and never persisted: the shell's modality, and the
+  // modifiers the shell's key events say are held.
+  if (typeof facts.focusRingModality === "string") {
+    focusRingModalityStore.setMode(normalizeFocusRingModality(facts.focusRingModality), { persist: false });
+  }
+  if (Array.isArray(facts.modifierLatch)) applyShellModifierLatch(facts.modifierLatch);
   if (typeof facts.appActive === "boolean") bridge?.setHasFocus(facts.appActive);
   if (typeof facts.zoom === "number") {
     if (bridge === null) pageZoomStore.report(facts.zoom);
     else void pageZoomStore.apply(facts.zoom);
   }
   if (typeof facts.theme === "string" && facts.theme !== getOnScreenTheme()) {
-    return applyTheme(facts.theme).then(() => undefined);
+    return applyTheme(facts.theme).then(postSurface);
   }
   return Promise.resolve();
 }
@@ -251,6 +270,7 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge): void {
     scheduleAfterPaint(() => {
       bridge.revealLayer();
       postToHost("frontendReady", {});
+      postSurface();
       requestAnimationFrame(() => {
         requestAnimationFrame(() => postToHost("painted", {}));
       });
@@ -299,6 +319,36 @@ async function bindBody(bind: BodyBind): Promise<void> {
   registerDeckStore(bridge);
   registerCardLifecycle(bridge.cardLifecycle);
   setKeyboardYield(() => bridge.getFirstResponderCardId() !== cardId);
+  // This page holds the card's own stops; its chrome's are the shell's. So
+  // a Tab off either end of the walk goes to the shell, which takes it into
+  // the chrome or hands it back here at the end it came in by ([F05]).
+  const exitWalk = (direction: 1 | -1, empty: boolean): void => {
+    sendBus(connection, "shell", {
+      kind: "card-advice",
+      payload: { advice: "focus-exit", direction: direction === 1 ? "next" : "previous", ...(empty ? { empty } : {}) },
+    });
+  };
+  setFocusWalkEdge((direction) => {
+    exitWalk(direction, false);
+    return true;
+  });
+  // The View menu's two doors onto the walk, which the shell hands here
+  // while the card's stops are this page's.
+  registerAction(TUG_ACTIONS.NEXT_KEYBOARD_FOCUS, () => {
+    advanceKeyViewFocus(getFocusManager(), 1);
+  });
+  registerAction(TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS, () => {
+    advanceKeyViewFocus(getFocusManager(), -1);
+  });
+  // What the card raises past its own content box — the Z2 placard — the
+  // shell draws, and a logout is the app's, which only the shell mounts.
+  const surfaces = createSurfaceMirror((surface) => {
+    sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "surface", surface } });
+  });
+  setShellSurfaceHost(surfaces);
+  setLogoutForwarder(() => {
+    sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "logout" } });
+  });
   const appLifecycle = new AppLifecycle();
   registerAppLifecycle(appLifecycle);
   const sheetLifecycle = new SheetLifecycle();
@@ -355,10 +405,27 @@ async function bindBody(bind: BodyBind): Promise<void> {
     if (message.payload.menu !== undefined) applyShellMenuFacts(message.payload.menu);
   });
   onBus(connection, "card-context", (message) => bridge.applyContext(message.payload));
-  // A card-scoped menu command the shell routed here runs against this
-  // page's own chain, whose key card is the card's pane responder
-  // (`BodyRoot`). The other commands are not a body's yet.
   onBus(connection, "card-command", (message) => {
+    // The walk coming back in from the shell lands on this page's first
+    // or last stop; with none, it goes back out, marked so the shell keeps
+    // it rather than handing it here again.
+    if (message.payload.command === "focus-enter") {
+      const edge = message.payload.edge ?? "first";
+      if (!enterKeyViewWalk(getFocusManager(), edge)) exitWalk(edge === "first" ? 1 : -1, true);
+      return;
+    }
+    // A press in, or the dismissal of, the surface the shell draws for us.
+    if (message.payload.command === "surface-activate") {
+      surfaces.activate(message.payload.path ?? []);
+      return;
+    }
+    if (message.payload.command === "surface-dismissed") {
+      surfaces.dismiss();
+      return;
+    }
+    // A card-scoped menu command the shell routed here runs against this
+    // page's own chain, whose key card is the card's pane responder
+    // (`BodyRoot`). The other commands are not a body's yet.
     if (message.payload.command !== "dispatch" || message.payload.id === undefined) return;
     dispatchCommand(message.payload.id, message.payload.payload);
   });
@@ -452,7 +519,6 @@ async function bindBody(bind: BodyBind): Promise<void> {
   await Promise.all([tugbankClient.ready(), initTugmark({ module_or_path: wasmUrl })]);
 
   keyboardAccessStore.initialize(normalizeKeyboardAccessMode(readKeyboardAccess(tugbankClient)));
-  focusRingModalityStore.initialize(normalizeFocusRingModality(readFocusRingModality(tugbankClient)));
   keymapOverrideStore.initialize(tugbankClient.readDomain(KEYMAP_DOMAIN));
   initMotionObserver();
   registerSessionCard();

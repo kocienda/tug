@@ -72,6 +72,27 @@ export interface Rect {
   readonly height: number;
 }
 
+/** How close to a whole point an edge must be to count as on it. */
+const WHOLE_EPSILON = 0.001;
+
+/**
+ * `r` grown outward to whole points, the rect every body is posted at. A
+ * body's page takes its layout viewport in whole CSS px, which in a body
+ * are points, so a view a fraction of a point wider than a whole one leaves
+ * that fraction outside the page: the web view's backing, read as a bright
+ * column at the card's edge. Whole points leave none. Outward, never
+ * inward: the pane over a body card paints nothing inside its border, so a
+ * body short of the placeholder shows the floor beneath, while a body past
+ * it stands under the pane's own border and masthead, which paint over it.
+ */
+export function wholePoints(r: Rect): Rect {
+  const x = Math.floor(r.x + WHOLE_EPSILON);
+  const y = Math.floor(r.y + WHOLE_EPSILON);
+  const right = Math.ceil(r.x + r.width - WHOLE_EPSILON);
+  const bottom = Math.ceil(r.y + r.height - WHOLE_EPSILON);
+  return { x, y, width: right - x, height: bottom - y };
+}
+
 /** A keyword easing a two-sample beat (a fade) carries in place of samples. */
 export type BeatEasing = "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out";
 
@@ -303,7 +324,7 @@ export function planBodyBeats(input: PlanInput): PlanOutput {
         refuse(cardId, "no insets");
         continue;
       }
-      if (!contains(inset(frame.first, insets), placed)) {
+      if (!contains(wholePoints(inset(frame.first, insets)), placed)) {
         refuse(cardId, "its placement is not inside the frame's First rect");
         continue;
       }
@@ -313,8 +334,8 @@ export function planBodyBeats(input: PlanInput): PlanOutput {
           kind: beat.kind,
           delayMs: beat.delayMs,
           durationMs: beat.durationMs,
-          from: inset(from, insets),
-          to: inset(to, insets),
+          from: wholePoints(inset(from, insets)),
+          to: wholePoints(inset(to, insets)),
           ...(opacity !== undefined ? { opacity } : {}),
           progress: beat.progress,
           ...(beat.easing !== undefined ? { easing: beat.easing } : {}),

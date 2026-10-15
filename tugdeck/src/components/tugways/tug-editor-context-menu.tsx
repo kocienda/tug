@@ -129,7 +129,7 @@ import { useControlDispatch } from "./use-control-dispatch";
 import { useFocusTrap } from "./use-focus-trap";
 import { isCancelChordEvent } from "./keymap-registry";
 import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
-import { layoutPxOf } from "@/lib/page-zoom-store";
+import { layoutPxOf, viewportPxOf } from "@/lib/page-zoom-store";
 import { useOpenMenuClaim } from "@/components/tugways/use-open-menu-claim";
 import type { TugAction } from "./action-vocabulary";
 
@@ -476,7 +476,14 @@ export function TugEditorContextMenu({
     if (positionedRef.current) return;
     const menu = menuRef.current;
     if (!menu) return;
-    const rect = menu.getBoundingClientRect();
+    // The menu's own size, untransformed: it mounts mid-entrance at
+    // `scale(0.96)`, so its client rect is short by the scale and a menu
+    // clamped on it grows past the viewport's edge as the entrance ends.
+    // Layout px, converted to the viewport px the clamp is written in.
+    const rect = {
+      width: viewportPxOf(menu.offsetWidth),
+      height: viewportPxOf(menu.offsetHeight),
+    };
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     let left = x;

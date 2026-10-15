@@ -34,7 +34,7 @@ import React, {
 } from "react";
 import { heldResizeObserver, useSyncExternalStore } from "@/lib/gesture-scope";
 import { bodyCardsStore } from "@/lib/body-cards-store";
-import { bodyFollowFrame } from "@/lib/body-placement";
+import { bodyFollowFrame, bodyFrameLanded } from "@/lib/body-placement";
 import {
   Blocks,
   ChevronsDownUp,
@@ -3481,7 +3481,7 @@ function TugPaneImpl({
     if (dx === 0 && dy === 0) {
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
-      bodyFollowFrame(el);
+      bodyFrameLanded(el);
       store.noteCardDidLand(cardId);
       return;
     }
@@ -3529,7 +3529,7 @@ function TugPaneImpl({
       landed = true;
       el.removeAttribute("data-gesture");
       el.removeAttribute("data-pointer-owned");
-      bodyFollowFrame(el);
+      bodyFrameLanded(el);
       // After the marks come off: the reveal this releases arms a settle,
       // and the settle must see this frame as one it may carry.
       store.noteCardDidLand(cardId);
@@ -4211,7 +4211,7 @@ function TugPaneImpl({
         frame.style.transform = "";
         frame.removeAttribute("data-gesture");
         frame.removeAttribute("data-pointer-owned");
-        bodyFollowFrame(frame);
+        bodyFrameLanded(frame);
         clearGuideElements(dragGuideEls);
         setDragDropTarget(null);
         for (const entry of dragTabBarCache.current) {
@@ -4508,7 +4508,7 @@ function TugPaneImpl({
 
         frame.style.left = `${finalPos.x}px`;
         frame.style.top = `${finalPos.y}px`;
-        bodyFollowFrame(frame);
+        bodyFrameLanded(frame);
 
         // A dragged pane leaves its slot: the explicit gesture wins, and the
         // dropped rect becomes its free geometry. Resize never passes this.

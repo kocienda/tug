@@ -41,6 +41,22 @@ final class BodyHostView: NSView {
     }
 }
 
+/// The window's content view, which holds the shell's web view, the bodies
+/// and the floor. Its accessibility children are the order VoiceOver reads
+/// the window in: subview order would put the bodies, beneath the shell,
+/// first and in stacking order. `accessibilityOrder` replaces that with the
+/// shell's view and then each showing body in the shell's pane order; nil
+/// leaves AppKit's own answer, as on a host that makes no bodies.
+final class DeckContainerView: NSView {
+    var accessibilityOrder: [Any]? {
+        didSet { NSAccessibility.post(element: self, notification: .layoutChanged) }
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        accessibilityOrder ?? super.accessibilityChildren()
+    }
+}
+
 /// The deck's canvas beneath the bodies: the canvas colour and the grid,
 /// drawn by the host from the shell's `floorGrid` so the shell paints no
 /// floor of its own and cuts nothing for a body to show through. It sits
@@ -109,7 +125,11 @@ final class BodyContainerView: NSView {
     var order = 0
     let serial: Int
     override var isFlipped: Bool { true }
-    /// The page's surface the container wears through a crossing, or nil.
+    /// The page's surface the container wears behind its web view, or nil
+    /// before the page has said it. The web view draws no background of its
+    /// own, so a remainder of the view the page's layout viewport does not
+    /// reach reads this colour, never WebKit's white, and through a crossing
+    /// a box larger than the page reads it too.
     /// A layer-backed view's layer is AppKit's to draw, so the colour goes
     /// on in `updateLayer` rather than straight onto the layer.
     var surface: CGColor? {
@@ -208,6 +228,9 @@ final class BodyViewController {
         /// `z-index`. Containers are kept in this order, so where two panes
         /// overlap the body in front is the pane in front.
         var z: Int = 0
+        /// Where the last placement listed it: the shell's document order of
+        /// its pane, which is the order the shell's own cards are read in.
+        var deckIndex: Int = 0
         var visible = false
         /// Whether the body has been shown once. Until it has, a hidden body
         /// is hidden by layer opacity, never `isHidden`, so WebKit keeps
@@ -364,6 +387,9 @@ final class BodyViewController {
         }
         let config = window.makeWebViewConfiguration(forShell: false)
         let webView = ClickThroughWebView(frame: .zero, configuration: config)
+        // No backing of its own: what the page does not paint is the
+        // container's surface, the pane's colour, rather than white.
+        webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = window
         webView.uiDelegate = window
         webView.allowsBackForwardNavigationGestures = false
@@ -459,17 +485,17 @@ final class BodyViewController {
     /// placement does not name is hidden.
     func place(_ payload: [String: Any]) {
         if let r = (payload["radius"] as? NSNumber)?.doubleValue { radius = CGFloat(r) }
-        var named: [String: (CGRect, Bool, Int)] = [:]
-        for entry in payload["bodies"] as? [[String: Any]] ?? [] {
+        var named: [String: (CGRect, Bool, Int, Int)] = [:]
+        for (index, entry) in (payload["bodies"] as? [[String: Any]] ?? []).enumerated() {
             guard let cardId = entry["cardId"] as? String,
                   let frame = BodyHitRegion.rect(fromPayload: entry) else { continue }
-            named[cardId] = (frame, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0)
+            named[cardId] = (frame, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0, index)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for body in bodies {
             body.container.layer?.cornerRadius = radius
-            guard let cardId = body.cardId, let (frame, visible, z) = named[cardId] else {
+            guard let cardId = body.cardId, let (frame, visible, z, deckIndex) = named[cardId] else {
                 cancelBeats(body)
                 body.visible = false
                 applyVisibility(body)
@@ -487,6 +513,7 @@ final class BodyViewController {
             body.visible = visible
             body.z = z
             body.container.order = z
+            body.deckIndex = deckIndex
             applyVisibility(body)
         }
         // The containers in the panes' order, back to front, moved in place.
@@ -555,6 +582,26 @@ final class BodyViewController {
 
     private func refreshRegion() {
         region.visibleFrames = visibleBodies.map(\.frame)
+        refreshAccessibilityOrder()
+    }
+
+    /// The showing bodies in the shell's pane order, which the window reads
+    /// after the shell's own view.
+    var bodiesInDeckOrder: [Body] {
+        bodies
+            .filter { $0.visible && $0.state == .ready && $0.painted }
+            .sorted { $0.deckIndex < $1.deckIndex }
+    }
+
+    private var orderedAccessibility: [String] = []
+
+    /// Hand the window its reading order, only when it changed.
+    private func refreshAccessibilityOrder() {
+        let ordered = bodiesInDeckOrder
+        let ids = ordered.compactMap(\.cardId)
+        if ids == orderedAccessibility { return }
+        orderedAccessibility = ids
+        window.setAccessibilityOrder(bodies: ordered.map(\.webView))
     }
 
     private var visibleBodies: [Body] {
@@ -748,9 +795,10 @@ final class BodyViewController {
     /// or were cancelled — it is ignored, the page already restored.
     ///
     /// `surface` is the page's own background as sRGB bytes. The container
-    /// wears it for the crossing: a box that shrinks is larger than the
-    /// page until its track lands, and the strip the page does not reach is
-    /// the body's surface rather than the floor beneath.
+    /// wears it already (`setSurface`), and the crossing re-reads it: a box
+    /// that shrinks is larger than the page until its track lands, and the
+    /// strip the page does not reach is the body's surface rather than the
+    /// floor beneath.
     func crossingReady(_ body: Body, surface: [NSNumber]?) {
         guard let crossing = body.crossing else { return }
         let leadMs = (crossing.begin - CACurrentMediaTime()) * 1000
@@ -774,10 +822,18 @@ final class BodyViewController {
         guard body.crossing != nil else { return }
         body.crossing = nil
         body.lastCrossing?["restored"] = true
-        body.container.surface = nil
         body.webView.frame = body.container.bounds
         body.webView.autoresizingMask = Self.pageResizing
         evaluate(call: "window.__tugBridge?.onBodyCrossing?.", payload: ["phase": "land"], in: body.webView)
+    }
+
+    /// `bodySurface`: the page's background as sRGB bytes, posted when it
+    /// paints and whenever its theme changes. The container wears it behind
+    /// the web view for as long as the body stands.
+    func setSurface(_ body: Body, surface: [NSNumber]?) {
+        guard let surface, surface.count == 4 else { return }
+        let c = surface.map { CGFloat($0.doubleValue) / 255 }
+        body.container.surface = CGColor(srgbRed: c[0], green: c[1], blue: c[2], alpha: c[3])
     }
 
     private static func keyframes(_ keyPath: String, values: [Any], track: BodyBeats.Track, begin: CFTimeInterval) -> CAKeyframeAnimation {

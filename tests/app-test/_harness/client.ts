@@ -1286,6 +1286,15 @@ export function bodies(caller: HarnessCaller): Promise<BodyViewSnapshot[]> {
   return caller.rpcCall("bodies", {});
 }
 
+/**
+ * The web views the window's accessibility tree reaches, in the order
+ * VoiceOver reads them: `shell` for the deck's own view, a card id for a
+ * body, `spare` for an unbound one (surface `1.18.0`).
+ */
+export function accessibilityOrder(caller: HarnessCaller): Promise<string[]> {
+  return caller.rpcCall("accessibilityOrder", {});
+}
+
 // ---- composite capture burst (surface `1.16.0`) ----
 
 /** One frame of a {@link CaptureBurstReading}. */
@@ -1560,6 +1569,40 @@ export function nativeDragWithoutRelease(
   if (opts?.interpolationDelayMs !== undefined)
     params.interpolationDelayMs = opts.interpolationDelayMs;
   return caller.rpcCall<void>("nativeDragWithoutRelease", params);
+}
+
+export interface NativeFileDragOptions {
+  interpolationSteps?: number;
+  interpolationDelayMs?: number;
+  /** How long the pointer hovers over `to` before the drop. */
+  dwellMs?: number;
+}
+
+/** What the drag session's source was told: `operation` 0 is a refused drop. */
+export interface NativeFileDragResult {
+  began: boolean;
+  ended: boolean;
+  operation: number;
+}
+
+/**
+ * Drag the file at `path` into the window and drop it at `to` (shell
+ * viewport coords) through a real `NSDraggingSession`, begun in a source
+ * window of the app's own beside the deck and moved through the session tap
+ * — so AppKit's destination search, not the test, decides which view the
+ * drag enters, as it does for a file from Finder. Needs `foreground: true`.
+ */
+export function nativeFileDrag(
+  caller: HarnessCaller,
+  path: string,
+  to: ViewportPoint,
+  opts?: NativeFileDragOptions,
+): Promise<NativeFileDragResult> {
+  const params: Record<string, unknown> = { path, to };
+  if (opts?.interpolationSteps !== undefined) params.interpolationSteps = opts.interpolationSteps;
+  if (opts?.interpolationDelayMs !== undefined) params.interpolationDelayMs = opts.interpolationDelayMs;
+  if (opts?.dwellMs !== undefined) params.dwellMs = opts.dwellMs;
+  return caller.rpcCall<NativeFileDragResult>("nativeFileDrag", params);
 }
 
 /** Element-anchored variant of {@link nativeDragWithoutRelease}. */

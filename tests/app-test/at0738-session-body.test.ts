@@ -147,11 +147,22 @@ async function pollFor<T>(read: () => Promise<T>, done: (value: T) => boolean, t
   return value;
 }
 
+/**
+ * The body stands at its placeholder: each of its four edges within `slack`
+ * of the placeholder's, and covering it. The host's frame is the
+ * placeholder's rect grown outward to whole points, so a body's page lays
+ * out over the whole of its view; each edge moves less than a point, and
+ * the width and height can grow by up to two between them.
+ */
 const within = (a: Rect, b: Rect, slack = 1): boolean =>
-  Math.abs(a.x - b.x) <= slack &&
-  Math.abs(a.y - b.y) <= slack &&
-  Math.abs(a.width - b.width) <= slack &&
-  Math.abs(a.height - b.height) <= slack;
+  a.x <= b.x + 0.001 &&
+  a.y <= b.y + 0.001 &&
+  a.x + a.width >= b.x + b.width - 0.001 &&
+  a.y + a.height >= b.y + b.height - 0.001 &&
+  b.x - a.x < slack &&
+  b.y - a.y < slack &&
+  a.x + a.width - (b.x + b.width) < slack &&
+  a.y + a.height - (b.y + b.height) < slack;
 
 /**
  * What the shell's placer would see now: the settle's mark, the placeholders
@@ -191,7 +202,7 @@ async function expectPlaced(app: App, label: string): Promise<Rect> {
   expect(reading.body!.visible, `${label}: the body shows`).toBe(true);
   expect(
     within(reading.body!.frame, reading.placeholder!),
-    `${label}: body frame ${JSON.stringify(reading.body!.frame)} equals placeholder ${JSON.stringify(reading.placeholder)} within 1 pt`,
+    `${label}: body frame ${JSON.stringify(reading.body!.frame)} covers placeholder ${JSON.stringify(reading.placeholder)}, each edge within 1 pt`,
   ).toBe(true);
   return reading.placeholder!;
 }

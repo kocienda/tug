@@ -16,8 +16,9 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { BASE_FOCUS_MODE, FocusManager } from "../focus-manager";
+import { advanceKeyViewFocus, BASE_FOCUS_MODE, FocusManager } from "../focus-manager";
 import type { FocusableInput } from "../focus-manager";
+import { setFocusWalkEdge } from "@/lib/focus-walk-edge";
 
 function register(manager: FocusManager, inputs: FocusableInput[]): void {
   for (const input of inputs) {
@@ -303,6 +304,85 @@ describe("FocusManager Tab walk + wrap", () => {
     expect(m.focusNext()).toBe("sheet1");
     expect(m.focusNext()).toBe("sheet2");
     expect(m.focusNext()).toBe("sheet1"); // wraps within the mode, never to base
+  });
+});
+
+describe("FocusManager walk edge", () => {
+  function threeStops(): FocusManager {
+    const m = new FocusManager();
+    m.setGroupOrder(["g"]);
+    register(m, [
+      { id: "a", group: "g", order: 0 },
+      { id: "b", group: "g", order: 1 },
+      { id: "c", group: "g", order: 2 },
+    ]);
+    return m;
+  }
+
+  test("the base walk's edge is ahead only from the stop at that end", () => {
+    const m = threeStops();
+    m.setKeyView("c");
+    expect(m.walkEdgeAhead(1)).toBe(true);
+    expect(m.walkEdgeAhead(-1)).toBe(false);
+    m.setKeyView("a");
+    expect(m.walkEdgeAhead(-1)).toBe(true);
+    expect(m.walkEdgeAhead(1)).toBe(false);
+    m.setKeyView("b");
+    expect(m.walkEdgeAhead(1)).toBe(false);
+    expect(m.walkEdgeAhead(-1)).toBe(false);
+  });
+
+  test("a key view outside the walk steps onto an end, not past one", () => {
+    const m = threeStops();
+    m.setKeyView(null);
+    expect(m.walkEdgeAhead(1)).toBe(false);
+    expect(m.walkEdgeAhead(-1)).toBe(false);
+  });
+
+  test("an empty base walk is all edge", () => {
+    const m = new FocusManager();
+    expect(m.walkEdgeAhead(1)).toBe(true);
+    expect(m.walkEdgeAhead(-1)).toBe(true);
+  });
+
+  test("a pushed mode has no edge: it wraps by design", () => {
+    const m = threeStops();
+    register(m, [{ id: "t1", group: "g", order: 0, modes: ["trap"] }]);
+    m.pushFocusMode("trap", { trapped: true });
+    m.setKeyView("t1");
+    expect(m.walkEdgeAhead(1)).toBe(false);
+    expect(m.walkEdgeAhead(-1)).toBe(false);
+  });
+
+  test("focusWalkEnd lands the first or the last stop, and null on an empty walk", () => {
+    const m = threeStops();
+    expect(m.focusWalkEnd("last")).toBe("c");
+    expect(m.keyView()).toBe("c");
+    expect(m.focusWalkEnd("first")).toBe("a");
+    expect(m.keyView()).toBe("a");
+    expect(new FocusManager().focusWalkEnd("first")).toBeNull();
+  });
+
+  test("advanceKeyViewFocus offers the step past the edge to the page's walk edge", () => {
+    const m = threeStops();
+    m.setKeyView("c");
+    const offered: number[] = [];
+    const uninstall = setFocusWalkEdge((direction) => {
+      offered.push(direction);
+      return true;
+    });
+    try {
+      expect(advanceKeyViewFocus(m, 1)).toBe(true);
+      // Taken by the edge: the walk did not wrap to the first stop.
+      expect(offered).toEqual([1]);
+      expect(m.keyView()).toBe("c");
+      m.setKeyView("a");
+      expect(advanceKeyViewFocus(m, -1)).toBe(true);
+      expect(offered).toEqual([1, -1]);
+      expect(m.keyView()).toBe("a");
+    } finally {
+      uninstall();
+    }
   });
 });
 

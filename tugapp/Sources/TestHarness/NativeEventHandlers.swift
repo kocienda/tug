@@ -229,6 +229,43 @@ enum NativeEventError: Error, CustomStringConvertible {
     }
 }
 
+// MARK: - FileDragSourceView
+
+/// The source a `nativeFileDrag` drags from: a view that begins a dragging
+/// session carrying one file URL on the mouse-down it is sent, and keeps the
+/// operation the session ended with.
+final class FileDragSourceView: NSView, NSDraggingSource {
+    private let fileURL: URL
+    private(set) var began = false
+    private(set) var endedOperation: NSDragOperation?
+
+    init(frame: NSRect, fileURL: URL) {
+        self.fileURL = fileURL
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.systemOrange.cgColor
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let item = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
+        item.setDraggingFrame(bounds, contents: NSWorkspace.shared.icon(forFile: fileURL.path))
+        beginDraggingSession(with: [item], event: event, source: self)
+        began = true
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        endedOperation = operation
+    }
+}
+
 // MARK: - Handler
 
 final class NativeEventHandlers {
@@ -727,6 +764,106 @@ final class NativeEventHandlers {
             post(up)
             sleepMs(mouseUpDelayMs)
         }
+    }
+
+    // MARK: - File drag
+
+    /// Drag the file at `path` into the window from outside the deck, and
+    /// drop it at `to` (shell viewport coords): a real `NSDraggingSession`,
+    /// begun by a real mouse-down in a source window of its own and moved by
+    /// real drags through the session tap, so AppKit's own destination search
+    /// decides which view the drag enters — the path a file from Finder
+    /// takes. The source window stands at the corner of the deck's window
+    /// farthest from `to`, so it is never the destination.
+    ///
+    /// Answers whether the session began and ended, and the operation its
+    /// source was told at the end: `0` is a refused drop.
+    ///
+    /// Session-tap mode only: a drag session tracks the window server's
+    /// cursor, which pid-mode delivery never moves.
+    func nativeFileDrag(
+        path: String,
+        to: CGPoint,
+        interpolationSteps: Int,
+        interpolationDelayMs: Int,
+        dwellMs: Int,
+    ) throws -> [String: Any] {
+        if postToOwnPid {
+            throw NativeEventError.protocolError("nativeFileDrag needs the session tap; pid mode moves no cursor")
+        }
+        activateSelf()
+        let toScreen = try resolveScreenPoint(to)
+        var sourceView: FileDragSourceView?
+        var sourceWindow: NSWindow?
+        var fromScreen = CGPoint.zero
+        DispatchQueue.main.sync {
+            guard let window = self.webView?.window else { return }
+            let side: CGFloat = 64
+            let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+            let target = CGPoint(x: toScreen.x, y: primaryHeight - toScreen.y)
+            let frame = window.frame
+            let x = target.x - frame.minX < frame.maxX - target.x ? frame.maxX - side - 8 : frame.minX + 8
+            let y = target.y - frame.minY < frame.maxY - target.y ? frame.maxY - side - 40 : frame.minY + 8
+            let rect = NSRect(x: x, y: y, width: side, height: side)
+            let view = FileDragSourceView(frame: NSRect(origin: .zero, size: rect.size), fileURL: URL(fileURLWithPath: path))
+            let source = NSWindow(contentRect: rect, styleMask: [.borderless], backing: .buffered, defer: false)
+            source.isReleasedWhenClosed = false
+            source.level = .floating
+            source.contentView = view
+            source.orderFrontRegardless()
+            sourceView = view
+            sourceWindow = source
+            fromScreen = CGPoint(x: rect.midX, y: primaryHeight - rect.midY)
+        }
+        guard let sourceView, let sourceWindow else { throw NativeEventError.webViewUnavailable }
+        defer { DispatchQueue.main.sync { sourceWindow.orderOut(nil) } }
+        sleepMs(150)
+
+        func mouse(_ type: CGEventType, at point: CGPoint, what: String) throws {
+            guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left) else {
+                throw NativeEventError.eventCreationFailed(what)
+            }
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
+            post(event)
+        }
+        try mouse(.leftMouseDown, at: fromScreen, what: "file drag mouseDown")
+        sleepMs(80)
+        // Past the drag threshold inside the source, so the session begins
+        // before the trail leaves it.
+        for i in 1...3 {
+            try mouse(.leftMouseDragged, at: CGPoint(x: fromScreen.x + CGFloat(4 * i), y: fromScreen.y), what: "file drag lift")
+            sleepMs(interpolationDelayMs)
+        }
+        let steps = max(1, interpolationSteps)
+        for i in 1...steps {
+            let t = Double(i) / Double(steps)
+            let p = CGPoint(x: fromScreen.x + (toScreen.x - fromScreen.x) * t, y: fromScreen.y + (toScreen.y - fromScreen.y) * t)
+            try mouse(.leftMouseDragged, at: p, what: "file drag step \(i)")
+            sleepMs(interpolationDelayMs)
+        }
+        // A hover over the target, so the destination is updated as a held
+        // pointer updates it, then the drop.
+        let dwellSteps = max(1, dwellMs / max(1, interpolationDelayMs))
+        for i in 0..<dwellSteps {
+            try mouse(.leftMouseDragged, at: CGPoint(x: toScreen.x + CGFloat(i % 2), y: toScreen.y), what: "file drag dwell")
+            sleepMs(interpolationDelayMs)
+        }
+        try mouse(.leftMouseUp, at: toScreen, what: "file drag mouseUp")
+        var began = false
+        var operation: NSDragOperation?
+        for _ in 0..<60 {
+            sleepMs(50)
+            DispatchQueue.main.sync {
+                began = sourceView.began
+                operation = sourceView.endedOperation
+            }
+            if operation != nil || !began { break }
+        }
+        return [
+            "began": began,
+            "ended": operation != nil,
+            "operation": Int(operation?.rawValue ?? 0),
+        ]
     }
 
     // MARK: - Mouse primitives

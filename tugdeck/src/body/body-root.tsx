@@ -33,6 +33,7 @@ import { useResponder } from "../components/tugways/use-responder";
 import * as paneContentRegistry from "../components/chrome/pane-content-registry";
 import * as paneFrameRegistry from "../components/chrome/pane-frame-registry";
 import * as paneRootRegistry from "../components/chrome/pane-root-registry";
+import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
 
 export interface BodyRootProps {
@@ -105,9 +106,16 @@ function BodyPane({
 
   return (
     <>
-      <div ref={setFrame} className="body-pane-frame" data-pane-id={paneId}>
-        <div ref={setRootEl} className="body-pane-root" data-card-id={cardId}>
-          <div ref={setContentEl} className="tug-pane-content" data-testid="tug-pane-content" />
+      {/* The page's canvas: the box a pane-modal sheet measures its band
+          against (`paneCanvasOf`), which in the shell is the deck's. A body's
+          visible canvas is its viewport, so it stands here under the frame;
+          without it the sheet's measure refused and a bottom-anchored cover
+          rose from the top. The frame covers it, so no pointer meets it. */}
+      <div className="body-canvas" {...{ [CANVAS_BACKGROUND_ATTRIBUTE]: "" }}>
+        <div ref={setFrame} className="body-pane-frame" data-pane-id={paneId}>
+          <div ref={setRootEl} className="body-pane-root" data-card-id={cardId}>
+            <div ref={setContentEl} className="tug-pane-content" data-testid="tug-pane-content" />
+          </div>
         </div>
       </div>
       <ResponderScope>

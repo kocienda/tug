@@ -57,6 +57,9 @@ const DELIVERED: BusDelivered[] = [
     kind: "card-command",
     payload: { command: "dispatch", id: "set-permission-mode", payload: { mode: "plan" } },
   },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "focus-enter", edge: "last" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "surface-activate", path: [0, 2, 1] } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "surface-dismissed" } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-advice", waive: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", heightPx: 240 } },
@@ -71,11 +74,32 @@ const DELIVERED: BusDelivered[] = [
     kind: "card-advice",
     payload: { advice: "dispatch", id: "set-column-mode", payload: { slot: 0, mode: "split" } },
   },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "focus-exit", direction: "next" } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "focus-exit", direction: "previous", empty: true } },
+  {
+    from: BODY_C1,
+    to: "shell",
+    kind: "card-advice",
+    payload: {
+      advice: "surface",
+      surface: {
+        title: "Time",
+        className: "session-telemetry-status-placard",
+        growth: "up",
+        anchorX: 320,
+        lineY: 590,
+        html: "<div class=\"tug-popup-list\">rows</div>",
+        scroll: [{ path: [0, 1], top: 480 }],
+      },
+    },
+  },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "surface", surface: null } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "logout" } },
   {
     from: SHELL,
     to: "body",
     kind: "deck-facts",
-    payload: { theme: "ironclad", zoom: 1.25, keyboardAccess: true, modifierLatch: ["shift"], appActive: true },
+    payload: { theme: "ironclad", zoom: 1.25, keyboardAccess: true, modifierLatch: ["shift"], focusRingModality: "pointer", appActive: true },
   },
   {
     from: SHELL,
@@ -116,6 +140,9 @@ describe("bus envelope parity", () => {
       activate: true,
       "close-request": true,
       dispatch: true,
+      "focus-exit": true,
+      surface: true,
+      logout: true,
     };
     const allCommands: Record<CardCommandKind, true> = {
       find: true,
@@ -125,6 +152,9 @@ describe("bus envelope parity", () => {
       "turn-next": true,
       chord: true,
       dispatch: true,
+      "focus-enter": true,
+      "surface-activate": true,
+      "surface-dismissed": true,
     };
     expect([...advice].sort()).toEqual(Object.keys(allAdvice).sort());
     expect([...commands].sort()).toEqual(Object.keys(allCommands).sort());

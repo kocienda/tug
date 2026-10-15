@@ -8,7 +8,9 @@
  * which are the shell view's points because the shell's `pageZoom` stays 1.0
  * — and posts `placeBodies` with the whole set. Not `layoutRectOf`'s layout
  * px: the body applies View › Zoom to itself, so the host's frame is the
- * viewport rect at every zoom.
+ * viewport rect at every zoom, grown outward to whole points (`wholePoints`):
+ * a body's page lays out in whole points, and a fraction of a view past it
+ * is not page at all.
  *
  * A body shows when its body has said it is painted — its first frame of
  * real content has gone to the compositor, after `ready` — and its card is
@@ -116,6 +118,7 @@ import {
   planBodyBeats,
   shellWallMs,
   sweptUnionCut,
+  wholePoints,
   type BeatPlan,
   type BodyBeat,
   type BodyBeats,
@@ -460,7 +463,7 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): Pl
     const cardId = el.dataset.cardId;
     if (cardId === undefined || !bodyCardsStore.has(cardId)) continue;
     const facts = shownFactsOf(deck, cardId);
-    const rect = el.getBoundingClientRect();
+    const rect = wholePoints(el.getBoundingClientRect());
     if (bodies.length === 0) radius = radiusAt(el);
     const z = parseInt(getComputedStyle(el.closest(".tug-pane") ?? el).zIndex, 10);
     bodies.push({
@@ -570,7 +573,12 @@ export class BodyPlacer {
     });
   };
 
-  /** Measure, unless a settle holds the geometry; post what changed. */
+  /**
+   * Measure, unless a settle holds the geometry; post what changed. A
+   * measurement a settle's set-up declines is queued for the set-up's end
+   * rather than dropped: it may be the one that clears a gesture's last cut,
+   * and a set-up that turns into no settle sends no land to measure at.
+   */
   measure = (): void => {
     const container = this.container;
     if (container === null) return;
@@ -578,6 +586,7 @@ export class BodyPlacer {
     if (isSetUpPending()) {
       this.lastSkip = "set-up pending";
       this.hideWhatLeft();
+      deferToSetUp(this, this.schedule);
       return;
     }
     if (container.hasAttribute(SETTLING_ATTRIBUTE)) {
@@ -667,7 +676,7 @@ export class BodyPlacer {
       if (cardId === undefined) continue;
       const i = last.bodies.findIndex((b) => b.cardId === cardId);
       if (i < 0) continue;
-      const rect = el.getBoundingClientRect();
+      const rect = wholePoints(el.getBoundingClientRect());
       const b = last.bodies[i];
       if (b.x === rect.x && b.y === rect.y && b.width === rect.width && b.height === rect.height) continue;
       bodies ??= [...last.bodies];
@@ -682,6 +691,19 @@ export class BodyPlacer {
       this.paneBoxes.set(frame, { ...box, x: rect.x, y: rect.y, width: rect.width, height: rect.height });
     }
     this.cutPanes(next);
+  }
+
+  /**
+   * A gesture that moved `frame` without a commit has ended — a drop's
+   * landing, a cancel, a free drop. Re-post the frame's bodies where it
+   * stands, then measure every body and every pane box once on the far side
+   * of the paint, so no pane keeps a cut a frame of the gesture gave it: the
+   * gesture re-read only its own frame, and the deck around it may have
+   * moved while it ran.
+   */
+  land(frame: HTMLElement): void {
+    this.follow(frame);
+    this.schedule();
   }
 
   /**
@@ -1232,6 +1254,15 @@ export function floorShown(sinceRevealMs: number | null): void {
  */
 export function bodyFollowFrame(frame: HTMLElement): void {
   installed?.follow(frame);
+}
+
+/**
+ * A gesture that moved `frame` without a commit has ended: the installed
+ * placer re-posts it and re-measures the deck. A no-op when the host makes
+ * no bodies.
+ */
+export function bodyFrameLanded(frame: HTMLElement): void {
+  installed?.land(frame);
 }
 
 /**

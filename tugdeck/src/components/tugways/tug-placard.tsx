@@ -183,7 +183,7 @@ export interface TugPlacardProps {
  * the caller's CSS pins (`bottom:` upward, `top:` downward), so this value is
  * stable across height changes and cannot feed a layout loop.
  */
-function applyAvailableHeight(
+export function applyAvailableHeight(
   panel: HTMLDivElement,
   growth: TugPlacardGrowth,
   boundEl: HTMLElement | null | undefined,

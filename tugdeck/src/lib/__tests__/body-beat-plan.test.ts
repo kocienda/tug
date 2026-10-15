@@ -21,6 +21,7 @@ import {
   planBodyBeats,
   sweptUnionCut,
   viewportRect,
+  wholePoints,
   type BeatPlan,
   type CarriedFrame,
   type FrameBeat,
@@ -106,6 +107,29 @@ function sizeChange(allowCrossing: boolean): PlanInput {
     { allowCrossing },
   );
 }
+
+describe("wholePoints", () => {
+  test("grows a fractional rect outward to whole points", () => {
+    // Zoom 0.9's placeholder in a four-up flow: the view a body is posted
+    // at must hold its page's whole-point layout viewport exactly.
+    expect(wholePoints({ x: 12.3, y: 40.6, width: 605.7, height: 959.99 })).toEqual({
+      x: 12,
+      y: 40,
+      width: 606,
+      height: 961,
+    });
+  });
+
+  test("leaves a whole rect, and one a rounding error off it, as it is", () => {
+    expect(wholePoints({ x: 10, y: 20, width: 300, height: 400 })).toEqual({ x: 10, y: 20, width: 300, height: 400 });
+    expect(wholePoints({ x: 9.9999, y: 20.0001, width: 300.0002, height: 399.9999 })).toEqual({
+      x: 10,
+      y: 20,
+      width: 300,
+      height: 400,
+    });
+  });
+});
 
 describe("planBodyBeats", () => {
   test("a flow slide walks the body from First to Last, inset", () => {

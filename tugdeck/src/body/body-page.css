@@ -1,10 +1,11 @@
 /* A card's body page: one card filling the view, painted on the pane's own
-   surface. `--tugx-pane-bg` is declared on `body`, so `html` names the token
-   it resolves to — the view's backing shows through nowhere. */
-
-html[data-body-page] {
-  background-color: var(--tug7-surface-global-primary-normal-content-rest);
-}
+   surface, `--tugx-pane-bg`, and nothing else. The theme's tokens are
+   declared on `body`, so none of them resolves on `html`: `html` paints
+   nothing of its own, and `body`'s background propagates to the page's
+   canvas, which covers the whole layout viewport. What the viewport does
+   not reach — a view a fraction of a point wider than it — is the
+   container's surface behind the web view, the same colour
+   (`BodyViewController`'s `bodySurface`). */
 
 html[data-body-page] body {
   background-color: var(--tugx-pane-bg);
@@ -15,6 +16,7 @@ html[data-body-page] #deck-container {
   background: var(--tugx-pane-bg);
 }
 
+.body-canvas,
 .body-pane-frame,
 .body-pane-root {
   position: absolute;

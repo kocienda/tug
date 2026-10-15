@@ -74,6 +74,8 @@ import type {
   HarnessCaller,
   NativeClickOptions,
   NativeDragOptions,
+  NativeFileDragOptions,
+  NativeFileDragResult,
   ResetOptions,
   SeedDeckStateArgs,
   SelectionSnapshot,
@@ -103,6 +105,8 @@ export type {
   HarnessCaller,
   NativeClickOptions,
   NativeDragOptions,
+  NativeFileDragOptions,
+  NativeFileDragResult,
   ResetOptions,
   SeedDeckStateArgs,
   SelectionSnapshot,
@@ -206,8 +210,16 @@ export type {
  * is read on every frame rather than on the one frame a `captureWindow`
  * happens to land on. `bodies` rows carry `painted`. Additive; major stays
  * `1`.
+ *
+ * `1.17.0`: adds `nativeFileDrag` — a file dragged into the window from a
+ * source window of its own through a real `NSDraggingSession`, so AppKit's
+ * destination search decides where it enters. Additive; major stays `1`.
+ *
+ * `1.18.0`: adds `accessibilityOrder` — the web views the window's
+ * accessibility tree reaches, in order, each named `shell` or by its body's
+ * card. Additive; major stays `1`.
  */
-export const EXPECTED_SURFACE_VERSION = "1.16.0" as const;
+export const EXPECTED_SURFACE_VERSION = "1.18.0" as const;
 
 /**
  * Directory (relative to this file) where per-test subprocess logs
@@ -915,6 +927,11 @@ export class App {
     return client.bodies(this as HarnessCaller);
   }
 
+  /** The window's accessibility reading order: `shell` and body card ids. */
+  accessibilityOrder(): Promise<string[]> {
+    return client.accessibilityOrder(this as HarnessCaller);
+  }
+
   /**
    * The same surface, run in one card's body view instead of the shell: every
    * request it sends names the card. A card with no body rejects with
@@ -1355,6 +1372,11 @@ export class App {
       to,
       opts,
     );
+  }
+
+  /** A file dragged in from outside the deck; see `client.nativeFileDrag`. */
+  nativeFileDrag(path: string, to: ViewportPoint, opts?: NativeFileDragOptions): Promise<NativeFileDragResult> {
+    return client.nativeFileDrag(this as HarnessCaller, path, to, opts);
   }
 
   /** Element-anchored variant of {@link nativeDragWithoutRelease}. */

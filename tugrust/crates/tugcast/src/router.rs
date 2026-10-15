@@ -3371,7 +3371,7 @@ mod tests {
         let to_bodies = serde_json::json!({
             "to": "body",
             "kind": "deck-facts",
-            "payload": {"theme": "ironclad", "zoom": 1.0, "keyboardAccess": false, "modifierLatch": [], "appActive": true},
+            "payload": {"theme": "ironclad", "zoom": 1.0, "keyboardAccess": false, "modifierLatch": [], "focusRingModality": "keyboard", "appActive": true},
         });
         route_bus(&pages, &lane, &shell, to_bodies.to_string().as_bytes()).expect("delivered");
         assert_eq!(delivered(&mut rx).0, Delivery::Clients(vec![2, 3].into()));

@@ -55,6 +55,17 @@ launches with `TUG_BODY_VIEWS=1`.
 | `row-15-skew.test.ts` | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: noted at an offset of 0 (the median sets the shipped offset), and within two frames of travel at the shipped offset, at rest and with three bodies streaming. |
 | `row-16-back-pane-cut.test.ts` | A body carried across a Text card behind it: the back pane's cut moves with the body on the plan's clock, so no frame in motion shows the Text card's ink inside the body; the shell's gap rows over the motion are noted. |
 | `row-17-crossing.test.ts` | Bullseye, a column split and a new card beside the body card (⌘N's action) carry it with its chrome, to a new size where the box changes: `crossingReady` within a display period of the first moving beat, the content box and its bottom strip never the floor, the transcript pinned to its bottom before and after, and the container's top corners square. |
+| `row-19-streams.test.ts` | A body streams through the shell's settle: every body applies a batch between the motion gate's close and open, and none is parked, across a flow slide and a cross-column stack move. |
+| `row-20-drag-hole.test.ts` | A body card dragged across a Text card, the drag cancelled, or the card carried there by a settle, leaves no hole in the Text card at rest: every pane's cut is the landed deck's. |
+| `row-21-edges.test.ts` | A body card's side edges are the pane's border and nothing else, read beside a Text card's at zoom 0.8, 0.9 and 1.0, with each card key. |
+| `row-22-compaction-cover.test.ts` | A body's Compacting cover rests on the rest line above Z2, as the in-document card's does, not at the top of the transcript. |
+| `row-23-tab-edge.test.ts` | A body card's walk runs off its edge into the shell and comes back, by Tab and ⇧Tab and by the View menu's Next and Previous Keyboard Focus, with the body holding the keyboard at every step. |
+| `row-24-focus-through-motion.test.ts` | The key body keeps the keyboard through a settle that carries it on the host, and what is typed during the motion lands in it. |
+| `row-25-in-card-surfaces.test.ts` | The completion popup, the composer's context menu and the route badge's report draw whole inside the body, where its DOM says they are. |
+| `row-26-deck-scope-surfaces.test.ts` | What a body raises past its content box the shell draws: the Z2 placard over the deck, its buttons reaching the body, and `/logout`'s confirm. |
+| `row-27-drop-into-body.test.ts` | A drag over a body is the body's: a file from outside the window and a jot from the Jots card both land in its composer, and the shell's page takes no drop. |
+| `row-28-deck-facts.test.ts` | A body follows the focus-ring modality live, and the shell's held modifiers land on its root, with the shell key, the body key and across a hand-off. |
+| `row-29-voiceover-order.test.ts` | VoiceOver reads the shell, then each showing body in deck order, whichever pane stands in front. |
 | `floor-host.test.ts` | The host draws the canvas floor: its colour and grid match the page's own by composite at zoom 0.8, 1.0 and 1.25, and it never shows before the window's reveal. |
 
 A row's file lands with the step that builds the row; a file not yet here is a

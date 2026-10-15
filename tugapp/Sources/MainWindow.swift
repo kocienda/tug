@@ -293,6 +293,97 @@ final class ClickThroughWebView: WKWebView {
         return super.hitTest(point)
     }
 
+    // MARK: - Drags into a body
+    //
+    // AppKit finds a drag's destination without asking `hitTest`: the shell's
+    // view covers the window, so every drag over a body arrives here, from
+    // Finder and from the window alike. The shell's view hands each call to
+    // the body beneath the pointer wherever a click there would pass through
+    // (a visible body, no `pointerClaim` over it), and WebKit turns the
+    // forwarded call into that page's own `dragenter`/`dragover`/`drop` with
+    // the drag's pasteboard on `dataTransfer`. Everywhere else the call is the
+    // shell's, as before. A body's own view has no `dragTarget`, so every
+    // call it is handed is answered by WebKit.
+
+    /// The body web view a drag at a point in window coordinates belongs to,
+    /// or nil where the drag is this view's.
+    var dragTarget: ((NSPoint) -> WKWebView?)?
+
+    /// Who holds the drag in progress: the view that was last sent
+    /// `draggingEntered`, and is owed the exit or the drop.
+    private enum DragHolder {
+        case none
+        case shell
+        case body(WKWebView)
+    }
+
+    private var dragHolder: DragHolder = .none
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragHolder = .none
+        return routeDrag(sender)
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        routeDrag(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        leaveDrag(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        switch dragHolder {
+        case .body(let view): return view.prepareForDragOperation(sender)
+        case .shell, .none: return super.prepareForDragOperation(sender)
+        }
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        switch dragHolder {
+        case .body(let view): return view.performDragOperation(sender)
+        case .shell, .none: return super.performDragOperation(sender)
+        }
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+        switch dragHolder {
+        case .body(let view): view.concludeDragOperation(sender)
+        case .shell, .none: super.concludeDragOperation(sender)
+        }
+        dragHolder = .none
+    }
+
+    /// Send the call to whoever is under the pointer now. A move from one
+    /// holder to another exits the first and enters the second, so each page
+    /// sees a whole `dragenter` … `dragleave` of its own.
+    private func routeDrag(_ sender: NSDraggingInfo) -> NSDragOperation {
+        let target = dragTarget?(sender.draggingLocation)
+        switch (dragHolder, target) {
+        case (.shell, nil):
+            return super.draggingUpdated(sender)
+        case (.body(let held), let view?) where held === view:
+            return view.draggingUpdated(sender)
+        default:
+            leaveDrag(sender)
+            if let target {
+                dragHolder = .body(target)
+                return target.draggingEntered(sender)
+            }
+            dragHolder = .shell
+            return super.draggingEntered(sender)
+        }
+    }
+
+    private func leaveDrag(_ sender: NSDraggingInfo?) {
+        switch dragHolder {
+        case .none: break
+        case .shell: super.draggingExited(sender)
+        case .body(let view): view.draggingExited(sender)
+        }
+        dragHolder = .none
+    }
+
     /// Harness pid mode (`TUGAPP_NATIVE_EVENT_MODE=pid`) drives the app
     /// without ever activating it, so every click arrives as a first
     /// mouse. Swallowing them as activation clicks would eat the whole
@@ -619,6 +710,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         clickThroughWebView.passesThrough = { [weak self] point in
             self?.shellPassesThrough(point) ?? false
         }
+        // A drag goes where a click would: AppKit sends it to this view
+        // whatever the hit test says, so the view hands it on.
+        clickThroughWebView.dragTarget = { [weak self] locationInWindow in
+            self?.bodyDragTarget(at: locationInWindow)
+        }
         webView = clickThroughWebView
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -678,7 +774,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         // Container view holds both the WebView and any snapshot overlays.
         // The snapshot overlay is a sibling of the WebView (not a child) so
         // it is unaffected by WKWebView's compositing during navigation.
-        containerView = NSView(frame: contentRect)
+        containerView = DeckContainerView(frame: contentRect)
         containerView.autoresizingMask = [.width, .height]
         containerView.addSubview(webView)
         webView.frame = containerView.bounds
@@ -1189,6 +1285,24 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         return bodies.region.passesThrough(viewport)
     }
 
+    /// The body web view a drag at a window point belongs to: the visible
+    /// body a click there would pass through to, or nil when it is the
+    /// shell's.
+    private func bodyDragTarget(at locationInWindow: NSPoint) -> WKWebView? {
+        guard let bodies else { return nil }
+        let inContainer = containerView.convert(locationInWindow, from: nil)
+        let viewport = BodyGeometry.flipped(inContainer, inHeight: containerView.bounds.height)
+        return bodies.body(atViewportPoint: viewport)?.webView
+    }
+
+    /// VoiceOver's order for the window: the shell's view, which holds the
+    /// deck's chrome and every card it draws itself, then each showing body
+    /// in its pane's place in the shell's document. A body cannot be read
+    /// between two of the shell's own cards: the shell is one element.
+    func setAccessibilityOrder(bodies: [WKWebView]) {
+        (containerView as? DeckContainerView)?.accessibilityOrder = [webView as Any] + bodies.map { $0 as Any }
+    }
+
     // MARK: - Bodies
 
     /// Every handler name a page may post to. The shell's configuration and
@@ -1203,7 +1317,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         "restorePath", "thumbnailPath", "exportSession", "updateAction",
         "dictation", "pageZoom", "hostFrames",
         "bodyHello", "painted", "bodyCreate", "placeBodies", "bodyDestroy",
-        "bodyFocus", "pointerClaim", "floorGrid", "beatPlan", "crossingReady",
+        "bodyFocus", "pointerClaim", "floorGrid", "beatPlan", "crossingReady", "bodySurface",
     ]
 
     /// Names only the shell may post: the deck's own chrome, the window's
@@ -2770,6 +2884,10 @@ extension MainWindow: WKScriptMessageHandler {
             // A body has pinned its scrollers for its crossing: its page
             // may take its final size. The shell never posts this.
             if let fromBody { bodies.crossingReady(fromBody, surface: (message.body as? [String: Any])?["surface"] as? [NSNumber]) }
+        case "bodySurface":
+            // A body's page background, for its container to wear behind
+            // the web view. The shell never posts this.
+            if let fromBody { bodies.setSurface(fromBody, surface: (message.body as? [String: Any])?["surface"] as? [NSNumber]) }
         default:
             NSLog("MainWindow: unknown script message: %@", message.name)
         }

@@ -61,6 +61,7 @@ import { isFocusDestination } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { TrackedMark } from "./focus-marks";
 import { keyboardYielded, noteKeyboardYield } from "@/lib/keyboard-yield";
+import { takeFocusWalkEdge } from "@/lib/focus-walk-edge";
 
 /**
  * The behavior a key-view component declares to the engine ([P01]): the pure
@@ -2051,6 +2052,39 @@ export class FocusContext {
    */
   focusPrevious(): string | null {
     return this.advance(-1);
+  }
+
+  /**
+   * Whether a step of `step` would wrap past the edge of the base walk: the
+   * key view is the stop at that end, or the walk has no stops. A pushed
+   * mode (a trap, a card's cycle, a descend) has no edge, because it wraps
+   * by design; nor does a walk the key view is not in, whose step lands on
+   * an end rather than passing one. Read by `advanceKeyViewFocus` before it
+   * offers the step to the page's walk edge (`lib/focus-walk-edge.ts`).
+   */
+  walkEdgeAhead(step: 1 | -1): boolean {
+    if (this.currentFocusMode() !== BASE_FOCUS_MODE) return false;
+    const order = this.walkOrder();
+    if (order.length === 0) return true;
+    const current =
+      this.keyViewId === null
+        ? -1
+        : order.findIndex((r) => r.id === this.keyViewId);
+    if (current === -1) return false;
+    return step === 1 ? current === order.length - 1 : current === 0;
+  }
+
+  /**
+   * Move the key view to the first or last stop of the current mode's walk
+   * and return its id, or `null` if the walk has none: where a walk arriving
+   * from another page lands. Does not move DOM focus.
+   */
+  focusWalkEnd(edge: "first" | "last"): string | null {
+    const order = this.walkOrder();
+    if (order.length === 0) return null;
+    const id = order[edge === "first" ? 0 : order.length - 1].id;
+    this.setKeyView(id, true);
+    return id;
   }
 
   /**
@@ -4466,6 +4500,12 @@ export class FocusManager extends Subscribable {
   focusFirstInMode(): string | null {
     return this.activeContext().focusFirstInMode();
   }
+  walkEdgeAhead(step: 1 | -1): boolean {
+    return this.activeContext().walkEdgeAhead(step);
+  }
+  focusWalkEnd(edge: "first" | "last"): string | null {
+    return this.activeContext().focusWalkEnd(edge);
+  }
   /** Land a just-entered mode without advancing through it ([P12], [P09]). */
   enterModeAtKeyView(): string | null {
     return this.activeContext().enterModeAtKeyView();
@@ -4637,6 +4677,9 @@ export function advanceKeyViewFocus(
   // doors doing so — the Tab pipeline and the View menu's Next / Previous
   // Keyboard Focus items behave identically, in either mode, by construction.
   if (!manager.kbfEngaged()) manager.setKbfManual(true);
+  // At the edge of a walk split across pages, the step is the other page's
+  // to take: a body's own stops end where its chrome's begin in the shell.
+  if (manager.walkEdgeAhead(direction) && takeFocusWalkEdge(direction)) return true;
   const moved = direction === 1 ? manager.focusNext() : manager.focusPrevious();
   if (moved === null) return false;
   // The walk is MOVEMENT ([P12]): a text stop Tab lands on is parked — ringed,
@@ -4644,6 +4687,27 @@ export function advanceKeyViewFocus(
   manager.place(
     null,
     { kind: "focusable", id: moved },
+    { modality: "keyboard", arrival: "movement" },
+  );
+  return true;
+}
+
+/**
+ * Land the keyboard on the first or last stop of the key card's walk, as a
+ * walk arriving from another page does: the same movement a Tab is, from
+ * the end it came in by. Returns whether there was a stop to land on.
+ */
+export function enterKeyViewWalk(
+  manager: FocusManager | null,
+  edge: "first" | "last",
+): boolean {
+  if (manager === null) return false;
+  if (!manager.kbfEngaged()) manager.setKbfManual(true);
+  const id = manager.focusWalkEnd(edge);
+  if (id === null) return false;
+  manager.place(
+    null,
+    { kind: "focusable", id },
     { modality: "keyboard", arrival: "movement" },
   );
   return true;

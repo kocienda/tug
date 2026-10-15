@@ -509,8 +509,12 @@ import {
  * `2.41.0`: `sessionSettled` moves to the methods every view carries, so the
  * harness's session driver, which waits on it after every drive, works in a
  * body. Additive; major stays `2`.
+ *
+ * `2.42.0`: `ringFollowsPointer`, on every view, reads the focus-ring
+ * modality the page's engine follows, so a body's can be read against the
+ * shell's. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.41.0" as const;
+export const SURFACE_VERSION = "2.42.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2218,6 +2222,15 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
     /** The card this page's chain routes key-card commands to, or `null`. */
     getKeyCardId(): string | null {
       return getResponderChainManager()?.getKeyCard() ?? null;
+    },
+
+    /**
+     * Whether this page's focus engine paints the ring on pointer-driven
+     * key-view changes too — the focus-ring modality as this page follows
+     * it. `null` when no `FocusManager` is mounted.
+     */
+    ringFollowsPointer(): boolean | null {
+      return getFocusManager()?.ringFollowsPointerMode() ?? null;
     },
 
     // ---- gesture drivers ----

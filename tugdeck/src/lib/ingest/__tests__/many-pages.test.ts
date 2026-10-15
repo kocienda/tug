@@ -410,7 +410,7 @@ describe("bus", () => {
     send(shell, {
       to: "body",
       kind: "deck-facts",
-      payload: { theme: "ironclad", zoom: 1, keyboardAccess: false, modifierLatch: [], appActive: true },
+      payload: { theme: "ironclad", zoom: 1, keyboardAccess: false, modifierLatch: [], focusRingModality: "keyboard", appActive: true },
     });
     await Promise.all(
       [b1, b2].map((p) => p.waitFor(() => bus(p).find((j) => j.kind === "deck-facts"), "the bodies' deck-facts")),

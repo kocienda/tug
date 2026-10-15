@@ -59,7 +59,10 @@ export type CardCommandKind =
   | "turn-previous"
   | "turn-next"
   | "chord"
-  | "dispatch";
+  | "dispatch"
+  | "focus-enter"
+  | "surface-activate"
+  | "surface-dismissed";
 
 /** `card-command`: the chrome asking a card to act. */
 export interface CardCommand {
@@ -70,6 +73,35 @@ export interface CardCommand {
   id?: string;
   /** The action's payload, for a `dispatch` that has one. */
   payload?: Record<string, unknown>;
+  /**
+   * Where a `focus-enter` lands the keyboard: the card's first stop or its
+   * last, by the direction the walk arrived in.
+   */
+  edge?: "first" | "last";
+  /**
+   * The element a `surface-activate` presses: its child-index path from the
+   * root of the content the shell draws for the card.
+   */
+  path?: number[];
+}
+
+/**
+ * A surface a body asks the shell to draw over the deck: one that stands
+ * outside its card's content box, which is all a body's viewport is. The
+ * body keeps rendering it, hidden, and the shell draws `html` — the
+ * surface's content as the body rendered it — in a panel of `className`
+ * hung off the line at `lineY`, centred on `anchorX`. Coordinates are the
+ * body's viewport points. `scroll` is where each scroller in the content
+ * stood when it was first drawn, by its child-index path.
+ */
+export interface ShellSurface {
+  title: string;
+  className: string;
+  growth: "up" | "down";
+  anchorX: number;
+  lineY: number;
+  html: string;
+  scroll: Array<{ path: number[]; top: number }>;
 }
 
 /** `card-advice`: what a card tells the chrome about how to treat it, tagged by `advice`. */
@@ -85,7 +117,17 @@ export type CardAdvice =
    * matched, or a `dispatch` the shell forwarded — handed to the shell to
    * dispatch in its own chain, where the pane and the deck answer.
    */
-  | { advice: "dispatch"; id: string; payload?: Record<string, unknown> };
+  | { advice: "dispatch"; id: string; payload?: Record<string, unknown> }
+  /**
+   * The card's Tab walk reached its edge going `direction`: the next stop is
+   * the shell's to choose. `empty` says the card answered a `focus-enter`
+   * with no stop to take, so the shell must not hand the walk back.
+   */
+  | { advice: "focus-exit"; direction: "next" | "previous"; empty?: boolean }
+  /** Draw the card's deck-scope surface in the shell, or stop drawing it (`null`). */
+  | { advice: "surface"; surface: ShellSurface | null }
+  /** The card asked to log out, which is the app's to confirm and run. */
+  | { advice: "logout" };
 
 /** `deck-facts`: what the chrome tells every card about the deck. */
 export interface DeckFacts {
@@ -93,6 +135,11 @@ export interface DeckFacts {
   zoom: number;
   keyboardAccess: boolean;
   modifierLatch: string[];
+  /**
+   * The app's focus-ring modality, `keyboard` or `pointer`: a body follows
+   * the shell's rather than reading its own at boot, and persists nothing.
+   */
+  focusRingModality: "keyboard" | "pointer";
   appActive: boolean;
   /**
    * The shell's own menu facts for its bodies — the deck's arrangement

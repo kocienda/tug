@@ -36,6 +36,14 @@
  * drops the outline on both paint paths — but the attribute would still be
  * wrong when the window came back, and a wrong attribute is a wrong test.)
  *
+ * A body page is its own document with its own latch, and it sees only the
+ * keys that reach it, which is none while the shell holds the keyboard. So the
+ * shell sends its held set to every body as a deck fact, and a body's root
+ * carries the union of its own set and the shell's ({@link
+ * applyShellModifierLatch}). Only one view holds the keyboard at a time, and
+ * the one that lets it go is blurred, which clears its own set, so the union
+ * is whichever page has the keys.
+ *
  * @module components/tugways/modifier-latch
  */
 
@@ -61,6 +69,51 @@ export const MOD_SHIFT = "shift";
  */
 export const MOD_TOKENS = [MOD_SHIFT, "alt", "ctrl", "meta"] as const;
 
+/** This page's own held set, the shell's set as last sent, and what the root wears. */
+let localHeld = "";
+let shellHeld = "";
+let written = "";
+const listeners = new Set<() => void>();
+
+/** The canonical-order union of two held sets. */
+function union(a: string, b: string): string {
+  const held = new Set([...a.split(" "), ...b.split(" ")]);
+  return MOD_TOKENS.filter((token) => held.has(token)).join(" ");
+}
+
+function writeRoot(): void {
+  if (typeof document === "undefined") return;
+  const next = union(localHeld, shellHeld);
+  if (next === written) return;
+  written = next;
+  const root = document.documentElement;
+  if (next === "") {
+    root.removeAttribute(MODS_ATTRIBUTE);
+  } else {
+    root.setAttribute(MODS_ATTRIBUTE, next);
+  }
+}
+
+/** The modifiers this page's own key events say are held, in canonical order. */
+export function heldModifiers(): string[] {
+  return localHeld === "" ? [] : localHeld.split(" ");
+}
+
+/** Be told when this page's own held set changes. Returns the unsubscribe. */
+export function subscribeModifierLatch(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/**
+ * A body takes the shell's held set, sent as the `modifierLatch` deck fact.
+ * Unknown tokens are dropped.
+ */
+export function applyShellModifierLatch(tokens: readonly string[]): void {
+  shellHeld = MOD_TOKENS.filter((token) => tokens.includes(token)).join(" ");
+  writeRoot();
+}
+
 /**
  * Install the latch's listeners on `document` / `window` and return the
  * teardown. Idempotent per call site; the responder chain provider owns the
@@ -69,20 +122,14 @@ export const MOD_TOKENS = [MOD_SHIFT, "alt", "ctrl", "meta"] as const;
 export function installModifierLatch(): () => void {
   if (typeof document === "undefined") return () => {};
 
-  const root = document.documentElement;
-  // Mirrors the attribute so the common case — a keystroke that does not
-  // change the held set — costs one string compare and no DOM touch. The
-  // composer's typing path runs through here on every key up and down.
-  let held = "";
-
+  // The common case — a keystroke that does not change the held set — costs
+  // one string compare and no DOM touch. The composer's typing path runs
+  // through here on every key up and down.
   const apply = (next: string): void => {
-    if (next === held) return;
-    held = next;
-    if (next === "") {
-      root.removeAttribute(MODS_ATTRIBUTE);
-    } else {
-      root.setAttribute(MODS_ATTRIBUTE, next);
-    }
+    if (next === localHeld) return;
+    localHeld = next;
+    writeRoot();
+    for (const listener of listeners) listener();
   };
 
   const onKey = (event: KeyboardEvent): void => {

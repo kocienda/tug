@@ -13,8 +13,11 @@
  * The claim is recomputed when one of those surfaces comes, goes, opens,
  * closes or changes size — a `MutationObserver` and a `ResizeObserver`,
  * coalesced to one reading on the far side of the next paint — and posted to
- * the host (`pointerClaim`) only when it changed. A drag needs no claim: AppKit
- * keeps sending a drag to the view that took its `mouseDown`.
+ * the host (`pointerClaim`) only when it changed. A pointer drag needs no
+ * claim: AppKit keeps sending its `mouseDragged` to the view that took its
+ * `mouseDown`. A drag-and-drop session (a file from Finder, a jot) is routed
+ * by the claim like a click: the host hands it to the body under the pointer
+ * unless the claim covers the point.
  *
  * Laws: [L06] (the claim is appearance the host acts on, never React state),
  * [L22] (direct observation of the DOM the claimants live in), [L27] (the

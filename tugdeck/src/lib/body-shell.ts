@@ -16,8 +16,21 @@
  *   answering a card's first `card-facts` with both.
  * - `bodyFocus` goes to the host on every first-responder change, so the
  *   keyboard follows the deck's first responder into a body and out again.
+ * - A body card's Tab walk may be split: its own stops in the body, its
+ *   chrome's here (none a Session card has: it authors its own folded form,
+ *   so it wears no Unfold glyph). A body's walk that runs off an end posts
+ *   `focus-exit`; the shell lands its own first or last stop of the card,
+ *   or with none sends `focus-enter` back at the end the walk came in by.
+ *   The shell's walk running off an end goes into the body the same way,
+ *   and a step of it while the shell holds none of the card's stops is the
+ *   body's. While the shell holds a stop of the card's, it holds the keyboard.
  * - A destroyed card's body is destroyed with it, unsaved: its bag is about
  *   to be swept.
+ * - A surface a body card raises past its content box — the Z2 placard —
+ *   arrives as `surface` advice and is drawn here, over the deck, where the
+ *   in-document card would have drawn it (`shell-surface.ts`); a press in it
+ *   or its dismissal goes back as a `card-command`. A body's `logout` advice
+ *   is the app's logout, which only the shell mounts.
  * - A menu command bound for the key card goes to the key body when the key
  *   card is one and no shell surface holds the chain ahead of it.
  *
@@ -33,10 +46,15 @@ import type { IDeckManagerStore } from "../deck-manager-store";
 import type { DeckState } from "../layout-tree";
 import { getResponderChainManager } from "../action-registry";
 import { dispatchCommand, setKeyCardForwarder } from "../command-dispatch";
+import { enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
+import { TUG_ACTIONS } from "./action-vocabulary";
+import { setFocusWalkEdge } from "./focus-walk-edge";
 import { setKeyboardYield } from "./keyboard-yield";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { keyboardAccessStore } from "../keyboard-access-store";
+import { focusRingModalityStore } from "../focus-ring-modality-store";
+import { heldModifiers, subscribeModifierLatch } from "../components/tugways/modifier-latch";
 import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore } from "./body-cards-store";
@@ -47,6 +65,8 @@ import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { cardTitleStore, type CardMastheadPayload } from "./card-title-store";
+import { requestLogout } from "./logout-store";
+import { ShellSurfaceDrawer } from "./shell-surface";
 import { onBus, sendBus } from "./deck-bus";
 import { replayBodyIntent } from "../body/body-intent";
 import {
@@ -99,7 +119,10 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
     theme: getOnScreenTheme(),
     zoom: pageZoomStore.getFactor(),
     keyboardAccess: keyboardAccessStore.getMode() === "accessibility",
-    modifierLatch: [],
+    // What the shell's own key events say is held: a body sees no keys
+    // while the shell has the keyboard, and its chord rings read this.
+    modifierLatch: heldModifiers(),
+    focusRingModality: focusRingModalityStore.getMode(),
     appActive: state.hasFocus,
     // The arrangement's menu facts, which a body's one-card deck cannot
     // project for itself: the gates a body posts for its card's Go, View and
@@ -134,6 +157,16 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const hadMasthead = new Set<string>();
   /** The member each card's sheet reservation was claimed under. */
   const reservedUnder = new Map<string, string>();
+  /** Each body card's deck-scope surface, drawn over the deck. */
+  const surfaces = new ShellSurfaceDrawer({
+    onActivate: (cardId, path) => {
+      sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "surface-activate", path } });
+    },
+    onDismiss: (cardId) => {
+      sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "surface-dismissed" } });
+    },
+  });
+  releases.push(() => surfaces.dispose());
 
   const forget = (cardId: string): void => {
     perCard.get(cardId)?.();
@@ -142,6 +175,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     sentContext.delete(cardId);
     hadMasthead.delete(cardId);
     reservedUnder.delete(cardId);
+    surfaces.remove(cardId);
   };
 
   const attach = (cardId: string): void => {
@@ -193,22 +227,52 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   };
 
   let focusedBody: string | null | undefined;
-  const postFocus = (force: boolean): void => {
+  /**
+   * Whether the shell holds a stop of its own in the body card's walk —
+   * its chrome's — and so the keyboard.
+   */
+  const shellHoldsStop = (cardId: string): boolean => {
+    const manager = getFocusManager();
+    return manager !== null && manager.keyCard() === cardId && manager.currentModeMember(manager.keyView());
+  };
+  /** The body card that should hold the keyboard now, or null for the shell. */
+  const keyboardBody = (): string | null => {
     const fr = deck.getFirstResponderCardId();
-    const target = fr !== null && bodyCardsStore.has(fr) ? fr : null;
+    return fr !== null && bodyCardsStore.has(fr) && !shellHoldsStop(fr) ? fr : null;
+  };
+  const postFocus = (force: boolean): void => {
+    const target = keyboardBody();
     if (!force && target === focusedBody) return;
     focusedBody = target;
     postToHost("bodyFocus", { cardId: target });
+  };
+  // A stop the shell takes or lets go of in a body card's walk moves the
+  // keyboard without moving the deck's first responder. The engine mounts
+  // with the deck, after this, so the watch is taken on the first change.
+  let watchingFocus = false;
+  const watchFocus = (): void => {
+    if (watchingFocus) return;
+    const manager = getFocusManager();
+    if (manager === null) return;
+    watchingFocus = true;
+    releases.push(manager.subscribe(() => postFocus(false)));
   };
 
   let lastFirstResponder = deck.getFirstResponderCardId();
   releases.push(
     deck.subscribe(() => {
+      watchFocus();
       for (const cardId of heard) sendContext(cardId, false);
       publishDeckFacts();
+      // A drawn surface hangs off its card, wherever the card now stands.
+      surfaces.placeAll();
       const fr = deck.getFirstResponderCardId();
       if (fr !== lastFirstResponder) {
         lastFirstResponder = fr;
+        // A press in another body never reaches the shell, but it makes
+        // that card the first responder: the keyboard leaving a card closes
+        // the surface drawn for it, as the press would have.
+        surfaces.dismissAllBut(fr);
         postFocus(true);
       }
     }),
@@ -221,6 +285,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     subscribeOnScreenTheme(publishDeckFacts),
     pageZoomStore.subscribe(publishDeckFacts),
     keyboardAccessStore.subscribe(publishDeckFacts),
+    focusRingModalityStore.subscribe(publishDeckFacts),
+    subscribeModifierLatch(publishDeckFacts),
   );
 
   // ---- What the bodies tell the shell ----
@@ -292,8 +358,55 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // forwards it back ([P04]: one front door, routed by the entry).
         dispatchCommand(advice.id, advice.payload, { local: true });
         return;
+      case "focus-exit": {
+        // The body's walk ran off an end: the card's chrome stops here come
+        // next, from the end the walk arrived at; with none, the walk goes
+        // back into the body — unless the body just said it has none either.
+        if (deck.getFirstResponderCardId() !== cardId) return;
+        const edge = advice.direction === "next" ? "first" : "last";
+        const manager = getFocusManager();
+        if (manager !== null && manager.keyCard() === cardId && enterKeyViewWalk(manager, edge)) {
+          postFocus(false);
+          return;
+        }
+        if (advice.empty !== true) enterBody(cardId, edge);
+        return;
+      }
+      case "surface":
+        surfaces.draw(cardId, advice.surface);
+        return;
+      case "logout":
+        requestLogout();
+        return;
     }
   };
+
+  /** Hand the key card's walk into its body at `edge`, and the keyboard with it. */
+  const enterBody = (cardId: string, edge: "first" | "last"): void => {
+    const manager = getFocusManager();
+    if (manager !== null && manager.keyCard() === cardId) manager.setKeyView(null);
+    sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "focus-enter", edge } });
+    postFocus(false);
+  };
+  // A step of the shell's walk while a body card is key — the View menu's
+  // Next / Previous Keyboard Focus, a Tab the shell holds — is the body's
+  // to take while the shell holds none of the card's stops: it steps from
+  // the body's own key view. Run off the end of the shell's chrome stops,
+  // it goes into the body.
+  releases.push(
+    setFocusWalkEdge((direction) => {
+      const fr = deck.getFirstResponderCardId();
+      if (fr === null || !bodyCardsStore.has(fr)) return false;
+      if (shellHoldsStop(fr)) {
+        enterBody(fr, direction === 1 ? "first" : "last");
+        return true;
+      }
+      const id = direction === 1 ? TUG_ACTIONS.NEXT_KEYBOARD_FOCUS : TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS;
+      sendBus(connection, { card: fr }, { kind: "card-command", payload: { command: "dispatch", id } });
+      postFocus(false);
+      return true;
+    }),
+  );
 
   // ---- What the host tells the shell ----
 
@@ -342,6 +455,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         heard.delete(cardId);
         sentContext.delete(cardId);
         hadMasthead.delete(cardId);
+        surfaces.remove(cardId);
         return;
       case "failed": {
         tugDevLogStore.error("body", "a body failed; its card stays in the shell", {
@@ -402,8 +516,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   releases.push(
     setKeyboardYield(
       () => {
-        const fr = deck.getFirstResponderCardId();
-        return fr !== null && bodyCardsStore.has(fr) && !shellAheadNow();
+        return keyboardBody() !== null && !shellAheadNow();
       },
       () => postFocus(true),
     ),
@@ -415,8 +528,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // goes back to the body if the shell has yielded it.
   const onShellPointerUp = (): void => {
     window.setTimeout(() => {
-      const fr = deck.getFirstResponderCardId();
-      if (fr !== null && bodyCardsStore.has(fr) && !shellAheadNow()) postFocus(true);
+      if (keyboardBody() !== null && !shellAheadNow()) postFocus(true);
     }, 0);
   };
   window.addEventListener("pointerup", onShellPointerUp, true);

@@ -67,6 +67,28 @@ pub enum CardCommandKind {
     Chord,
     /// A card-scoped menu command, by its action id.
     Dispatch,
+    /// The Tab walk enters the card at its first or last stop.
+    FocusEnter,
+    /// The user pressed something in the card's surface the shell draws.
+    SurfaceActivate,
+    /// The shell dismissed the card's surface it draws.
+    SurfaceDismissed,
+}
+
+/// Where a `focus-enter` lands the keyboard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FocusEdge {
+    First,
+    Last,
+}
+
+/// Which way a card's Tab walk left it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FocusDirection {
+    Next,
+    Previous,
 }
 
 /// A key chord a `card-command` forwards.
@@ -91,6 +113,42 @@ pub struct CardCommand {
     /// The action's payload, for a `dispatch` that has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload: Option<serde_json::Value>,
+    /// Where a `focus-enter` lands the keyboard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge: Option<FocusEdge>,
+    /// The element a `surface-activate` presses, by its child-index path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<Vec<u32>>,
+}
+
+/// Which way a surface the shell draws opens off its line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SurfaceGrowth {
+    Up,
+    Down,
+}
+
+/// Where a scroller in a drawn surface stood, by its child-index path.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfaceScroll {
+    pub path: Vec<u32>,
+    pub top: f64,
+}
+
+/// A surface a body asks the shell to draw over the deck: its content as
+/// the body rendered it, hung off a line in the body's viewport points.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellSurface {
+    pub title: String,
+    pub class_name: String,
+    pub growth: SurfaceGrowth,
+    pub anchor_x: f64,
+    pub line_y: f64,
+    pub html: String,
+    pub scroll: Vec<SurfaceScroll>,
 }
 
 /// `card-advice`: what a card tells the chrome about how to treat it.
@@ -119,6 +177,17 @@ pub enum CardAdvice {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         payload: Option<serde_json::Value>,
     },
+    /// The card's Tab walk reached its edge; `empty` says it answered a
+    /// `focus-enter` with no stop to take.
+    FocusExit {
+        direction: FocusDirection,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        empty: Option<bool>,
+    },
+    /// The card's deck-scope surface for the shell to draw, or null to stop.
+    Surface { surface: Option<ShellSurface> },
+    /// The card asked to log out.
+    Logout,
 }
 
 /// `deck-facts`: what the chrome tells every card about the deck.
@@ -129,12 +198,22 @@ pub struct DeckFacts {
     pub zoom: f64,
     pub keyboard_access: bool,
     pub modifier_latch: Vec<String>,
+    /// The app's focus-ring modality, which a body follows.
+    pub focus_ring_modality: FocusRingModality,
     pub app_active: bool,
     /// The shell's menu projection for its bodies, opaque here: the deck's
     /// arrangement as the shell's menu publisher projects it, and the focus
     /// family's travel. Absent until the shell has projected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub menu: Option<serde_json::Value>,
+}
+
+/// Whether the focus ring follows the keyboard only, or the pointer too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FocusRingModality {
+    Keyboard,
+    Pointer,
 }
 
 /// `card-context`: what the chrome tells one body about its own card.
@@ -260,6 +339,9 @@ mod tests {
             "activate",
             "close-request",
             "dispatch",
+            "focus-exit",
+            "surface",
+            "logout",
         ] {
             assert!(
                 has(&|e| match &e.message {
@@ -321,6 +403,8 @@ mod tests {
                 chord: None,
                 id: None,
                 payload: None,
+                edge: None,
+                path: None,
             })
         );
         assert!(serde_json::to_value(&parsed).unwrap().get("from").is_none());

@@ -141,7 +141,16 @@ final class TestHarnessConnection {
     /// departure is read on every frame rather than on the one frame a
     /// `captureWindow` happens to land on. `bodies` rows carry `painted`.
     /// Additive; major stays `1`.
-    static let surfaceVersion = "1.16.0"
+    ///
+    /// `1.17.0`: adds `nativeFileDrag` — a file dragged into the window from
+    /// a source window of its own through a real `NSDraggingSession`, so
+    /// AppKit's destination search decides where it enters. Additive; major
+    /// stays `1`.
+    ///
+    /// `1.18.0`: adds `accessibilityOrder` — the web views the window's
+    /// accessibility tree reaches, in the order it reaches them, each named
+    /// `shell` or by its body's card. Additive; major stays `1`.
+    static let surfaceVersion = "1.18.0"
 
     private let fileHandle: FileHandle
     private var buffer = Data()
@@ -248,6 +257,9 @@ final class TestHarnessConnection {
              "releaseHeldModifiers":
             guard let view = targetView(id: id, obj: obj, verb: method) else { return }
             dispatchNativeVerb(id: id, verbObj: obj, in: view)
+        case "nativeFileDrag":
+            guard let view = targetView(id: id, obj: obj, verb: method) else { return }
+            dispatchNativeFileDrag(id: id, verbObj: obj, in: view)
         case "checkAccessibilityPermission":
             dispatchCheckAccessibilityPermission(id: id, verbObj: obj)
         case "simulateAppResign",
@@ -304,6 +316,8 @@ final class TestHarnessConnection {
             dispatchSpikeBody(id: id, verbObj: obj)
         case "bodies":
             dispatchBodies(id: id)
+        case "accessibilityOrder":
+            dispatchAccessibilityOrder(id: id)
         default:
             respondError(id: id, name: "NotImplemented", message: "Unknown method: \(method)")
         }
@@ -345,6 +359,48 @@ final class TestHarnessConnection {
                 return
             }
             self.respond(id: id, ok: true, payload: ["value": bodies.snapshot()])
+        }
+    }
+
+    /// The window's accessibility tree, walked from the window the way
+    /// VoiceOver walks it, down to the first web view on each branch: each
+    /// as `shell` or its body's card id, in the order the tree gives them. A
+    /// hidden view is skipped, as AppKit skips it. Read in process through
+    /// `accessibilityChildren()`, which is what AppKit answers VoiceOver with;
+    /// an `AXUIElement` query of this process from its own main thread would
+    /// wait on itself.
+    private func dispatchAccessibilityOrder(id: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let mainWindow = self.webView?.window as? MainWindow else {
+                self.respondError(id: id, name: "WindowError", message: "no window")
+                return
+            }
+            let shell = mainWindow.testHarnessWebView()
+            var order: [String] = []
+            func walk(_ element: Any, depth: Int) {
+                guard depth < 16 else { return }
+                if let view = element as? NSView, view.isHidden { return }
+                if let webView = element as? WKWebView {
+                    if webView === shell {
+                        order.append("shell")
+                    } else {
+                        order.append(mainWindow.bodies?.body(for: webView)?.cardId ?? "spare")
+                    }
+                    return
+                }
+                let children: [Any]
+                if let view = element as? NSView {
+                    children = view.accessibilityChildren() ?? []
+                } else if let window = element as? NSWindow {
+                    children = window.accessibilityChildren() ?? []
+                } else {
+                    return
+                }
+                for child in children { walk(child, depth: depth + 1) }
+            }
+            walk(mainWindow, depth: 0)
+            self.respond(id: id, ok: true, payload: ["value": order])
         }
     }
 
@@ -1155,6 +1211,33 @@ final class TestHarnessConnection {
                     name: "NativeEventError",
                     message: "\(error)",
                 )
+            }
+        }
+    }
+
+    /// `nativeFileDrag` posts like the other native verbs, from a background
+    /// queue, and answers with what the drag session's source was told.
+    private func dispatchNativeFileDrag(id: Int, verbObj: [String: Any], in webView: WKWebView) {
+        let handlers = NativeEventHandlers(webView: webView)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            do {
+                guard let path = verbObj["path"] as? String else {
+                    throw NativeEventError.protocolError("nativeFileDrag: missing 'path'")
+                }
+                let to = try Self.parsePoint(verbObj["to"], field: "to")
+                let result = try handlers.nativeFileDrag(
+                    path: path,
+                    to: to,
+                    interpolationSteps: (verbObj["interpolationSteps"] as? Int) ?? 16,
+                    interpolationDelayMs: (verbObj["interpolationDelayMs"] as? Int) ?? 30,
+                    dwellMs: (verbObj["dwellMs"] as? Int) ?? 300,
+                )
+                self.respond(id: id, ok: true, payload: ["value": result])
+            } catch let error as NativeEventError {
+                self.respondError(id: id, name: error.wireName, message: error.description)
+            } catch {
+                self.respondError(id: id, name: "NativeEventError", message: "\(error)")
             }
         }
     }

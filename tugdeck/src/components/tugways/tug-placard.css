@@ -59,6 +59,15 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* A placard a body asked the shell to draw (`lib/shell-surface.ts`): the body
+   keeps it rendered, since what the shell draws is its content, but nothing
+   of it shows or takes the pointer here. */
+.tug-placard.tug-placard-drawn-elsewhere {
+  visibility: hidden;
+  pointer-events: none;
+  animation: none;
+}
+
 /* @tug-renders-on var(--tug7-surface-global-primary-normal-screen-rest) */
 /* Header — a centered, icon-less, reduced-height title strip on the theme's
    floating-chrome `screen` tint (the same surface tooltips / menus / the dev
