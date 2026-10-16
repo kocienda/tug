@@ -238,6 +238,20 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const sentContext = new Map<string, string>();
   /** Cards that have shown a masthead, so its going away clears the binding. */
   const hadMasthead = new Set<string>();
+  /**
+   * Which halves of each body's paint the shell has heard: the host's (its
+   * first frame composited) and the bus's (sent behind every `card-facts` that
+   * frame was drawn with). The card is `painted` to the placer only once both
+   * have arrived, so a body is never shown under chrome its facts are still on
+   * their way to change — a Session card's masthead, which grows the title
+   * bar by 52 pt (`at0738-body-arrival`).
+   */
+  const paintHeard = new Map<string, { host: boolean; bus: boolean }>();
+  const notePaint = (cardId: string, half: "host" | "bus"): void => {
+    const heardPaint = { ...(paintHeard.get(cardId) ?? { host: false, bus: false }), [half]: true };
+    paintHeard.set(cardId, heardPaint);
+    if (heardPaint.host && heardPaint.bus) bodyCardsStore.setState(cardId, "painted");
+  };
   /** The member each card's sheet reservation was claimed under. */
   const reservedUnder = new Map<string, string>();
   /** Each body card's deck-scope surface, drawn over the deck. */
@@ -282,6 +296,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     sentContext.delete(cardId);
     hadMasthead.delete(cardId);
     reservedUnder.delete(cardId);
+    paintHeard.delete(cardId);
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
@@ -716,6 +731,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "activate":
         deck.activateCard(cardId);
         return;
+      case "painted":
+        notePaint(cardId, "bus");
+        return;
       case "close-request": {
         const paneId = paneOf(deck.getSnapshot(), cardId);
         if (paneId !== null) deck.removeCard(paneId, cardId);
@@ -831,8 +849,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         if (deck.getFirstResponderCardId() === cardId) postFocus(true);
         return;
       case "painted":
-        // Its first frame of content is composited: the placer may show it.
-        bodyCardsStore.setState(cardId, "painted");
+        // Its first frame of content is composited; the placer may show it
+        // once the bus has said so too, behind the facts the frame drew.
+        notePaint(cardId, "host");
         return;
       case "shown":
         // The host's container is placed, opaque and drawn: the lid lifts.
@@ -858,6 +877,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         heard.delete(cardId);
         sentContext.delete(cardId);
         hadMasthead.delete(cardId);
+        paintHeard.delete(cardId);
         surfaces.remove(cardId);
         // The page that would have answered a close decision is gone.
         pendingDecisions.get(cardId)?.("cancel");

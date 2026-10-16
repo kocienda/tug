@@ -342,6 +342,13 @@ function bindSpare(cardId: string): Promise<boolean> {
  * second follows its commit. `ready` is the card mounted and quiet; `painted`
  * is the first frame of its real content gone to the compositor, and it is
  * what the host shows the container on.
+ *
+ * `painted` is said twice: to the host, which composites the frame, and on
+ * the bus to the shell, behind every `card-facts` this page has sent. The
+ * shell draws the card's chrome from those facts — a Session card's masthead
+ * grows its title bar by 52 pt — so it shows the body only once it has heard
+ * both: the host's word alone can outrun the facts and place the body under
+ * chrome that is about to move it (`at0738-body-arrival`).
  */
 function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge, mounting: boolean): void {
   let done = false;
@@ -355,7 +362,10 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge, mounting: 
       postToHost("frontendReady", {});
       postSurface();
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => postToHost("painted", {}));
+        requestAnimationFrame(() => {
+          postToHost("painted", {});
+          sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "painted" } });
+        });
       });
     });
   };

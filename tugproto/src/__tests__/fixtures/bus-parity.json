@@ -178,6 +178,12 @@
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
+      "payload": { "advice": "painted" }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
       "payload": { "advice": "close-request" }
     },
     {

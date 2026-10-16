@@ -141,6 +141,12 @@ export type CardAdvice =
   | { advice: "sheet-reservation"; heightPx: number | null }
   | { advice: "opening-bid"; heightPx: number | null }
   | { advice: "activate" }
+  /**
+   * The card's first frame of content has gone to the compositor, said on
+   * the bus behind every `card-facts` that frame was drawn with; the shell
+   * shows the body once it has this and the host's own `painted`.
+   */
+  | { advice: "painted" }
   | { advice: "close-request" }
   /**
    * Add a card of `componentId` to the pane this card stands in — the

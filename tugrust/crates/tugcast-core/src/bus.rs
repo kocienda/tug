@@ -196,6 +196,9 @@ pub enum CardAdvice {
     OpeningBid { height_px: Option<f64> },
     /// The card asks to be made the key card.
     Activate,
+    /// The card's first frame of content has gone to the compositor, said
+    /// behind every `card-facts` that frame was drawn with.
+    Painted,
     /// The card asks the chrome to close it.
     CloseRequest,
     /// The card asks for a card of `component_id` added to the pane it
@@ -409,6 +412,7 @@ mod tests {
             "sheet-reservation",
             "opening-bid",
             "activate",
+            "painted",
             "close-request",
             "add-card",
             "dispatch",
