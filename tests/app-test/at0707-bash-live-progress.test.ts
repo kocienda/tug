@@ -227,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           timeoutMs: 10_000,
         });
         expect(await shown(app, RUN_STRIP), "collapsed, the settled run is its strip").toBe(true);
-        expect(await text(app, RUN_STRIP)).toContain("RED");
+        expect(await text(app, RUN_STRIP)).toContain("FAIL");
         expect(await count(app, `${RUN_BLOCK} [data-slot="tool-block-notice"]`), "the strip, not the error band").toBe(0);
 
         await app.click(`${RUN_BLOCK} [data-slot="tool-call-header-disclosure"]`);

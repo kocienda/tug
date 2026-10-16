@@ -107,3 +107,54 @@
   border-end-start-radius: var(--tugx-block-chrome-radius);
   border-end-end-radius: var(--tugx-block-chrome-radius);
 }
+
+/* ---- density="compact": one line, a smaller dot ---------------------------
+ * For a list of many steps inside a transcript block — a build's phases — where
+ * the wizard's 60px plinth would make five steps a screenful. */
+.tug-step-row[data-density="compact"] {
+  --tugx-step-row-h: 28px;
+  --tugx-step-row-dot: 10px;
+  --tugx-step-row-headline-gap: 8px;
+  gap: var(--tug-space-sm);
+  padding: 0 var(--tug-space-sm);
+  border-radius: var(--tug-radius-sm);
+}
+
+.tug-step-row[data-density="compact"] .tug-step-row-label {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.tug-step-row[data-density="compact"] .tug-step-row-detail {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* ---- detailPlacement="trailing": the detail ends the label's line ---------
+ * A time or a count reads as a right-aligned column down the list rather than
+ * a second line under each label. */
+.tug-step-row[data-detail="trailing"] .tug-step-row-main {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--tug-space-md);
+}
+
+.tug-step-row[data-detail="trailing"] .tug-step-row-headline {
+  flex: 1;
+  min-width: 0;
+}
+
+.tug-step-row[data-detail="trailing"] .tug-step-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tug-step-row[data-detail="trailing"] .tug-step-row-detail {
+  flex: 0 0 auto;
+  padding-left: 0;
+  font-family: var(--tug-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

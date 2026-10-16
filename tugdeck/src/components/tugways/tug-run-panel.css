@@ -2,8 +2,8 @@
    - --tugx-run-text-color        | --tugx-run-surface      (names, values)
    - --tugx-run-muted-color       | --tugx-run-surface      (unit word, messages, fold counts)
    - --tugx-run-subtle-color      | --tugx-run-surface      (caps, history, fold titles)
-   - --tugx-run-pass-text-color   | --tugx-run-surface      (PASS word and mark)
-   - --tugx-run-red-text-color    | --tugx-run-surface      (FAIL word and mark, verdict word)
+   - --tugx-run-pass-text-color   | --tugx-run-surface      (PASS word and mark, pass tally)
+   - --tugx-run-red-text-color    | --tugx-run-surface      (FAIL word and mark, verdict word, fail tally)
    - --tugx-run-wedged-text-color | --tugx-run-surface      (WEDGED word, over-median names)
    - --tugx-run-link-color        | --tugx-run-surface      (projection)
    - --tugx-run-text-color        | --tugx-run-card-surface (red card text)
@@ -104,8 +104,33 @@ body {
 
 .tug-run-panel-tally {
   display: inline-flex;
-  gap: var(--tug-space-2xs);
+  align-items: baseline;
+  gap: var(--tug-space-sm);
   flex-wrap: wrap;
+}
+
+/* the tally is words, coloured by what they count; a zero pass stays muted */
+/* @tug-renders-on: --tugx-run-surface */
+.tug-run-panel-tally-word {
+  font-size: var(--tug-font-size-xs);
+  font-weight: var(--tug-font-weight-semibold);
+  white-space: nowrap;
+  color: var(--tugx-run-muted-color);
+}
+
+/* @tug-renders-on: --tugx-run-surface */
+.tug-run-panel-tally-word[data-status="pass"] {
+  color: var(--tugx-run-pass-text-color);
+}
+
+/* @tug-renders-on: --tugx-run-surface */
+.tug-run-panel-tally-word[data-status="fail"] {
+  color: var(--tugx-run-red-text-color);
+}
+
+/* @tug-renders-on: --tugx-run-surface */
+.tug-run-panel-tally-word[data-status="wedged"] {
+  color: var(--tugx-run-wedged-text-color);
 }
 
 .tug-run-panel-spacer {
@@ -182,8 +207,8 @@ body {
 }
 
 .tug-run-panel-track[data-dense] .tug-run-panel-cell {
-  width: 5px;
-  height: 10px;
+  width: 7px;
+  height: 14px;
   flex: 0 0 auto;
   border-radius: 1px;
 }
@@ -199,7 +224,7 @@ body {
 .tug-run-panel-band[data-dense] {
   flex: 1 1 120px;
   max-width: 240px;
-  height: 8px;
+  height: 10px;
 }
 
 .tug-run-panel-band-fill {
@@ -281,6 +306,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tug-space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* ---- Reds --------------------------------------------------------------- */
@@ -527,10 +555,11 @@ body {
 .tug-run-strip {
   display: flex;
   align-items: center;
-  gap: var(--tug-space-sm);
+  gap: var(--tug-space-md);
   min-width: 0;
-  padding: var(--tug-space-xs) var(--tug-space-md);
-  font-size: var(--tug-font-size-xs);
+  min-height: 32px;
+  padding: var(--tug-space-sm) var(--tug-space-md);
+  font-size: var(--tug-font-size-sm);
   background-color: var(--tugx-run-surface);
   color: var(--tugx-run-text-color);
 }

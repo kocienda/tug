@@ -8,14 +8,14 @@
  *
  *   1. **Masthead** — the ring (running) or nothing (finished, where the
  *      verdict band leads), the label, the fraction with its unit word, the
- *      tally as badges, and the run's facts: jobs and the projection while
+ *      tally as words, and the run's facts: jobs and the projection while
  *      running, wall time once over.
  *   2. **Track** — a cell per unit in run order, coloured as it lands, up to
  *      {@link CELLS_UP_TO}; a density band past that, or whenever the report
  *      carries only some of its units, with each red as a mark.
  *   3. **In flight** — a lane per running unit: its elapsed against its
  *      recorded median, the wedge cap at the gauge's end. A run counting
- *      phases shows every phase as a step row instead; a run counting tests
+ *      phases shows every phase as a compact step row, its time on the right; a run counting tests
  *      shows the test it is on.
  *   4. **Reds, always open** — each failed or wedged unit, its first
  *      failure, and what the record said of it before this run.
@@ -25,12 +25,12 @@
  * {@link TugRunStrip} is the finished run as one line, for a collapsed block.
  *
  * Colour is never the only reading: every cell has a title, every row a mark
- * and a word, and the tally is words in badges.
+ * and a word, and the tally is words.
  *
  * Laws: [L06] appearance via CSS and data attributes — status is
  *       `data-status`, a bar's length an inline width; [L16] every color
  *       rule declares its surface; [L19] `.tsx`/`.css` pair, `data-slot`;
- *       [L20] composes the gauge, badge, step row, meta run and accordion,
+ *       [L20] composes the gauge, step row, meta run and accordion,
  *       and owns `--tugx-run-*`.
  *
  * @module components/tugways/tug-run-panel
@@ -54,7 +54,6 @@ import {
 import type { RunProgress, RunUnit, RunUnitStatus } from "@/lib/run-progress-store";
 
 import { TugAccordion, TugAccordionItem } from "./tug-accordion";
-import { TugBadge } from "./tug-badge";
 import { TugLinearGauge } from "./tug-linear-gauge";
 import { TugMetaRun } from "./tug-meta-run";
 import { TugProgressIndicator } from "./tug-progress-indicator";
@@ -115,17 +114,20 @@ function Fraction({ done, total, unit }: { done: number; total: number | undefin
 }
 
 function Tally({ m }: { m: RunPanelModel }) {
+  const failed = m.counts.red - m.counts.wedged;
   return (
     <span className="tug-run-panel-tally" data-slot="tug-run-panel-tally">
-      <TugBadge role="success" emphasis="tinted" size="xs">{m.counts.pass} pass</TugBadge>
-      {m.counts.red - m.counts.wedged > 0 && (
-        <TugBadge role="danger" emphasis="filled" size="xs">{m.counts.red - m.counts.wedged} fail</TugBadge>
+      <span className="tug-run-panel-tally-word" data-status={m.counts.pass > 0 ? "pass" : undefined}>
+        {m.counts.pass} pass
+      </span>
+      {failed > 0 && (
+        <span className="tug-run-panel-tally-word" data-status="fail">{failed} fail</span>
       )}
       {m.counts.wedged > 0 && (
-        <TugBadge role="caution" emphasis="tinted" size="xs">{m.counts.wedged} wedged</TugBadge>
+        <span className="tug-run-panel-tally-word" data-status="wedged">{m.counts.wedged} wedged</span>
       )}
       {m.counts.skipped > 0 && (
-        <TugBadge role="inherit" emphasis="outlined" size="xs">{m.counts.skipped} skipped</TugBadge>
+        <span className="tug-run-panel-tally-word">{m.counts.skipped} skipped</span>
       )}
     </span>
   );
@@ -251,9 +253,7 @@ function RedCard({ unit }: { unit: RunUnit }) {
       <div className="tug-run-panel-red-head">
         <span className="tug-run-panel-mark" aria-hidden>{MARK[unit.status]}</span>
         <span className="tug-run-panel-name">{unit.name}</span>
-        <TugBadge role={unit.status === "wedged" ? "caution" : "danger"} emphasis="tinted" size="2xs">
-          {WORD[unit.status]}
-        </TugBadge>
+        <span className="tug-run-panel-word">{WORD[unit.status]}</span>
         <span className="tug-run-panel-spacer" />
         {timing !== null && <span className="tug-run-panel-red-secs">{timing}</span>}
       </div>
@@ -303,7 +303,7 @@ function FoldTitle({ label, count }: { label: string; count?: string }) {
 function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
   if (m.unit === "phase") {
     return (
-      <div className="tug-run-panel-phases" data-slot="tug-run-panel-phases">
+      <ol className="tug-run-panel-phases" data-slot="tug-run-panel-phases">
         {m.units.map((u) => {
           const lane = m.lanes.find((l) => l.unit === u);
           const detail =
@@ -319,11 +319,14 @@ function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
               key={`${u.index ?? 0}-${u.name}`}
               status={STEP_STATUS[u.status]}
               label={u.name}
+              density="compact"
+              detailPlacement="trailing"
+              busyRole="action"
               {...(detail !== undefined ? { detail } : {})}
             />
           );
         })}
-      </div>
+      </ol>
     );
   }
   if (m.lanes.length > 0) {
@@ -391,7 +394,7 @@ export function TugRunPanel({
     <div className="tug-run-panel" data-slot="tug-run-panel" data-state={state} data-verdict={m.verdict}>
       {state === "finished" && (
         <div className="tug-run-panel-verdict" data-slot="tug-run-panel-verdict" data-verdict={m.verdict}>
-          <span className="tug-run-panel-verdict-word">{m.verdict === "red" ? "RED" : "GREEN"}</span>
+          <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>
           <span className="tug-run-panel-verdict-text">{verdictSentence(m)}</span>
         </div>
       )}
@@ -463,6 +466,11 @@ export function TugRunPanel({
   );
 }
 
+/** The verdict as the word a test runner says: PASS or FAIL. */
+function verdictWord(m: RunPanelModel): string {
+  return m.verdict === "red" ? "FAIL" : "PASS";
+}
+
 /** A finished run as one line — the verdict, the fraction, the track — for a collapsed block. */
 export function TugRunStrip({
   run,
@@ -476,14 +484,14 @@ export function TugRunStrip({
   const m = runPanelModel(run, "finished", 0, { callFailed });
   return (
     <div className="tug-run-strip" data-slot="tug-run-strip" data-verdict={m.verdict}>
-      <span className="tug-run-panel-verdict-word">{m.verdict === "red" ? "RED" : "GREEN"}</span>
+      <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>
       {m.label.length > 0 && <span className="tug-run-panel-label">{m.label}</span>}
       <Fraction done={m.done} total={m.total} unit={m.unit} />
       <TugRunTrack m={m} dense />
       {m.counts.red > 0 && (
-        <TugBadge role="danger" emphasis="filled" size="2xs">
-          {m.counts.red} red
-        </TugBadge>
+        <span className="tug-run-panel-tally-word" data-status="fail">
+          {m.counts.red} fail
+        </span>
       )}
       <span className="tug-run-panel-spacer" />
       {wallSecs !== undefined && <span className="tug-run-strip-wall">{formatSecs(wallSecs)}</span>}

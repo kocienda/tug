@@ -23,6 +23,15 @@
  * a smaller check and nothing else. That is a host's concern, so it arrives as
  * `action` and the row only gives it a place to stand.
  *
+ * Three knobs fit the row to a denser host without a second row: `density`
+ * (`compact` is a one-line row with a smaller dot, for a list of many steps
+ * inside a transcript block rather than a wizard), `detailPlacement`
+ * (`trailing` puts the detail on the label's line, right-aligned, where a
+ * time or a count reads as a column), and `busyRole` (the colour the busy dot
+ * breathes in — `agent` by default, since a wizard's busy step is Tug's work;
+ * a build's running phase is the user's, and wears `action`). Each defaults
+ * to the wizard's look, so ConfigureTug and the update surface are untouched.
+ *
  * Laws: [L19] `.tsx`/`.css` pair, `data-slot`; [L20] owns `--tugx-step-row-*`,
  * including the row height, which a host scopes per row where one step carries
  * a control rather than a line of prose.
@@ -56,8 +65,20 @@ export type TugStepRowStatus =
 /** Dot diameter, mirrored by `--tugx-step-row-dot` in the stylesheet. */
 export const TUG_STEP_ROW_DOT_SIZE = 14;
 
+/** The compact row's dot, mirrored by its `--tugx-step-row-dot`. */
+export const TUG_STEP_ROW_COMPACT_DOT_SIZE = 10;
+
+/** How tall a row stands: the wizard's plinth, or one line. */
+export type TugStepRowDensity = "regular" | "compact";
+
+/** Where the detail goes: under the label, or at the end of its line. */
+export type TugStepRowDetailPlacement = "below" | "trailing";
+
 /** Map a step status onto the dot's role + state ([D02]/[D106]). */
-export function tugStepRowDotVisual(status: TugStepRowStatus): {
+export function tugStepRowDotVisual(
+  status: TugStepRowStatus,
+  busyRole: TugProgressIndicatorRole = "agent",
+): {
   role: TugProgressIndicatorRole;
   state: TugProgressIndicatorState;
 } {
@@ -69,7 +90,7 @@ export function tugStepRowDotVisual(status: TugStepRowStatus): {
       // breathes.
       return { role: "action", state: "paused" };
     case "busy":
-      return { role: "agent", state: "running" };
+      return { role: busyRole, state: "running" };
     case "paused":
       // A held thing, and the indicator's own default for one: amber rather
       // than blue, because a step that stopped because the user said so is
@@ -91,6 +112,9 @@ export function TugStepRow({
   action,
   edge,
   className,
+  density = "regular",
+  detailPlacement = "below",
+  busyRole = "agent",
 }: {
   /** Written to `data-step`, so a host or a test can address one row. */
   stepKey?: string;
@@ -114,20 +138,28 @@ export function TugStepRow({
    */
   edge?: ReactNode;
   className?: string;
+  /** `compact` is one line with a smaller dot, for a list of many steps. */
+  density?: TugStepRowDensity;
+  /** `trailing` puts the detail at the end of the label's line. */
+  detailPlacement?: TugStepRowDetailPlacement;
+  /** The role the `busy` dot breathes in; `agent` unless the work is the user's. */
+  busyRole?: TugProgressIndicatorRole;
 }): ReactElement {
-  const { role, state } = tugStepRowDotVisual(status);
+  const { role, state } = tugStepRowDotVisual(status, busyRole);
   return (
     <li
       className={className ? `tug-step-row ${className}` : "tug-step-row"}
       data-slot="tug-step-row"
       data-step={stepKey}
       data-status={status}
+      data-density={density === "compact" ? "compact" : undefined}
+      data-detail={detailPlacement === "trailing" ? "trailing" : undefined}
     >
       <div className="tug-step-row-main">
         <div className="tug-step-row-headline">
           <TugProgressIndicator
             variant="pulsing-dot"
-            size={TUG_STEP_ROW_DOT_SIZE}
+            size={density === "compact" ? TUG_STEP_ROW_COMPACT_DOT_SIZE : TUG_STEP_ROW_DOT_SIZE}
             role={role}
             state={state}
             className="tug-step-row-dot"
