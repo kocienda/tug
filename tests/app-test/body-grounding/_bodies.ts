@@ -3,10 +3,16 @@
  *
  * Rows 5, 6 and 7 of the bar drive keys and menu commands into session
  * cards whose bodies are real web views, so each needs the same furniture:
- * a deck of session cards with a stub transcript behind each, the body
- * ready with its composer mounted and the stub's turn run out, and a way to
+ * a deck of session cards each bound to a stub session, the body ready with
+ * its composer mounted, and a way to
  * give one card the keyboard before a leg begins. This module is that
  * furniture; the rows are the assertions.
+ *
+ * A stub session plays its transcript only when a prompt is sent into the
+ * card (`streaming-stub-fixture.ts`), and nothing here sends one: every card
+ * this module seats is bound, idle and empty, so its close waives the
+ * confirm. A leg that needs the Close popover gives the card something the
+ * confirm protects first: an unsent draft does it at no cost.
  */
 
 import { expect } from "bun:test";
@@ -66,7 +72,8 @@ export async function bodyOf(app: App, cardId: string): Promise<BodyViewSnapshot
 
 /**
  * Spawn a stub session into `cardId`, its transcript `messages` long over
- * `turns` turns, in a scratch project dir unless `projectDir` names one.
+ * `turns` turns, in a scratch project dir unless `projectDir` names one. The
+ * transcript plays only when a prompt is sent; until then the card is empty.
  */
 export async function spawnStub(app: App, cardId: string, stubDir: string, messages = 2, turns = 1, projectDir?: string): Promise<void> {
   const tugSessionId = randomUUID();
@@ -79,7 +86,7 @@ export async function spawnStub(app: App, cardId: string, stubDir: string, messa
   await app.spawnSessionNew(cardId, { tugSessionId, projectDir });
 }
 
-/** The body is ready and placed visible, its composer mounted, the stub's turn run out. */
+/** The body is ready and placed visible, its composer mounted, its session idle. */
 export async function waitForBody(app: App, cardId: string): Promise<void> {
   const ready = await pollFor(() => bodyOf(app, cardId), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);
   expect(ready?.visible, `${cardId}: the body is ready and placed visible`).toBe(true);

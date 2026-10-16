@@ -409,19 +409,21 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     // ledger the Overview column windows on, beside `HeightIndex`: it is the
     // list view's window math held by row key, so a test that drives either
     // windowed surface drives it; raised in place on the same terms.
-    // Deleted 2026-10-16 to be re-added at 40 in the next landing, for
+    // Re-added at 40 (deleted at 39 in `d51ef224b`) for
     // `list-view-reveal-drift.ts`: the range reveal's judgement of whether the
     // scroller moved under it, a pure helper split out of `tug-list-view.tsx`,
     // so a test that drives a reveal drives it ([B08b] of
     // `briefs/app-test-corpus-cut-brief.md`).
+    "tugdeck/src/components/tugways/internal/": 40,
     // Raised from 5 by `empty-line-selection.ts`, the File card editor's
     // blank-line selection paint: a CM6 extension the editor installs, so the
     // text-card tests that drive the editor drive it too. Raised in place, on
     // the same terms as `internal/` above.
-    // Deleted 2026-10-16 to be re-added at 7 in the next landing, for
+    // Re-added at 7 (deleted at 6 in `d51ef224b`) for
     // `find-reveal.ts`: the Text card find's rule for how far to scroll a
     // match into view, a pure helper split out of the editor, so a test that
     // drives the editor's find drives it ([B08b]).
+    "tugdeck/src/components/tugways/tug-text-card-editor/": 7,
     // Re-added at 32 rather than raised from 31, which is what the ratchet
     // below asks for. Two modules have joined this directory since the
     // figure was last argued: `session-dot-layer.tsx`, the layer that seats a

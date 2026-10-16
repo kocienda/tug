@@ -313,6 +313,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         }
 
         // ---- The shell's own surface: the Close popover takes focus and gives it back ----
+        // A's session is bound but empty (a stub plays only when prompted), and
+        // an empty Session card closes without asking. An unsent draft is what
+        // the confirm protects, so A gets one; it stands through the close below.
+        await a.nativeClickAtElement(PROMPT_INPUT);
+        await app.nativeType("draft");
+        const draft = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("draft") === true, SETTLE_MS);
+        expect(draft, "the draft lands in A").toContain("draft");
         await app.nativeKey("w", ["cmd"]);
         expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS), "⌘W raises the shell's Close popover").toBe(true);
         const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
@@ -337,19 +344,18 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         const closeItem = await app.performMenuItem("file.closeCard");
         note(`File › Close with A key: ${JSON.stringify(closeItem)}`);
         expect(closeItem.found && closeItem.performed, "File › Close performs").toBe(true);
-        // A card whose body waives the confirmation closes at once; one that
-        // does not raises the shell's popover, whose Close button is clicked.
+        // A still holds its draft, so the close asks; the popover's Close
+        // button answers it.
         const raised = await pollFor(
           async () => ({ popover: await app.evalJS<boolean>(popoverPresent), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
           (r) => r.popover || r.cards < cardsBefore,
           SETTLE_MS,
         );
         note(`after File › Close: popover ${raised.popover}, cards ${cardsBefore} → ${raised.cards}`);
-        if (raised.popover) {
-          const button = await closeButtonOfPopover(app);
-          expect(button, "the popover has a Close button").not.toBeNull();
-          await app.nativeClick(button!);
-        }
+        expect(raised.popover, "File › Close over A's draft raises the popover").toBe(true);
+        const button = await closeButtonOfPopover(app);
+        expect(button, "the popover has a Close button").not.toBeNull();
+        await app.nativeClick(button!);
         const cardsAfter = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
         expect(cardsAfter, "A closes").toBe(cardsBefore - 1);
         const gone = await pollFor(() => bodyOf(app, A), (x) => x === null, SETTLE_MS);
