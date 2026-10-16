@@ -246,10 +246,19 @@
 }
 .srd-lane {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) minmax(180px, 2fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr) minmax(200px, 2fr);
   align-items: center;
   gap: var(--tug-space-sm);
   min-height: 22px;
+}
+.srd-fraction {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tug-space-2xs);
+}
+.srd-unit {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
 }
 .srd-lane-name {
   font-family: var(--tug-font-family-mono);
@@ -263,9 +272,15 @@
   color: var(--srd-text-wedged);
 }
 .srd-lane-gauge {
+  position: relative;
   min-width: 0;
+  padding-bottom: 10px;
 }
+/* the cap label sits under the gauge's far end — where the cap is */
 .srd-lane-cap {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
   font-size: var(--tug-font-size-2xs);
   font-family: var(--tug-font-family-mono);
   color: var(--tug7-element-global-text-normal-subtle-rest);
@@ -360,26 +375,74 @@
   color: var(--tug7-element-global-text-normal-muted-rest);
 }
 
-/* ---- the finished body --------------------------------------------------- */
+/* ---- the folds: one column, collapsed by default ------------------------- */
 
-.srd-two-col {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--tug-space-lg);
-}
-.srd-col {
+.srd-folds {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xs);
-  min-width: 0;
 }
-.srd-h {
+.srd-fold-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--tug-space-xs);
   font-size: var(--tug-font-size-2xs);
   font-weight: var(--tug-font-weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tug7-element-global-text-normal-subtle-rest);
-  margin: 0;
+}
+.srd-fold-count {
+  font-weight: var(--tug-font-weight-regular);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+.srd-fail-secs {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+}
+.srd-diag {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  font-size: var(--tug-font-size-xs);
+}
+.srd-diag-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.srd-diag-line {
+  font-family: var(--tug-font-family-mono);
+  font-size: var(--tug-font-size-2xs);
+  color: var(--tug7-element-global-text-normal-muted-rest);
+  padding-left: 1.2em;
+}
+
+/* the unit legend */
+.srd-legend {
+  border-collapse: collapse;
+  font-size: var(--tug-font-size-xs);
+  color: var(--tug7-element-global-text-normal-default-rest);
+}
+.srd-legend th {
+  text-align: left;
+  font-size: var(--tug-font-size-2xs);
+  font-weight: var(--tug-font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tug7-element-global-text-normal-subtle-rest);
+  padding: 0 var(--tug-space-md) var(--tug-space-2xs) 0;
+}
+.srd-legend td {
+  padding: var(--tug-space-2xs) var(--tug-space-md) var(--tug-space-2xs) 0;
+  border-top: 1px solid var(--tug7-element-global-divider-normal-muted-rest);
+  vertical-align: top;
+}
+.srd-legend code {
+  font-family: var(--tug-font-family-mono);
+  font-size: 0.9em;
 }
 .srd-fail-card {
   display: flex;
@@ -415,7 +478,7 @@
 }
 .srd-dur-row {
   display: grid;
-  grid-template-columns: 11ch minmax(0, 1fr) 4ch;
+  grid-template-columns: 26ch minmax(0, 1fr) 4ch;
   align-items: center;
   gap: var(--tug-space-xs);
   font-size: var(--tug-font-size-2xs);
