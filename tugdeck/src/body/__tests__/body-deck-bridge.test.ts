@@ -148,11 +148,13 @@ describe("the shell's verbs", () => {
     b.setOpeningBid(CARD, null);
     b.activateCard(CARD);
     b.removeCard(bodyPaneId(CARD), CARD);
+    expect(b.addCardToPane(bodyPaneId(CARD), "spike-run-display")).toBe(null);
     expect(advice).toEqual([
       { advice: "sheet-reservation", heightPx: 240 },
       { advice: "opening-bid", heightPx: null },
       { advice: "activate" },
       { advice: "close-request" },
+      { advice: "add-card", componentId: "spike-run-display" },
     ]);
 
     expect(b.addCard("session")).toBe(null);

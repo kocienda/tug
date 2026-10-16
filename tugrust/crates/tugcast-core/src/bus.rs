@@ -198,6 +198,10 @@ pub enum CardAdvice {
     Activate,
     /// The card asks the chrome to close it.
     CloseRequest,
+    /// The card asks for a card of `component_id` added to the pane it
+    /// stands in — the pane's `add-tab` currency, which is not a command.
+    #[serde(rename_all = "camelCase")]
+    AddCard { component_id: String },
     /// A command the body's chain did not handle, for the shell to
     /// dispatch in its own chain.
     Dispatch {
@@ -406,6 +410,7 @@ mod tests {
             "opening-bid",
             "activate",
             "close-request",
+            "add-card",
             "dispatch",
             "focus-exit",
             "surface",

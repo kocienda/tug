@@ -10,7 +10,8 @@
  * - The body's `card-facts` set the card's title and masthead and feed
  *   `bodyFactsStore`; its `card-advice` answers the shell's close advisor and
  *   fold guard, claims sheet reservations and opening bids on the member the
- *   card stands as, activates the card, and closes it.
+ *   card stands as, activates the card, adds a sibling to its pane, and
+ *   closes it.
  * - The shell sends `deck-facts` to every body on change, and each card's
  *   `card-context` when its fold, arrival, first responder or layer changes,
  *   answering a card's first `card-facts` with both.
@@ -707,6 +708,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "close-request": {
         const paneId = paneOf(deck.getSnapshot(), cardId);
         if (paneId !== null) deck.removeCard(paneId, cardId);
+        return;
+      }
+      case "add-card": {
+        const paneId = paneOf(deck.getSnapshot(), cardId);
+        if (paneId !== null) deck.addCardToPane(paneId, advice.componentId);
         return;
       }
       case "dispatch":

@@ -30,6 +30,8 @@ import { SpaceLayerShownContext } from "../components/chrome/space-layer";
 import { CanvasOverlayRoot } from "../components/chrome/canvas-overlay-root";
 import { CardHost } from "../components/chrome/card-host";
 import { useResponder } from "../components/tugways/use-responder";
+import type { ActionEvent } from "../components/tugways/responder-chain";
+import { TUG_ACTIONS } from "../components/tugways/action-vocabulary";
 import * as paneContentRegistry from "../components/chrome/pane-content-registry";
 import * as paneFrameRegistry from "../components/chrome/pane-frame-registry";
 import * as paneRootRegistry from "../components/chrome/pane-root-registry";
@@ -67,7 +69,19 @@ function BodyPane({
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
-  const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions: {} });
+  // The one piece of pane currency a card's content can send its pane:
+  // `ADD_TAB` is not a command, so the unhandled-target hook would not
+  // forward it; answered here as the shell's pane answers it.
+  const actions = React.useMemo(
+    () => ({
+      [TUG_ACTIONS.ADD_TAB]: (event: ActionEvent) => {
+        if (typeof event.value !== "string") return;
+        bridge.addCardToPane(paneId, event.value);
+      },
+    }),
+    [bridge, paneId],
+  );
+  const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions });
   // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is
   // the deck's active pane. Here the deck is this card's, and its active
   // pane is set exactly when the card is the whole deck's first responder.

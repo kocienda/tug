@@ -15,8 +15,8 @@
  *   run here over this card alone. The card's bag is read and written by this
  *   page — the shell never writes a body card's bag.
  * - **Forwarded.** What a card asks of the deck's arrangement — a sheet
- *   reservation, an opening bid, activation, its own close — goes to the
- *   shell as `card-advice`.
+ *   reservation, an opening bid, activation, its own close, a sibling added
+ *   to its pane — goes to the shell as `card-advice`.
  * - **Inert.** Every layout, rail, flow, column, space and add verb is the
  *   shell's. Here it does nothing, answers null or false, and says so once.
  *
@@ -429,6 +429,11 @@ export class BodyDeckBridge implements IDeckManagerStore {
   focusCard = (_cardId: string): void => this.advise({ advice: "activate" });
   removeCard = (_paneId: string, _cardId: string): void => this.advise({ advice: "close-request" });
   handlePaneClosed = (_paneId: string): void => this.advise({ advice: "close-request" });
+  // The new card is the shell's; its id is not known here, and the pane's
+  // `ADD_TAB` handler — the one caller — never reads it.
+  addCardToPane = (_paneId: string, componentId: string, _initialContent?: unknown): string | null => (
+    this.advise({ advice: "add-card", componentId }), null
+  );
 
   // ---- Inert: the deck's arrangement is the shell's ----
 
@@ -496,9 +501,6 @@ export class BodyDeckBridge implements IDeckManagerStore {
   );
   moveInColumn = (_paneId: string, _where: ColumnMoveTarget): boolean => (
     this.inert("moveInColumn"), false
-  );
-  addCardToPane = (_paneId: string, _componentId: string, _initialContent?: unknown): string | null => (
-    this.inert("addCardToPane"), null
   );
   setActiveCardInPane = (_paneId: string, _cardId: string): void => this.inert("setActiveCardInPane");
   reorderCardInPane = (_paneId: string, _from: number, _to: number): void =>

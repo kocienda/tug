@@ -143,6 +143,12 @@ export type CardAdvice =
   | { advice: "activate" }
   | { advice: "close-request" }
   /**
+   * Add a card of `componentId` to the pane this card stands in — the
+   * pane's `ADD_TAB` currency, which is not a command and so cannot ride
+   * `dispatch`; the Spikes index's rows say it.
+   */
+  | { advice: "add-card"; componentId: string }
+  /**
    * A command the body's own chain did not handle — a chord its funnel
    * matched, or a `dispatch` the shell forwarded — handed to the shell to
    * dispatch in its own chain, where the pane and the deck answer.

@@ -97,6 +97,7 @@ const DELIVERED: BusDelivered[] = [
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "opening-bid", heightPx: 480 } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "activate" } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-request" } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "add-card", componentId: "spike-slot-layout" } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "dispatch", id: "close" } },
   {
     from: BODY_C1,
@@ -199,6 +200,7 @@ describe("bus envelope parity", () => {
       "opening-bid": true,
       activate: true,
       "close-request": true,
+      "add-card": true,
       dispatch: true,
       "focus-exit": true,
       surface: true,

@@ -184,6 +184,12 @@
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
+      "payload": { "advice": "add-card", "componentId": "spike-slot-layout" }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
       "payload": { "advice": "dispatch", "id": "close" }
     },
     {
