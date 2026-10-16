@@ -59,7 +59,9 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
-import { classifyFrame, describeFrames, framesDiffer, pollFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, framesDiffer, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses, type Palette } from "./_frames";
+import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 import { judgeCarried, planDiag, pollPresented } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-04-slide";
@@ -67,8 +69,8 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
 
 const CARD = "row04-body";
-const FRAME = `.tug-pane[data-pane-id="${CARD}-pane"]`;
-const PLACEHOLDER = `${FRAME} [data-body-placeholder][data-card-id="${CARD}"]`;
+const frameSel = (card: string): string => `.tug-pane:has([data-card-id="${card}"])`;
+const placeholderSel = (card: string): string => `[data-body-placeholder][data-card-id="${card}"]`;
 const CANVAS = "[data-deck-canvas-background]";
 const BODY_READY_MS = 30_000;
 const PLACED_MS = 3_000;
@@ -159,12 +161,12 @@ const rectOf = (app: App, selector: string): Promise<Rect | null> =>
     })()`,
   );
 
-async function bodyOf(app: App): Promise<BodyViewSnapshot | null> {
-  return (await app.bodies()).find((b) => b.cardId === CARD) ?? null;
+async function bodyOf(app: App, card: string): Promise<BodyViewSnapshot | null> {
+  return (await app.bodies()).find((b) => b.cardId === card) ?? null;
 }
 
 /** Arm a per-animation-frame sampler of the frame's and the placeholder's rects, the settle and the lid. */
-async function armSampler(app: App): Promise<void> {
+async function armSampler(app: App, card: string): Promise<void> {
   await app.evalJS<null>(
     `(function () {
       var rec = (window.__row04 = { samples: [], stop: false });
@@ -174,8 +176,8 @@ async function armSampler(app: App): Promise<void> {
       };
       var tick = function () {
         if (rec.stop) return;
-        var frame = document.querySelector(${JSON.stringify(FRAME)});
-        var ph = document.querySelector(${JSON.stringify(PLACEHOLDER)});
+        var frame = document.querySelector(${JSON.stringify(frameSel(card))});
+        var ph = document.querySelector(${JSON.stringify(placeholderSel(card))});
         var canvas = document.querySelector(${JSON.stringify(CANVAS)});
         if (frame !== null && ph !== null) {
           rec.samples.push({
@@ -232,14 +234,14 @@ const horizontalStep = (a: Rect, b: Rect): number =>
   Math.max(Math.abs(a.x - b.x), Math.abs(a.x + a.width - (b.x + b.width)));
 
 /** The host's container stands on the placeholder, shown, with the lid lifted. */
-async function expectAtRest(app: App, label: string): Promise<Rect> {
-  const placeholder = await rectOf(app, PLACEHOLDER);
-  const body = await bodyOf(app);
+async function expectAtRest(app: App, card: string, label: string): Promise<Rect> {
+  const placeholder = await rectOf(app, placeholderSel(card));
+  const body = await bodyOf(app, card);
   expect(placeholder, `${label}: the placeholder stands`).not.toBeNull();
   expect(body?.visible, `${label}: the body is placed visible`).toBe(true);
   const gap = edgeGap(placeholder!, body!.frame);
   const lifted = await app.evalJS<boolean>(
-    `document.querySelector(${JSON.stringify(PLACEHOLDER)})?.hasAttribute("data-body-shown") ?? false`,
+    `document.querySelector(${JSON.stringify(placeholderSel(card))})?.hasAttribute("data-body-shown") ?? false`,
   );
   note(
     `${label}: placeholder ${JSON.stringify(placeholder)}; host frame ${JSON.stringify(body!.frame)}; worst edge gap ${gap.toFixed(2)} px; lid lifted ${lifted}`,
@@ -277,10 +279,10 @@ interface Judged {
   inMotion: boolean;
 }
 
-async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: string): Promise<void> {
-  const before = await expectAtRest(app, `${leg.label}: before`);
+async function runLeg(app: App, card: string, leg: Leg, palette: Palette, crop: Rect, keep: string): Promise<void> {
+  const before = await expectAtRest(app, card, `${leg.label}: before`);
   const runsBefore = (await planDiag(app)).runs;
-  await armSampler(app);
+  await armSampler(app, card);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${leg.label}: the burst armed`).toBe(true);
   const gestureWall = Date.now();
@@ -288,7 +290,7 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
   // The host's presented container, read as fast as the round trip allows
   // until the settle is over.
   let polling = true;
-  const presentedRead = pollPresented(app, CARD, () => !polling, SETTLE_MS + 2_000);
+  const presentedRead = pollPresented(app, card, () => !polling, SETTLE_MS + 2_000);
 
   // The settle: seen, then over. A gesture that armed none is said so.
   const settle = await pollFor(() => samplerState(app), (s) => s.saw && !s.now, SETTLE_MS);
@@ -297,8 +299,8 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
   note(`${leg.label}: settle seen ${settle.saw}, running ${settle.now}, ${settle.count} shell samples so far`);
   const lid = await pollFor(
     async () => ({
-      lifted: await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(PLACEHOLDER)})?.hasAttribute("data-body-shown") ?? false`),
-      body: await bodyOf(app),
+      lifted: await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderSel(card))})?.hasAttribute("data-body-shown") ?? false`),
+      body: await bodyOf(app, card),
     }),
     (r) => r.lifted && r.body !== null && r.body.visible,
     LID_MS,
@@ -308,10 +310,10 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
   // focus, and an unfocused body recedes) so the landed frame reads as the
   // body's own paint.
   await Bun.sleep(400);
-  await app.dispatchControlAction("focus-session-card", { cardId: CARD });
-  await pollFor(() => app.getFocusedCardId(), (id) => id === CARD, PLACED_MS);
+  await app.dispatchControlAction("focus-session-card", { cardId: card });
+  await pollFor(() => app.getFocusedCardId(), (id) => id === card, PLACED_MS);
   await Bun.sleep(400);
-  const after = await expectAtRest(app, `${leg.label}: after`);
+  const after = await expectAtRest(app, card, `${leg.label}: after`);
   const travelled = horizontalStep(before, after);
   note(`${leg.label}: the card travelled ${travelled.toFixed(1)} px across the gesture`);
 
@@ -323,14 +325,14 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
   // ---- What the placer decided: carried by the host, or the interim ----
   const plan = await planDiag(app);
   const fresh = plan.runs > runsBefore;
-  const carried = fresh && (plan.last?.planned.includes(CARD) ?? false);
+  const carried = fresh && (plan.last?.planned.includes(card) ?? false);
   note(
     `${leg.label}: ${plan.runs - runsBefore} plan run(s); ${carried ? "the host carried the body" : "the interim hid the body"}` +
       (fresh && plan.last !== null ? `; last plan ${JSON.stringify(plan.last)}` : ""),
   );
   if (leg.carried) {
     expect(carried, `${leg.label}: the host carries the body through the gesture`).toBe(true);
-    expect(plan.last?.landed.some((l) => l.cardId === CARD), `${leg.label}: the host said the body landed`).toBe(true);
+    expect(plan.last?.landed.some((l) => l.cardId === card), `${leg.label}: the host said the body landed`).toBe(true);
   }
   if (carried) {
     const v = judgeCarried(leg.label, reading, samples, presented, gestureWall, before, after, palette, crop);
@@ -420,15 +422,88 @@ async function runLeg(app: App, leg: Leg, palette: Palette, crop: Rect, keep: st
   ).toBe(0);
 }
 
+/**
+ * Every leg in `legs`, run on `card` standing as a body, focused: the
+ * palette from a probe of the standing body, the crop the window's width
+ * across the top of the card.
+ */
+async function slideLegs(app: App, card: string, legs: readonly Leg[], measure: FloorMeasure = FLOOR_BY_CLASS): Promise<void> {
+  const start = await expectAtRest(app, card, "at the start");
+
+  // The palette, from a probe of the standing body, and the crop: the
+  // window's width across the top of the card.
+  const probeCrop = {
+    x: Math.ceil(start.x) + 2,
+    y: Math.ceil(start.y) + 2,
+    width: Math.floor(start.width) - 4,
+    height: Math.floor(start.height) - 4,
+  };
+  await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop: probeCrop });
+  const probe = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, PLACED_MS);
+  const standingFrame = probe.frames[probe.frames.length - 1];
+  const palette = await readPalette(app, probe.windowBackground, standingFrame);
+  const standing = classifyFrame(standingFrame, palette);
+  note(`palette ${JSON.stringify(palette)}; body standing: ${describeFrames([standing])}`);
+  expect(measure.own(standing), "the standing body fills its rect with its own paint").toBeGreaterThan(0.95);
+  const frame = (await rectOf(app, frameSel(card)))!;
+  const crop = { x: 0, y: Math.floor(frame.y), width: probe.contentWidth, height: CROP_HEIGHT_PX };
+  const keep = join(tmpdir(), `tug-row04-${Date.now()}`);
+  mkdirSync(keep, { recursive: true });
+  note(`crop ${JSON.stringify(crop)} at scale ${probe.scale}; frames kept at ${keep}`);
+
+  for (const leg of legs) await runLeg(app, card, leg, palette, crop, keep);
+}
+
+/**
+ * What moves a pinned rail: changing its edge, out and back, and the sidebars
+ * resized to fit. Go to slot and bullseye move the band, not the rail. The
+ * host carries a rail to the other edge: standing at its own width it keeps
+ * its size, and its content box lands mirrored inside its frame.
+ */
+function railLegs(componentId: string): Leg[] {
+  const side = (to: "left" | "right"): string =>
+    `window.__tug.dispatchControlAction("set-sidebar-side", { componentId: ${JSON.stringify(componentId)}, side: ${JSON.stringify(to)} })`;
+  return [
+    { label: "to the left edge", js: side("left"), moves: true, carried: true },
+    { label: "back to the right edge", js: side("right"), moves: true, carried: true },
+    { label: "resize sidebars to fit", js: `window.__tug.dispatchControlAction("resize-sidebars-to-fit", {})`, moves: false, carried: false },
+  ];
+}
+
 describe.skipIf(!SHOULD_RUN)("body-grounding row 4: slide", () => {
-  test(
+  for (const kind of kindsUnderTest(4)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: across every ${kind.rail ? "move of its rail" : "slide"} the body moves with its chrome, carried by the host or hidden until the land`,
+      async () => {
+        const card = `row04-${kind.componentId}`;
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          const sessions = Array.from({ length: BAND - 1 }, (_, i) => `row04-n${i}`);
+          await app.seedDeckState({ state: kindDeck(kind, card, { sessions }), focusCardId: card });
+          await standUpKind(app, kind, card);
+          await app.dispatchControlAction("focus-session-card", { cardId: card });
+          await pollFor(() => app.getFocusedCardId(), (id) => id === card, PLACED_MS);
+          await Bun.sleep(400);
+          await slideLegs(app, card, kind.rail ? railLegs(kind.componentId) : LEGS, floorMeasure(kind.rail));
+          await expectNoShellReads(app, card);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(4))(
     "across every slide the body moves with its chrome, carried by the host or hidden until the land",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: CARD });
@@ -437,7 +512,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 4: slide", () => {
         onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
         writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(2, 1)));
         await app.spawnSessionNew(CARD, { tugSessionId, projectDir });
-        const shown = await pollFor(() => bodyOf(app), (b) => b !== null && b.visible, BODY_READY_MS);
+        const shown = await pollFor(() => bodyOf(app, CARD), (b) => b !== null && b.visible, BODY_READY_MS);
         expect(shown?.visible, "the body card's body is placed visible").toBe(true);
 
         // The turn the stub replays runs out, and the card is focused so
@@ -447,30 +522,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 4: slide", () => {
         await app.dispatchControlAction("focus-session-card", { cardId: CARD });
         await pollFor(() => app.getFocusedCardId(), (id) => id === CARD, PLACED_MS);
         await Bun.sleep(400);
-        const start = await expectAtRest(app, "at the start");
-
-        // The palette, from a probe of the standing body, and the crop: the
-        // window's width across the top of the card.
-        const probeCrop = {
-          x: Math.ceil(start.x) + 2,
-          y: Math.ceil(start.y) + 2,
-          width: Math.floor(start.width) - 4,
-          height: Math.floor(start.height) - 4,
-        };
-        await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop: probeCrop });
-        const probe = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, PLACED_MS);
-        const standingFrame = probe.frames[probe.frames.length - 1];
-        const palette = await readPalette(app, probe.windowBackground, standingFrame);
-        const standing = classifyFrame(standingFrame, palette);
-        note(`palette ${JSON.stringify(palette)}; body standing: ${describeFrames([standing])}`);
-        expect(standing.surface + standing.other, "the standing body fills its rect with its own paint").toBeGreaterThan(0.95);
-        const frame = (await rectOf(app, FRAME))!;
-        const crop = { x: 0, y: Math.floor(frame.y), width: probe.contentWidth, height: CROP_HEIGHT_PX };
-        const keep = join(tmpdir(), `tug-row04-${Date.now()}`);
-        mkdirSync(keep, { recursive: true });
-        note(`crop ${JSON.stringify(crop)} at scale ${probe.scale}; frames kept at ${keep}`);
-
-        for (const leg of LEGS) await runLeg(app, leg, palette, crop, keep);
+        await slideLegs(app, CARD, LEGS);
       } finally {
         await app.close();
       }

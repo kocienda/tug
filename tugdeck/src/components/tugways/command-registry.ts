@@ -2462,6 +2462,45 @@ export const COMMANDS: readonly CommandEntry[] = [
     routing: "registry",
     internal: true,
   },
+  {
+    // Its door is an Arcs card row: front the card working the arc and open
+    // its Changes shade.
+    id: "reveal-session-changes",
+    title: "Reveal Session Changes",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its door is a bulletin's "Review Defaults": open Settings on a named
+    // section, in whichever page holds the card.
+    id: "reveal-settings",
+    title: "Reveal Settings Section",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its doors are the Cards card's row × and pane row ×: the shell holds the
+    // closing card's guard and responder, whichever page the list is in.
+    id: "close-card",
+    title: "Close Card",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    id: "close-pane-by-id",
+    title: "Close Pane by Id",
+    routing: "registry",
+    internal: true,
+  },
+  {
+    // Its door is the Cards card's confirmed workspace delete, which walks
+    // the workspace's close guards first; `delete-space` is the gesture that
+    // arms the confirm.
+    id: "delete-space-confirmed",
+    title: "Delete Confirmed Workspace",
+    routing: "registry",
+    internal: true,
+  },
 
   // ---- Jots ----
   {

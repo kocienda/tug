@@ -541,6 +541,35 @@ export interface CardRegistration {
    * that holds the content (`rail-width-draft.ts`) reads only the attribute.
    */
   railReflow?: "live" | "pause";
+  /**
+   * Whether a card of this kind lives in a body — a web view of its own —
+   * when the host makes bodies. Omitted, the card mounts in the shell's
+   * document as it always did. A kind moves to a body by setting this and
+   * nothing else: the shell's hand-off (`lib/body-handoff.ts`) and its
+   * placeholder (`CardHostSwitch`) read it, and every page registers every
+   * kind (`card-kinds.ts`), so a body can mount whichever kind it is bound to.
+   */
+  body?: true;
+  /**
+   * How a body kind is handed to its body. `"spawn"` rides the spawn funnels
+   * (`lib/session-restore.ts`), which decide how the card's session starts
+   * and hand that decision over as the body's intent — the Session card.
+   * Omitted, the shell hands the card off itself as soon as the deck holds
+   * it, with a `mount` intent: the kind has no session to start.
+   */
+  bodyHandOff?: "spawn";
+  /**
+   * What of the deck a body kind reads. Omitted, the body's deck is its one
+   * card. `"arrangement"` is for a kind that lists or moves the whole deck —
+   * Cards, Layout — and receives the shell's arrangement in its context.
+   */
+  bodyDeck?: "arrangement";
+  /**
+   * Whether a body kind follows another card — the last key card that is not
+   * it — as the Arcs and devtools cards do. Only the shell's focus manager
+   * knows that card, so the shell sends it in the body's `card-context`.
+   */
+  bodyFollows?: true;
 }
 
 /**

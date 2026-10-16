@@ -390,6 +390,8 @@ export function registerDiffCard(): void {
   registerCard({
     componentId: "diff",
     contentFactory: (cardId) => <DiffCardContent cardId={cardId} />,
+    // A body: the diff is fetched and drawn in the card's own page.
+    body: true,
     defaultMeta: { title: "Diff", icon: "GitCompareArrows", closable: true },
     category: { label: "Files", icon: "GitCompareArrows" },
     identity: { live: liveDiffIdentity, parked: parkedDiffIdentity },

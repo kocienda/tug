@@ -1,7 +1,7 @@
 /**
  * row-27-drop-into-body.test.ts — a drag that arrives over a body is the
  * body's: a file from outside the window lands in its composer, and so does
- * a jot dragged from the Jots card in the shell.
+ * a jot dragged from the Jots card's own body.
  *
  * AppKit picks a drag's destination without asking `hitTest`, so the shell's
  * web view, which covers the window, is sent every drag, even over a body a
@@ -10,7 +10,7 @@
  * no `pointerClaim` covers it, and WebKit turns the forwarded call into the
  * body page's own `dragenter`/`dragover`/`drop`.
  *
- * One body Session card beside a Jots card, which the shell draws:
+ * One body Session card beside the Jots card, each in its own body:
  *
  * - **A file from outside the window.** A PNG dragged through a real
  *   `NSDraggingSession` from a source window beside the deck (the path a
@@ -18,16 +18,18 @@
  *   sees the drag and the drop with `Files` on it, the shell's page sees no
  *   drop, an attachment tile lands in the body's composer, and the source is
  *   told the drop was taken as a copy.
- * - **A jot from the shell.** The Jots card's row dragged by a real mouse
- *   trail into the body's composer: WebKit's own drag, begun in the shell's
- *   page, carries the jot's private type across to the body's page, and the
- *   jot's text lands in the body's composer.
+ * - **A jot from the Jots body.** The Jots card's row dragged by a real mouse
+ *   trail into the Session body's composer: WebKit's own drag, begun in the
+ *   Jots card's page, carries the jot's private type across to the Session
+ *   card's page, the shell's page takes no drop, and the jot's text lands in
+ *   the Session body's composer.
  *
  * @foreground
  * @covers tugapp/Sources/MainWindow.swift
  * @covers tugapp/Sources/BodyGeometry.swift
  * @covers tugdeck/src/components/tugways/use-composer-drop.ts
  * @covers tugdeck/src/lib/jot-drag.ts
+ * @covers tugdeck/src/components/jots/jots-card-registration.tsx
  * @covers tugdeck/src/lib/pointer-claim.ts
  */
 
@@ -40,6 +42,8 @@ import { launchTugApp, note } from "../_harness";
 import { nativeDrag, nativeFileDrag } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { PROMPT_INPUT, SETTLE_MS, bodyOf, composerText, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { cardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-27-drop-into-body";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -86,37 +90,10 @@ const composerCenter = `(function () {
   var r = document.querySelector(${JSON.stringify(PROMPT_INPUT)}).getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 })()`;
-
-function deck(): Record<string, unknown> {
-  return {
-    cards: [
-      { id: A, componentId: "session", title: "A", closable: true },
-      { id: JOTS, componentId: "jots", title: "Jots", closable: true },
-    ],
-    panes: [
-      {
-        id: `${JOTS}-pane`,
-        position: { x: 0, y: 0 },
-        size: { width: 320, height: 600 },
-        cardIds: [JOTS],
-        activeCardId: JOTS,
-        title: "Jots",
-        acceptsFamilies: [],
-      },
-      {
-        id: `${A}-pane`,
-        position: { x: 400, y: 40 },
-        size: { width: 720, height: 600 },
-        cardIds: [A],
-        activeCardId: A,
-        title: "",
-        acceptsFamilies: ["maker"],
-      },
-    ],
-    activePaneId: `${A}-pane`,
-    hasFocus: true,
-  };
-}
+const labelRect = `(function () {
+  var r = document.querySelector(${JSON.stringify(JOT_LABEL)}).getBoundingClientRect();
+  return { x: r.left, y: r.top, width: r.width, height: r.height };
+})()`;
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 27: a drag over a body is the body's", () => {
   test(
@@ -131,15 +108,18 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 27: a drag over a body is the b
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUG_JOTS_PATH: jotsPath },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUG_JOTS_PATH: jotsPath },
       });
       try {
-        await app.seedDeckState({ state: deck(), focusCardId: A });
+        await app.seedDeckState({ state: kindDeck(cardKind("jots"), JOTS, { sessions: [A], focus: A }), focusCardId: A });
         await spawnStub(app, A, stubDir, 2, 1);
         await waitForBody(app, A);
-        await app.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(JOT_LABEL)}) !== null`, { timeoutMs: SETTLE_MS * 2 });
+        const jots = await standUpKind(app, cardKind("jots"), JOTS);
+        await jots.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(JOT_LABEL)}) !== null`, { timeoutMs: SETTLE_MS * 2 });
         const a = app.body(A);
         await a.evalJS<boolean>(armDragLog);
+        await jots.evalJS<boolean>(armDragLog);
         await app.evalJS<boolean>(armDragLog);
 
         // ---- A file from outside the window, dropped on the body's composer ----
@@ -157,21 +137,25 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 27: a drag over a body is the b
         expect(tiles, "the PNG lands as an attachment tile in the body's composer").toBeGreaterThan(0);
         expect(fileDrag.operation, "the source was told the drop was taken as a copy").toBe(DRAG_OPERATION_COPY);
 
-        // ---- A jot from the Jots card, which the shell draws, into the body's composer ----
+        // ---- A jot from the Jots card's body into the Session body's composer ----
         const frame = (await bodyOf(app, A))?.frame;
+        const jotsFrame = (await bodyOf(app, JOTS))?.frame;
         expect(frame, `${A}: the host reports the body's frame`).toBeDefined();
-        const label = await app.getElementBounds(JOT_LABEL);
-        const from = { x: label.x + Math.min(24, label.width / 2), y: label.y + label.height / 2 };
+        expect(jotsFrame, `${JOTS}: the host reports the Jots body's frame`).toBeDefined();
+        const label = await jots.evalJS<{ x: number; y: number; width: number; height: number }>(labelRect);
+        const from = { x: jotsFrame!.x + label.x + Math.min(24, label.width / 2), y: jotsFrame!.y + label.y + label.height / 2 };
         const to = { x: frame!.x + inBody.x, y: frame!.y + inBody.y };
         const dropsBefore = (await a.evalJS<DragLog>(readDragLog)).drop;
         await nativeDrag(app, from, to, { mouseDownDelayMs: 150, mouseUpDelayMs: 300, interpolationSteps: 30, interpolationDelayMs: 25 });
         const text = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(JOT_TEXT) === true, SETTLE_MS);
         const jotBodyLog = await a.evalJS<DragLog>(readDragLog);
         const jotShellLog = await app.evalJS<DragLog>(readDragLog);
-        note(`jot drag ${JSON.stringify(from)} → ${JSON.stringify(to)}: body page ${JSON.stringify(jotBodyLog)}; shell page ${JSON.stringify(jotShellLog)}; composer ${JSON.stringify(text)}`);
+        const jotSourceLog = await jots.evalJS<DragLog>(readDragLog);
+        note(`jot drag ${JSON.stringify(from)} → ${JSON.stringify(to)}: body page ${JSON.stringify(jotBodyLog)}; Jots page ${JSON.stringify(jotSourceLog)}; shell page ${JSON.stringify(jotShellLog)}; composer ${JSON.stringify(text)}`);
         expect(jotBodyLog.drop, "the body's page took the jot's drop").toBe(dropsBefore + 1);
         expect(jotBodyLog.types, "the jot's private type crossed to the body's page").toContain("application/x-tug-jot");
         expect(jotShellLog.drop, "the shell's page took no drop").toBe(0);
+        expect(jotSourceLog.drop, "the Jots card's page took no drop").toBe(0);
         expect(text, "the jot's text lands in the body's composer").toContain(JOT_TEXT);
       } finally {
         await app.close();

@@ -17,6 +17,9 @@
  * Read by the window's composite and the shell's own record together
  * (`_motion.ts`), as row 4 reads a slide.
  *
+ * Every other kind that is a body is folded and unfolded the same way, the
+ * chord read by whichever card holds the keyboard.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-placement.ts
  * @covers tugdeck/src/lib/card-fold.ts
@@ -32,6 +35,9 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, foldedOf, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { floorMeasure } from "./_frames";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 import {
   BURST_INTERVAL_MS,
   armSampler,
@@ -78,7 +84,7 @@ function deck(): Record<string, unknown> {
 }
 
 /** The frame's rect has held still for two samples in a row, and the fold reads `folded`. */
-async function cameToRest(app: App, folded: boolean): Promise<Rect> {
+async function cameToRest(app: App, card: string, folded: boolean): Promise<Rect> {
   const rest = await pollFor(
     async () => {
       const state = await samplerState(app);
@@ -86,31 +92,31 @@ async function cameToRest(app: App, folded: boolean): Promise<Rect> {
       const last = await app.evalJS<{ a: Rect; b: Rect } | null>(
         `(function () { var s = window.__bodyMotion.samples; if (s.length < 2) return null; return { a: s[s.length - 1].frame, b: s[s.length - 2].frame }; })()`,
       );
-      return { count, still: last !== null && Math.abs(last.a.height - last.b.height) <= 0.5 && Math.abs(last.a.width - last.b.width) <= 0.5, folded: await foldedOf(app, A), settling: state.now };
+      return { count, still: last !== null && Math.abs(last.a.height - last.b.height) <= 0.5 && Math.abs(last.a.width - last.b.width) <= 0.5, folded: await foldedOf(app, card), settling: state.now };
     },
     (r) => r.count > 5 && r.still && r.folded === folded && !r.settling,
     SETTLE_MS,
   );
   expect(rest.folded, `the card reads folded=${folded}`).toBe(folded);
-  return (await rectOf(app, frameOf(A)))!;
+  return (await rectOf(app, frameOf(card)))!;
 }
 
-async function foldLeg(app: App, label: string, toFolded: boolean, standing: Standing, crop: Rect, keep: string): Promise<void> {
-  const before = (await rectOf(app, frameOf(A)))!;
+async function foldLeg(app: App, card: string, label: string, toFolded: boolean, standing: Standing, crop: Rect, keep: string): Promise<void> {
+  const before = (await rectOf(app, frameOf(card)))!;
   const runsBefore = (await planDiag(app)).runs;
-  await armSampler(app, A);
+  await armSampler(app, card);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${label}: the burst armed`).toBe(true);
   const gestureWall = Date.now();
   await app.nativeKey("y", ["ctrl", "cmd"]);
-  const after = await cameToRest(app, toFolded);
+  const after = await cameToRest(app, card, toFolded);
   note(`${label}: frame ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
   expect(Math.abs(after.height - before.height), `${label}: the gesture changed the frame's height`).toBeGreaterThan(40);
-  if (toFolded) await expectHidden(app, A, `${label}: at the land`);
+  if (toFolded) await expectHidden(app, card, `${label}: at the land`);
   else {
-    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(`${frameOf(A)} [data-body-placeholder]`)})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
+    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(`${frameOf(card)} [data-body-placeholder]`)})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
     await Bun.sleep(400);
-    await expectAtRest(app, A, `${label}: at the land`);
+    await expectAtRest(app, card, `${label}: at the land`);
   }
   const samples = await readSampler(app);
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
@@ -129,14 +135,44 @@ async function foldLeg(app: App, label: string, toFolded: boolean, standing: Sta
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 9: fold", () => {
-  test(
+  for (const kind of kindsUnderTest(9)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: the fold hides the body at its commit and the unfold shows it only at the land, with no peek`,
+      async () => {
+        const card = `row09-${kind.componentId}`;
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row09-seed"] }), focusCardId: card });
+          await standUpKind(app, kind, card);
+          await app.dispatchControlAction("focus-session-card", { cardId: card });
+          await Bun.sleep(400);
+          const start = await expectAtRest(app, card, "at the start");
+          const standing = await readStanding(app, card, start, floorMeasure(kind.rail));
+          const frame = (await rectOf(app, frameOf(card)))!;
+          const crop = { x: 0, y: Math.max(0, Math.floor(frame.y) - 8), width: standing.contentWidth, height: Math.ceil(frame.height) + 16 };
+          const keep = join(tmpdir(), `tug-row09-${kind.componentId}-${Date.now()}`);
+          mkdirSync(keep, { recursive: true });
+          await foldLeg(app, card, "fold", true, standing, crop, keep);
+          await Bun.sleep(600);
+          await foldLeg(app, card, "unfold", false, standing, crop, keep);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(9))(
     "the fold hides the body at its commit and the unfold shows it only at the land, with no peek",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: A });
@@ -152,9 +188,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 9: fold", () => {
         mkdirSync(keep, { recursive: true });
         note(`crop ${JSON.stringify(crop)} at scale ${standing.scale}; frames kept at ${keep}`);
 
-        await foldLeg(app, "fold", true, standing, crop, keep);
+        await foldLeg(app, A, "fold", true, standing, crop, keep);
         await Bun.sleep(600);
-        await foldLeg(app, "unfold", false, standing, crop, keep);
+        await foldLeg(app, A, "unfold", false, standing, crop, keep);
       } finally {
         await app.close();
       }

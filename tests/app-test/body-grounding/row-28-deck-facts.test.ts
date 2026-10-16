@@ -42,6 +42,8 @@ import { withModifiersHeld } from "../_harness/client";
 import { mkTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { SETTLE_MS, bodyOf, focusBody, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-28-deck-facts";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -99,6 +101,17 @@ function deck(): Record<string, unknown> {
   };
 }
 
+/** `deck` with the Text card standing in the band's next slot. */
+function withText(deck: Record<string, unknown>): Record<string, unknown> {
+  const panes = deck.panes as Array<Record<string, unknown>>;
+  const slot = panes.filter((p) => typeof p.slot === "number").length;
+  return {
+    ...deck,
+    cards: [...(deck.cards as unknown[]), { id: T, componentId: "text", title: "Text", closable: true }],
+    panes: [...panes, { id: `${T}-pane`, position: { x: 40, y: 40 }, size: { width: 480, height: 600 }, cardIds: [T], activeCardId: T, title: "", acceptsFamilies: ["standard"], slot }],
+  };
+}
+
 /** Both pages' `data-mods`, polled until `done` or the settle runs out. */
 async function modsOf(app: App, a: BodyApp, done: (shell: string | null, body: string | null) => boolean): Promise<{ shell: string | null; body: string | null }> {
   return pollFor(
@@ -109,9 +122,11 @@ async function modsOf(app: App, a: BodyApp, done: (shell: string | null, body: s
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follows", () => {
-  test(
-    "the focus-ring modality and the shell's held modifiers reach a body",
+  for (const kind of kindsUnderTest(28)) test(
+    `${kind.componentId}: the focus-ring modality and the shell's held modifiers reach its body`,
     async () => {
+      const session = kind.componentId === "session";
+      const card = session ? A : `r28-${kind.componentId}`;
       const stubDir = stubDirectory();
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
@@ -119,19 +134,24 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
       const textFile = join(textDir, "notes.txt");
       writeFileSync(textFile, "one\ntwo\nthree\n");
       const app = await launchTugApp({
-        testName: TEST_NAME,
+        testName: kind.componentId === "session" ? TEST_NAME : `${TEST_NAME}-${kind.componentId}`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
       });
       try {
         await app.seedDeckState({
-          state: deck(),
+          state: session ? deck() : withText(kindDeck(kind, card, { sessions: ["r28-seed"] })),
           cardStates: { [T]: { content: { path: textFile, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
-          focusCardId: A,
+          focusCardId: card,
         });
-        await spawnStub(app, A, stubDir, 2);
-        await waitForBody(app, A);
-        const a = app.body(A);
+        if (session) {
+          await spawnStub(app, card, stubDir, 2);
+          await waitForBody(app, card);
+        } else {
+          await standUpKind(app, kind, card);
+        }
+        const a = app.body(card);
 
         // ---- The focus-ring modality, followed live ----
         const atStart = { shell: await app.evalJS<boolean | null>(ringFollowsPointer), body: await a.evalJS<boolean | null>(ringFollowsPointer) };
@@ -154,7 +174,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
 
         // ---- The latch with the shell holding the keyboard ----
         await app.nativeClickAtElement(TEXT_EDITOR);
-        const shellKey = await pollFor(() => bodyOf(app, A), (b) => b?.firstResponder === false, SETTLE_MS);
+        const shellKey = await pollFor(() => bodyOf(app, card), (b) => b?.firstResponder === false, SETTLE_MS);
         expect(shellKey?.firstResponder, "the Text card's click gives the shell the keyboard").toBe(false);
         let held: { shell: string | null; body: string | null } = { shell: null, body: null };
         await withModifiersHeld(app, ["shift"], async () => {
@@ -169,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
         let handedOff: { shell: string | null; body: string | null } = { shell: null, body: null };
         await withModifiersHeld(app, ["shift"], async () => {
           await modsOf(app, a, (s) => s === "shift");
-          await focusBody(app, A, { composer: false });
+          await focusBody(app, card, { composer: false });
           handedOff = { shell: await app.evalJS<string | null>(mods), body: await a.evalJS<string | null>(mods) };
         });
         const afterHandOff = await modsOf(app, a, (s, b) => s === null && b === null);

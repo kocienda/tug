@@ -20,7 +20,22 @@
  *   save as ok.
  *
  * The saves are read from the tugbank file the run was launched on, never
- * from the page that wrote them.
+ * from the page that wrote them. And every bound body says which kind of
+ * card it holds — at the start and after the reload made it again — so a
+ * body brought back is bound to mount its card's kind, not a guess.
+ *
+ * Every other kind that is a body is closed, reloaded and quit the same
+ * way; a rail holds no tabs, so Close All is the Session card's here. What
+ * a rail kind types into its own field before the reload is in its field
+ * after it, and its body's save is in the quit's verdict.
+ *
+ * A Text card holding unsaved edits is a body whose close guard the shell
+ * cannot read in its own document. So two gestures that destroy it are read
+ * against a dirty Text body: its pane's close puts the Save sheet up in the
+ * body, and Cancel keeps the card; and a workspace delete confirmed in a
+ * Cards body over the workspace holding it goes back to that workspace and
+ * asks in the Text body, and Cancel keeps the workspace. Neither writes the
+ * file.
  *
  * @foreground
  * @covers tugapp/Sources/BodyViewController.swift
@@ -29,12 +44,16 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { launchTugApp, note, type App } from "../_harness";
+import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch, tugbankRead } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { bodyOf, closeButtonOfPopover, composerText, focusBody, pollFor, popoverPresent, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { bodyOf, closeButtonOfPopover, composerText, focusBody, paneOf, pollFor, popoverPresent, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { cardKind, kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-11-lifecycle";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -49,6 +68,14 @@ const DRAFT_BEFORE_RELOAD = "row11 draft before reload";
 const DRAFT_BEFORE_QUIT = "row11 draft before quit";
 const SETTLE_MS = 8_000;
 const CARD_IDS = `window.tugdeck.diag.listCardIds()`;
+/** The Text card in B's pane is a body too, once its kind is one. */
+const TEXT_BODY: string[] = cardKind("text").moved ? [T] : [];
+const X = "row11-x";
+const ORIGINAL = "alpha\nbeta\n";
+const TEXT_EDITOR = '[data-slot="tug-text-card-editor"] .cm-content';
+const SHEET_CANCEL = '[data-testid="file-save-sheet-cancel"]';
+const CONFIRM_OK = '[data-slot="tug-confirm-popover"] [data-slot="tug-confirm-confirm"]';
+const present = (selector: string): string => `document.querySelector(${JSON.stringify(selector)}) !== null`;
 const READY_GEN = `((typeof window.__tug !== "undefined" && typeof window.__tug.getReadyGen === "function") ? window.__tug.getReadyGen() : 0)`;
 
 function deck(): Record<string, unknown> {
@@ -91,6 +118,13 @@ async function expectBodiesMatchCards(app: App, label: string, expected: string[
   note(`${label}: cards ${JSON.stringify(cards)}; bound bodies ${JSON.stringify(bound)}`);
   expect(bound, `${label}: the host holds a body for exactly the body cards left`).toEqual([...expected].sort());
   for (const id of bound) expect(cards, `${label}: ${id}'s body belongs to a card the shell lists`).toContain(id);
+  // Each body holds its own card's kind: the shell's deck says which.
+  const deckKinds = new Map(
+    await app.evalJS<Array<[string, string]>>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return [c.id, c.componentId]; })"),
+  );
+  for (const b of (await app.bodies()).filter((x) => x.cardId !== null)) {
+    expect(b.componentId, `${label}: ${b.cardId}'s body holds its card's kind`).toBe(deckKinds.get(b.cardId!) ?? "a card the deck holds");
+  }
 }
 
 /**
@@ -134,7 +168,154 @@ function bagOnDisk(tugbankPath: string, cardId: string): string | null {
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload and quit", () => {
-  test(
+  for (const kind of kindsUnderTest(11)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: no body outlives its card, and its body is made again by a reload and saves before a quit`,
+      async () => {
+        const K = `row11-${kind.componentId}`;
+        const K2 = `row11-${kind.componentId}-again`;
+        const tugbankPath = mkTempTugbank();
+        seedTugbankForLaunch(tugbankPath);
+        const app = await launchTugApp({
+          testName: `${TEST_NAME}-${kind.componentId}`,
+          foreground: true,
+          persistInTestMode: true,
+          restoreInTestMode: true,
+          bodies: true,
+          env: { TUGBANK_PATH: tugbankPath },
+        });
+        try {
+          // ---- close ----
+          await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
+          await standUpKind(app, kind, K);
+          await expectBodiesMatchCards(app, "at the start", [K]);
+          await app.dispatchControlAction("focus-session-card", { cardId: K });
+          await closeThrough(app, "file.closeCard", 1, `close ${K}`);
+          expect(await pollFor(() => bodyOf(app, K), (b) => b === null, SETTLE_MS), "the host holds no body for the card after the close").toBeNull();
+          await expectBodiesMatchCards(app, "after the close", []);
+
+          // ---- reload ----
+          await app.seedDeckState({ state: kindDeck(kind, K2, { sessions: [A] }), focusCardId: K2 });
+          const k = await standUpKind(app, kind, K2);
+          const draft = "row11 kind draft before reload";
+          if (kind.field !== undefined) {
+            await k.nativeClickAtElement(kind.field);
+            await app.nativeType(draft);
+            const typed = await pollFor(() => k.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
+            expect(typed, "its field holds the draft").toContain(draft);
+          }
+          const genBefore = await app.evalJS<number>(READY_GEN);
+          await app.nativeKey("r", ["cmd", "shift"]);
+          let emptySamples = 0;
+          const genAfter = await pollFor(
+            async () => {
+              if ((await boundBodies(app)).length === 0) emptySamples += 1;
+              return app.evalJS<number>(READY_GEN).catch(() => genBefore);
+            },
+            (gen) => gen > genBefore,
+            20_000,
+          );
+          expect(genAfter, "the shell reloaded").toBeGreaterThan(genBefore);
+          expect(emptySamples, "the host had destroyed every body before the shell came back").toBeGreaterThan(0);
+          const listed = await pollFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(K2), SETTLE_MS);
+          expect(listed, "the reloaded shell restored the card").toContain(K2);
+          const again = await standUpKind(app, kind, K2);
+          await expectBodiesMatchCards(app, "after the reload", [K2]);
+          if (kind.field !== undefined) {
+            const restored = await pollFor(() => again.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
+            expect(restored, "the body made again shows the draft the old one saved").toContain(draft);
+          }
+
+          // ---- quit ----
+          const logPath = app.logPath;
+          await app.quitGracefully({ timeoutMs: 20_000 });
+          const log = logPath === null ? "" : readFileSync(logPath, "utf8");
+          const verdict = log.split("\n").filter((line) => line.includes("termination verdicts")).pop() ?? "";
+          note(`quit: ${verdict.trim() || "no verdict line in the log"}`);
+          expect(verdict, "the verdict names the card's body").toContain(`body:${K2}:`);
+          expect(verdict, "and its body saved ok").toMatch(new RegExp(`body:${K2}: ok=true`));
+        } finally {
+          await app.close();
+          rmTempTugbank(tugbankPath);
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!cardKind("text").moved || !cardKind("cards").moved)(
+    "a dirty Text body asks before its pane closes and before a Cards body deletes its workspace, and Cancel keeps both",
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), "tug-row11-guard-"));
+      const file = join(dir, "notes.md");
+      writeFileSync(file, ORIGINAL);
+      const app = await launchTugApp({ testName: `${TEST_NAME}-text-guard`, foreground: true, bodies: true });
+      try {
+        await app.seedDeckState({
+          state: {
+            cards: [
+              { id: X, componentId: "text", title: "Text", closable: true },
+              { id: "row11-cards", componentId: "cards", title: "Workspaces", closable: true },
+            ],
+            panes: [kindPane("text", X, 0), kindPane("cards", "row11-cards", 0)],
+            activePaneId: `${X}-pane`,
+            imposition: { kind: "one-up", layout: "flow", sidebars: kindSidebars(["cards"]) },
+            hasFocus: true,
+          },
+          cardStates: { [X]: { content: { path: file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
+          focusCardId: X,
+        });
+        const text = await standUpKind(app, cardKind("text"), X);
+        await standUpKind(app, cardKind("cards"), "row11-cards");
+        await pollFor(() => text.evalJS<string>(`(document.querySelector(${JSON.stringify(TEXT_EDITOR)}) || { innerText: "" }).innerText`), (t) => t.includes("alpha"), SETTLE_MS);
+        await text.nativeClickAtElement(TEXT_EDITOR);
+        await app.nativeType("EDIT ");
+        const typed = await pollFor(() => text.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)}).innerText`), (t) => t.includes("EDIT"), SETTLE_MS);
+        expect(typed, "the Text body holds an unsaved edit").toContain("EDIT");
+
+        // ---- The pane's close: the Save sheet in the body, Cancel keeps the card ----
+        await app.nativeClickAtElement(`${paneOf(X)} [data-testid="tug-pane-close-button"]`);
+        const asked = await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, SETTLE_MS);
+        expect(asked, "the pane's close puts the Save sheet up in the Text body").toBe(true);
+        await text.nativeClickAtElement(SHEET_CANCEL);
+        await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => !v, SETTLE_MS);
+        await Bun.sleep(300);
+        expect(await app.evalJS<string[]>(CARD_IDS), "Cancel keeps the card").toContain(X);
+        expect(readFileSync(file, "utf8"), "and writes nothing").toBe(ORIGINAL);
+
+        // ---- A workspace delete from a Cards body: fronted, asked, Cancel keeps it ----
+        const home = await app.evalJS<string>("window.tugdeck.diag.getSpaces().activeSpaceId");
+        await app.evalJS<string>(`window.tugdeck.lab.createSpace("Away")`);
+        await pollFor(() => app.evalJS<string>("window.tugdeck.diag.getSpaces().activeSpaceId"), (id) => id !== home, SETTLE_MS);
+        const shown = await pollFor(
+          () => app.bodies(),
+          (bodies) => bodies.some((b) => b.componentId === "cards" && b.state === "ready" && b.visible),
+          SETTLE_MS,
+        );
+        const awayCards: BodyApp = app.body(shown.find((b) => b.componentId === "cards" && b.state === "ready" && b.visible)!.cardId!);
+        await app.dispatchControlAction("delete-space", { spaceId: home });
+        await pollFor(() => awayCards.evalJS<boolean>(present(CONFIRM_OK)), (v) => v, SETTLE_MS);
+        await awayCards.nativeClickAtElement(CONFIRM_OK);
+        const askedAgain = await pollFor(() => text.evalJS<boolean>(present(SHEET_CANCEL)), (v) => v, 15_000);
+        expect(askedAgain, "the confirmed delete asks in the Text body").toBe(true);
+        expect(await app.evalJS<string>("window.tugdeck.diag.getSpaces().activeSpaceId"), "with its workspace fronted").toBe(home);
+        await text.nativeClickAtElement(SHEET_CANCEL);
+        await Bun.sleep(500);
+        const after = await app.evalJS<{ activeSpaceId: string; spaces: { id: string }[] }>("window.tugdeck.diag.getSpaces()");
+        note(`after the cancelled delete: ${JSON.stringify(after)}`);
+        expect(after.spaces.map((s) => s.id), "Cancel keeps the workspace").toContain(home);
+        expect(await app.evalJS<string[]>(CARD_IDS), "and the card").toContain(X);
+        expect(readFileSync(file, "utf8"), "and writes nothing").toBe(ORIGINAL);
+      } finally {
+        await app.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.skipIf(!sessionUnderTest(11))(
     "no body outlives its card, every body saves before a reload and a quit, and the saves are on disk",
     async () => {
       const stubDir = stubDirectory();
@@ -150,19 +331,20 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         // makes the bodies again.
         persistInTestMode: true,
         restoreInTestMode: true,
-        env: { TUG_BODY_VIEWS: "1", TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: A });
         for (const id of [A, B, D]) await spawnStub(app, id, stubDir, 2);
         for (const id of [A, B, D]) await waitForBody(app, id);
-        await expectBodiesMatchCards(app, "at the start", [A, B, D]);
+        await expectBodiesMatchCards(app, "at the start", [A, B, D, ...TEXT_BODY]);
 
         // ---- Close: A goes, and its body with it ----
         await focusBody(app, A, { composer: false });
         await closeThrough(app, "file.closeCard", 3, "close A");
         expect(await pollFor(() => bodyOf(app, A), (b) => b === null, SETTLE_MS), "the host holds no body for A after the close").toBeNull();
-        await expectBodiesMatchCards(app, "after closing A", [B, D]);
+        await expectBodiesMatchCards(app, "after closing A", [B, D, ...TEXT_BODY]);
 
         // ---- Close all: B's pane empties, the text card and the body card together ----
         await focusBody(app, B, { composer: false });

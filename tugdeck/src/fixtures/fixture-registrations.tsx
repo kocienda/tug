@@ -27,7 +27,7 @@
 
 import React from "react";
 
-import { registerCard, type CardSizePolicy } from "@/card-registry";
+import { registerCard, type CardRegistration, type CardSizePolicy } from "@/card-registry";
 import { GalleryListView } from "@/components/tugways/cards/gallery-list-view";
 import { GalleryMarkdownView } from "@/components/tugways/cards/gallery-markdown-view";
 
@@ -53,6 +53,11 @@ const FIXTURE_CATEGORY = { label: "Fixtures", icon: "FlaskConical" } as const;
  * componentId does not resolve, and `seedDeckState` cannot mount what the
  * registry does not know.
  */
+/** Register one fixture card. Every fixture kind lives in a body (`body: true`), set here once. */
+function registerFixtureCard(registration: Omit<CardRegistration, "body">): void {
+  registerCard({ ...registration, body: true });
+}
+
 export function registerFixtureCards(): void {
   // Keyboard-focus-cycling fixture for the `useCycleMode` primitive: ⌥⇥
   // toggles a trapped cycle scope, Tab wraps the stops, toggling off restores
@@ -63,7 +68,7 @@ export function registerFixtureCards(): void {
   // annex's own rule a fixture no test seeds gets deleted — this one is a
   // candidate, left standing only because removing it is a separate decision
   // from moving it.
-  registerCard({
+  registerFixtureCard({
     componentId: "fixture-cycle-demo",
     hidden: true,
     contentFactory: (cardId) => <FixtureCycleDemo cardId={cardId} />,
@@ -82,7 +87,7 @@ export function registerFixtureCards(): void {
   // (every cell in the DOM, no windowing) to mirror the session-card transcript
   // configuration.
   // Seeded by: at0061, at0083, at0331.
-  registerCard({
+  registerFixtureCard({
     componentId: "fixture-list-view-scroll-keyed",
     hidden: true,
     contentFactory: (_cardId) => (
@@ -107,7 +112,7 @@ export function registerFixtureCards(): void {
   // over a static body (markdown + tool + thinking) so a test can drive real
   // ⌘C / menu-Copy and assert the clipboard.
   // Seeded by: at0188.
-  registerCard({
+  registerFixtureCard({
     componentId: "fixture-transcript-copy",
     hidden: true,
     contentFactory: (_cardId) => <FixtureTranscriptCopy />,
@@ -123,7 +128,7 @@ export function registerFixtureCards(): void {
   // re-mount. The cold-boot selection tests need deterministic anchor paths;
   // the 50KB variant exercises the virtualization-aware path instead.
   // Seeded by: at0010-cold-boot-selection.
-  registerCard({
+  registerFixtureCard({
     componentId: "fixture-markdown-1kb",
     hidden: true,
     contentFactory: (_cardId) => <GalleryMarkdownView staticContentSize="1kb" />,
@@ -138,7 +143,7 @@ export function registerFixtureCards(): void {
   // content. Same component code as the 1KB variant, distinct id.
   // Seeded by: at0010-cold-boot-selection, at0010-markdown-selection,
   // at0014-cold-boot-scroll, at0014-scroll-persistence, at0023.
-  registerCard({
+  registerFixtureCard({
     componentId: "fixture-markdown-50kb",
     hidden: true,
     contentFactory: (_cardId) => <GalleryMarkdownView staticContentSize="50kb" />,
@@ -161,7 +166,7 @@ export function registerFixtureCards(): void {
   // takes the deck's content width, which makes its panes wider than the slots
   // they stand in — geometry a drop-zone test cannot tell from a bug.
   // Seeded by: at0456, at0463.
-  registerCard({
+  registerFixtureCard({
     componentId: "fixture-tall-floor",
     hidden: true,
     contentFactory: (_cardId) => (

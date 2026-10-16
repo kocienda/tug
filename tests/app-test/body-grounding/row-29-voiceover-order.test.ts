@@ -15,6 +15,9 @@
  * forward and leaves the order where it was, so the order is the deck's and
  * not the stacking's.
  *
+ * Every other kind that is a body is read the same way, standing to the
+ * right of a body Session card and the Text card — a rail on its edge.
+ *
  * @foreground
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -29,6 +32,8 @@ import { join } from "node:path";
 import { launchTugApp, note } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { SETTLE_MS, focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { standUpKind } from "./_kind-bodies";
+import { kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-29-voiceover-order";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -66,7 +71,50 @@ function deck(): Record<string, unknown> {
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
-  test(
+  for (const kind of kindsUnderTest(29)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: the window reads the shell and then each body in deck order, whichever pane stands in front`,
+      async () => {
+        const K = `r29-${kind.componentId}`;
+        const stubDir = stubDirectory();
+        const textDir = mkdtempSync(join(tmpdir(), "tug-row29-text-"));
+        const textFile = join(textDir, "notes.txt");
+        writeFileSync(textFile, "one\ntwo\n");
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+        try {
+          const base = deck() as { cards: unknown[]; panes: unknown[] };
+          await app.seedDeckState({
+            state: {
+              ...base,
+              cards: [...base.cards.filter((c) => (c as { id: string }).id !== B), { id: K, componentId: kind.componentId, title: kind.componentId, closable: true }],
+              panes: [...base.panes.filter((p) => (p as { id: string }).id !== `${B}-pane`), kindPane(kind.componentId, K, 2)],
+              imposition: { kind: "three-up", layout: "fit", sidebars: kindSidebars([kind.componentId]) },
+            },
+            cardStates: { [T]: { content: { path: textFile, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
+            focusCardId: A,
+          });
+          await spawnStub(app, A, stubDir, 2);
+          await waitForBody(app, A);
+          await standUpKind(app, kind, K);
+          await focusBody(app, A, { composer: false });
+          const expected = ["shell", A, K];
+          const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
+          note(`A in front: order ${JSON.stringify(first)}`);
+          expect(first, "the shell, then the bodies left to right").toEqual(expected);
+          await focusBody(app, K, { composer: false });
+          const second = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
+          note(`${K} in front: order ${JSON.stringify(second)}`);
+          expect(second, `bringing the ${kind.componentId} card forward leaves the deck's order`).toEqual(expected);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(29))(
     "the window reads the shell and then each body in deck order, whichever pane stands in front",
     async () => {
       const stubDir = stubDirectory();
@@ -76,7 +124,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({

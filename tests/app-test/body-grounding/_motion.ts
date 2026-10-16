@@ -16,7 +16,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
-import { classifyFrame, describeFrames, framesDiffer, pollFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CLASS, framesDiffer, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses, type Palette } from "./_frames";
 import { focusBody } from "./_bodies";
 
 export interface Rect {
@@ -168,7 +168,7 @@ export interface Standing {
 }
 
 /** The palette from a probe of `cardId`'s standing body, whose content box fills with its own paint. */
-export async function readStanding(app: App, cardId: string, placeholder: Rect): Promise<Standing> {
+export async function readStanding(app: App, cardId: string, placeholder: Rect, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<Standing> {
   const probeCrop = {
     x: Math.ceil(placeholder.x) + 2,
     y: Math.ceil(placeholder.y) + 2,
@@ -181,7 +181,7 @@ export async function readStanding(app: App, cardId: string, placeholder: Rect):
   const palette = await readPalette(app, probe.windowBackground, standingFrame);
   const standing = classifyFrame(standingFrame, palette);
   note(`${cardId}: palette ${JSON.stringify(palette)}; body standing: ${describeFrames([standing])}`);
-  expect(standing.surface + standing.other, `${cardId}: the standing body fills its rect with its own paint`).toBeGreaterThan(0.95);
+  expect(measure.own(standing), `${cardId}: the standing body fills its rect with its own paint`).toBeGreaterThan(0.95);
   return { palette, standing, scale: probe.scale, contentWidth: probe.contentWidth };
 }
 
@@ -306,6 +306,8 @@ export interface PlanDiag {
   last: {
     planId: number | null;
     planned: string[];
+    /** Where the plan lands each planned body. */
+    landings?: Record<string, Rect>;
     refused: string[];
     reasons: Record<string, string>;
     landed: { cardId: string; lateMs: number | null }[];
@@ -537,6 +539,7 @@ export async function carryLeg(
     3_000,
   );
   note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
+  for (const id of moved) note(`${label}: ${id} came to rest at ${JSON.stringify(await rectOf(app, placeholderOf(id)))}`);
   for (const id of moved) {
     expect(plan.last?.planned.includes(id), `${label}: ${id} is carried by the host`).toBe(true);
     expect(plan.last?.landed.some((l) => l.cardId === id), `${label}: the host said ${id} landed`).toBe(true);
@@ -577,9 +580,9 @@ export async function carryLeg(
 }
 
 /** The palette from `card`'s standing body, and a crop across the window at its content box's top. */
-export async function standUp(app: App, card: string): Promise<{ standing: Standing; crop: Rect }> {
+export async function standUp(app: App, card: string, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<{ standing: Standing; crop: Rect }> {
   const start = await expectAtRest(app, card, `${card}: at the start`);
-  const standing = await readStanding(app, card, start);
+  const standing = await readStanding(app, card, start, measure);
   const frame = (await rectOf(app, frameOf(card)))!;
   const crop = { x: 0, y: Math.floor(frame.y), width: standing.contentWidth, height: Math.min(320, Math.floor(start.y + start.height - frame.y)) };
   note(`${card}: crop ${JSON.stringify(crop)} at scale ${standing.scale}`);

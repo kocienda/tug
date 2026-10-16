@@ -160,7 +160,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding record reading: seven gestures with
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: flowDeck(), focusCardId: BODIES[0] });

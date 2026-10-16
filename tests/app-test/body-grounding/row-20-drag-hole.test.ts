@@ -21,6 +21,11 @@
  * a composite of it standing, before the gesture — wherever its pane paints,
  * and floor (canvas and grid) wherever a hole is.
  *
+ * Every other kind that is a body is dragged across a Text card the same
+ * way. A pinned rail is dragged by its whole bar, leftward over the Text card
+ * beside it, and dropped there or cancelled over it; a slot is a content
+ * card's to be assigned.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-placement.ts
  */
@@ -34,6 +39,8 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
+import { standUpKind } from "./_kind-bodies";
 import { asRgbJs, classifyFrame, describeFrames, fillOf, parseRgb, type Rgb } from "./_frames";
 
 const TEST_NAME = "body-grounding-row-20-drag-hole";
@@ -129,8 +136,107 @@ async function standingSurface(app: App, frame: Rect): Promise<Rgb> {
   return fillOf(reading.frames[reading.frames.length - 1]);
 }
 
+/**
+ * At rest: every pane's cut is the landed deck's, and the Text card's region
+ * clear of every body in front of it is its own surface, never the floor.
+ */
+async function expectTextWhole(app: App, say: (text: string) => void, surface: Rgb): Promise<void> {
+  const miscut = await app.evalJS<unknown[]>(MISCUT);
+  say(`panes whose cut disagrees with the landed deck: ${JSON.stringify(miscut)}`);
+  expect(miscut, "every pane's cut at rest is the landed deck's").toEqual([]);
+
+  // The Text card's region no body stands in front of, by composite.
+  const free = await app.evalJS<Rect>(FREE_SPAN(frameOf(T)));
+  const crop = {
+    x: Math.ceil(free.x) + 12,
+    y: Math.ceil(free.y) + 60,
+    width: Math.floor(free.width) - 24,
+    height: Math.min(600, Math.floor(free.height) - 80),
+  };
+  expect(crop.width, "some of the Text card stands clear of every body").toBeGreaterThan(60);
+  await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
+  const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
+  const shot = reading.frames[reading.frames.length - 1];
+  const canvas = parseRgb(
+    await app.evalJS<string>(asRgbJs(`getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')`)),
+  );
+  const classes = classifyFrame(shot, { surface, canvas, bare: parseRgb(reading.windowBackground) }, 8);
+  say(`the Text card's clear region ${JSON.stringify(crop)}: ${describeFrames([classes])}`);
+  // The floor is canvas paint with its grid in it; the grid class alone,
+  // with no canvas beside it, is the card's own near-canvas paint (its
+  // gutter, its line highlight) and not a hole.
+  expect(classes.canvas + classes.bare, "the Text card's clear region shows no floor").toBeLessThanOrEqual(FLOOR_SHARE);
+}
+
 describe.skipIf(!SHOULD_RUN)("body-grounding row 20: a drag leaves no hole", () => {
-  for (const leg of ["drop", "cancel", "crossing"] as const) test(
+  for (const kind of kindsUnderTest(20)) {
+    if (kind.componentId === "session" || !kind.rail) continue;
+    for (const leg of ["drop", "cancel"] as const) test(
+      `${kind.componentId}: the Text card its rail crossed is whole at rest (${leg})`,
+      async () => {
+        const say = (text: string): void => note(`${kind.componentId} ${leg}: ${text}`);
+        const card = `r20-${kind.componentId}`;
+        const dir = mkdtempSync(join(tmpdir(), "tug-r20-text-"));
+        const file = join(dir, "blank.txt");
+        writeFileSync(file, "\n".repeat(120));
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}-${leg}`, foreground: true, bodies: true });
+        try {
+          await app.seedDeckState({
+            state: {
+              cards: [
+                { id: card, componentId: kind.componentId, title: kind.componentId, closable: true },
+                { id: T, componentId: "text", title: "T", closable: true },
+                { id: E, componentId: "text", title: "E", closable: true },
+              ],
+              panes: [textPane(E, 0), textPane(T, 1), kindPane(kind.componentId, card, 0)],
+              activePaneId: `${card}-pane`,
+              imposition: { kind: "two-up", layout: "flow", contentWidth: "slim", sidebars: kindSidebars([kind.componentId]) },
+              hasFocus: true,
+            },
+            cardStates: {
+              [T]: { content: { path: file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+              [E]: { content: { path: file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } },
+            },
+            focusCardId: card,
+          });
+          await standUpKind(app, kind, card);
+          await Bun.sleep(800);
+          const rail = (await rectOf(app, frameOf(card)))!;
+          const tFrame = (await rectOf(app, frameOf(T)))!;
+          const bar = (await rectOf(app, `${frameOf(card)} .tug-pane-title-bar`))!;
+          say(`rail ${JSON.stringify(rail)}; T ${JSON.stringify(tFrame)}`);
+          expect(tFrame.x + tFrame.width / 2, "the Text card's centre stands clear of the rail, where the drag ends").toBeLessThan(rail.x);
+          const surface = await standingSurface(app, tFrame);
+          const from = { x: bar.x + bar.width / 2, y: bar.y + bar.height / 2 };
+          const over = { x: tFrame.x + tFrame.width / 2, y: from.y + 260 };
+          await app.nativeDragWithoutRelease(from, over, { interpolationSteps: 24, interpolationDelayMs: 30, mouseDownDelayMs: 80 });
+          await Bun.sleep(300);
+          const cut = await app.evalJS<string>(`document.querySelector(${JSON.stringify(frameOf(T))}).style.clipPath`);
+          say(`the Text card's cut with the rail held over it: ${cut.slice(0, 160)}`);
+          expect(cut, "the body held over the Text card cuts it").not.toBe("");
+          if (leg === "cancel") {
+            await app.nativeKey("Escape");
+            await Bun.sleep(200);
+          }
+          await app.nativeMouseUp(over);
+          const rested = await pollFor(
+            () => app.evalJS<boolean>(`document.querySelector("[data-pointer-owned]") === null && document.querySelector("[data-gesture]") === null && document.querySelector("[data-imposer-settling]") === null`),
+            (v) => v,
+            8_000,
+          );
+          expect(rested, "the gesture ended and the deck settled").toBe(true);
+          await Bun.sleep(800);
+          say(`at rest: the rail ${JSON.stringify(await rectOf(app, frameOf(card)))}; T ${JSON.stringify(await rectOf(app, frameOf(T)))}`);
+          await expectTextWhole(app, say, surface);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  for (const leg of ["drop", "cancel", "crossing"] as const) test.skipIf(!sessionUnderTest(20))(
     `the Text card a body crossed is whole at rest (${leg})`,
     async () => {
       const say = (text: string): void => note(`${leg}: ${text}`);
@@ -141,7 +247,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 20: a drag leaves no hole", () 
       const app = await launchTugApp({
         testName: `${TEST_NAME}-${leg}`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({
@@ -215,31 +322,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 20: a drag leaves no hole", () 
         const slots = await app.evalJS<unknown>(`window.tugdeck.diag.getDeckState().panes.map(function (p) { return p.id + ":" + p.slot; })`);
         say(`slots at rest ${JSON.stringify(slots)}; A ${JSON.stringify(await rectOf(app, frameOf(A)))}; T ${JSON.stringify(await rectOf(app, frameOf(T)))}`);
         if (leg !== "cancel") expect(JSON.stringify(slots), "the body card moved to the empty slot").toContain(`${A}-pane:2`);
-        const miscut = await app.evalJS<unknown[]>(MISCUT);
-        say(`panes whose cut disagrees with the landed deck: ${JSON.stringify(miscut)}`);
-        expect(miscut, "every pane's cut at rest is the landed deck's").toEqual([]);
-
-        // The Text card's region no body stands in front of, by composite.
-        const free = await app.evalJS<Rect>(FREE_SPAN(frameOf(T)));
-        const crop = {
-          x: Math.ceil(free.x) + 12,
-          y: Math.ceil(free.y) + 60,
-          width: Math.floor(free.width) - 24,
-          height: Math.min(600, Math.floor(free.height) - 80),
-        };
-        expect(crop.width, "some of the Text card stands clear of every body").toBeGreaterThan(60);
-        await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop });
-        const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
-        const shot = reading.frames[reading.frames.length - 1];
-        const canvas = parseRgb(
-          await app.evalJS<string>(asRgbJs(`getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')`)),
-        );
-        const classes = classifyFrame(shot, { surface, canvas, bare: parseRgb(reading.windowBackground) }, 8);
-        say(`the Text card's clear region ${JSON.stringify(crop)}: ${describeFrames([classes])}`);
-        // The floor is canvas paint with its grid in it; the grid class alone,
-        // with no canvas beside it, is the card's own near-canvas paint (its
-        // gutter, its line highlight) and not a hole.
-        expect(classes.canvas + classes.bare, "the Text card's clear region shows no floor").toBeLessThanOrEqual(FLOOR_SHARE);
+        await expectTextWhole(app, say, surface);
       } finally {
         await app.close();
       }

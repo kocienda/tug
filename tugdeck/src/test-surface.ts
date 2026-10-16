@@ -2991,40 +2991,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return textMeasurer(el)?.(text) ?? null;
     },
 
-    publishOverviewPost(payloadJson: string): boolean {
-      if (getOverviewStore() === null) return false;
-      try {
-        _ingestOverviewFrameForTest(JSON.parse(payloadJson));
-      } catch {
-        return false;
-      }
-      return true;
-    },
-
-    publishOverviewPostsPage(payloadJson: string): boolean {
-      if (getOverviewStore() === null) return false;
-      let body: unknown;
-      try {
-        body = JSON.parse(payloadJson);
-      } catch {
-        return false;
-      }
-      if (
-        body === null ||
-        typeof body !== "object" ||
-        !Array.isArray((body as ListOverviewPostsOk).posts)
-      ) {
-        return false;
-      }
-      _ingestOverviewPageForTest(body as ListOverviewPostsOk);
-      return true;
-    },
-
-    overviewPosts(): Array<{ key: string; body: string }> | null {
-      const store = getOverviewStore();
-      if (store === null) return null;
-      return store.getSnapshot().posts.map((p) => ({ key: p.key, body: p.body }));
-    },
+    ...overviewSurfaceMethods(),
 
     rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] } {
       const liveTurnKeys: string[] = [];
@@ -3817,9 +3784,55 @@ export type BodyTestSurface = { version: typeof SURFACE_VERSION } & ReturnType<
  * Install a body page's `window.__tug` — the same gate as
  * {@link attachTugTestSurface}, over the body's bridge instead of a deck.
  */
+/**
+ * The Overview store's verbs: deliver a feed frame or a tail page as the
+ * wire would, and read the posts it holds. On the shell's surface and on a
+ * body's, since the store is whichever page's holds the Overview.
+ */
+function overviewSurfaceMethods() {
+  return {
+    publishOverviewPost(payloadJson: string): boolean {
+      if (getOverviewStore() === null) return false;
+      try {
+        _ingestOverviewFrameForTest(JSON.parse(payloadJson));
+      } catch {
+        return false;
+      }
+      return true;
+    },
+
+    publishOverviewPostsPage(payloadJson: string): boolean {
+      if (getOverviewStore() === null) return false;
+      let body: unknown;
+      try {
+        body = JSON.parse(payloadJson);
+      } catch {
+        return false;
+      }
+      if (
+        body === null ||
+        typeof body !== "object" ||
+        !Array.isArray((body as ListOverviewPostsOk).posts)
+      ) {
+        return false;
+      }
+      _ingestOverviewPageForTest(body as ListOverviewPostsOk);
+      return true;
+    },
+
+    overviewPosts(): Array<{ key: string; body: string }> | null {
+      const store = getOverviewStore();
+      if (store === null) return null;
+      return store.getSnapshot().posts.map((p) => ({ key: p.key, body: p.body }));
+    },
+  };
+}
+
 export function attachBodyTestSurface(bridge: ViewSurfaceStore): void {
   if (typeof window === "undefined" || window.__tugTestMode !== true) return;
-  window.__tug = { version: SURFACE_VERSION, ...createViewSurfaceMethods(bridge) };
+  // The Overview's store is the page's own: a body holding the Overview is
+  // fed and read here, as the shell's document was.
+  window.__tug = { version: SURFACE_VERSION, ...createViewSurfaceMethods(bridge), ...overviewSurfaceMethods() };
   if (readDeckTraceEnabled()) {
     deckTrace.enable(true);
   }

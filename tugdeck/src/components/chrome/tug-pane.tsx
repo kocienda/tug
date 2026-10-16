@@ -87,7 +87,7 @@ import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { TugTabBar } from "@/components/tugways/tug-tab-bar";
 import { DeckManagerContext, useDeckManager } from "@/deck-manager-context";
-import { dispatchCommand } from "@/command-dispatch";
+import { dispatchCommand, sendToCardContent } from "@/command-dispatch";
 import type { MovePaneOptions } from "@/deck-manager-store";
 import {
   fitEdgeRate,
@@ -150,6 +150,7 @@ import {
 } from "@/lib/card-modal-hold-store";
 import { TugPopupMenu } from "@/components/tugways/internal/tug-popup-menu";
 import {
+  commandAction,
   commandEntry,
   validateCommand,
 } from "@/components/tugways/command-registry";
@@ -1654,7 +1655,8 @@ function CardTitleBarBody({
             const entry = commandEntry(item.commandId);
             const label = entry?.title ?? item.commandId;
             const enabled =
-              entry !== undefined && validateCommand(entry, commandValidationSource());
+              item.enabled ??
+              (entry !== undefined && validateCommand(entry, commandValidationSource()));
             const ItemIcon =
               item.icon !== undefined &&
               icons[item.icon as keyof typeof icons] !== undefined
@@ -1676,7 +1678,18 @@ function CardTitleBarBody({
                     disabled={!enabled}
                     aria-label={label}
                     data-testid={`tug-pane-title-bar-item-${item.commandId}`}
-                    onClick={() => dispatchCommand(item.commandId)}
+                    onClick={() => {
+                      // A body card's item goes to that card's content, in
+                      // its own page: the key card the dispatch would walk
+                      // from is the deck's first responder, which a press on
+                      // this pane's bar has not moved yet.
+                      const action = entry === undefined ? null : commandAction(entry);
+                      if (activeCardId != null && action !== null && bodyCardsStore.has(activeCardId)) {
+                        sendToCardContent(activeCardId, action);
+                        return;
+                      }
+                      dispatchCommand(item.commandId);
+                    }}
                   />
                 </span>
               </TugTooltip>

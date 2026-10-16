@@ -477,6 +477,23 @@ function isChainDebugEnabled(): boolean {
   return (window as unknown as { __tugChainDebug?: boolean }).__tugChainDebug === true;
 }
 
+/**
+ * What answers a targeted dispatch that walked off a page's root unhandled.
+ * A body installs one that hands a registered command to the shell: a
+ * control sends its own action to its parent responder, and in a body the
+ * handler may live in the deck the shell holds. One per page, so it is set
+ * before the page's manager exists.
+ */
+let unhandledTargetHook: ((event: ActionEvent) => boolean) | null = null;
+
+/** Install the unhandled-target hook. Returns the uninstall. */
+export function setUnhandledTargetHook(hook: (event: ActionEvent) => boolean): () => void {
+  unhandledTargetHook = hook;
+  return () => {
+    if (unhandledTargetHook === hook) unhandledTargetHook = null;
+  };
+}
+
 export class ResponderChainManager {
   // Internal storage uses the default `ResponderNode` (i.e.
   // `ResponderNode<never>`) — the narrowest, production-only form.
@@ -1249,10 +1266,16 @@ export class ResponderChainManager {
     if (!this.nodes.has(targetId)) {
       throw new Error(`sendToTargetForContinuation: target "${targetId}" is not registered`);
     }
-    const { handled, continuation, handledBy } = this.walkFromNode(
+    const walked = this.walkFromNode(
       targetId,
       event as ActionEvent,
     );
+    const { continuation, handledBy } = walked;
+    // A walk that fell off this page's root may still be answered beyond it:
+    // a body hands a command its chain does not hold to the shell's.
+    const handled =
+      walked.handled ||
+      (unhandledTargetHook !== null && unhandledTargetHook(event as ActionEvent));
     this.notifyDispatchObservers(event as ActionEvent, handled);
     this.logDispatch(event as ActionEvent, handled, handledBy);
     return { handled, continuation };

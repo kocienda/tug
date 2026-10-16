@@ -53,7 +53,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note } from "./_harness";
-import { keyboardIsInCard } from "./_harness/selectors";
+import { waitForKeyboardInCard } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -375,7 +375,7 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
         await app.waitForCondition<boolean>(present(COMPOSER), { timeoutMs: 8000 });
         await app.nativeClickAtElement(COMPOSER);
-        await app.waitForCondition<boolean>(keyboardIsInCard("A"), { timeoutMs: 8000 });
+        await waitForKeyboardInCard(app, "A", { timeoutMs: 8000 });
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") {

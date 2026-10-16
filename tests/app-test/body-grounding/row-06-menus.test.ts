@@ -20,6 +20,11 @@
  * raising the shell's own popover and handing the keyboard back when it is
  * dismissed.
  *
+ * Every other kind that is a body is swept the same way, holding the
+ * keyboard beside an unbound Session card; of the items the body can show,
+ * Zoom In and Close are read for it. The find bar's Undo and Redo and the
+ * focus moving between two bodies are the Session card's.
+ *
  * @foreground
  * @covers tugapp/Sources/AppDelegate.swift
  * @covers tugapp/Sources/MainWindow.swift
@@ -34,6 +39,8 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { MenuItemSnapshot } from "../_harness/types";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { SETTLE_MS, bodyOf, focusBody, foldedOf, pollFor, popoverPresent, responders, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-06-menus";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -98,47 +105,145 @@ const findValue = `(function () {
 })()`;
 
 /**
- * Dismiss whatever an item raised and give A the keyboard again. Returns
- * whether A's body took it back, with what the shell and the host said.
+ * Dismiss whatever an item raised and give `card` the keyboard again.
+ * Returns whether its body took it back, with what the shell and the host
+ * said.
  */
-async function settleAfter(app: App): Promise<{ handedBack: boolean; facts: string }> {
+async function settleAfter(app: App, card: string): Promise<{ handedBack: boolean; facts: string }> {
   await app.nativeKey("Escape");
   await Bun.sleep(150);
   if (await app.evalJS<boolean>(popoverPresent)) await app.nativeKey("Escape");
   // A surface the item raised or revealed may be settling onto the deck.
   await Bun.sleep(600);
-  // An item that folded A leaves its body hidden, and a hidden view holds
+  // An item that folded the card leaves its body hidden, and a hidden view holds
   // no keyboard: unfold it before asking. The fold leg below reads the
   // fold itself.
-  if (await foldedOf(app, A)) {
+  if (await foldedOf(app, card)) {
     await app.performMenuItem("view.foldCard");
-    await pollFor(() => foldedOf(app, A), (v) => !v, SETTLE_MS);
+    await pollFor(() => foldedOf(app, card), (v) => !v, SETTLE_MS);
     await Bun.sleep(600);
   }
-  await app.dispatchControlAction("focus-session-card", { cardId: A });
-  const holder = await pollFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
+  await app.dispatchControlAction("focus-session-card", { cardId: card });
+  const holder = await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
   const facts =
     `shell focused card ${await app.getFocusedCardId()}, shell responder ${await app.evalJS<string>("String(window.__tug.getFirstResponderId())")}, ` +
     `shell active element ${await app.evalJS<string>(`document.activeElement ? document.activeElement.tagName + "." + document.activeElement.className : "none"`)}, ` +
-    `A's pane ${await app.evalJS<string>(`JSON.stringify((function(){ var p = document.querySelector(${JSON.stringify(`.tug-pane[data-pane-id="${A}-pane"]`)}); if (!p) return null; var o = {}; for (var i = 0; i < p.attributes.length; i++) o[p.attributes[i].name] = p.attributes[i].value; return o; })())`)}, ` +
+    `the card's pane ${await app.evalJS<string>(`JSON.stringify((function(){ var p = document.querySelector(${JSON.stringify(`.tug-pane[data-pane-id="${card}-pane"]`)}); if (!p) return null; var o = {}; for (var i = 0; i < p.attributes.length; i++) o[p.attributes[i].name] = p.attributes[i].value; return o; })())`)}, ` +
     `deck panes ${await app.evalJS<string>(`JSON.stringify((window.tugdeck.diag.getDeckState().panes || []).map(function (p) { return { id: p.id, slot: p.slot, cards: p.cardIds }; }))`)}, host ${await responders(app)}`;
   if (holder?.firstResponder !== true) {
     // Put the keyboard back the way a click on the card would, so the sweep goes on.
-    await app.nativeClickAtElement(`.tug-pane[data-pane-id="${A}-pane"] [data-testid="tug-pane-title-bar"]`);
-    await pollFor(() => bodyOf(app, A), (x) => x?.firstResponder === true, SETTLE_MS);
+    const bar = `.tug-pane[data-pane-id="${card}-pane"] [data-testid="tug-pane-title-bar"]`;
+    if (!(await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(bar)}) !== null`))) {
+      return { handedBack: false, facts: `the card's pane is gone: ${facts}` };
+    }
+    await app.nativeClickAtElement(bar);
+    await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
   }
   return { handedBack: holder?.firstResponder === true, facts };
 }
 
+/**
+ * Every item of the five menus, validated and, where it is this row's to,
+ * performed with `card`'s body holding the keyboard. `ownItems` names the
+ * items that close or re-seat the card under test itself — a rail's own
+ * View › Sidebar rows — which are read for validation and not performed.
+ */
+async function sweepMenus(app: App, card: string, ownItems: RegExp | null = null): Promise<void> {
+  const items = itemsOf(await app.menuSnapshot());
+  expect(items.length, "the five menus carry items").toBeGreaterThan(30);
+  const results: Array<{ id: string; enabled: boolean; performed: boolean | null; skipped: boolean; handedBack: boolean; facts: string }> = [];
+  for (const item of items) {
+    const state = await app.menuItemState(item.id);
+    expect(state.found, `${item.title} (${item.id}) is a real item`).toBe(true);
+    if (!state.found) continue;
+    const notPerformed = NOT_PERFORMED.test(item.id) || (ownItems?.test(item.id) ?? false);
+    if (!state.enabled || notPerformed) {
+      results.push({ id: item.id, enabled: state.enabled, performed: null, skipped: notPerformed, handedBack: true, facts: "" });
+      continue;
+    }
+    const done = await app.performMenuItem(item.id);
+    const settled = await settleAfter(app, card);
+    results.push({ id: item.id, enabled: state.enabled, performed: done.found ? done.performed : false, skipped: false, ...settled });
+  }
+  const performed = results.filter((r) => r.performed === true);
+  const refused = results.filter((r) => r.performed === false);
+  const kept = results.filter((r) => !r.handedBack);
+  const dark = results.filter((r) => !r.enabled);
+  const skipped = results.filter((r) => r.skipped && r.enabled);
+  note(
+    `${items.length} items: ${performed.length} performed, ${dark.length} dark, ${skipped.length} enabled but not performed by this row ` +
+      `(${skipped.map((r) => r.id).join(", ")}); dark: ${dark.map((r) => r.id).join(", ")}`,
+  );
+  if (refused.length > 0) note(`items AppKit validated enabled but whose action no responder took: ${refused.map((r) => r.id).join(", ")}`);
+  if (kept.length > 0) note(`items after which the card's body did not get the keyboard back:\n${kept.map((r) => `${r.id}: ${r.facts}`).join("\n")}`);
+  expect(refused.map((r) => r.id), "every enabled item's action is taken by a responder").toEqual([]);
+  expect(kept.map((r) => r.id), "after every item the keyboard returns to the card's body").toEqual([]);
+  expect((await bodyOf(app, card))?.visible, "the card's body stands after the sweep").toBe(true);
+}
+
 describe.skipIf(!SHOULD_RUN)("body-grounding row 6: menus", () => {
-  test(
+  for (const kind of kindsUnderTest(6)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: every File, Edit, View, Go and Window item performs with its body first responder, and Zoom and Close show`,
+      async () => {
+        const card = `row06-${kind.componentId}`;
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [B] }), focusCardId: card });
+          await standUpKind(app, kind, card);
+          await app.dispatchControlAction("focus-session-card", { cardId: card });
+          const holds = await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
+          expect(holds?.firstResponder, `the ${kind.componentId} card's body holds the keyboard`).toBe(true);
+          await sweepMenus(app, card, kind.rail ? new RegExp(`^view\\.sidebar\\.${kind.componentId}\\.`) : null);
+          await expectNoShellReads(app, card);
+
+          const widthBefore = (await bodyOf(app, card))!.frame.width;
+          const zoom = await app.performMenuItem("view.zoomIn");
+          expect(zoom.found && zoom.performed, "View › Zoom In performs").toBe(true);
+          const zoomed = await pollFor(() => bodyOf(app, card), (x) => x !== null && x.frame.width !== widthBefore, SETTLE_MS);
+          expect(zoomed?.frame.width, "the body's placed width changes").not.toBe(widthBefore);
+          await app.performMenuItem("view.actualSize");
+          await pollFor(() => bodyOf(app, card), (x) => x !== null && x.frame.width === widthBefore, SETTLE_MS);
+
+          await app.dispatchControlAction("focus-session-card", { cardId: card });
+          await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
+          const cardsBefore = await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`);
+          const close = await app.performMenuItem("file.closeCard");
+          expect(close.found && close.performed, "File › Close performs").toBe(true);
+          const raised = await pollFor(
+            async () => ({ popover: await app.evalJS<boolean>(popoverPresent), cards: await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`) }),
+            (r) => r.popover || r.cards < cardsBefore,
+            SETTLE_MS,
+          );
+          note(`after File › Close: popover ${raised.popover}, cards ${cardsBefore} → ${raised.cards}`);
+          if (raised.popover) {
+            await app.nativeKey("Escape");
+            expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+            const handedBack = await pollFor(() => bodyOf(app, card), (x) => x?.firstResponder === true, SETTLE_MS);
+            expect(handedBack?.firstResponder, "the card's body holds the keyboard again").toBe(true);
+            expect(await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), "no card was closed").toBe(cardsBefore);
+          } else {
+            expect(raised.cards, "the card closed at once").toBe(cardsBefore - 1);
+            expect(await bodyOf(app, card), "its body went with it").toBeNull();
+          }
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(6))(
     "every File, Edit, View, Go and Window item performs with a body first responder, and the ones the body can show, show",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: A });
@@ -151,35 +256,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: menus", () => {
         note(`A focused: ${await responders(app)}`);
 
         // ---- The sweep: every item, validated with the body as responder ----
-        const items = itemsOf(await app.menuSnapshot());
-        expect(items.length, "the five menus carry items").toBeGreaterThan(30);
-        const results: Array<{ id: string; enabled: boolean; performed: boolean | null; skipped: boolean; handedBack: boolean; facts: string }> = [];
-        for (const item of items) {
-          const state = await app.menuItemState(item.id);
-          expect(state.found, `${item.title} (${item.id}) is a real item`).toBe(true);
-          if (!state.found) continue;
-          if (!state.enabled || NOT_PERFORMED.test(item.id)) {
-            results.push({ id: item.id, enabled: state.enabled, performed: null, skipped: NOT_PERFORMED.test(item.id), handedBack: true, facts: "" });
-            continue;
-          }
-          const done = await app.performMenuItem(item.id);
-          const settled = await settleAfter(app);
-          results.push({ id: item.id, enabled: state.enabled, performed: done.found ? done.performed : false, skipped: false, ...settled });
-        }
-        const performed = results.filter((r) => r.performed === true);
-        const refused = results.filter((r) => r.performed === false);
-        const kept = results.filter((r) => !r.handedBack);
-        const dark = results.filter((r) => !r.enabled);
-        const skipped = results.filter((r) => r.skipped && r.enabled);
-        note(
-          `${items.length} items: ${performed.length} performed, ${dark.length} dark, ${skipped.length} enabled but not performed by this row ` +
-            `(${skipped.map((r) => r.id).join(", ")}); dark: ${dark.map((r) => r.id).join(", ")}`,
-        );
-        if (refused.length > 0) note(`items AppKit validated enabled but whose action no responder took: ${refused.map((r) => r.id).join(", ")}`);
-        if (kept.length > 0) note(`items after which A's body did not get the keyboard back:\n${kept.map((r) => `${r.id}: ${r.facts}`).join("\n")}`);
-        expect(refused.map((r) => r.id), "every enabled item's action is taken by a responder").toEqual([]);
-        expect(kept.map((r) => r.id), "after every item the keyboard returns to A's body").toEqual([]);
-        expect((await bodyOf(app, A))?.visible, "A's body stands after the sweep").toBe(true);
+        await sweepMenus(app, A);
 
         // ---- Undo and Redo validated and performed against the body's editor ----
         // The find bar's query field is a text editor in the body, so Undo

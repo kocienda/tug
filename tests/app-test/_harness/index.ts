@@ -2326,6 +2326,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
     ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
     ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
+    ...(opts.bodies ? { TUG_BODY_VIEWS: "1" } : {}),
     ...opts.env,
     TUGAPP_TEST_SOCKET: socketPath,
     TUG_INSTANCE_ID: instanceId,

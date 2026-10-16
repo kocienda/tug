@@ -394,14 +394,44 @@ not inline in each test. A rename in the product otherwise goes undetected:
 as a behavior regression in whatever the test was actually checking. Renaming
 one `aria-label` broke seven files that way.
 
-`selectors.ts` also carries `keyboardIsInCard(cardId)`, the engine-fact form of
-"the keyboard is here." Under the focus engine, `document.activeElement` parks
+`keyboardIsInCard(app, cardId)` in [`_harness/card-reach.ts`](_harness/card-reach.ts)
+is the engine-fact form of "the keyboard is here." Under the focus engine, `document.activeElement` parks
 on the key sink **outside** every card whenever the route is `engine-routed`, so
 card containment of the active element is not a test for keyboard location — it
 is a test for a `dom-granted` text surface specifically. Assert engine facts
 (`getFocusedCardId()`, `[data-key-view]`, `[data-first-responder]`); reach for
 `document.activeElement` only where a grant is the thing under test, and say so
 in a comment.
+
+## Reaching a card
+
+A card that is a body is its own web view, and its DOM is in its own page,
+not in the shell's document: an expression the shell evaluates finds nothing
+of it. **`App.body(cardId)` is the only way a test reaches a card's DOM.** It
+returns a `BodyApp` that runs `evalJS`, `waitForCondition`,
+`getElementScreenBounds`, `screenshot` and the native input verbs in that
+card's page. Selectors like `cardHost(cardId)` are evaluated there.
+
+A launch makes bodies with `launchTugApp({ bodies: true })`, which sets
+`TUG_BODY_VIEWS=1`; without it every card mounts in the shell's document, as
+before bodies. Helpers that answer for a card wherever it is — in its body
+when it has one, in the shell's document otherwise — are in
+[`_harness/card-reach.ts`](_harness/card-reach.ts): `cardPage(app, cardId)`,
+`keyboardIsInCard(app, cardId)` and `waitForKeyboardInCard`. The kinds the
+body grounding rows run against, and the panes they seed, are
+[`body-grounding/_kinds.ts`](body-grounding/_kinds.ts).
+
+The guard is a census. `bun scripts/card-dom-census.ts` lists every call that
+still evaluates a card selector in the shell's page, by file and by the kind of
+card it reaches, and `just app-test-body-scope-check` fails on one whose
+`{file, kind}` pair [`scripts/card-dom-allow.json`](scripts/card-dom-allow.json)
+does not allow. The list holds the pairs not yet migrated, and a pair leaves it
+in the change that makes its kind a body. `bun scripts/card-dom-codemod.ts
+--kind <id>` rewrites the reaches whose shape proves the rewrite right onto
+`app.body(<id>)` and reports the rest `manual`, for a hand to split into a
+shell half and a body half. A call that reads the shell's page on purpose — to
+show the shell's document did not take what a body did — carries a
+`// card-dom: shell` comment on its line or the line above.
 
 ## Adding a new test
 

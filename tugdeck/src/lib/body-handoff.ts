@@ -1,11 +1,17 @@
 /**
- * The shell's hand-off of a Session card to a body.
+ * The shell's hand-off of a card to a body.
  *
  * **Capability.** The host says whether it can make bodies before any of the
  * shell's script runs (`window.__tugHostCapabilities`, a document-start user
  * script); it is read once here. Absent — a browser on the Vite port, a body
  * page, the harness unless a test asks — means every card mounts in the shell
  * exactly as before.
+ *
+ * **Which cards.** A card whose kind's registration says `body: true`
+ * ({@link isBodyKind}). A kind whose registration also says
+ * `bodyHandOff: "spawn"` — the Session card — is handed off by its spawn
+ * funnels; every other body kind by the shell's deck scan, with a `mount`
+ * intent, as soon as the deck holds the card (`lib/body-shell.ts`).
  *
  * **Hand-off.** The spawn funnels (`fireRestore`, `fireFreshSpawn`,
  * `fireNewSpawn`) ask {@link handOffToBody} first. A Session card the deck
@@ -25,6 +31,7 @@
  */
 
 import type { BodyIntent } from "../body/body-intent";
+import { getRegistration } from "../card-registry";
 import { bodyCardsStore } from "./body-cards-store";
 import { bodyFactsStore } from "./body-facts-store";
 import { getDeckStore } from "./deck-store-registry";
@@ -80,6 +87,24 @@ export function suppressHandOff(cardId: string): void {
   suppressed.add(cardId);
 }
 
+/** Whether `cardId`'s body failed, so it stays in the shell. */
+export function isHandOffSuppressed(cardId: string): boolean {
+  return suppressed.has(cardId);
+}
+
+/** Whether a card of `componentId` lives in a body on this host. */
+export function isBodyKind(componentId: string): boolean {
+  return capabilities.bodyViews && getRegistration(componentId)?.body === true;
+}
+
+/**
+ * Whether a card of `componentId` is a body kind the shell hands off itself,
+ * at once and with a `mount` intent, rather than at a spawn funnel.
+ */
+export function isMountBodyKind(componentId: string): boolean {
+  return isBodyKind(componentId) && getRegistration(componentId)?.bodyHandOff !== "spawn";
+}
+
 /** For tests. */
 export function _resetHandOffForTest(): void {
   suppressed.clear();
@@ -111,11 +136,11 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   const deck = getDeckStore();
   if (deck === null) return false;
   const card = deck.getSnapshot().cards.find((c) => c.id === cardId);
-  if (card === undefined || card.componentId !== "session") return false;
+  if (card === undefined || !isBodyKind(card.componentId)) return false;
   bodyCardsStore.mark(cardId);
   const made = intent();
   intents.set(cardId, made);
-  postToHost("bodyCreate", { cardId, intent: made });
+  postToHost("bodyCreate", { cardId, componentId: card.componentId, intent: made });
   return true;
 }
 

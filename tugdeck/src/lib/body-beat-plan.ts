@@ -194,6 +194,12 @@ export interface PlanInput {
   /** The placer's last posted placement. */
   readonly placement: PlaceBodies | null;
   readonly insets: ReadonlyMap<string, Insets>;
+  /**
+   * A body's insets where it lands, when they differ from where it starts: a
+   * rail carried to the other edge has its border, and so its content box,
+   * on the other side of its frame. Absent, a body lands at its own insets.
+   */
+  readonly landingInsets?: ReadonlyMap<string, Insets>;
   /** Each carried pane's body cards: those whose placeholder it holds. */
   readonly bodiesInFrame: ReadonlyMap<string, readonly string[]>;
   /** Whether a body is still shown by the deck's facts (`hiddenSince`'s rule). */
@@ -328,14 +334,17 @@ export function planBodyBeats(input: PlanInput): PlanOutput {
         refuse(cardId, "its placement is not inside the frame's First rect");
         continue;
       }
-      const beats: BodyBeat[] = walk.steps.map(({ beat, from, to }) => {
+      // The first beat leaves from the box the body stands in, and every
+      // beat after it travels the box it lands in.
+      const landIn = input.landingInsets?.get(cardId) ?? insets;
+      const beats: BodyBeat[] = walk.steps.map(({ beat, from, to }, step) => {
         const opacity = opacityOf(beat);
         return {
           kind: beat.kind,
           delayMs: beat.delayMs,
           durationMs: beat.durationMs,
-          from: wholePoints(inset(from, insets)),
-          to: wholePoints(inset(to, insets)),
+          from: wholePoints(inset(from, step === 0 ? insets : landIn)),
+          to: wholePoints(inset(to, landIn)),
           ...(opacity !== undefined ? { opacity } : {}),
           progress: beat.progress,
           ...(beat.easing !== undefined ? { easing: beat.easing } : {}),

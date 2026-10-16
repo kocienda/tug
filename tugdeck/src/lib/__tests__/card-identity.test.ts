@@ -23,7 +23,7 @@ import {
 import type { CardState, DeckState } from "@/layout-tree";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { registerDeckStore } from "@/lib/deck-store-registry";
-import { cardIdentity, parkedBagPath, parkedCardBag } from "@/lib/card-identity";
+import { cardIdentity, cardIdentityElsewhere, ownLiveCardIdentity, parkedBagPath, parkedCardBag } from "@/lib/card-identity";
 import { registerCommitCard } from "@/components/tugways/cards/commit-card";
 import { registerDiffCard } from "@/components/tugways/cards/diff-card";
 
@@ -131,6 +131,43 @@ describe("the resolution ladder", () => {
     installDeckStore([card("c1", "probe", "Named by the deck")]);
 
     expect(cardIdentity("c1").title).toBe("Named by the deck");
+  });
+
+  test("a card mounted in another page answers live from what that page published, ahead of its bag", () => {
+    registerProbe({
+      live: () => null,
+      parked: () => ({ title: "durable.ts" }),
+    });
+    installDeckStore([card("c1", "probe")]);
+    cardIdentityElsewhere.set("c1", { title: "edited.ts", path: "/w/edited.ts", unsaved: true });
+    try {
+      const identity = cardIdentity("c1");
+      expect(identity.source).toBe("live");
+      expect(identity.title).toBe("edited.ts");
+      expect(identity.unsaved).toBe(true);
+      // What this page publishes about a card is its own resolver's answer, never an echo.
+      expect(ownLiveCardIdentity("c1")).toBeNull();
+      cardIdentityElsewhere.set("c1", null);
+      expect(cardIdentity("c1").source).toBe("parked");
+    } finally {
+      cardIdentityElsewhere.set("c1", null);
+    }
+  });
+
+  test("the published identities notify only on a change", () => {
+    let heard = 0;
+    const release = cardIdentityElsewhere.subscribe(() => {
+      heard += 1;
+    });
+    try {
+      cardIdentityElsewhere.set("c9", { title: "a" });
+      cardIdentityElsewhere.set("c9", { title: "a" });
+      cardIdentityElsewhere.set("c9", null);
+      cardIdentityElsewhere.set("c9", null);
+      expect(heard).toBe(2);
+    } finally {
+      release();
+    }
   });
 });
 

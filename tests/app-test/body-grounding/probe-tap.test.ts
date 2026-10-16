@@ -88,7 +88,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding probe: the app's own path reaches a
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: oneCard, focusCardId: CARD });

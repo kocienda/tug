@@ -67,6 +67,41 @@ export interface FrameClasses {
   fill: string;
 }
 
+/**
+ * How a reading tells the floor showing through a card's rect from the card's
+ * own paint.
+ *
+ * By class, the floor is its canvas, its grid and the bare window, and a
+ * card's paint is its surface and its ink. That holds on a content card,
+ * whose surface stands well clear of the canvas. A pinned rail paints the
+ * sunken surface, which in the dark themes is a step of the very ramp the
+ * canvas and its grid line are steps of, so a rail's own ink lies inside the
+ * grid's reach and reads as grid. A floor is mostly canvas wherever it shows,
+ * so on a rail it is read by its canvas and the bare window alone, and
+ * whatever is neither is the rail's paint.
+ */
+export interface FloorMeasure {
+  floor(f: FrameClasses): number;
+  own(f: FrameClasses): number;
+  /** The card's ink: its paint that is not its surface. */
+  ink(f: FrameClasses): number;
+}
+
+export const FLOOR_BY_CLASS: FloorMeasure = {
+  floor: (f) => f.canvas + f.grid + f.bare,
+  own: (f) => f.surface + f.other,
+  ink: (f) => f.other,
+};
+
+export const FLOOR_BY_CANVAS: FloorMeasure = {
+  floor: (f) => f.canvas + f.bare,
+  own: (f) => 1 - f.canvas - f.bare,
+  ink: (f) => f.other + f.grid,
+};
+
+/** The measure for a card: by canvas on a pinned rail, by class everywhere else. */
+export const floorMeasure = (rail: boolean): FloorMeasure => (rail ? FLOOR_BY_CANVAS : FLOOR_BY_CLASS);
+
 /** The frame's commonest colour. */
 export function fillOf(frame: CaptureBurstFrame): Rgb {
   const png = decodePngFile(frame.path);
@@ -171,6 +206,36 @@ export function leftEdgeOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, 
     }
   }
   return null;
+}
+
+/**
+ * The x (device px) on row `y` where a run of at least `minRun` pixels within
+ * `tolerance` of `colour` begins, of all such runs on the row the one that
+ * begins nearest `nearX`; null when the row carries none. Where two surfaces
+ * on the row share one colour — a rail's bar and its body, or an inactive
+ * title bar beside it — the leftmost run is another card's, and the run
+ * nearest where this card stands is its own. The edge is still the
+ * composite's: `nearX` only chooses whose.
+ */
+export function edgeNearOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, tolerance: number, nearX: number, minRun = 16): number | null {
+  const png = decodePngFile(frame.path);
+  const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
+  let run = 0;
+  let best: number | null = null;
+  for (let x = 0; x < png.width; x++) {
+    const i = (row * png.width + x) * 4;
+    const p = { r: png.rgba[i], g: png.rgba[i + 1], b: png.rgba[i + 2] };
+    if (near(p, colour, tolerance)) {
+      run += 1;
+      if (run === minRun) {
+        const start = x - run + 1;
+        if (best === null || Math.abs(start - nearX) < Math.abs(best - nearX)) best = start;
+      }
+    } else {
+      run = 0;
+    }
+  }
+  return best;
 }
 
 /**

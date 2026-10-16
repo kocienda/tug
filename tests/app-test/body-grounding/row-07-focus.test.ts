@@ -17,6 +17,12 @@
  * (`bodies`), the shell's word on its focused card, and the text in the
  * page that should have received it ([B04]).
  *
+ * Every other kind that is a body is read the same way beside a Session body
+ * and a Text card: a click in it, the Focus Card chord, typing into its own
+ * field where it has one, the Close popover, and the close that hands the
+ * keyboard to the card focused before it. The slash popup and the session
+ * picker are the Session card's own surfaces.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-publisher.ts
@@ -29,7 +35,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, note, type App } from "../_harness";
+import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import {
   PROMPT_INPUT,
@@ -46,6 +52,8 @@ import {
   spawnStub,
   waitForBody,
 } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-07-focus";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -92,6 +100,26 @@ function deck(): Record<string, unknown> {
   };
 }
 
+/** `deck` with the Text card standing in the band's next slot. */
+function withText(deck: Record<string, unknown>): Record<string, unknown> {
+  const panes = deck.panes as Array<Record<string, unknown>>;
+  const slot = panes.filter((p) => typeof p.slot === "number").length;
+  return {
+    ...deck,
+    cards: [...(deck.cards as unknown[]), { id: T, componentId: "text", title: "Text", closable: true }],
+    panes: [...panes, { id: `${T}-pane`, position: { x: 40, y: 40 }, size: { width: 640, height: 480 }, cardIds: [T], activeCardId: T, title: "", acceptsFamilies: ["standard"], slot }],
+  };
+}
+
+/** Typing lands in `kind`'s own field in `page`, and not in `other`'s composer. */
+async function typesInto(app: App, page: BodyApp, kind: CardKind, text: string, other: BodyApp): Promise<void> {
+  const fieldText = `(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`;
+  await app.nativeType(text);
+  const landed = await pollFor(() => page.evalJS<string>(fieldText), (t) => t.includes(text), SETTLE_MS);
+  expect(landed, `typing lands in the ${kind.componentId} card's field`).toContain(text);
+  expect(await other.evalJS<string | null>(composerText), "and not in B's composer").not.toContain(text);
+}
+
 /** The host says exactly `cardId`'s body holds the keyboard, or no body does for `null`; the spare is never counted. */
 async function expectHolder(app: App, cardId: string | null, label: string, timeoutMs = SETTLE_MS): Promise<void> {
   const bodies = await pollFor(
@@ -109,7 +137,77 @@ async function expectHolder(app: App, cardId: string | null, label: string, time
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
-  test(
+  for (const kind of kindsUnderTest(7)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: a click and the chord make its body first responder, the Close popover takes and returns focus, and closing hands on`,
+      async () => {
+        const card = `row07-${kind.componentId}`;
+        const stubDir = stubDirectory();
+        const textDir = mkdtempSync(join(tmpdir(), "tug-row07-text-"));
+        const textFile = join(textDir, "notes.txt");
+        writeFileSync(textFile, "one\ntwo\nthree\n");
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+        try {
+          await app.seedDeckState({
+            state: withText(kindDeck(kind, card, { sessions: [B] })),
+            cardStates: { [T]: { content: { path: textFile, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
+            focusCardId: card,
+          });
+          const k = await standUpKind(app, kind, card);
+          await spawnStub(app, B, stubDir, 2);
+          await waitForBody(app, B);
+          const b = app.body(B);
+
+          // ---- A click in its body makes it key; typing lands in its field ----
+          await b.nativeClickAtElement(PROMPT_INPUT);
+          await expectHolder(app, B, "after a click in B's composer");
+          await k.nativeClickAtElement(kind.field ?? kind.root);
+          await expectHolder(app, card, `after a click in the ${kind.componentId} card`);
+          if (kind.field !== undefined) await typesInto(app, k, kind, "kk", b);
+
+          // ---- A click in the Text card takes the keyboard back to the shell ----
+          await app.nativeClickAtElement(TEXT_EDITOR);
+          await expectHolder(app, null, "after a click in the Text card");
+
+          // ---- The Focus Card chord brings it back: it stands to the Text card's right ----
+          await app.nativeKey("ArrowRight", ["alt", "cmd"]);
+          await expectHolder(app, card, "after ⌥⌘→ from the Text card");
+
+          // ---- The shell's Close popover takes focus and gives it back ----
+          await app.nativeKey("w", ["cmd"]);
+          const asked = await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => v, SETTLE_MS);
+          if (asked) {
+            const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
+            expect(shellHolds.every((x) => !x.firstResponder), "the shell holds the keyboard while its popover stands").toBe(true);
+            await app.nativeKey("Escape");
+            expect(await pollFor(() => app.evalJS<boolean>(popoverPresent), (v) => !v, SETTLE_MS), "Escape dismisses it").toBe(false);
+            await expectHolder(app, card, "after the popover");
+          }
+
+          // ---- Closing the key card hands the keyboard to the card focused before ----
+          await app.dispatchControlAction("focus-session-card", { cardId: B });
+          await expectHolder(app, B, "B focused before the close");
+          await app.dispatchControlAction("focus-session-card", { cardId: card });
+          await expectHolder(app, card, "the card focused again before the close");
+          const cardsBefore = await app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`);
+          const closeItem = await app.performMenuItem("file.closeCard");
+          expect(closeItem.found && closeItem.performed, "File › Close performs").toBe(true);
+          const button = await pollFor(() => closeButtonOfPopover(app), (p) => p !== null, 1_000);
+          if (button !== null) await app.nativeClick(button);
+          const cardsAfter = await pollFor(() => app.evalJS<number>(`window.tugdeck.diag.listCardIds().length`), (n) => n < cardsBefore, SETTLE_MS);
+          expect(cardsAfter, "the card closes").toBe(cardsBefore - 1);
+          expect(await pollFor(() => bodyOf(app, card), (x) => x === null, SETTLE_MS), "the host holds no body for it").toBeNull();
+          await expectHolder(app, B, "after closing the card", 8_000);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(7))(
     "click and chord make a body first responder, typing lands there alone, surfaces take and return focus, and closing hands on",
     async () => {
       const stubDir = stubDirectory();
@@ -119,7 +217,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({

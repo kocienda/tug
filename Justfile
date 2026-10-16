@@ -1723,6 +1723,14 @@ app-test-reach-report *FILES:
 app-test-covers-check:
     @cd tests/app-test && bun scripts/select-tests.ts --check
 
+# A card that is a body keeps its DOM in its own page, so a test reaches it
+# only through `app.body(cardId)`. This lists every app-test call that still
+# evaluates a card selector in the shell's page and fails on one whose
+# {file, kind} pair `tests/app-test/scripts/card-dom-allow.json` does not
+# allow; the list shrinks as each kind becomes a body.
+app-test-body-scope-check:
+    @cd tests/app-test && bun scripts/card-dom-census.ts --check
+
 # A test that takes the screen declares it with `@foreground`; the app-test
 # recipe reads that declaration before it launches anything, so it can warn
 # before a run seizes the machine. The declaration is only worth trusting if

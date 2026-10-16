@@ -66,6 +66,9 @@ export function registerTextCard(): void {
   registerCard({
     componentId: "text",
     contentFactory: (cardId) => <TextCardContent cardId={cardId} />,
+    // A body: the editor and its save sheets live in the card's own page; the
+    // shell asks its close guard through the guard's published answer.
+    body: true,
     defaultMeta: { title: "File", icon: "FileText", closable: true },
     engineKind: "em",
     category: { label: "Files", icon: "FileText" },

@@ -132,6 +132,24 @@ describe("wholePoints", () => {
 });
 
 describe("planBodyBeats", () => {
+  test("a rail carried to the other edge leaves at its own insets and lands at its mirrored ones", () => {
+    const rail: Insets = { top: 36, right: 1, bottom: 0, left: 0 };
+    const mirrored: Insets = { top: 36, right: 0, bottom: 0, left: 1 };
+    const first = { x: 1115, y: 0, width: 545, height: 1051 };
+    const dx = 1115;
+    const i = input(
+      [{ paneId: "rail", first, last: { ...first, x: 0 }, beats: [moveBeat(dx, 0)] }],
+      { rail: ["ov"] },
+      { insets: new Map([["ov", rail]]), landingInsets: new Map([["ov", mirrored]]) },
+    );
+    const placement = i.placement!;
+    const { plan, refused } = planBodyBeats({ ...i, placement: { ...placement, bodies: [placed("ov", inset(first, rail))] } });
+    expect(refused).toEqual([]);
+    expect(plan[0].beats[0].from).toEqual(inset(first, rail));
+    expect(plan[0].landing).toEqual(inset({ ...first, x: 0 }, mirrored));
+    expect(plan[0].crossing).toBeUndefined();
+  });
+
   test("a flow slide walks the body from First to Last, inset", () => {
     const i = flowSlide();
     const { plan, refused } = planBodyBeats(i);

@@ -587,6 +587,21 @@ export interface LedgerSeedSpec {
    *  wheel's own record; see `tuglaws/wheel.md`). A replay attributes a
    *  submission whose sent text one of these holds to the wheel. */
   wheel_prompts?: LedgerSeedWheelPrompt[];
+  /** Posts on the Overview channel, persisted as the Observer's are, so a
+   *  page that asks tugcast for the channel's tail — the shell's or the
+   *  Overview's body — is answered with them. */
+  overview_posts?: LedgerSeedOverviewPost[];
+}
+
+/** One Overview post. See {@link LedgerSeedSpec.overview_posts}. */
+export interface LedgerSeedOverviewPost {
+  at_ms: number;
+  author: "observer" | "operator" | "user";
+  body: string;
+  refs?: unknown[];
+  session_id?: string;
+  /** The root the post's refs and mentions resolve against. */
+  project_dir?: string;
 }
 
 /** One prompt the wheel sent. See {@link LedgerSeedSpec.wheel_prompts}. */
@@ -733,4 +748,13 @@ export interface LaunchTugAppOptions {
    * seed flips to `false` — for tests that explicitly test ConfigureTug.
    */
   keepSetup?: boolean;
+
+  /**
+   * Launch with body views: every card whose kind is a body kind is its own
+   * web view (`WKWebView`), placed and moved by the host, rather than a
+   * subtree of the shell's document. Sets `TUG_BODY_VIEWS=1` on the
+   * launched app's environment. Off by default, which is today's launch.
+   * A test reaches such a card's DOM only through `App.body(cardId)`.
+   */
+  bodies?: boolean;
 }

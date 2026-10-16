@@ -16,7 +16,8 @@
  * three steps, first hit wins, and reports which one answered:
  *
  *   1. the registration's `identity.live` — the open registries, the binding
- *      store, whatever knows about a MOUNTED card
+ *      store, whatever knows about a MOUNTED card — and, for a card mounted
+ *      in another page, what that page published ({@link cardIdentityElsewhere})
  *   2. the registration's `identity.parked` — the durable record behind it
  *      ([P08]): the persisted bag, the bindings ledger cache
  *   3. the card's own `title`, then the registration's `defaultMeta.title`
@@ -50,8 +51,69 @@ import {
 } from "@/card-registry";
 import { getDeckStore } from "@/lib/deck-store-registry";
 import type { CardState } from "@/layout-tree";
+import { Subscribable } from "./subscribable";
 
 export type { CardIdentityFacts, CardIdentityResolution };
+
+/**
+ * Live identities this page cannot resolve itself, because the card is
+ * mounted in another page. A body card's page resolves its card's identity
+ * and publishes it (`card-facts`), and the shell keeps it here; an
+ * arrangement body keeps here what the shell resolved live for every card it
+ * lists. The open registries and stores behind a registration's `live`
+ * resolver are per page, so without this a body card would resolve from its
+ * bag alone everywhere but its own page.
+ */
+class ElsewhereIdentities extends Subscribable {
+  private readonly entries = new Map<string, CardIdentityFacts>();
+  private readonly encoded = new Map<string, string>();
+  private version = 0;
+
+  /** Moves on every change, for a reader that folds it into a recompute key. */
+  getVersion = (): number => this.version;
+
+  /** What another page published for `cardId`, or null. */
+  get(cardId: string): CardIdentityFacts | null {
+    return this.entries.get(cardId) ?? null;
+  }
+
+  /** Take `cardId`'s published identity; null forgets it. Notifies only on a change. */
+  set(cardId: string, facts: CardIdentityFacts | null): void {
+    const json = facts === null ? null : JSON.stringify(facts);
+    if ((this.encoded.get(cardId) ?? null) === json) return;
+    if (facts === null || json === null) {
+      this.entries.delete(cardId);
+      this.encoded.delete(cardId);
+    } else {
+      this.entries.set(cardId, facts);
+      this.encoded.set(cardId, json);
+    }
+    this.version += 1;
+    this.notify();
+  }
+}
+
+export const cardIdentityElsewhere = new ElsewhereIdentities();
+
+/**
+ * This page's own live answer for `cardId`: its registration's `live`
+ * resolver, and nothing published from elsewhere. The kind is read from the
+ * page's deck as it stands when no workspace places the card — a body's deck
+ * is its one card, and it learns its workspace only with its first context.
+ */
+export function ownLiveCardIdentity(cardId: string): CardIdentityFacts | null {
+  const componentId =
+    cardStateOf(cardId)?.componentId ??
+    getDeckStore()?.getSnapshot().cards.find((card) => card.id === cardId)?.componentId ??
+    null;
+  const reg = componentId === null ? undefined : getRegistration(componentId);
+  return reg?.identity?.live?.(cardId) ?? null;
+}
+
+/** The live answer for `cardId` wherever the card is mounted: this page's resolver, then what another page published. */
+export function liveCardIdentity(cardId: string): CardIdentityFacts | null {
+  return ownLiveCardIdentity(cardId) ?? cardIdentityElsewhere.get(cardId);
+}
 
 /** Which of the three sources answered for a card. */
 export type CardIdentitySource = "live" | "parked" | "default";
@@ -159,7 +221,7 @@ export function cardIdentity(cardId: string): ResolvedCardIdentity {
   const reg = componentId === null ? undefined : getRegistration(componentId);
   const fallbackIcon = card?.icon ?? reg?.defaultMeta.icon ?? null;
 
-  const live = reg?.identity?.live?.(cardId) ?? null;
+  const live = reg?.identity?.live?.(cardId) ?? cardIdentityElsewhere.get(cardId);
   if (live !== null) {
     return settle(cardId, componentId, "live", live, fallbackIcon);
   }

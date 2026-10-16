@@ -216,6 +216,11 @@ class TugDevLogStore {
       message: input.message,
       ...(input.data !== undefined ? { data: input.data } : {}),
     };
+    this._enqueue(entry);
+  };
+
+  /** Queue `entry` for the microtask-batched append. */
+  private _enqueue(entry: TugDevLogEntry): void {
     this._pending.push(entry);
     if (this._flushScheduled) return;
     this._flushScheduled = true;
@@ -226,6 +231,26 @@ class TugDevLogStore {
       if (drained.length === 0) return;
       this._dispatch({ type: "append_batch", entries: drained });
     });
+  }
+
+  /**
+   * Append entries another page logged, as they were logged there: their
+   * timestamps stand, their source wears the page's name, and this store
+   * mints their ids. The devtools card's Log tab shows the shell's log this
+   * way when the card is a body, whose own page logs almost nothing.
+   */
+  adopt = (page: string, entries: ReadonlyArray<Omit<TugDevLogEntry, "id">>): void => {
+    this._ensureInitialized();
+    for (const entry of entries) {
+      this._enqueue({
+        id: this._nextId++,
+        timestamp: entry.timestamp,
+        level: entry.level,
+        source: `${page}/${entry.source}`,
+        message: entry.message,
+        ...(entry.data !== undefined ? { data: entry.data } : {}),
+      });
+    }
   };
 
   debug = (source: string, message: string, data?: unknown): void => {

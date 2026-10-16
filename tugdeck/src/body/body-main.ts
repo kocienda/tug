@@ -6,12 +6,14 @@
  * `/?body=<cardId>` and its hello names its card; the warm spare loads
  * `/?body=spare` and its hello names `spare:<pageId>`. Either connects, waits
  * for the tugbank snapshot and the markdown WASM as the shell does, registers
- * its card kinds, `eval` and the session acks, and posts `bodyHello`. The host
- * answers with `onBodyBind({cardId, intent, facts})`; a spare first takes its
+ * every card kind the shell registers (`card-kinds.ts`), `eval` and the
+ * session acks, and posts `bodyHello`. The host answers with
+ * `onBodyBind({cardId, componentId, intent, facts})`; a spare first takes its
  * card from tugcast with `page_bind`. Then the page builds the card's deck
- * bridge, mounts the card with one `root.render()` ([L01]), replays the
- * intent, and posts `frontendReady` one paint after the card's session goes
- * quiet, or at the arrival bound, whichever comes first.
+ * bridge, mounts the card of that kind with one `root.render()` ([L01]),
+ * replays the intent, and posts `frontendReady` one paint after the card's
+ * session goes quiet, or at the arrival bound, whichever comes first — or
+ * one paint after mount, for a kind with no session (a `mount` intent).
  *
  * Nothing here imports `main.tsx`: `entry.ts` loads this module instead of
  * the deck's, so no deck is ever constructed in a body.
@@ -41,8 +43,10 @@ import { AppLifecycle, registerAppLifecycle } from "../lib/app-lifecycle";
 import { SheetLifecycle, registerSheetLifecycle } from "../lib/sheet-lifecycle";
 import { BannerLifecycle, registerBannerLifecycle } from "../lib/banner-lifecycle";
 import { installLifecycleCascade } from "../lib/lifecycle-cascade";
-import { dispatchAction, registerAction, registerEvalAction } from "../action-dispatch";
-import { dispatchCommand, setUnhandledCommandFallback } from "../command-dispatch";
+import { dispatchAction, registerAction, registerEvalAction, registerStoreTailActions } from "../action-dispatch";
+import { dispatchCommand, sendToCardContent, setUnhandledCommandFallback } from "../command-dispatch";
+import { COMMANDS_BY_ID } from "../components/tugways/command-registry";
+import { setUnhandledTargetHook } from "../components/tugways/responder-chain";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { cardSessionBindingStore } from "../lib/card-session-binding-store";
@@ -82,15 +86,27 @@ import { installDictationBridge } from "../lib/dictation-bridge";
 import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
 import { onBus, sendBus } from "../lib/deck-bus";
 import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-episode";
-import { registerSessionCard } from "../components/tugways/cards/session-card-registration";
+import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
+import { getSettings } from "../lib/maker-mode-bridge";
+import { getRegistration, type CardIdentityFacts } from "../card-registry";
+import { cardIdentityElsewhere } from "../lib/card-identity";
+import { getOpenTextCard } from "../lib/text-card-open-registry";
+import { getCardCloseGuard } from "../lib/card-close-guard";
+import { appInfoStore } from "../lib/app-info-store";
+import { requestSettingsReveal } from "../lib/settings-reveal";
+import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../lib/settings-sections-pref";
+import { isTelemetryInspection, telemetryInspectionStore } from "../lib/telemetry-inspection-store";
+import { TUG_DEV_LOG_LEVELS, type TugDevLogEntry, type TugDevLogLevel } from "../lib/tug-dev-log-store/types";
+import { installInspectionPublisher } from "./body-inspection";
+import { cardTitleStore, type CardMastheadPayload } from "../lib/card-title-store";
+import type { CardSessionBinding } from "../lib/card-session-binding-store";
+import type { BodyArrangement } from "../lib/body-arrangement";
+import { cardsSpaceVerbRequest } from "../components/cards/cards-space-verb-request";
 import { BodyDeckBridge } from "./body-deck-bridge";
 import { renderBodyRoot } from "./body-root";
 import { installBodyPublisher } from "./body-publisher";
 import { parseBodyIntent, replayBodyIntent, type BodyIntent } from "./body-intent";
-
-/** The component id of the card kind a body holds. */
-const SESSION_COMPONENT_ID = "session";
 
 /** The facts the host hands a body at bind, from the shell's deck. */
 interface BindFacts {
@@ -103,6 +119,8 @@ interface BindFacts {
 /** What the host passes `onBodyBind`. */
 interface BodyBind {
   cardId: string;
+  /** The kind of card this body holds: the shell's deck's `componentId`. */
+  componentId?: unknown;
   intent: unknown;
   facts?: BindFacts;
 }
@@ -126,6 +144,19 @@ declare global {
       onBodyCrossing?: (crossing: BodyCrossing) => void;
     };
   }
+}
+
+/** Whether `value` is a log entry as the shell relays one, its id left to this page. */
+function isRelayedLogEntry(value: unknown): value is Omit<TugDevLogEntry, "id"> {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Partial<Omit<TugDevLogEntry, "id">>;
+  return (
+    typeof entry.timestamp === "number" &&
+    typeof entry.level === "string" &&
+    TUG_DEV_LOG_LEVELS.includes(entry.level as TugDevLogLevel) &&
+    typeof entry.source === "string" &&
+    typeof entry.message === "string"
+  );
 }
 
 /** Post `name` to the host, or do nothing outside it. */
@@ -210,6 +241,50 @@ function putCardStateGuarded(
   return putCardState(cardId, bag, options);
 }
 
+/**
+ * Mirror what the shell holds about cards other than this page's own — their
+ * session bindings, titles and live identities — into this page's stores, for
+ * an arrangement card that lists them and a following card that names its
+ * followed card.
+ * Those stores are per page and hold only this card's entries otherwise.
+ * Returns the mirror's apply; each apply replaces the last, clearing what it
+ * no longer names, and writes only what changed. The page's own card is
+ * never written: it owns its entries.
+ */
+function createCardFactsMirror(ownCardId: string): (
+  bindings: Record<string, CardSessionBinding>,
+  titles: Record<string, { title: string | null; masthead: CardMastheadPayload | null }>,
+  identities: Record<string, CardIdentityFacts>,
+) => void {
+  let boundBefore = new Map<string, string>();
+  let titledBefore = new Set<string>();
+  let knownBefore = new Set<string>();
+  return (bindings, titles, identities) => {
+    const bound = new Map<string, string>();
+    for (const [id, binding] of Object.entries(bindings)) {
+      if (id === ownCardId) continue;
+      const json = JSON.stringify(binding);
+      bound.set(id, json);
+      if (JSON.stringify(cardSessionBindingStore.getBinding(id)) !== json) cardSessionBindingStore.setBinding(id, binding);
+    }
+    for (const id of boundBefore.keys()) if (!bound.has(id)) cardSessionBindingStore.clearBinding(id);
+    boundBefore = bound;
+    const titled = new Set(Object.keys(titles).filter((id) => id !== ownCardId));
+    for (const id of titled) {
+      const { title, masthead } = titles[id];
+      if (title !== null) cardTitleStore.set(id, title, masthead ?? undefined);
+      else if (masthead !== null) cardTitleStore.setMasthead(id, masthead);
+      else cardTitleStore.clear(id);
+    }
+    for (const id of titledBefore) if (!titled.has(id)) cardTitleStore.clear(id);
+    titledBefore = titled;
+    const known = new Set(Object.keys(identities).filter((id) => id !== ownCardId));
+    for (const id of known) cardIdentityElsewhere.set(id, identities[id]);
+    for (const id of knownBefore) if (!known.has(id)) cardIdentityElsewhere.set(id, null);
+    knownBefore = known;
+  };
+}
+
 /** Take the shell's deck facts this page renders against. */
 function applyDeckFacts(facts: Partial<DeckFacts>, bridge: BodyDeckBridge | null): Promise<void> {
   if (typeof facts.keyboardAccess === "boolean") {
@@ -247,7 +322,8 @@ function bindSpare(cardId: string): Promise<boolean> {
 /**
  * Post `frontendReady` one paint after the card's session is quiet — out of
  * restoring and replaying — or once the arrival bound has passed since mount,
- * whichever is first ([L05]: the paint is waited on with `scheduleAfterPaint`
+ * whichever is first; a card with no session (`mounting`) is quiet at mount
+ * ([L05]: the paint is waited on with `scheduleAfterPaint`
  * from the quiet's own notify; its deadline covers a page whose frames are
  * suspended). The layer turns shown just before, so the card's deferred
  * restore lands while the container is still hidden.
@@ -260,7 +336,7 @@ function bindSpare(cardId: string): Promise<boolean> {
  * is the first frame of its real content gone to the compositor, and it is
  * what the host shows the container on.
  */
-function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge): void {
+function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge, mounting: boolean): void {
   let done = false;
   const releases: Array<() => void> = [];
   const ready = (): void => {
@@ -277,6 +353,7 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge): void {
     });
   };
   const quiet = (): boolean => {
+    if (mounting) return true;
     const snapshot = cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot();
     return (
       snapshot !== undefined &&
@@ -305,16 +382,32 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge): void {
 /** Bind this page to `cardId` and bring the card up. */
 async function bindBody(bind: BodyBind): Promise<void> {
   const { cardId } = bind;
+  // The host always names the kind; a bind that does not is refused here,
+  // and the body's ready deadline hands the card back to the shell.
+  if (typeof bind.componentId !== "string" || bind.componentId.length === 0) {
+    tugDevLogStore.error("body", "onBodyBind named no componentId; not binding", { cardId });
+    return;
+  }
+  const componentId = bind.componentId;
   if (isSpare && !(await bindSpare(cardId))) return;
   const intent: BodyIntent = parseBodyIntent(bind.intent) ?? { kind: "restore" };
 
   const restoreBag = !isTestMode || window.__tugRestoreInTestMode === true;
+  const registration = getRegistration(componentId);
   const bridge = new BodyDeckBridge({
     cardId,
-    componentId: SESSION_COMPONENT_ID,
+    componentId,
+    deckMode: registration?.bodyDeck === "arrangement" ? "arrangement" : "card",
     advise: (advice) => sendBus(connection, "shell", { kind: "card-advice", payload: advice }),
     putCardState: putCardStateGuarded,
-    initialBag: restoreBag ? readCardStates(tugbankClient, [cardId]).get(cardId) : undefined,
+    // The bag the shell handed over with a mount is the freshest there is;
+    // without one, a restore reads what was last written.
+    initialBag:
+      intent.kind === "mount" && intent.bag !== undefined
+        ? intent.bag
+        : restoreBag
+          ? readCardStates(tugbankClient, [cardId]).get(cardId)
+          : undefined,
   });
   registerDeckStore(bridge);
   registerCardLifecycle(bridge.cardLifecycle);
@@ -363,7 +456,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     bodyCardFilter(() => {
       const binding = cardSessionBindingStore.getBinding(cardId);
       const sessions = binding === undefined
-        ? intent.kind === "restore" ? [] : [intent.tugSessionId]
+        ? intent.kind === "restore" || intent.kind === "mount" ? [] : [intent.tugSessionId]
         : [binding.tugSessionId, ...(binding.seatedSessionId === undefined ? [] : [binding.seatedSessionId])];
       return { cardId, sessionIds: sessions, lineId: binding?.lineId ?? null };
     }),
@@ -388,6 +481,18 @@ async function bindBody(bind: BodyBind): Promise<void> {
     });
     return true;
   });
+  // A control's action sent to its parent responder that this page's chain
+  // does not answer — the Cards card's New Workspace, its header's Rename
+  // and Delete — is a registered command the shell's deck answers.
+  setUnhandledTargetHook((event) => {
+    const entry = COMMANDS_BY_ID.get(event.action);
+    if (entry === undefined || entry.id === TUG_ACTIONS.CANCEL_DIALOG) return false;
+    sendBus(connection, "shell", {
+      kind: "card-advice",
+      payload: { advice: "dispatch", id: entry.id, ...(event.value !== undefined ? { payload: { value: event.value } } : {}) },
+    });
+    return true;
+  });
   // The session set follows the card's binding: a rotation seats a new segment.
   cardSessionBindingStore.subscribe(() => {
     const binding = cardSessionBindingStore.getBinding(cardId);
@@ -404,7 +509,37 @@ async function bindBody(bind: BodyBind): Promise<void> {
     void applyDeckFacts(message.payload, bridge);
     if (message.payload.menu !== undefined) applyShellMenuFacts(message.payload.menu);
   });
-  onBus(connection, "card-context", (message) => bridge.applyContext(message.payload));
+  // The cards the shell lists for an arrangement card, and the card a
+  // following card follows, come with their bindings and titles: mirrored
+  // before the bridge notifies, so the card's first read of them finds them.
+  const mirror = createCardFactsMirror(cardId);
+  let lastSpaceVerbToken = 0;
+  onBus(connection, "card-context", (message) => {
+    const arrangement = message.payload.arrangement as BodyArrangement | undefined;
+    const followed = message.payload.followed as
+      | { cardId: string; binding: CardSessionBinding | null }
+      | null
+      | undefined;
+    if (arrangement !== undefined || followed !== undefined) {
+      const bindings = { ...(arrangement?.bindings ?? {}) };
+      if (followed?.binding != null) bindings[followed.cardId] = followed.binding;
+      mirror(bindings, arrangement?.titles ?? {}, arrangement?.identities ?? {});
+    }
+    // The app's identity the host sent the shell, for the About card.
+    const appInfo = message.payload.appInfo;
+    if (typeof appInfo === "object" && appInfo !== null) appInfoStore.setFromPayload(appInfo as Record<string, unknown>);
+    // A workspace verb the shell's menu asked the Cards card to answer: put it
+    // in this page's slot, once per request, where the card reads it.
+    const verb = arrangement?.spaceVerb ?? null;
+    if (verb !== null && verb.token !== lastSpaceVerbToken) {
+      lastSpaceVerbToken = verb.token;
+      cardsSpaceVerbRequest.request(verb.verb, verb.spaceId);
+    }
+    bridge.applyContext(message.payload);
+  });
+  // The inspection this card publishes for a devtools card that follows it,
+  // while the shell says one does.
+  let releaseInspection: (() => void) | null = null;
   onBus(connection, "card-command", (message) => {
     // The walk coming back in from the shell lands on this page's first
     // or last stop; with none, it goes back out, marked so the shell keeps
@@ -423,6 +558,62 @@ async function bindBody(bind: BodyBind): Promise<void> {
       surfaces.dismiss();
       return;
     }
+    // The shell's close gesture asks this card's own close guard: its sheet
+    // comes up here, in the card it concerns, and the answer goes back.
+    if (message.payload.command === "close-decision") {
+      const guard = getCardCloseGuard(cardId);
+      void (guard === null ? Promise.resolve("close" as const) : guard.run()).then((answer) => {
+        sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "close-decision", answer } });
+      });
+      return;
+    }
+    // A chain action the shell addressed to this card's content: this page's
+    // chain holds that responder, and nothing forwards it on from here.
+    if (message.payload.command === "content-action") {
+      if (message.payload.id !== undefined) sendToCardContent(cardId, message.payload.id);
+      return;
+    }
+    // An open of the file this card holds, from another page: the line it
+    // asked for is revealed in this card's own editor.
+    if (message.payload.command === "reveal-line") {
+      const at = message.payload.payload as { line?: number; endLine?: number; columns?: [number, number] } | undefined;
+      if (typeof at?.line === "number") getOpenTextCard(cardId)?.revealLine(at.line, at.endLine, at.columns);
+      return;
+    }
+    // A devtools card in another page follows this one: publish this card's
+    // session inspection on each change until told to stop. An `on` while
+    // already publishing starts over, so a devtools card that joined late
+    // hears the current inspection at once.
+    if (message.payload.command === "inspect") {
+      releaseInspection?.();
+      releaseInspection = null;
+      if (message.payload.on === true) {
+        releaseInspection = installInspectionPublisher(cardId, (m) => sendBus(connection, "shell", m));
+      }
+      return;
+    }
+    // The followed card's inspection, relayed to this devtools card.
+    if (message.payload.command === "inspection") {
+      const inspection = message.payload.inspection;
+      telemetryInspectionStore.relay(isTelemetryInspection(inspection) ? inspection : null);
+      return;
+    }
+    // A reveal the shell parked for the Settings card, now that this page
+    // holds it: the card's own consumer takes it.
+    if (message.payload.command === "reveal-settings") {
+      const section = (message.payload.payload as { section?: unknown } | undefined)?.section;
+      if (typeof section === "string" && SETTINGS_SECTION_IDS.includes(section as SettingsSectionId)) {
+        requestSettingsReveal(section as SettingsSectionId);
+      }
+      return;
+    }
+    // The shell's log, for the devtools card's Log tab: this page logs
+    // almost nothing of its own.
+    if (message.payload.command === "dev-log") {
+      const entries = (message.payload.payload as { entries?: unknown } | undefined)?.entries;
+      if (Array.isArray(entries)) tugDevLogStore.adopt("shell", entries.filter(isRelayedLogEntry));
+      return;
+    }
     // A card-scoped menu command the shell routed here runs against this
     // page's own chain, whose key card is the card's pane responder
     // (`BodyRoot`). The other commands are not a body's yet.
@@ -439,7 +630,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   createRoot(document.getElementById("deck-container") ?? document.body).render(
     renderBodyRoot({
       bridge,
-      componentId: SESSION_COMPONENT_ID,
+      componentId,
       appLifecycle,
       sheetLifecycle,
       bannerLifecycle,
@@ -482,9 +673,15 @@ async function bindBody(bind: BodyBind): Promise<void> {
       };
     },
     reconnect: () => connection.forceReconnect(),
+    diag: {
+      // What this card asked of the deck that only the shell answers.
+      shellReads: () => bridge.shellReads(),
+      // Whether this card is publishing its inspection for a devtools card.
+      inspecting: () => releaseInspection !== null,
+    },
   } as unknown as typeof window.tugdeck;
 
-  signalReadyWhenQuiet(cardId, bridge);
+  signalReadyWhenQuiet(cardId, bridge, intent.kind === "mount");
 }
 
 (async () => {
@@ -509,6 +706,9 @@ async function bindBody(bind: BodyBind): Promise<void> {
     changesetAll.subscribe(() => joinStore.observeFeed(changesetAll.getSnapshot()));
     joinStore.observeFeed(changesetAll.getSnapshot());
   }
+  // What those stores' first requests wait on: the listing, the state
+  // changes, the digest's and the Overview's ledger tails.
+  registerStoreTailActions();
   // Whether this machine carries a git Tug can use: the shade's non-repo
   // and no-git notices read the answer, and an unprobed store shows neither.
   registerAction("host_tools_result", (payload) => applyHostToolsResultPayload(payload));
@@ -516,12 +716,20 @@ async function bindBody(bind: BodyBind): Promise<void> {
   connectionLifecycle.observeConnectionDidReconnect(() => connection.sendControlFrame("check_host_tools"));
   connection.connect();
   connection.sendControlFrame("check_host_tools");
-  await Promise.all([tugbankClient.ready(), initTugmark({ module_or_path: wasmUrl })]);
+  // The maker kinds load beside the snapshot and the WASM, not after them.
+  const [, , makerTooling] = await Promise.all([
+    tugbankClient.ready(),
+    initTugmark({ module_or_path: wasmUrl }),
+    loadMakerTooling(getSettings()),
+  ]);
 
   keyboardAccessStore.initialize(normalizeKeyboardAccessMode(readKeyboardAccess(tugbankClient)));
   keymapOverrideStore.initialize(tugbankClient.readDomain(KEYMAP_DOMAIN));
   initMotionObserver();
-  registerSessionCard();
+  // Every kind the shell registers, maker kinds included where the shell has
+  // them, so a body — the spare above all — can mount whichever kind it is
+  // bound to.
+  registerCardKinds({ maker: makerTooling });
 
   // The acks and requests every page answers on CONTROL.
   connection.onFrame(FeedId.CONTROL, (payload) => {

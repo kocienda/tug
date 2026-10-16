@@ -191,7 +191,7 @@ struct SeedWheelPrompt {
 }
 
 /// The seed spec's whole shape: live sessions and the file events that make
-/// them own something.
+/// them own something, the wheel's prompts, and the Overview's posts.
 #[derive(serde::Deserialize)]
 struct SeedSpec {
     #[serde(default)]
@@ -200,6 +200,11 @@ struct SeedSpec {
     file_events: Vec<SeedFileEvent>,
     #[serde(default)]
     wheel_prompts: Vec<SeedWheelPrompt>,
+    /// Posts on the Overview channel, written through the same
+    /// `record_overview_post` the Observer and the Operator call, so the page
+    /// that asks for the channel's tail is answered with them by tugcast.
+    #[serde(default)]
+    overview_posts: Vec<tugcast_core::OverviewPost>,
 }
 
 /// Seed this instance's ledger from a JSON spec and exit.
@@ -364,12 +369,19 @@ fn seed_ledger(spec_path: &std::path::Path) -> ! {
             }
         }
     }
+    for post in &spec.overview_posts {
+        if let Err(e) = ledger.record_overview_post(post) {
+            eprintln!("tugcast: error: record_overview_post failed: {e}");
+            std::process::exit(1);
+        }
+    }
 
     println!(
-        "seeded {} session(s), {} file event(s), and {} wheel prompt(s) into {}",
+        "seeded {} session(s), {} file event(s), {} wheel prompt(s), and {} overview post(s) into {}",
         spec.sessions.len(),
         spec.file_events.len(),
         spec.wheel_prompts.len(),
+        spec.overview_posts.len(),
         path.display()
     );
     std::process::exit(0);

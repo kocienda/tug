@@ -1,8 +1,9 @@
 /**
  * A body speaks only when what it says changes: identical facts go once, a
  * phase change goes, a keystroke that leaves `waive` where it was sends
- * nothing, and a pointer in a body that is already the first responder asks
- * for nothing.
+ * nothing, a card with no close guard says nothing of one while a guarded
+ * card says when its guard would ask, and a pointer in a body that is
+ * already the first responder asks for nothing.
  *
  * @covers tugdeck/src/body/body-publisher.ts
  */
@@ -14,6 +15,7 @@ interface State {
   facts: CardFacts;
   waive: boolean;
   guarded: boolean;
+  asks: boolean | null;
   firstResponder: boolean;
 }
 
@@ -22,6 +24,7 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
     facts: { title: "tug/odd-kiln", masthead: null, activity: "idle", telemetry: { canInterrupt: 0, compacted: 0 } },
     waive: true,
     guarded: true,
+    asks: null,
     firstResponder: false,
   };
   const sent: BusMessage[] = [];
@@ -30,6 +33,7 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
       readFacts: () => state.facts,
       readWaive: () => state.waive,
       readGuarded: () => state.guarded,
+      readAsks: () => state.asks,
       isFirstResponder: () => state.firstResponder,
     },
     (message) => sent.push(message),
@@ -66,6 +70,23 @@ describe("publish on change", () => {
     publisher.publish();
     expect(sent.slice(before)).toEqual([
       { kind: "card-advice", payload: { advice: "close-advice", waive: false } },
+    ]);
+  });
+
+  test("a card with no close guard says nothing of one; a guarded card says when its guard would ask", () => {
+    const { state, sent, publisher } = setup();
+    publisher.publish();
+    const guardAdvice = (): BusMessage[] =>
+      sent.filter((m) => m.kind === "card-advice" && m.payload.advice === "close-guard");
+    expect(guardAdvice()).toEqual([]);
+    state.asks = false;
+    publisher.publish();
+    state.asks = true;
+    publisher.publish();
+    publisher.publish();
+    expect(guardAdvice()).toEqual([
+      { kind: "card-advice", payload: { advice: "close-guard", asks: false } },
+      { kind: "card-advice", payload: { advice: "close-guard", asks: true } },
     ]);
   });
 });

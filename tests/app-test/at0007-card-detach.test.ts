@@ -45,7 +45,7 @@
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
 import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
-import { keyboardIsInCard } from "./_harness/selectors";
+import { keyboardIsInCard } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -148,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("m07: card detach preserves focus + value", () => {
       // default-focus fallback) lands on a sensible target inside the
       // moved card. Either engine shape counts: a marked key view with
       // the sink parked outside, or a dom-granted surface inside.
-      expect(await app.evalJS<boolean>(keyboardIsInCard("A"))).toBe(true);
+      expect(await keyboardIsInCard(app, "A")).toBe(true);
     } catch (err) {
       const tail = app.tailLog(200);
       if (tail !== "") {

@@ -41,6 +41,12 @@
  * show none of the canvas; the bottom corner's reading, where the pane's
  * own rounding lets the canvas through, is noted beside it.
  *
+ * Every other kind that is a body is crossed by the gestures that change its
+ * box. A pinned rail changes size when another rail card joins its edge and
+ * when that card goes, and when the sidebars are resized to fit; the
+ * Overview's column, given posts enough to scroll, is pinned to its bottom
+ * across each as a transcript is.
+ *
  * @foreground
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugapp/Sources/BodyViewController.swift
@@ -56,7 +62,9 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { classifyFrame, describeFrames } from "./_frames";
+import { classifyFrame, describeFrames, floorMeasure } from "./_frames";
+import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
 import {
   BURST_INTERVAL_MS,
   armSampler,
@@ -194,9 +202,9 @@ async function standUpBody(app: App, card: string, stubDir: string): Promise<voi
  * own chrome, which is in front of it by design, and only what the rail
  * leaves uncovered is the body's to fill.
  */
-async function standing(app: App, card: string, rail?: string): Promise<{ standing: Standing; crop: Rect }> {
+async function standing(app: App, card: string, rail?: string, kind?: CardKind): Promise<{ standing: Standing; crop: Rect }> {
   const start = await expectAtRest(app, card, `${card}: at the start`);
-  const s = await readStanding(app, card, start);
+  const s = await readStanding(app, card, start, floorMeasure(kind?.rail ?? false));
   const height = await app.evalJS<number>("window.innerHeight");
   const railRect = rail === undefined ? null : await rectOf(app, `.tug-pane[data-pane-id="${rail}"]`);
   const x = railRect === null ? 0 : Math.ceil(railRect.x + railRect.width);
@@ -326,12 +334,55 @@ const control = (id: string, payload: Record<string, unknown> = {}) => (app: App
   app.evalJS<null>(`(window.__tug.dispatchControlAction(${JSON.stringify(id)}, ${JSON.stringify(payload)}), null)`);
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 17: crossings", () => {
-  test(
+  for (const kind of kindsUnderTest(17)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: the gestures that change its box carry the body to its new size with its chrome`,
+      async () => {
+        const card = `r17-${kind.componentId}`;
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          if (kind.componentId === "overview") {
+            const now = Date.now();
+            app.seedLedger({
+              overview_posts: Array.from({ length: MESSAGES }, (_, i) => ({
+                at_ms: now - (MESSAGES - i) * 60_000,
+                author: "observer" as const,
+                body: `Post ${i + 1}: a line of work narrated, long enough to wrap once in a rail and so give the column something to scroll.`,
+                refs: [],
+              })),
+            });
+          }
+          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r17-n0", "r17-n1"] }), focusCardId: card });
+          await standUpKind(app, kind, card);
+          await focusBody(app, card, { composer: false });
+          await Bun.sleep(600);
+          const { standing: s, crop } = await standing(app, card, undefined, kind);
+          const other = kind.componentId === "jots" ? "dashes" : "jots";
+          if (kind.rail) {
+            await control("set-sidebar-side", { componentId: other, side: "right" })(app);
+            await crossLeg(app, card, { label: `${other} joins its edge`, run: control("set-sidebar-open", { componentId: other, open: true }), resizes: true }, s, crop);
+            await crossLeg(app, card, { label: `${other} leaves it`, run: control("set-sidebar-open", { componentId: other, open: false }), resizes: true }, s, crop);
+          } else {
+            await crossLeg(app, card, { label: "bullseye in", run: control("toggle-bullseye"), resizes: true }, s, crop);
+            await crossLeg(app, card, { label: "bullseye out", run: control("toggle-bullseye"), resizes: true }, s, crop);
+          }
+          await crossLeg(app, card, { label: "resize sidebars to fit", run: control("resize-sidebars-to-fit"), resizes: false }, s, crop);
+          await expectNoShellReads(app, card);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(17))(
     "bullseye, the sidebars, fit and a new card carry the body with its chrome in a four-up flow",
     async () => {
       const stubDir = stubDirectory();
       const card = "r17-a";
-      const app = await launchTugApp({ testName: `${TEST_NAME}-flow`, foreground: true, env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: `${TEST_NAME}-flow`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: flowDeck(card), focusCardId: card });
         await standUpBody(app, card, stubDir);
@@ -352,12 +403,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 17: crossings", () => {
     TEST_TIMEOUT_MS,
   );
 
-  test(
+  test.skipIf(!sessionUnderTest(17))(
     "a column split carries the body to its shorter box",
     async () => {
       const stubDir = stubDirectory();
       const card = "r17-c";
-      const app = await launchTugApp({ testName: `${TEST_NAME}-split`, foreground: true, env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: `${TEST_NAME}-split`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: stackDeck(card), focusCardId: card });
         await standUpBody(app, card, stubDir);

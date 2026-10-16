@@ -21,6 +21,14 @@
  * same slide is read twice: on the bare band, and with the Overview open in
  * a rail, whose document is the heaviest the shell's frames carry.
  *
+ * The Text card is itself a body, so what is judged is one body carried over
+ * another: the host stacks the two views by the deck's order, and the shell
+ * still cuts the Text card's pane chrome as the carried body crosses it.
+ * Nothing cuts the Text card's own view, so the strip read is the body's
+ * placeholder less the trailing two frames of travel row 15 allows the
+ * composite to stand from it: there the body may already have gone, and the
+ * Text card showing is the Text card where it is.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-beat-plan.ts
  * @covers tugdeck/src/lib/body-placement.ts
@@ -36,6 +44,8 @@ import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { classifyFrame, describeFrames, framesDiffer, type FrameClasses } from "./_frames";
+import { standUpKind } from "./_kind-bodies";
+import { cardKind } from "./_kinds";
 import {
   CORNER_INSET_PX,
   MOVED_PX,
@@ -58,13 +68,15 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const A = "r16-a";
 const T = "r16-text";
-const TEXT_EDITOR = `[data-card-id="${T}"] [data-slot="tug-text-card-editor"] .cm-content`;
+const TEXT_LINES = '[data-slot="tug-text-card-editor"] .cm-content .cm-line';
 const PANE_OF_T = `.tug-pane:has([data-card-id="${T}"])`;
 const BURST_MS = 2_000;
 const BURST_INTERVAL_MS = 16;
 const SETTLE_MS = 6_000;
 /** How much of the covered strip may read as ink: the body's own text, never the Text card's blocks. */
 const INK_SHARE = 0.05;
+/** The carried body stands within this many frames of travel of its placeholder (row 15's bar). */
+const SKEW_FRAMES = 2;
 /** A strip narrower than this, in px, is too thin to read past its inset corners. */
 const MIN_STRIP_PX = 3 * CORNER_INSET_PX;
 
@@ -125,7 +137,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 16: the back pane's cut moves w
       const app = await launchTugApp({
         testName: `${TEST_NAME}-${overview ? "overview" : "bare"}`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({
@@ -135,7 +148,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 16: the back pane's cut moves w
         });
         await spawnStub(app, A, stubDir, 2);
         await waitForBody(app, A);
-        await app.waitForCondition<boolean>(`document.querySelectorAll(${JSON.stringify(`${TEXT_EDITOR} .cm-line`)}).length > 5`, { timeoutMs: 30_000 });
+        // The Text card is a body too: its lines are drawn in its own page, so
+        // the cut being read is a body's composite over another body's.
+        const textBody = await standUpKind(app, cardKind("text"), T);
+        const lines = await pollFor(() => textBody.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TEXT_LINES)}).length`), (n) => n > 5, 30_000);
+        expect(lines, "T's body draws its file's lines").toBeGreaterThan(5);
         await focusBody(app, A, { composer: false });
         await Bun.sleep(600);
 
@@ -190,7 +207,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 16: the back pane's cut moves w
           if (i < 0 || samples[i].placeholder === null) continue;
           if (!(moved(i) && moved(i - 1) && framesDiffer(f, standingFrame))) continue;
           motion += 1;
-          const box = intersect(intersect(samples[i].placeholder!, text), crop);
+          // Where the body stands is read off the shell's placeholder, and the
+          // composite carries the body within two frames of travel of it (row
+          // 15's bar). The Text card is a body behind it, which nothing cuts:
+          // the strip the body may already have left is its trailing two
+          // frames, and the Text card shows there by right.
+          const step = Math.abs(samples[i].placeholder!.x - samples[i - 1].placeholder!.x);
+          const covered = intersect(intersect(samples[i].placeholder!, text), crop);
+          const band = Math.min(covered.width, SKEW_FRAMES * step);
+          const box = dir > 0 ? { ...covered, x: covered.x + band, width: covered.width - band } : { ...covered, width: covered.width - band };
           if (box.width < MIN_STRIP_PX || box.height < MIN_STRIP_PX) continue;
           const strip = classifyFrame(f, standing.palette, 8, {
             x: (box.x - crop.x + CORNER_INSET_PX) * scale,

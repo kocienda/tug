@@ -42,7 +42,9 @@ function sameFacts(a: CardFacts | null, b: CardFacts): boolean {
     a.title === b.title &&
     a.activity === b.activity &&
     sameRecord(a.masthead, b.masthead) &&
-    sameRecord(a.telemetry, b.telemetry)
+    sameRecord(a.telemetry, b.telemetry) &&
+    sameRecord(a.identity ?? null, b.identity ?? null) &&
+    JSON.stringify(a.titleBar ?? null) === JSON.stringify(b.titleBar ?? null)
   );
 }
 

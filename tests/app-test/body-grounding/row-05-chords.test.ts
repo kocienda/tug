@@ -18,6 +18,11 @@
  * under the bar; the DOM `keydown` synthesis and the pid-mode keys that file
  * carried are gone ([B04]).
  *
+ * Every other kind that is a body has its own chords, read the same way with
+ * its body holding the keyboard: the Overview's composer takes typing and
+ * the Edit chords, ⌃⌘[ and ⌃⌘] page its column by post, and ⌘D starts and
+ * stops dictation in its composer.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/body/body-main.ts
@@ -50,6 +55,8 @@ import {
   spawnStub,
   waitForBody,
 } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { cardKind, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-05-chords";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -113,7 +120,64 @@ const findQuery = `(function () { var el = document.querySelector(${JSON.stringi
 const dictationMode = `document.querySelector(${JSON.stringify(DICTATION)})?.getAttribute("data-mode") ?? null`;
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 5: chords", () => {
-  test(
+  test.skipIf(!kindsUnderTest(5).some((k) => k.componentId === "overview"))(
+    "overview: its composer's typing and Edit chords, its paging chords and ⌘D act in its body",
+    async () => {
+      const card = "row05-overview";
+      const kind = cardKind("overview");
+      const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: true, bodies: true });
+      try {
+        const now = Date.now();
+        app.seedLedger({
+          overview_posts: Array.from({ length: 30 }, (_, i) => ({
+            at_ms: now - (30 - i) * 60_000,
+            author: "observer" as const,
+            body: `Post ${i + 1}: a line of work narrated, long enough to wrap once in a rail and so give the column something to page.`,
+            refs: [],
+          })),
+        });
+        await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [B] }), focusCardId: card });
+        const o = await standUpKind(app, kind, card);
+        const field = `(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`;
+        await focusBody(app, card, { composer: false });
+        await o.nativeClickAtElement(kind.field!);
+
+        await app.nativeType("hello");
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "typing lands in its composer").toContain("hello");
+        await app.nativeKey("a", ["cmd"]);
+        await app.nativeKey("x", ["cmd"]);
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => !t.includes("hello"), SETTLE_MS), "⌘A ⌘X empties it").not.toContain("hello");
+        await app.nativeKey("v", ["cmd"]);
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "⌘V pastes the cut text back").toContain("hello");
+        await app.nativeKey("z", ["cmd"]);
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => !t.includes("hello"), SETTLE_MS), "⌘Z undoes the paste").not.toContain("hello");
+        await app.nativeKey("z", ["cmd", "shift"]);
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("hello"), SETTLE_MS), "⇧⌘Z redoes it").toContain("hello");
+
+        const before = await o.evalJS<string>(transcriptStand);
+        await app.nativeKey("[", ["ctrl", "cmd"]);
+        const afterPrev = await pollFor(() => o.evalJS<string>(transcriptStand), (v) => v !== before, 1_500);
+        await app.nativeKey("]", ["ctrl", "cmd"]);
+        const afterNext = await pollFor(() => o.evalJS<string>(transcriptStand), (v) => v !== afterPrev, 1_500);
+        note(`paging the column: ${JSON.stringify(before)} → ⌃⌘[ ${JSON.stringify(afterPrev)} → ⌃⌘] ${JSON.stringify(afterNext)}`);
+        expect(afterPrev !== before || afterNext !== afterPrev, "⌃⌘[ or ⌃⌘] pages its column").toBe(true);
+
+        await o.nativeClickAtElement(kind.field!);
+        const idle = await o.evalJS<string | null>(dictationMode);
+        await app.nativeKey("d", ["cmd"]);
+        const live = await pollFor(() => o.evalJS<string | null>(dictationMode), (m) => m !== null && m !== idle, SETTLE_MS);
+        note(`dictation in its composer: ${idle} → ⌘D ${live}`);
+        expect(live, "⌘D starts dictation in its composer").not.toBe(idle);
+        await app.nativeKey("d", ["cmd"]);
+        expect(await pollFor(() => o.evalJS<string | null>(dictationMode), (m) => m === idle, 6_000), "⌘D again stops it").toBe(idle);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.skipIf(!sessionUnderTest(5))(
     "every chord acts in the page that holds the keyboard, body or shell",
     async () => {
       const stubDir = stubDirectory();
@@ -123,7 +187,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 5: chords", () => {
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({

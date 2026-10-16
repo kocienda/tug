@@ -69,6 +69,13 @@ export interface PaneTitleBarItem {
    * that vanished instead would be a cluster the hand cannot learn.
    */
   unavailableHint?: string;
+  /**
+   * The registry's enablement answer, asked in the page that holds the
+   * card's chain — set only for a body card's items, whose responders the
+   * shell's chain does not hold. Absent, the title bar asks its own chain.
+   * Not a card's opinion: the body computes it with `validateCommand`.
+   */
+  enabled?: boolean;
 }
 
 class PaneTitleBarItemsStore extends Subscribable {

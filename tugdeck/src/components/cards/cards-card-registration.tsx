@@ -60,6 +60,11 @@ export function registerCardsCard(): void {
     layoutRole: "sidebar",
     // The mirror does not reflect itself.
     cardsGroup: "none",
+    // A body that reads the shell's arrangement — every workspace and its
+    // cards, their bindings and titles — off its card context, and asks the
+    // shell to run the deck calls and the closes it makes.
+    body: true,
+    bodyDeck: "arrangement",
     sizePolicy: {
       min: { width: MIN_CARDS_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_CARDS_WIDTH_PX, height: 900 },

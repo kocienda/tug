@@ -13,8 +13,8 @@
  * @module components/devtools/telemetry-projection
  */
 
-import type { CodeSessionState } from "@/lib/code-session-store/reducer";
 import type { TurnEntry } from "@/lib/code-session-store/types";
+import type { InspectionState } from "@/lib/telemetry-inspection-store";
 import {
   deriveSessionTotals,
   liveTurnActiveMs,
@@ -39,14 +39,16 @@ export interface InspectorSection {
 /**
  * Build the section list for a card. The inspector consumes the
  * public snapshot for stable fields (transcript, identity) and the
- * internal reducer state for live-clock anchors not exposed publicly.
+ * internal reducer state for live-clock anchors not exposed publicly —
+ * the slice an inspection carries, whether read in this page or relayed
+ * from the page that holds the card.
  *
  * When `state` is `null` the projection returns a single empty-state
  * section so the inspector renders an explicit "no data" message
  * rather than silent zeros.
  */
 export function projectTelemetryInspector(input: {
-  state: CodeSessionState | null;
+  state: InspectionState | null;
   transcript: ReadonlyArray<TurnEntry>;
   tickAt: number;
   tugSessionId: string | null;
@@ -87,7 +89,7 @@ export function projectTelemetryInspector(input: {
 // ---------------------------------------------------------------------------
 
 function cardIdentitySection(
-  state: CodeSessionState,
+  state: InspectionState,
   tugSessionId: string | null,
   displayLabel: string | null,
 ): InspectorSection {
@@ -113,7 +115,7 @@ function cardIdentitySection(
   };
 }
 
-function phaseTransportSection(state: CodeSessionState): InspectorSection {
+function phaseTransportSection(state: InspectionState): InspectorSection {
   return {
     title: "Phase + transport",
     rows: [
@@ -137,7 +139,7 @@ function phaseTransportSection(state: CodeSessionState): InspectorSection {
 }
 
 function liveClocksSection(
-  state: CodeSessionState,
+  state: InspectionState,
   tickAt: number,
 ): InspectorSection {
   return {
@@ -171,7 +173,7 @@ function liveClocksSection(
   };
 }
 
-function liveCountersSection(state: CodeSessionState): InspectorSection {
+function liveCountersSection(state: InspectionState): InspectorSection {
   return {
     title: "Live counters",
     rows: [

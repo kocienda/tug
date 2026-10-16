@@ -27,6 +27,10 @@
  * row's: ⌘N's neighbours ride a fused beat carrying their sizes, and the
  * crossing is read in row 17.
  *
+ * Every other kind that is a body is carried the same way by the gesture
+ * that only moves it: a content card by the flow slide out and back, and a
+ * pinned rail by moving it to the other edge and back, which keeps its size.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-beat-plan.ts
  * @covers tugapp/Sources/BodyBeats.swift
@@ -37,6 +41,9 @@ import { describe, test } from "bun:test";
 import { launchTugApp } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { floorMeasure } from "./_frames";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 import { carryLeg, standUp } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-14-beats-move";
@@ -69,7 +76,39 @@ function twoUpDeck(bodies: readonly string[]): Record<string, unknown> {
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 14: move beats carry the bodies", () => {
-  test(
+  for (const kind of kindsUnderTest(14)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: the gesture that only moves it carries the body with its chrome`,
+      async () => {
+        const card = `r14-${kind.componentId}`;
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r14-n0", "r14-n1", "r14-n2", "r14-n3", "r14-n4"] }), focusCardId: card });
+          await standUpKind(app, kind, card);
+          await app.dispatchControlAction("focus-session-card", { cardId: card });
+          await Bun.sleep(400);
+          const { standing, crop } = await standUp(app, card, floorMeasure(kind.rail));
+          const legs = kind.rail
+            ? (["left", "right"] as const).map((side) => ({
+                label: `to the ${side} edge`,
+                js: `window.__tug.dispatchControlAction("set-sidebar-side", { componentId: ${JSON.stringify(kind.componentId)}, side: "${side}" })`,
+              }))
+            : [2, 1].map((slot) => ({ label: `go to slot ${slot}`, js: `window.__tug.dispatchControlAction("go-to-slot", { value: ${slot} })` }));
+          for (const leg of legs) {
+            await carryLeg(app, card, [card], leg.label, leg.js, standing, crop);
+            await app.dispatchControlAction("focus-session-card", { cardId: card });
+            await Bun.sleep(300);
+          }
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(14))(
     "the flow slide out and back carries both body cards with their chrome",
     async () => {
       const stubDir = stubDirectory();
@@ -77,7 +116,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: move beats carry the bodies
       const app = await launchTugApp({
         testName: `${TEST_NAME}-flow`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: flowDeck(bodies), focusCardId: bodies[0] });
@@ -95,7 +135,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: move beats carry the bodies
     TEST_TIMEOUT_MS,
   );
 
-  test(
+  test.skipIf(!sessionUnderTest(14))(
     "a cross-column stack move carries the body card with its chrome",
     async () => {
       const stubDir = stubDirectory();
@@ -104,7 +144,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: move beats carry the bodies
       const app = await launchTugApp({
         testName: `${TEST_NAME}-stack`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: twoUpDeck(bodies), focusCardId: mover });

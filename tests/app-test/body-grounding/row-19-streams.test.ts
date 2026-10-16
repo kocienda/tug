@@ -180,7 +180,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 19: a body streams through the 
       const app = await launchTugApp({
         testName: `${TEST_NAME}-flow`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: flowDeck(bodies), focusCardId: bodies[0] });
@@ -208,7 +209,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 19: a body streams through the 
       const app = await launchTugApp({
         testName: `${TEST_NAME}-stack`,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: twoUpDeck(bodies), focusCardId: mover });

@@ -46,6 +46,10 @@ pub enum BusTarget {
 /// opaquely: tugcast routes it and never reads it. `activity` is the session
 /// phase key `useSessionPhase` computes; `telemetry` carries `canInterrupt`
 /// and `compacted` as 0 or 1.
+/// `identity` is the card's live identity facts as its own page resolves
+/// them (`CardIdentityFacts`), carried opaquely like `masthead`.
+/// `titleBar` is the controls the card contributes to its pane's title bar,
+/// each with its enablement as the card's own chain answers; opaque here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardFacts {
@@ -53,6 +57,10 @@ pub struct CardFacts {
     pub masthead: Option<serde_json::Value>,
     pub activity: Option<String>,
     pub telemetry: BTreeMap<String, f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_bar: Option<serde_json::Value>,
 }
 
 /// What a `card-command` asks a card to do.
@@ -73,6 +81,20 @@ pub enum CardCommandKind {
     SurfaceActivate,
     /// The shell dismissed the card's surface it draws.
     SurfaceDismissed,
+    /// The shell asks the card's own close guard to decide.
+    CloseDecision,
+    /// Start or stop publishing the card's session inspection (`on`).
+    Inspect,
+    /// A followed card's inspection, relayed to a devtools card.
+    Inspection,
+    /// A chain action, by `id`, sent to the card's content responder.
+    ContentAction,
+    /// Reveal a line of the card's file (`payload`: `line`, `endLine`, `columns`).
+    RevealLine,
+    /// Show a section of the Settings card (`payload`: `section`).
+    RevealSettings,
+    /// The shell's dev log for the devtools card (`payload`: `entries`), opaque here.
+    DevLog,
 }
 
 /// Where a `focus-enter` lands the keyboard.
@@ -119,6 +141,12 @@ pub struct CardCommand {
     /// The element a `surface-activate` presses, by its child-index path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<Vec<u32>>,
+    /// Whether an `inspect` starts the card's inspection or stops it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on: Option<bool>,
+    /// The inspection an `inspection` relays, opaque here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inspection: Option<serde_json::Value>,
 }
 
 /// Which way a surface the shell draws opens off its line.
@@ -188,6 +216,26 @@ pub enum CardAdvice {
     Surface { surface: Option<ShellSurface> },
     /// The card asked to log out.
     Logout,
+    /// A deck method an arrangement card called, for the shell to run when
+    /// it lets a body call that method.
+    DeckCall {
+        method: String,
+        args: Vec<serde_json::Value>,
+    },
+    /// Whether the card's own close guard would ask before it closes.
+    CloseGuard { asks: bool },
+    /// The card's close guard decided: `close` or `cancel`.
+    CloseDecision { answer: CloseAnswer },
+    /// The card's session inspection, opaque here.
+    Inspection { inspection: serde_json::Value },
+}
+
+/// What a card's close guard decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloseAnswer {
+    Close,
+    Cancel,
 }
 
 /// `deck-facts`: what the chrome tells every card about the deck.
@@ -225,6 +273,26 @@ pub struct CardContext {
     pub first_responder_card_id: Option<String>,
     pub layer_shown: bool,
     pub space_id: Option<String>,
+    /// The shell's arrangement, for an arrangement kind; opaque here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arrangement: Option<serde_json::Value>,
+    /// The card a following kind follows, and its binding; opaque here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub followed: Option<serde_json::Value>,
+    /// The app's build identity, for the About card; opaque here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_info: Option<serde_json::Value>,
+    /// The deck edge a pinned rail card stands on; absent for any other card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rail_side: Option<RailSide>,
+}
+
+/// A deck edge a rail stands pinned to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RailSide {
+    Left,
+    Right,
 }
 
 /// One bus message: a `kind` and its `payload`.
@@ -342,6 +410,10 @@ mod tests {
             "focus-exit",
             "surface",
             "logout",
+            "deck-call",
+            "close-guard",
+            "close-decision",
+            "inspection",
         ] {
             assert!(
                 has(&|e| match &e.message {
@@ -354,6 +426,29 @@ mod tests {
             );
         }
         assert!(has(&|e| e.to == BusTarget::Role(BusRole::Shell)));
+        for command in [
+            CardCommandKind::CloseDecision,
+            CardCommandKind::Inspect,
+            CardCommandKind::Inspection,
+            CardCommandKind::ContentAction,
+            CardCommandKind::RevealLine,
+            CardCommandKind::RevealSettings,
+            CardCommandKind::DevLog,
+        ] {
+            assert!(
+                has(&|e| matches!(&e.message, BusMessage::CardCommand(c) if c.command == command)),
+                "the fixture has no {command:?} command"
+            );
+        }
+        assert!(has(&|e| matches!(
+            &e.message,
+            BusMessage::CardContext(CardContext {
+                arrangement: Some(_),
+                followed: Some(_),
+                app_info: Some(_),
+                ..
+            })
+        )));
         assert!(has(&|e| e.to == BusTarget::Role(BusRole::Body)));
         assert!(has(&|e| matches!(e.to, BusTarget::Card { .. })));
         assert!(has(&|e| matches!(e.to, BusTarget::Page { .. })));
@@ -405,6 +500,8 @@ mod tests {
                 payload: None,
                 edge: None,
                 path: None,
+                on: None,
+                inspection: None,
             })
         );
         assert!(serde_json::to_value(&parsed).unwrap().get("from").is_none());

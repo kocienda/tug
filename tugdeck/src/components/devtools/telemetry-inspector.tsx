@@ -4,11 +4,12 @@
  * clocks tick via `useLifecycleTick`.
  *
  * Data path:
- *   - Card services come from `cardServicesStore.getServices(cardId)`
- *     read via `useSyncExternalStore` (per [L02]).
- *   - The public `CodeSessionSnapshot` provides transcript + identity.
- *   - The internal `CodeSessionState` (via the dev-only accessor)
- *     provides live-clock anchors (`awaitingApprovalSince`, etc.).
+ *   - The card's inspection comes from `telemetryInspectionStore`, read via
+ *     `useSyncExternalStore` (per [L02]): the card's own services when this
+ *     page holds the card, the relay from its body when it does not.
+ *   - Its fields are the public `CodeSessionSnapshot`'s transcript + identity.
+ *   - Its state is the internal `CodeSessionState`'s live-clock anchors
+ *     (`awaitingApprovalSince`, etc.).
  *   - The projection helper turns both into `(label, value, fieldPath)`
  *     tuples that `FieldRow` renders.
  *
@@ -22,9 +23,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Check, Copy } from "lucide-react";
 
-import { cardServicesStore } from "@/lib/card-services-store";
 import { useLifecycleTick } from "@/lib/code-session-store/hooks/use-lifecycle-tick";
-import { useSessionFields } from "@/lib/code-session-store/hooks/use-session-fields";
+import { telemetryInspectionStore } from "@/lib/telemetry-inspection-store";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
 
 import { copyAsJson } from "./copy-as-json";
@@ -39,33 +39,23 @@ export interface TelemetryInspectorProps {
   selectedCardId: string | null;
 }
 
-/** The session fields the inspector shows. */
-const INSPECTOR_FIELDS = [
-  "phase",
-  "transcript",
-  "tugSessionId",
-  "displayLabel",
-  "transportState",
-] as const;
+const NOOP_SUBSCRIBE = (): (() => void) => () => {};
 
 export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
   selectedCardId,
 }) => {
-  // Subscribe to cardServicesStore so the inspector re-renders when
-  // the selected card's services bag appears or disappears.
-  const services = useSyncExternalStore(
-    cardServicesStore.subscribe,
-    useCallback(() => {
-      return selectedCardId === null
-        ? null
-        : cardServicesStore.getServices(selectedCardId);
-    }, [selectedCardId]),
+  // The card's inspection, wherever the card is: the store re-renders the
+  // inspector when the card's services appear or go, when a field it draws
+  // moves, and when a relayed inspection lands.
+  const inspection = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        selectedCardId === null ? NOOP_SUBSCRIBE() : telemetryInspectionStore.subscribe(selectedCardId, onChange),
+      [selectedCardId],
+    ),
+    useCallback(() => (selectedCardId === null ? null : telemetryInspectionStore.read(selectedCardId)), [selectedCardId]),
   );
-
-  // Subscribe to the fields of the card's CodeSessionStore the inspector
-  // shows. The internal state below is read at render, so it refreshes on
-  // each of their changes and on the live tick while a turn is in flight.
-  const snapshot = useSessionFields(services?.codeSessionStore, INSPECTOR_FIELDS);
+  const snapshot = inspection?.fields ?? null;
 
   // Drive the live tick at 1Hz while a turn is in flight. When no
   // services / snapshot is available, fall back to an "idle" phase
@@ -73,7 +63,7 @@ export const TelemetryInspector: React.FC<TelemetryInspectorProps> = ({
   const phase = snapshot?.phase ?? "idle";
   const tickAt = useLifecycleTick(phase, 1000);
 
-  const internalState = services?.codeSessionStore._getInternalStateForDevPanel() ?? null;
+  const internalState = inspection?.state ?? null;
 
   const sections = projectTelemetryInspector({
     state: internalState,

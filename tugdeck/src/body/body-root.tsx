@@ -34,6 +34,7 @@ import * as paneContentRegistry from "../components/chrome/pane-content-registry
 import * as paneFrameRegistry from "../components/chrome/pane-frame-registry";
 import * as paneRootRegistry from "../components/chrome/pane-root-registry";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
+import { RAIL_TREATMENT, RAIL_TREATMENT_ATTRIBUTE } from "../lib/layout-imposer";
 import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
 
 export interface BodyRootProps {
@@ -80,6 +81,17 @@ function BodyPane({
       if (el !== null) el.dataset.focused = focused ? "true" : "false";
     }
   }, [frameEl, rootEl, focused]);
+  // A pinned rail paints the rail's own surface: the shell's treatment rule
+  // keys on the deck's treatment and the pane's pinned side, and this page's
+  // `body` is where its surface token resolves, so both are written here
+  // ([L06]). The treatment is the shell's constant; the side is the shell's
+  // word in the card's context.
+  const railSide = useSyncExternalStore(bridge.subscribe, bridge.getRailSide);
+  useLayoutEffect(() => {
+    document.documentElement.setAttribute(RAIL_TREATMENT_ATTRIBUTE, RAIL_TREATMENT);
+    if (railSide === null) delete document.body.dataset.bodyRailSide;
+    else document.body.dataset.bodyRailSide = railSide;
+  }, [railSide]);
   const setFrame = useCallback(
     (el: HTMLDivElement | null) => {
       setFrameEl(el);

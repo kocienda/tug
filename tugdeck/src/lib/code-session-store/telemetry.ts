@@ -634,11 +634,26 @@ export function deriveSessionTotals(
 }
 
 /**
+ * What the live-turn clocks read of a reducer state: the in-flight turn and
+ * the two pause accumulators with their open intervals. A slice rather than
+ * the whole state, so an inspection relayed across pages — plain data, no
+ * maps — can be clocked the same way.
+ */
+export type LiveTurnState = Pick<
+  CodeSessionState,
+  | "pendingTurn"
+  | "awaitingApprovalAccumulatedMs"
+  | "awaitingApprovalSince"
+  | "transportDowntimeAccumulatedMs"
+  | "transportNonOnlineSince"
+>;
+
+/**
  * Live wall-clock duration of the in-flight turn (`now -
  * pendingTurn.submitAt`). Returns `0` when no turn is in flight.
  */
 export function liveTurnWallClockMs(
-  state: CodeSessionState,
+  state: LiveTurnState,
   now: number,
 ): number {
   if (state.pendingTurn === null) {
@@ -652,7 +667,7 @@ export function liveTurnWallClockMs(
  * live in-progress interval when `awaitingApprovalSince !== null`.
  */
 export function liveTurnAwaitingApprovalMs(
-  state: CodeSessionState,
+  state: LiveTurnState,
   now: number,
 ): number {
   const accumulated = state.awaitingApprovalAccumulatedMs;
@@ -668,7 +683,7 @@ export function liveTurnAwaitingApprovalMs(
  * (covers both `transportState === "offline"` and `"restoring"`).
  */
 export function liveTurnTransportDowntimeMs(
-  state: CodeSessionState,
+  state: LiveTurnState,
   now: number,
 ): number {
   const accumulated = state.transportDowntimeAccumulatedMs;
@@ -694,7 +709,7 @@ export function liveTurnTransportDowntimeMs(
  * already accept the over-subtraction.
  */
 export function liveTurnActiveMs(
-  state: CodeSessionState,
+  state: LiveTurnState,
   now: number,
 ): number {
   const wall = liveTurnWallClockMs(state, now);

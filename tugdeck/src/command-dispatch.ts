@@ -89,6 +89,41 @@ export function setUnhandledCommandFallback(fallback: UnhandledCommandFallback):
   };
 }
 
+/**
+ * Takes a chain action addressed to a card's content when that content lives
+ * in another document (a body), and says whether it took it. The shell
+ * installs one; with none installed the action goes to this document's chain.
+ */
+export type CardContentForwarder = (cardId: string, action: string) => boolean;
+
+let cardContentForwarder: CardContentForwarder | null = null;
+
+/** Install the forwarder for card-content actions. Returns the uninstall. */
+export function setCardContentForwarder(forwarder: CardContentForwarder): () => void {
+  cardContentForwarder = forwarder;
+  return () => {
+    if (cardContentForwarder === forwarder) cardContentForwarder = null;
+  };
+}
+
+/**
+ * Send `action` to `cardId`'s content responder, wherever that card's
+ * content lives, and say whether anything took it.
+ *
+ * The target is the card-content scope, not the bare card id: `sendToTarget`
+ * walks upward from its target, the bare id is `card-host`'s, and a card's
+ * handlers live one scope beneath it. A card whose content is not mounted
+ * registers no such responder, so the miss is reported rather than thrown.
+ */
+export function sendToCardContent(cardId: string, action: string): boolean {
+  if (cardContentForwarder !== null && cardContentForwarder(cardId, action)) return true;
+  const manager = getResponderChainManager();
+  const target = `${cardId}-card-content`;
+  if (manager === null || !manager.hasResponder(target)) return false;
+  manager.sendToTarget(target, { action, phase: "discrete" });
+  return true;
+}
+
 export interface DispatchCommandOptions {
   /**
    * Dispatch in this document only: consult neither the key-card forwarder

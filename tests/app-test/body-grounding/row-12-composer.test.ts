@@ -25,6 +25,11 @@
  * the host makes no body for it: the session card mounts in the shell's
  * own document and the host's snapshot is empty ([B01]).
  *
+ * Every other kind that is a body with a field of its own is read the same
+ * way: the Overview's composer takes typing, a text paste and an image
+ * paste as an attachment in its body, and a launch without the switch puts
+ * the Overview back in the shell's document with no body for it.
+ *
  * @foreground
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -41,6 +46,8 @@ import { join } from "node:path";
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { PROMPT_INPUT, bodyOf, composerFocused, composerText, focusBody, pollFor, promptPhase, spawnStub, waitForBody } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { cardKind, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-12-composer";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -124,7 +131,49 @@ async function expectKeyboardInBody(app: App, cardId: string, label: string): Pr
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 12: Z2, the composer, paste and the picker handoff", () => {
-  test(
+  test.skipIf(!kindsUnderTest(12).some((k) => k.componentId === "overview"))(
+    "overview: its composer takes typing, a text paste and an image paste in its body, and no switch means no body",
+    async () => {
+      const card = "row12-overview";
+      const kind = cardKind("overview");
+      const scratch = mkdtempSync(join(tmpdir(), "tug-row12-"));
+      const pngPath = join(scratch, "row12.png");
+      writeFileSync(pngPath, Buffer.from(PNG_BASE64, "base64"));
+      const field = `(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`;
+      const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: true, bodies: true });
+      try {
+        await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row12-seed"] }), focusCardId: card });
+        const o = await standUpKind(app, kind, card);
+        await focusBody(app, card, { composer: false });
+        await o.nativeClickAtElement(kind.field!);
+        await app.nativeType("typed");
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes("typed"), SETTLE_MS), "typing lands in its composer").toContain("typed");
+        pasteboardText(PASTED_TEXT);
+        await app.nativeKey("v", ["cmd"]);
+        expect(await pollFor(() => o.evalJS<string>(field), (t) => t.includes(PASTED_TEXT), SETTLE_MS), "⌘V pastes the pasteboard's text into its composer").toContain(PASTED_TEXT);
+        pasteboardImage(pngPath);
+        await app.nativeKey("v", ["cmd"]);
+        const tiles = await pollFor(() => o.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
+        note(`after the image paste: ${tiles} attachment tile(s) in the Overview's composer`);
+        expect(tiles, "⌘V pastes the pasteboard's image as an attachment in its composer").toBeGreaterThan(0);
+      } finally {
+        await app.close();
+      }
+
+      const plain = await launchTugApp({ testName: `${TEST_NAME}-overview-no-switch`, foreground: true });
+      try {
+        await plain.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row12-seed"] }), focusCardId: card });
+        // card-dom: shell
+        await plain.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(kind.root)}) !== null`, { timeoutMs: SETTLE_MS });
+        expect((await plain.bodies()).filter((b) => b.cardId !== null), "with no switch the host makes no body").toEqual([]);
+      } finally {
+        await plain.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.skipIf(!sessionUnderTest(12))(
     "Z2 and the composer work in a body, text and an image paste into it, the host's file panel hands its path back to it, Escape closes its slash popup, and no switch means no body",
     async () => {
       const stubDir = stubDirectory();
@@ -136,7 +185,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 12: Z2, the composer, paste and
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: A });

@@ -210,6 +210,8 @@ final class BodyViewController {
         var state: State = .loading
         /// What the body is to do once bound: the deck's `BodyIntent`.
         var intent: [String: Any]?
+        /// The kind of card it holds once bound: the deck's `componentId`.
+        var componentId: String?
         /// When the body was bound to its card, for `readyMs`.
         var boundAt: CFTimeInterval?
         /// Whether this body began as the spare, for the ready line's
@@ -336,7 +338,7 @@ final class BodyViewController {
     /// The shell asks for a card's body. The waiting spare takes it when
     /// there is one; otherwise a body is made cold at `/?body=<cardId>`. A
     /// card that already has a body is re-bound only if it failed.
-    func create(cardId: String, intent: [String: Any]) {
+    func create(cardId: String, componentId: String, intent: [String: Any]) {
         if let existing = body(forCard: cardId), existing.state != .failed {
             TugLog.warn("bodies", "bodyCreate for a card that has a body; ignoring", [
                 TugLog.field("card", cardId),
@@ -345,6 +347,7 @@ final class BodyViewController {
         }
         if let spare {
             spare.cardId = cardId
+            spare.componentId = componentId
             spare.intent = intent
             spare.warm = true
             armDeadline(spare)
@@ -352,6 +355,7 @@ final class BodyViewController {
             return
         }
         guard let made = make(cardId: cardId, path: "/?body=\(cardId)") else { return }
+        made.componentId = componentId
         made.intent = intent
         armDeadline(made)
     }
@@ -430,11 +434,13 @@ final class BodyViewController {
     }
 
     private func bind(_ body: Body) {
-        guard let cardId = body.cardId, let intent = body.intent else { return }
+        guard let cardId = body.cardId, let componentId = body.componentId,
+              let intent = body.intent else { return }
         body.state = .bound
         body.boundAt = CACurrentMediaTime()
         let payload: [String: Any] = [
             "cardId": cardId,
+            "componentId": componentId,
             "intent": intent,
             "facts": window.bodyFacts(),
         ]
@@ -1093,7 +1099,9 @@ final class BodyViewController {
             return true
         }
         body.state = .loading
-        body.intent = ["kind": "restore"]
+        // Its card restores as it would at launch: a Session card from the
+        // ledger, a kind with no session by mounting again. The kind is kept.
+        body.intent = (body.intent?["kind"] as? String) == "mount" ? ["kind": "mount"] : ["kind": "restore"]
         body.warm = false
         body.painted = false
         body.shownReported = false
@@ -1107,8 +1115,8 @@ final class BodyViewController {
 
     /// Every body as the harness reports it, the spare included.
     func snapshot() -> [[String: Any]] {
-        bodies.map { body in
-            [
+        bodies.map { body -> [String: Any] in
+            var entry: [String: Any] = [
                 "cardId": body.cardId ?? NSNull(),
                 "state": body.state.rawValue,
                 "frame": [
@@ -1131,6 +1139,10 @@ final class BodyViewController {
                 "displayPeriodMs": displayPeriodSec * 1000,
                 "url": body.webView.url?.absoluteString ?? NSNull(),
             ]
+            // Set apart from the literal, which is already at the edge of
+            // what the type checker will solve in reasonable time.
+            entry["componentId"] = body.componentId ?? NSNull()
+            return entry
         }
     }
 

@@ -53,7 +53,7 @@ import {
   type ArcSessionFact,
 } from "@/lib/arc-session-index";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { cardIdentity } from "@/lib/card-identity";
+import { cardIdentity, cardIdentityElsewhere } from "@/lib/card-identity";
 import { spaceBindingsLedgerStore } from "@/lib/space-bindings-ledger-store";
 import {
   countedFileType,
@@ -405,10 +405,12 @@ export const DEFAULT_RESOLVERS: CardsResolvers = {
     // keeps a stray one out of the mirror instead of inventing a home for it.
     return reg === undefined ? "none" : resolveCardsGroup(reg);
   },
-  textPath: (cardId) => getOpenTextCard(cardId)?.getPath() ?? null,
-  textDisplayName: (cardId) => getOpenTextCard(cardId)?.getDisplayName() ?? null,
-  textUnsaved: (cardId) => getOpenTextCard(cardId)?.hasUnsavedMark() ?? false,
-  viewPath: (cardId) => getOpenFileViewCard(cardId)?.getPath() ?? null,
+  // A file card mounted in another page — a body — is in no open registry of
+  // this page; what its page published answers the same three questions.
+  textPath: (cardId) => getOpenTextCard(cardId)?.getPath() ?? cardIdentityElsewhere.get(cardId)?.path ?? null,
+  textDisplayName: (cardId) => getOpenTextCard(cardId)?.getDisplayName() ?? cardIdentityElsewhere.get(cardId)?.title ?? null,
+  textUnsaved: (cardId) => getOpenTextCard(cardId)?.hasUnsavedMark() ?? cardIdentityElsewhere.get(cardId)?.unsaved ?? false,
+  viewPath: (cardId) => getOpenFileViewCard(cardId)?.getPath() ?? cardIdentityElsewhere.get(cardId)?.path ?? null,
   // The durable answer is the card's own registration's ([B02]), reached
   // through the one public resolution function ([B03]) rather than
   // hand-rolled here per kind — which is how `text` and `file-view` came to
@@ -1377,6 +1379,13 @@ export function useCardsDataSource(
     getOpenFileViewCardsVersion,
     getOpenFileViewCardsVersion,
   );
+  // A body card's identity is published from its own page; the list re-reads
+  // when one moves.
+  const elsewhereVersion = useSyncExternalStore(
+    cardIdentityElsewhere.subscribe,
+    cardIdentityElsewhere.getVersion,
+    cardIdentityElsewhere.getVersion,
+  );
 
   const ref = useRef<CardsDataSource | null>(null);
   // A collapsed id the list no longer holds would otherwise be inherited by a
@@ -1423,7 +1432,7 @@ export function useCardsDataSource(
     ...inputs,
     spaces,
     bindingsCache: cacheRows,
-    registryVersion: textVersion + viewVersion,
+    registryVersion: textVersion + viewVersion + elsewhereVersion,
   };
   if (ref.current === null) {
     ref.current = new CardsDataSource(full);

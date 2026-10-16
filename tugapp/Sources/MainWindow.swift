@@ -2860,7 +2860,14 @@ extension MainWindow: WKScriptMessageHandler {
             guard let body = message.body as? [String: Any],
                   let cardId = body["cardId"] as? String,
                   let intent = body["intent"] as? [String: Any] else { return }
-            bodies.create(cardId: cardId, intent: intent)
+            // The shell always names the kind: a body is bound to mount it.
+            guard let componentId = body["componentId"] as? String, !componentId.isEmpty else {
+                TugLog.error("bodies", "bodyCreate named no componentId; refusing", [
+                    TugLog.field("card", cardId),
+                ])
+                return
+            }
+            bodies.create(cardId: cardId, componentId: componentId, intent: intent)
         case "placeBodies":
             guard let body = message.body as? [String: Any] else { return }
             bodies.place(body)

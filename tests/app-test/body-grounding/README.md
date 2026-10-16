@@ -35,38 +35,76 @@ launches with `TUG_BODY_VIEWS=1`.
 
 ## The rows
 
-| File | Row |
-|---|---|
-| `probe-tap.test.ts` | The path itself: one character through the activated tap lands in a body's composer; one menu item performed takes effect in the body. |
-| `row-01-arrival.test.ts` | ⌘N: a new card arrives with nothing of the canvas, grid or an older pane showing through the hole at any frame, cold and warm. |
-| `row-02-drag.test.ts` | A card drags as one piece: masthead, frame and content together under the pointer, landing together. |
-| `row-03-departure.test.ts` | A card departs as one piece, and the hole closes with it. |
-| `row-04-slide.test.ts` | A slide (flow, Go to slot, bullseye, sidebar show/hide, fit) moves each card as one piece: a slide that only moves the card is carried by the host; one that changes its size keeps the interim, hide at the beat's start and show at the land. |
-| `row-05-chords.test.ts` | Every chord in the keyboard files works from a body and from the shell. |
-| `row-06-menus.test.ts` | Every Swift menu command works with a body first responder, including the ones validating against the first responder's undo manager. |
-| `row-07-focus.test.ts` | Activating a card makes its body first responder; typing goes there and nowhere else; the shell's surfaces take and return focus; closing the key card hands focus on. |
-| `row-08-sheets.test.ts` | The Changes shade, the history view and the find bar open, list, scroll and close from a body. |
-| `row-09-fold.test.ts` | Fold hides the body; the unfold shows it with no peek. |
-| `row-10-workspace.test.ts` | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. |
-| `row-11-lifecycle.test.ts` | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. |
-| `row-12-composer.test.ts` | Z2, the composer, paste of text and images, and the picker-to-body handoff. |
-| `row-13-arc-tracking.test.ts` | An arc bound to a body's session reads in that body's Z2 and on the shell's masthead and Arcs card. The stores a body attaches are enumerated by `tugdeck/src/body/__tests__/body-stores.test.ts`. |
-| `row-14-beats-move.test.ts` | A gesture that only moves body cards (the flow slide out and back, a cross-column stack move) carries each body with its chrome on the host: the lid stays lifted, the content box never shows the floor, the presented container tracks the placeholder, the render server advances it every tick, and it lands on the placeholder to the pixel. |
-| `row-15-skew.test.ts` | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: noted at an offset of 0 (the median sets the shipped offset), and within two frames of travel at the shipped offset, at rest and with three bodies streaming. |
-| `row-16-back-pane-cut.test.ts` | A body carried across a Text card behind it: the back pane's cut moves with the body on the plan's clock, so no frame in motion shows the Text card's ink inside the body; the shell's gap rows over the motion are noted. |
-| `row-17-crossing.test.ts` | Bullseye, a column split and a new card beside the body card (⌘N's action) carry it with its chrome, to a new size where the box changes: `crossingReady` within a display period of the first moving beat, the content box and its bottom strip never the floor, the transcript pinned to its bottom before and after, and the container's top corners square. |
-| `row-19-streams.test.ts` | A body streams through the shell's settle: every body applies a batch between the motion gate's close and open, and none is parked, across a flow slide and a cross-column stack move. |
-| `row-20-drag-hole.test.ts` | A body card dragged across a Text card, the drag cancelled, or the card carried there by a settle, leaves no hole in the Text card at rest: every pane's cut is the landed deck's. |
-| `row-21-edges.test.ts` | A body card's side edges are the pane's border and nothing else, read beside a Text card's at zoom 0.8, 0.9 and 1.0, with each card key. |
-| `row-22-compaction-cover.test.ts` | A body's Compacting cover rests on the rest line above Z2, as the in-document card's does, not at the top of the transcript. |
-| `row-23-tab-edge.test.ts` | A body card's walk runs off its edge into the shell and comes back, by Tab and ⇧Tab and by the View menu's Next and Previous Keyboard Focus, with the body holding the keyboard at every step. |
-| `row-24-focus-through-motion.test.ts` | The key body keeps the keyboard through a settle that carries it on the host, and what is typed during the motion lands in it. |
-| `row-25-in-card-surfaces.test.ts` | The completion popup, the composer's context menu and the route badge's report draw whole inside the body, where its DOM says they are. |
-| `row-26-deck-scope-surfaces.test.ts` | What a body raises past its content box the shell draws: the Z2 placard over the deck, its buttons reaching the body, and `/logout`'s confirm. |
-| `row-27-drop-into-body.test.ts` | A drag over a body is the body's: a file from outside the window and a jot from the Jots card both land in its composer, and the shell's page takes no drop. |
-| `row-28-deck-facts.test.ts` | A body follows the focus-ring modality live, and the shell's held modifiers land on its root, with the shell key, the body key and across a hand-off. |
-| `row-29-voiceover-order.test.ts` | VoiceOver reads the shell, then each showing body in deck order, whichever pane stands in front. |
-| `floor-host.test.ts` | The host draws the canvas floor: its colour and grid match the page's own by composite at zoom 0.8, 1.0 and 1.25, and it never shows before the window's reveal. |
+Each row names the card kinds it is run against. Every kind moves to a body
+by its registration, and arrives here with its own column; until then a row
+is read for the Session card alone.
+
+Each row runs for one card of each placement shape: the Session card for a
+content card, the Overview for a pinned rail. The rows test the body
+machinery, which does not know which card a body holds, so a kind that moves
+proves itself in its own kind check rather than by running every row again;
+`_kinds.ts` names the representatives, and `TUG_BODY_KINDS` runs a row
+against any kinds named.
+
+| File | Row | Session | Overview |
+|---|---|---|---|
+| `probe-tap.test.ts` | The path itself: one character through the activated tap lands in a body's composer; one menu item performed takes effect in the body. | ✓ | — |
+| `row-01-arrival.test.ts` | ⌘N: a new card arrives with nothing of the canvas, grid or an older pane showing through the hole at any frame, cold and warm. | ✓ | ✓ |
+| `row-02-drag.test.ts` | A card drags as one piece: masthead, frame and content together under the pointer, landing together. | ✓ | ✓ |
+| `row-03-departure.test.ts` | A card departs as one piece, and the hole closes with it. | ✓ | ✓ |
+| `row-04-slide.test.ts` | A slide (flow, Go to slot, bullseye, sidebar show/hide, fit) moves each card as one piece: a slide that only moves the card is carried by the host; one that changes its size keeps the interim, hide at the beat's start and show at the land. | ✓ | ✓ |
+| `row-05-chords.test.ts` | Every chord in the keyboard files works from a body and from the shell. | ✓ | ✓ |
+| `row-06-menus.test.ts` | Every Swift menu command works with a body first responder, including the ones validating against the first responder's undo manager. | ✓ | ✓ |
+| `row-07-focus.test.ts` | Activating a card makes its body first responder; typing goes there and nowhere else; the shell's surfaces take and return focus; closing the key card hands focus on. | ✓ | ✓ |
+| `row-08-sheets.test.ts` | The Changes shade, the history view and the find bar open, list, scroll and close from a body. | ✓ | n/a: no sheet |
+| `row-09-fold.test.ts` | Fold hides the body; the unfold shows it with no peek. | ✓ | n/a: a rail does not fold: `setPaneFolded` refuses one |
+| `row-10-workspace.test.ts` | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. | ✓ | ✓ |
+| `row-11-lifecycle.test.ts` | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. A dirty Text body asks in its own page before its pane closes and before a Cards body's workspace delete, and Cancel keeps both. | ✓ | ✓ |
+| `row-12-composer.test.ts` | Z2, the composer, paste of text and images, and the picker-to-body handoff. | ✓ | ✓ |
+| `row-13-arc-tracking.test.ts` | An arc bound to a body's session reads in that body's Z2, on the shell's masthead and in the Arcs body, which follows the Session card focused before it and offers Bind to its session. The stores a body attaches are enumerated by `tugdeck/src/body/__tests__/body-stores.test.ts`. | ✓ | n/a: the Overview has none of it |
+| `row-14-beats-move.test.ts` | A gesture that only moves body cards (the flow slide out and back, a cross-column stack move) carries each body with its chrome on the host: the lid stays lifted, the content box never shows the floor, the presented container tracks the placeholder, the render server advances it every tick, and it lands on the placeholder to the pixel. | ✓ | ✓ |
+| `row-15-skew.test.ts` | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: noted at an offset of 0 (the median sets the shipped offset), and within two frames of travel at the shipped offset, at rest and with three bodies streaming. | ✓ | n/a: Session-only by construction |
+| `row-16-back-pane-cut.test.ts` | A body carried across a Text card behind it: the back pane's cut moves with the body on the plan's clock, so no frame in motion shows the Text card's ink inside the body; the shell's gap rows over the motion are noted. | ✓ | n/a: Session-only by construction |
+| `row-17-crossing.test.ts` | Bullseye, a column split and a new card beside the body card (⌘N's action) carry it with its chrome, to a new size where the box changes: `crossingReady` within a display period of the first moving beat, the content box and its bottom strip never the floor, the transcript pinned to its bottom before and after, and the container's top corners square. | ✓ | ✓ |
+| `row-19-streams.test.ts` | A body streams through the shell's settle: every body applies a batch between the motion gate's close and open, and none is parked, across a flow slide and a cross-column stack move. | ✓ | n/a: Session-only by construction |
+| `row-20-drag-hole.test.ts` | A body card dragged across a Text card, the drag cancelled, or the card carried there by a settle, leaves no hole in the Text card at rest: every pane's cut is the landed deck's. | ✓ | ✓ |
+| `row-21-edges.test.ts` | A body card's side edges are the pane's border and nothing else, read beside a Text card's at zoom 0.8, 0.9 and 1.0, with each card key. | ✓ | ✓ |
+| `row-22-compaction-cover.test.ts` | A body's Compacting cover rests on the rest line above Z2, as the in-document card's does, not at the top of the transcript. | ✓ | n/a: Session-only by construction |
+| `row-23-tab-edge.test.ts` | A body card's walk runs off its edge into the shell and comes back, by Tab and ⇧Tab and by the View menu's Next and Previous Keyboard Focus, with the body holding the keyboard at every step. | ✓ | ✓ |
+| `row-24-focus-through-motion.test.ts` | The key body keeps the keyboard through a settle that carries it on the host, and what is typed during the motion lands in it. | ✓ | n/a: Session-only by construction |
+| `row-25-in-card-surfaces.test.ts` | The completion popup, the composer's context menu and the route badge's report draw whole inside the body, where its DOM says they are. | ✓ | ✓ |
+| `row-26-deck-scope-surfaces.test.ts` | What a body raises past its content box the shell draws: the Z2 placard over the deck, its buttons reaching the body, and `/logout`'s confirm. | ✓ | n/a: raises no deck-scope surface |
+| `row-27-drop-into-body.test.ts` | A drag over a body is the body's: a file from outside the window and a jot dragged from the Jots body both land in its composer, and neither the shell's page nor the Jots page takes the drop. | ✓ | n/a: the Overview has none of it |
+| `row-28-deck-facts.test.ts` | A body follows the focus-ring modality live, and the shell's held modifiers land on its root, with the shell key, the body key and across a hand-off. | ✓ | ✓ |
+| `row-29-voiceover-order.test.ts` | VoiceOver reads the shell, then each showing body in deck order, whichever pane stands in front. | ✓ | ✓ |
+| `row-32-overview-insert.test.ts` | The Overview's Insert into Prompt lands an atom in its own composer, in its body; the post reaches the body through the ledger. | — | ✓ |
+| `row-33-arrangement.test.ts` | The Cards and Layout bodies read the shell's arrangement and act on it through the shell: the Layout row press and window drag reach the shell's deck and come back; the Cards body's session rows, row ×, new workspace, go-there and the menu's delete confirm all reach the shell. Each leg is also its card's kind check. | — | n/a: the arrangement cards' own row |
+| `floor-host.test.ts` | The host draws the canvas floor: its colour and grid match the page's own by composite at zoom 0.8, 1.0 and 1.25, and it never shows before the window's reveal. | ✓ | — |
 
 A row's file lands with the step that builds the row; a file not yet here is a
 row not yet green.
+
+## Kind checks
+
+A kind that moves lands with one `kind-<componentId>.test.ts`: the card
+mounts as a body holding its kind, shows its real data reached the
+production way, its own interactions work in its body, its body paints the
+surface its pane paints (read by composite colour), and its deck bridge was
+asked nothing only the shell answers.
+
+| File | Kind | Its data | Its interactions |
+|---|---|---|---|
+| `kind-jots.test.ts` | Jots | a jots file (`TUG_JOTS_PATH`) | the row menu; an edit, an add and a drag reorder, each reaching the file |
+| `kind-arcs.test.ts` | Arcs | a scratch repository's arc, through tugcast | Bind offered to the followed Session card; the row menu |
+| `row-33-arrangement.test.ts` (Layout leg) | Layout | the shell's six-slot flow arrangement | the Layout row press (round trip noted); the window grip drag |
+| `row-33-arrangement.test.ts` (Cards leg) | Cards | the shell's workspaces, cards and session bindings | row ×, new workspace named in the body, go-there, Delete Workspace's confirm |
+| `kind-documents.test.ts` (Text) | Text | a text file on disk | typing, ⌘S to the file, the unsaved dot on the Cards rail's row, Reveal enabled in the shell's title bar |
+| `kind-documents.test.ts` (file-view) | file-view | a picture on disk | the title bar's gear opens the image settings sheet in the body |
+| `kind-documents.test.ts` (Diff) | Diff | this checkout's HEAD, through git | a section's trigger folds it |
+| `kind-documents.test.ts` (Commit) | Commit | this checkout's HEAD, through git | the shell's masthead wears its subject; a roster path opens its file, and again reuses that card |
+| `kind-singletons.test.ts` (Settings) | Settings | a seeded tugbank's stored values | a section click; a control's press writes tugbank, which the shell reads; a second open raises the one body; `reveal-settings` lands the named section |
+| `kind-singletons.test.ts` (Keyboard Shortcuts) | Keyboard Shortcuts | the keymap | the filter field narrows the rows |
+| `kind-singletons.test.ts` (About) | About | the host's build identity, relayed in the body's context | none of its own; the shell's tab wears the title it published |
+| `kind-singletons.test.ts` (Hello) | Hello | its line | none |
+| `kind-singletons.test.ts` (devtools) | devtools | the followed Session body's inspection and the shell's log, both relayed | the Telemetry and Log tabs; closing the card stops the relay |
+| `kind-gallery-buttons.test.ts` | the maker kinds (gallery, spike, fixture), by `gallery-buttons` | its own sections | the view toggle flips in the body |

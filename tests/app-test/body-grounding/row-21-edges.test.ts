@@ -21,6 +21,12 @@
  * and breaks it. The Text card's edges are the reference: the same bound
  * holds on both, and the body's border column reads the Text card's.
  *
+ * Every other kind that is a body is read the same way beside the Text
+ * card. A pinned rail's one border is its inner edge, drawn in the rail
+ * treatment's own stronger rule, and its outer edge meets the window: the
+ * spread bound holds on both of its edges, and its border column is the
+ * rail's rather than the Text card's.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-beat-plan.ts
  * @covers tugdeck/src/body/body-page.css
@@ -38,6 +44,8 @@ import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, SETTLE_MS, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { standUpKind } from "./_kind-bodies";
+import { kindPane, kindSidebars, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-21-edges";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -150,7 +158,77 @@ async function readEdges(app: App, crop: Rect, frames: Record<string, Rect>): Pr
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 21: a body card's edges are the pane's border", () => {
-  test(
+  for (const kind of kindsUnderTest(21)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: its side edges are one border, no sliver beside it, at three zooms, key and not key`,
+      async () => {
+        const card = `r21-${kind.componentId}`;
+        const dir = mkdtempSync(join(tmpdir(), "tug-r21-text-"));
+        const file = join(dir, "blank.txt");
+        writeFileSync(file, "\n".repeat(120));
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          await app.seedDeckState({
+            state: {
+              cards: [
+                { id: card, componentId: kind.componentId, title: kind.componentId, closable: true },
+                { id: T, componentId: "text", title: "T", closable: true },
+              ],
+              panes: [
+                kindPane(kind.componentId, card, 0),
+                { id: `${T}-pane`, position: { x: 40, y: 40 }, size: { width: 640, height: 480 }, cardIds: [T], activeCardId: T, title: "", acceptsFamilies: ["standard"], slot: kind.rail ? 0 : 1 },
+              ],
+              activePaneId: `${card}-pane`,
+              imposition: { kind: "four-up", layout: "flow", contentWidth: "slim", sidebars: kindSidebars([kind.componentId]) },
+              hasFocus: true,
+            },
+            cardStates: { [T]: { content: { path: file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
+            focusCardId: card,
+          });
+          await standUpKind(app, kind, card);
+          const fractional: string[] = [];
+          const spreads: string[] = [];
+          for (const zoom of ZOOMS) {
+            const took = await app.setPageZoom(zoom);
+            expect(took, `View › Zoom took ${zoom}`).toBeCloseTo(zoom, 3);
+            for (const key of [card, T]) {
+              if (key === card) await focusBody(app, card, { composer: false });
+              else {
+                await app.evalJS<null>(`(window.__tug.dispatchControlAction("focus-pane", { paneId: ${JSON.stringify(`${T}-pane`)} }), null)`);
+                expect(await pollFor(() => app.getFocusedCardId(), (id) => id === T, SETTLE_MS), "the Text card is key").toBe(T);
+              }
+              await pollFor(() => app.evalJS<boolean>(`document.querySelector(".tug-pane-flash") === null`), (gone) => gone, 5_000);
+              await Bun.sleep(300);
+              const state = `zoom ${zoom}, ${key === card ? "body key" : "Text key"}`;
+              const posted = await app.evalJS<Rect[]>(
+                `(window.tugdeck.diag.getBodyPlacement().lastPosted || { bodies: [] }).bodies.map(function (b) { return { x: b.x, y: b.y, width: b.width, height: b.height }; })`,
+              );
+              for (const b of posted) if (![b.x, b.y, b.width, b.height].every(Number.isInteger)) fractional.push(`${state}: ${JSON.stringify(b)}`);
+              const kFrame = (await rectOf(app, frameOf(card)))!;
+              const tFrame = (await rectOf(app, frameOf(T)))!;
+              const inner = await app.evalJS<{ w: number }>(`({ w: window.innerWidth })`);
+              const midY = Math.round(kFrame.y + kFrame.height * 0.6);
+              const left = Math.max(0, Math.floor(Math.min(kFrame.x, tFrame.x)) - 2);
+              const right = Math.min(Math.floor(inner.w), Math.ceil(Math.max(kFrame.x + kFrame.width, tFrame.x + tFrame.width)) + 2);
+              const edges = await readEdges(app, { x: left, y: midY, width: right - left, height: 2 }, { body: kFrame, text: tFrame });
+              for (const [edge, p] of Object.entries(edges)) {
+                note(`${state}, ${edge}: spread ${p.spread.toFixed(2)}, peak ${hex(p.peak)}, interior ${hex(p.interior)}`);
+                if (p.spread > SPREAD_BOUND) spreads.push(`${state}, ${edge}: ${p.spread.toFixed(2)}`);
+              }
+            }
+          }
+          expect(fractional, "every body is posted at whole points").toEqual([]);
+          expect(spreads, "every edge, the body's and the Text card's, is one border with no sliver beside it").toEqual([]);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(21))(
     "the body card's side edges read as the Text card's at three zooms, key and not key",
     async () => {
       const stubDir = stubDirectory();
@@ -160,7 +238,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 21: a body card's edges are the
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({

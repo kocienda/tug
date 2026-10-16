@@ -20,6 +20,14 @@
  * - **Inert.** Every layout, rail, flow, column, space and add verb is the
  *   shell's. Here it does nothing, answers null or false, and says so once.
  *
+ * A card that lists or moves the whole deck — a registration with
+ * `bodyDeck: "arrangement"` — gets an **arrangement** bridge instead: its
+ * snapshot, workspaces and band facts are the shell's own, read from the
+ * `arrangement` its `card-context` carries (`lib/body-arrangement.ts`), and
+ * the deck calls it makes go to the shell as `deck-call` advice. A card that
+ * follows another (`bodyFollows`) reads the followed card from the same
+ * context, through {@link BodyDeckBridge.getFollowedCardId}.
+ *
  * @module body/body-deck-bridge
  */
 
@@ -46,6 +54,7 @@ import type {
 import { DEFAULT_SIDEBAR_SIDE } from "../lib/layout-imposer";
 import { applyBagFocus } from "../focus-transfer";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
+import { arrangementSnapshot, type BodyArrangement } from "../lib/body-arrangement";
 
 /** The pane id a body's card stands in — also its `CardHost`'s `hostStackId`. */
 export function bodyPaneId(cardId: string): string {
@@ -63,6 +72,8 @@ export interface BodyDeckBridgeOptions {
   putCardState: CardStateCacheDeps["putCardState"];
   /** The card's bag as tugbank holds it at boot, if any. */
   initialBag?: CardStateBag;
+  /** What of the deck the card reads: its own card (the default) or the shell's arrangement. */
+  deckMode?: "card" | "arrangement";
 }
 
 const NO_CONTEXT: CardContext = {
@@ -80,11 +91,23 @@ const NO_SPACES: SpacesSnapshot = {
   mountedDecks: new Map(),
 };
 
+/** The card a following card follows, as `card-context.followed` carries it. */
+function followedCardIdOf(context: CardContext): string | null {
+  const followed = context.followed as { cardId?: unknown } | null | undefined;
+  return typeof followed?.cardId === "string" ? followed.cardId : null;
+}
+
 export class BodyDeckBridge implements IDeckManagerStore {
   readonly cardId: string;
   private readonly componentId: string;
   private readonly advise: (advice: CardAdvice) => void;
+  private readonly deckMode: "card" | "arrangement";
   private context: CardContext = NO_CONTEXT;
+  /** The shell's arrangement, in arrangement mode, once a context carried one. */
+  private arrangement: BodyArrangement | null = null;
+  private arrangementJson = "";
+  private spacesSnapshot: SpacesSnapshot = NO_SPACES;
+  private readonly spacesListeners = new Set<() => void>();
   private deckState: DeckState;
   private version = 0;
   private readonly listeners = new Set<(landing: CommitLanding) => void>();
@@ -114,6 +137,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
     this.cardId = options.cardId;
     this.componentId = options.componentId;
     this.advise = options.advise;
+    this.deckMode = options.deckMode ?? "card";
     this.cardStates = new CardStateCache(
       { putCardState: options.putCardState },
       options.initialBag === undefined
@@ -143,13 +167,20 @@ export class BodyDeckBridge implements IDeckManagerStore {
   applyContext(next: CardContext): void {
     const prev = this.context;
     this.context = next;
+    const arrangementMoved = this.takeArrangement(next);
     if (
+      arrangementMoved ||
+      followedCardIdOf(prev) !== followedCardIdOf(next) ||
       prev.folded !== next.folded ||
       prev.arriving !== next.arriving ||
-      prev.firstResponderCardId !== next.firstResponderCardId
+      prev.firstResponderCardId !== next.firstResponderCardId ||
+      prev.railSide !== next.railSide
     ) {
       this.deckState = this.synthesize();
       this.notify();
+    }
+    if (arrangementMoved) {
+      for (const listener of [...this.spacesListeners]) listener();
     }
     const wasKey = prev.firstResponderCardId === this.cardId;
     const isKey = next.firstResponderCardId === this.cardId;
@@ -180,8 +211,49 @@ export class BodyDeckBridge implements IDeckManagerStore {
     for (const listener of [...this.layerListeners]) listener();
   }
 
+  /**
+   * In arrangement mode, keep the context's arrangement when it differs from
+   * the last one (JSON-compared, as the shell compares what it sends), and
+   * rebuild the spaces snapshot from it. Whether it moved.
+   */
+  private takeArrangement(next: CardContext): boolean {
+    if (this.deckMode !== "arrangement" || next.arrangement === undefined) return false;
+    const json = JSON.stringify(next.arrangement);
+    if (json === this.arrangementJson) return false;
+    this.arrangementJson = json;
+    const arrangement = next.arrangement as BodyArrangement;
+    this.arrangement = arrangement;
+    const { spaces } = arrangement;
+    this.spacesSnapshot = {
+      spaces: spaces.spaces,
+      activeSpaceId: spaces.activeSpaceId,
+      mountedSpaceIds: spaces.mountedSpaceIds,
+      mountedDecks: new Map(
+        spaces.mountedSpaceIds
+          .filter((id) => id !== spaces.activeSpaceId && spaces.decks[id] !== undefined)
+          .map((id) => [id, spaces.decks[id]]),
+      ),
+    };
+    return true;
+  }
+
+  /** Send a deck call the shell runs for an arrangement card; says so once in card mode. */
+  private deckCall(method: string, args: unknown[]): void {
+    if (this.arrangement === null) {
+      this.inert(method);
+      return;
+    }
+    this.advise({ advice: "deck-call", method, args });
+  }
+
   private synthesize(): DeckState {
     const paneId = bodyPaneId(this.cardId);
+    if (this.arrangement !== null) {
+      return {
+        ...arrangementSnapshot(this.arrangement, this.cardId, paneId),
+        hasFocus: typeof document !== "undefined" ? document.hasFocus() : true,
+      };
+    }
     const pane: TugPaneState = {
       id: paneId,
       position: { x: 0, y: 0 },
@@ -213,6 +285,15 @@ export class BodyDeckBridge implements IDeckManagerStore {
     tugDevLogStore.warn("body", `${method} is the shell's`);
   }
 
+  /**
+   * The shell-only methods this card has called, each once: a read or a
+   * move the bridge does not answer in this page. A kind that is a body
+   * should call none; one that does reads something the shell must send it.
+   */
+  shellReads(): string[] {
+    return [...this.warned];
+  }
+
   // ---- Real, local: the snapshot ----
 
   subscribe = (callback: (landing: CommitLanding) => void): (() => void) => {
@@ -237,6 +318,18 @@ export class BodyDeckBridge implements IDeckManagerStore {
    */
   getFocusedCardId = (): string | null =>
     this.context.firstResponderCardId === this.cardId ? this.cardId : null;
+  /**
+   * The card a following card follows: the last key card that is not it,
+   * which only the shell's focus manager knows, so the shell says it in the
+   * card's context. `useTrackFollowedCard` reads this in a body.
+   */
+  getFollowedCardId = (): string | null => followedCardIdOf(this.context);
+  /**
+   * The edge the card stands pinned to when it is a rail, which the body's
+   * page wears so it paints the rail's surface rather than a content card's;
+   * null for a content card or a rail dragged loose.
+   */
+  getRailSide = (): "left" | "right" | null => this.context.railSide ?? null;
 
   // ---- Real, local: lifecycle ----
 
@@ -339,24 +432,32 @@ export class BodyDeckBridge implements IDeckManagerStore {
 
   // ---- Inert: the deck's arrangement is the shell's ----
 
-  getBandWidth = (): number | null => (this.inert("getBandWidth"), null);
+  getBandWidth = (): number | null =>
+    this.arrangement !== null
+      ? this.arrangement.bandWidth
+      : // An arrangement card reading before its first context arrives is
+        // early, not asking the shell for something it will not send.
+        this.deckMode === "arrangement"
+        ? null
+        : (this.inert("getBandWidth"), null);
   getDrawnFlowOffset = (): number | null => null;
   getDrawnFlowVelocity = (): number | null => null;
   setDrawnFlowVelocity = (_v: number | null): void => this.inert("setDrawnFlowVelocity");
   getBandEdges = (): FlowBandEdges | null => null;
   getBandSpan = (): number => 0;
-  getColumnRunHeight = (): number | null => null;
-  getRailRunHeight = (): number | null => null;
+  getColumnRunHeight = (): number | null => this.arrangement?.columnRunHeight ?? null;
+  getRailRunHeight = (): number | null => this.arrangement?.railRunHeight ?? null;
   getSpaceSwitchStartedAt = (): number | null => null;
   getImpositionGestureAt = (): number | null => null;
   setColumnOffset = (_slot: number, _offset: number, _landing?: CommitLanding): void =>
     this.inert("setColumnOffset");
   setRailOffset = (_side: SidebarSide, _offset: number, _landing?: CommitLanding): void =>
     this.inert("setRailOffset");
-  setFlowOffset = (_offset: number, _landing?: CommitLanding): void => this.inert("setFlowOffset");
+  setFlowOffset = (offset: number, landing?: CommitLanding): void =>
+    this.deckCall("setFlowOffset", landing === undefined ? [offset] : [offset, landing]);
   railWidthLimits = (_side: SidebarSide): RailWidthLimits | null => null;
   setRailWidth = (_side: SidebarSide, _width: number): void => this.inert("setRailWidth");
-  previewFlowOffset = (_offset: number): void => this.inert("previewFlowOffset");
+  previewFlowOffset = (offset: number): void => this.deckCall("previewFlowOffset", [offset]);
   handlePaneMoved = (
     _paneId: string,
     _position: { x: number; y: number },
@@ -407,22 +508,39 @@ export class BodyDeckBridge implements IDeckManagerStore {
   );
   moveCardToPane = (_source: string, _cardId: string, _target: string, _index: number): void =>
     this.inert("moveCardToPane");
-  subscribeSpaces = (_callback: () => void): (() => void) => () => {};
-  getSpacesSnapshot = (): SpacesSnapshot => NO_SPACES;
+  subscribeSpaces = (callback: () => void): (() => void) => {
+    this.spacesListeners.add(callback);
+    return () => {
+      this.spacesListeners.delete(callback);
+    };
+  };
+  getSpacesSnapshot = (): SpacesSnapshot => this.spacesSnapshot;
   spaceOf = (_cardId: string): string | null => this.context.spaceId;
-  getSpaceDeck = (_spaceId: string): DeckState | null => null;
-  activateSpace = (_spaceId: string): void => this.inert("activateSpace");
+  getSpaceDeck = (spaceId: string): DeckState | null => {
+    if (this.arrangement === null) return null;
+    if (spaceId === this.arrangement.spaces.activeSpaceId) return this.deckState;
+    return this.arrangement.spaces.decks[spaceId] ?? null;
+  };
+  activateSpace = (spaceId: string): void => this.deckCall("activateSpace", [spaceId]);
   createSpace = (_name?: string): string => (this.inert("createSpace"), "");
-  renameSpace = (_spaceId: string, _name: string): void => this.inert("renameSpace");
-  chooseSpaceTheme = (_spaceId: string, _theme: string): void => this.inert("chooseSpaceTheme");
+  renameSpace = (spaceId: string, name: string): void => this.deckCall("renameSpace", [spaceId, name]);
+  chooseSpaceTheme = (spaceId: string, theme: string): void =>
+    this.deckCall("chooseSpaceTheme", [spaceId, theme]);
   duplicateSpace = (_spaceId: string): string | null => (this.inert("duplicateSpace"), null);
-  spaceHoldsLiveSessions = (_spaceId: string): number => 0;
-  spaceCardCount = (_spaceId: string): number => 0;
+  spaceHoldsLiveSessions = (spaceId: string): number =>
+    this.arrangement?.spaces.liveSessions[spaceId] ?? 0;
+  spaceCardCount = (spaceId: string): number => this.arrangement?.spaces.cardCounts[spaceId] ?? 0;
   deleteSpace = (_spaceId: string): boolean => (this.inert("deleteSpace"), false);
-  reorderSpaces = (_order: readonly string[]): void => this.inert("reorderSpaces");
-  moveCardToSpace = (_cardId: string, _spaceId: string): boolean => (
-    this.inert("moveCardToSpace"), false
-  );
+  reorderSpaces = (order: readonly string[]): void => this.deckCall("reorderSpaces", [[...order]]);
+  /**
+   * The move is the shell's to make or refuse; a body hands it over and
+   * answers whether it could: true once handed to the shell, which reports
+   * a refusal itself.
+   */
+  moveCardToSpace = (cardId: string, spaceId: string): boolean => {
+    this.deckCall("moveCardToSpace", [cardId, spaceId]);
+    return this.arrangement !== null;
+  };
   setPaneWidth = (_paneId: string, _preset: ContentWidth): void => this.inert("setPaneWidth");
   setContentWidth = (_preset: ContentWidth): void => this.inert("setContentWidth");
   toggleBullseye = (_paneId: string): void => this.inert("toggleBullseye");

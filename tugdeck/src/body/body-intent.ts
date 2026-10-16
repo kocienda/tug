@@ -13,11 +13,14 @@
  * names, so the spawn's replay reaches it; a crash recovery learns its
  * session from the bindings answer first.
  *
+ * A card of a kind with no session — a Text card, the Overview — is bound
+ * with `mount`: the body mounts it and there is nothing to replay.
+ *
  * @module body/body-intent
  */
 
 import type { TugConnection } from "../connection";
-import type { DeckState } from "../layout-tree";
+import type { CardStateBag, DeckState } from "../layout-tree";
 import {
   fireFreshSpawn,
   fireNewSpawn,
@@ -37,7 +40,13 @@ export type BodyIntent =
       openingCommand?: { name: string; args: string };
     }
   | { kind: "new"; tugSessionId: string; projectDir: string; lineId: string; tag: string }
-  | { kind: "restore" };
+  | { kind: "restore" }
+  /**
+   * A kind with no session, handed off as the deck holds it. `bag` is the
+   * card's state as the shell holds it at the hand-off — a just-opened
+   * file's seed is there before anything reaches tugbank.
+   */
+  | { kind: "mount"; bag?: CardStateBag };
 
 function str(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -50,6 +59,10 @@ export function parseBodyIntent(raw: unknown): BodyIntent | null {
   switch (r.kind) {
     case "restore":
       return { kind: "restore" };
+    case "mount":
+      return typeof r.bag === "object" && r.bag !== null
+        ? { kind: "mount", bag: r.bag as CardStateBag }
+        : { kind: "mount" };
     case "resume":
       if (!str(r.tugSessionId) || !str(r.projectDir)) return null;
       return {
@@ -106,6 +119,8 @@ export function replayBodyIntent(
     if (options?.inShell !== true) connection.setSessions([sessionId]);
   };
   switch (intent.kind) {
+    case "mount":
+      return;
     case "resume":
       narrow(intent.tugSessionId);
       fireRestore(cardId, intent.tugSessionId, intent.projectDir, connection, intent.display);

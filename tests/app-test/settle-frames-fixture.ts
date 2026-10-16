@@ -777,7 +777,8 @@ export async function launch(
   );
   const app = await launchTugApp({
     testName,
-    env: { ...opts.env, TUGBANK_PATH: tugbankPath, ...(opts.bodies === true ? { TUG_BODY_VIEWS: "1" } : {}) },
+    bodies: opts.bodies === true,
+    env: { ...opts.env, TUGBANK_PATH: tugbankPath },
     skipAccessibilityPreflight: true,
     persistInTestMode: true,
     restoreInTestMode: true,

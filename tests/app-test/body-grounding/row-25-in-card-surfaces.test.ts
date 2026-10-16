@@ -18,6 +18,10 @@
  * interior, read by composite colour, must change when it opens and come
  * back when it closes: it is painted where the body's DOM says it is.
  *
+ * Every other kind that is a body raises its own in-card surfaces and is
+ * read the same way: the Overview's row menu on a post, and its composer's
+ * context menu.
+ *
  * @foreground
  * @covers tugdeck/src/components/tugways/tug-editor-context-menu.tsx
  * @covers tugdeck/src/components/tugways/chrome/session-route-indicator-badge.tsx
@@ -30,6 +34,8 @@ import type { CaptureBurstReading } from "../_harness/client";
 import { decodePngFile } from "../_harness/png";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { bodyOf, focusBody, pollFor, PROMPT_INPUT, SETTLE_MS, spawnStub, waitForBody } from "./_bodies";
+import { kindDeck, standUpKind } from "./_kind-bodies";
+import { cardKind, kindsUnderTest, sessionUnderTest } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-25-in-card-surfaces";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -97,8 +103,8 @@ function differing(a: number[][], b: number[][], scale: number, tolerance = 8): 
  * column of its interior by composite, close it with `close`, and read the
  * same column again.
  */
-async function readInCard(app: App, label: string, selector: string, open: () => Promise<void>, close: () => Promise<void>): Promise<void> {
-  const body = app.body(A);
+async function readInCard(app: App, label: string, selector: string, open: () => Promise<void>, close: () => Promise<void>, card = A): Promise<void> {
+  const body = app.body(card);
   await open();
   const appeared = await pollFor(() => body.evalJS<SurfaceReading | null>(readSurface(selector)), (r) => r !== null, SETTLE_MS);
   expect(appeared, `${label}: the surface appears in the body`).not.toBeNull();
@@ -117,7 +123,7 @@ async function readInCard(app: App, label: string, selector: string, open: () =>
   // A column a third of the way across the surface, through its whole
   // height and past both its ends: what it paints must begin and end where
   // its box does, and nothing well outside the box may change with it.
-  const frame = (await bodyOf(app, A))!.frame;
+  const frame = (await bodyOf(app, card))!.frame;
   const x = frame.x + box.left + (box.right - box.left) / 3;
   const y = frame.y + box.top - COLUMN_REACH_PT;
   const h = box.bottom - box.top + 2 * COLUMN_REACH_PT;
@@ -140,14 +146,52 @@ async function readInCard(app: App, label: string, selector: string, open: () =>
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 25: in-card surfaces draw whole inside the body", () => {
-  test(
+  test.skipIf(!kindsUnderTest(25).some((k) => k.componentId === "overview"))(
+    "overview: its row menu on a post and its composer's context menu stand inside its body and are painted there",
+    async () => {
+      const card = "r25-overview";
+      const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: true, bodies: true });
+      try {
+        const now = Date.now();
+        app.seedLedger({
+          overview_posts: Array.from({ length: 4 }, (_, i) => ({
+            at_ms: now - (4 - i) * 60_000,
+            author: "observer" as const,
+            body: `Post ${i + 1}: a line of work narrated, long enough to wrap once in a rail.`,
+            refs: [],
+          })),
+        });
+        const kind = cardKind("overview");
+        await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r25-seed"] }), focusCardId: card });
+        const body = await standUpKind(app, kind, card);
+        await focusBody(app, card, { composer: false });
+        const POST = ".overview-post-body";
+        await pollFor(() => body.evalJS<boolean>(`document.querySelectorAll(${JSON.stringify(POST)}).length > 0`), (v) => v, SETTLE_MS);
+        const rightClick = async (selector: string): Promise<void> => {
+          const r = await body.evalJS<Box>(
+            `(function () { var all = document.querySelectorAll(${JSON.stringify(selector)}); var r = all[all.length - 1].getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; })()`,
+          );
+          const frame = (await bodyOf(app, card))!.frame;
+          await app.nativeRightClick({ x: frame.x + (r.left + r.right) / 2, y: frame.y + (r.top + r.bottom) / 2 });
+        };
+        await readInCard(app, "the row menu on a post", CONTEXT_MENU, () => rightClick(POST), () => app.nativeKey("Escape"), card);
+        await readInCard(app, "the composer's context menu", CONTEXT_MENU, () => rightClick(kind.field!), () => app.nativeKey("Escape"), card);
+      } finally {
+        await app.close();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.skipIf(!sessionUnderTest(25))(
     "the completion popup, the composer's context menu and the route report stand inside the body and are painted there",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({

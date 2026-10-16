@@ -1261,6 +1261,8 @@ export function hostFrames(
 export interface BodyViewSnapshot {
   /** The card the body is bound to; null for the warm spare. */
   cardId: string | null;
+  /** The kind of card the body holds (the deck's `componentId`); null for the warm spare. */
+  componentId: string | null;
   state: "loading" | "connected" | "bound" | "ready" | "failed";
   /** The body's frame in shell viewport points, top-left origin. */
   frame: { x: number; y: number; width: number; height: number };

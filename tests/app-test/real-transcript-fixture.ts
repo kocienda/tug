@@ -113,7 +113,7 @@ const BODY_READY_MS = 30_000;
 
 /**
  * The page a card's content is read in: its body's own page when the deck
- * runs bodies (`TUG_BODY_VIEWS=1`), whose transcript the shell's document
+ * runs bodies (`launchTugApp({ bodies: true })`), whose transcript the shell's document
  * does not hold, and the shell's otherwise. A body is waited for until it
  * stands ready.
  */

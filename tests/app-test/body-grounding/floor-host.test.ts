@@ -106,7 +106,7 @@ async function readAtZooms(onSwitch: boolean): Promise<Map<number, FloorReading>
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${onSwitch ? "on" : "off"}`,
     foreground: true,
-    env: onSwitch ? { TUG_BODY_VIEWS: "1" } : {},
+    bodies: onSwitch,
   });
   const readings = new Map<number, FloorReading>();
   try {

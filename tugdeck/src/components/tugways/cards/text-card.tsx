@@ -716,6 +716,8 @@ export function TextCardContent({ cardId }: { cardId: string }) {
       // The pane activates this card before running the sheet when the
       // buffer is dirty, so the user decides looking at the content.
       needsDecision: () => store.getSnapshot().saveState !== "clean",
+      // The answer moves with the store; a body card publishes it on each move.
+      subscribe: store.subscribe,
       run: async () => {
         const snap = store.getSnapshot();
         if (snap.saveState === "clean") return "close";

@@ -46,7 +46,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
-import { keyboardIsInCard } from "./_harness/selectors";
+import { waitForKeyboardInCard } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -131,7 +131,7 @@ describe.skipIf(!SHOULD_RUN)("AT0268: focus marks are a projection of engine sta
         );
 
         await app.nativeClickAtElement(TITLE);
-        await app.waitForCondition<boolean>(keyboardIsInCard("A"), { timeoutMs: 6000 });
+        await waitForKeyboardInCard(app, "A", { timeoutMs: 6000 });
 
         // (1) Tab lands the key view on the accordion, keyboard-reached, and
         // the DOM names exactly what the engine says the key view is.
@@ -193,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)("AT0268: focus marks are a projection of engine sta
         // itself, the descend, the mode stamp and the within mark all return
         // intact, which is what this step is about.
         await app.nativeClickAtElement(TITLE);
-        await app.waitForCondition<boolean>(keyboardIsInCard("A"), { timeoutMs: 6000 });
+        await waitForKeyboardInCard(app, "A", { timeoutMs: 6000 });
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-key-view]') !== null`,
           { timeoutMs: 6000 },
@@ -230,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)("AT0268: focus marks are a projection of engine sta
           { timeoutMs: 15_000 },
         );
         await app.nativeClickAtElement(TITLE);
-        await app.waitForCondition<boolean>(keyboardIsInCard("A"), { timeoutMs: 6000 });
+        await waitForKeyboardInCard(app, "A", { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${DEMO} [data-key-view-kbd]`)}) !== null`,

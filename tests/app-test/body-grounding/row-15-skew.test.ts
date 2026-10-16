@@ -269,7 +269,8 @@ async function runLeg(leg: string, env: Record<string, string>, streaming = fals
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${leg}`,
     foreground: true,
-    env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir, ...env },
+    bodies: true,
+    env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, ...env },
   });
   try {
     await app.seedDeckState({ state: flowDeck(bodies), focusCardId: card });

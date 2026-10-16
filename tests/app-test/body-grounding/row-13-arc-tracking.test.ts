@@ -14,16 +14,21 @@
  * - **The body's Z2** — the ARC cell stands in the body's own document and
  *   reads the declared run, `1/3`, not the plan's `1/10`.
  * - **The shell** — the card's masthead, which the shell draws for a body
- *   card, carries the lifecycle mark with the same fraction, and the Arcs
- *   card has the arc's row with the bound session's worker on it.
+ *   card, carries the lifecycle mark with the same fraction.
+ * - **The Arcs body** — the Arcs card is a body of its own, and has the
+ *   arc's row with the bound session's worker on it.
  *
- * Then the unbind takes the arc off the body's Z2 again. Which stores a
- * body attaches at all is enumerated by `body/__tests__/body-stores.test.ts`.
+ * Then the unbind takes the arc off the body's Z2 again, and the Arcs body,
+ * which follows the Session card focused before it, offers Bind unrefused:
+ * its Bind target is that card's session, read off the card context the
+ * shell sends it. Which stores a body attaches at all is enumerated by
+ * `body/__tests__/body-stores.test.ts`.
  *
  * @foreground
  * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-renderers.tsx
  * @covers tugdeck/src/lib/arc-session-index.ts
+ * @covers tugdeck/src/components/arcs/arcs-card-registration.tsx
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -42,6 +47,7 @@ import {
   type ArcScratchRepo,
 } from "../arc-fixture";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
+import { bodyOfKind } from "../_harness/card-reach";
 import { pollFor, waitForBody } from "./_bodies";
 
 const TEST_NAME = "body-grounding-row-13-arc-tracking";
@@ -58,9 +64,10 @@ const ARC_VALUE = '[data-slot="tug-status-cell"][data-priority="tasks"] [data-sl
 /** In the shell: the masthead's lifecycle mark, and its step fraction. */
 const MASTHEAD_MARK = '[data-slot="session-masthead"] [data-slot="session-identity-row-progress"] [data-slot="tug-arc-lifecycle-mark"]';
 const MASTHEAD_FRACTION = `${MASTHEAD_MARK} [data-slot="tug-step-fraction"]`;
-/** In the shell: the Arcs card's row for the arc, and the bound session's worker on it. */
+/** In the Arcs body: the arc's row, the bound session's worker on it, and its Bind verb. */
 const ARCS_ROW = `.arcs-section [data-slot="arcs-row"][data-arc="${ARC}"]`;
 const ARCS_WORKER = `${ARCS_ROW} [data-slot="tug-arc-lifecycle-worker"]`;
+const ARCS_BIND = `${ARCS_ROW} [data-slot="arc-verb"][data-verb="bind"]`;
 
 /** This checkout — the build under test, and never the tree an arc is cut in. */
 const CHECKOUT = realpathSync(resolve(import.meta.dir, "..", "..", ".."));
@@ -115,8 +122,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
+        bodies: true,
         env: {
-          TUG_BODY_VIEWS: "1",
           [STUB_TRANSCRIPT_DIR_ENV]: stubDir,
           TUGBANK_PATH: tugbankPath,
           TUG_DATA_DIR: scratch?.dataRoot ?? "",
@@ -143,12 +150,13 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
         expect(masthead, "the shell's masthead for the body card reads the same run").toBe("1/3");
 
         await app.dispatchControlAction("toggle-arcs");
+        const arcs = await bodyOfKind(app, "dashes");
         const worker = await pollFor(
-          () => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(ARCS_WORKER)}) !== null`),
+          () => arcs.evalJS<boolean>(`document.querySelector(${JSON.stringify(ARCS_WORKER)}) !== null`),
           (v) => v,
           READ_MS,
         );
-        expect(worker, "the shell's Arcs card has the arc's row with the bound session on it").toBe(true);
+        expect(worker, "the Arcs body has the arc's row with the bound session on it").toBe(true);
         note("row 13 bound", (await app.captureWindow()).path);
 
         // ── Unbound: the body's Z2 lets the arc go ────────────────────────
@@ -159,6 +167,15 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 13: arc tracking from a body", 
         });
         const cleared = await pollFor(() => body.evalJS<string>(textOf(ARC_VALUE)), (t) => t === "", READ_MS);
         expect(cleared, "the body's Z2 reads no arc after the unbind").toBe("");
+
+        // ── The Arcs body follows A: Bind would send the arc to A's session ──
+        const bindState = `(function () {
+          var b = document.querySelector(${JSON.stringify(ARCS_BIND)});
+          return b === null ? "absent" : b.getAttribute("data-refused") === "true" ? "refused: " + b.getAttribute("aria-label") : "offered";
+        })()`;
+        const bind = await pollFor(() => arcs.evalJS<string>(bindState), (s) => s === "offered", READ_MS);
+        note(`Arcs body Bind after the unbind: ${bind}`);
+        expect(bind, "the Arcs body offers Bind to the followed Session card's session").toBe("offered");
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

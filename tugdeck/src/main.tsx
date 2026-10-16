@@ -15,6 +15,8 @@ import { dispatchAction, initActionDispatch } from "./action-dispatch";
 import type { DeckState } from "./layout-tree";
 import { initHostMenuState } from "./lib/host-menu-state";
 import { getSettings, type HostSettings } from "./lib/maker-mode-bridge";
+import { isMakerTooling, loadMakerTooling, registerCardKinds } from "./card-kinds";
+import { getAllRegistrations } from "./card-registry";
 import {
   IMPOSITION_GAP_BOTTOM_PROPERTY,
   impositionGapBottomPx,
@@ -69,21 +71,6 @@ import {
   readHostCanvasColorFromAppliedCss,
 } from "./contexts/theme-provider";
 import { BASE_THEME_NAME } from "./theme-constants";
-import { registerHelloWorldCard } from "./components/tugways/cards/hello-world-card";
-import { registerSessionCard } from "./components/tugways/cards/session-card-registration";
-import { registerAboutCard } from "./components/tugways/cards/about-card";
-import { registerSettingsCard } from "./components/tugways/cards/settings-card";
-import { registerKeyboardCard } from "./components/tugways/cards/keyboard-card";
-import { registerDevtoolsCard } from "./components/devtools/devtools-card";
-import { registerJotsCard } from "./components/jots/jots-card-registration";
-import { registerOverviewCard } from "./components/overview/overview-card-registration";
-import { registerCardsCard } from "./components/cards/cards-card-registration";
-import { registerLayoutCard } from "./components/layout/layout-card-registration";
-import { registerArcsCard } from "./components/arcs/arcs-card-registration";
-import { registerTextCard } from "./components/tugways/cards/text-card-registration";
-import { registerFileViewCard } from "./components/tugways/cards/file-view-card-registration";
-import { registerDiffCard } from "./components/tugways/cards/diff-card";
-import { registerCommitCard } from "./components/tugways/cards/commit-card";
 // The shared markdown sheet: the `--tugx-md-*` tokens and the per-block rules
 // (fenced-code and table chrome, image overlay, links) every shipped
 // `TugMarkdownBlock` renders against. Only `TugMarkdownView` imports it, and
@@ -154,6 +141,7 @@ declare global {
        */
       diag: {
         listCardIds(): string[];
+        registeredKinds(): { componentId: string; body: boolean; bodyHandOff: string | null; hidden: boolean; family: string | null }[];
         getDeckState(): unknown;
         getBodyPlacement(): unknown;
         getSpaces(): unknown;
@@ -352,49 +340,14 @@ async function withBootHorizon<T>(
 }
 
 /**
- * Whether this deck carries maker tooling: the gallery, spike and fixture
- * cards and the `window.__tug` test surface.
- *
- * Three answers say yes. A Vite dev build; the app-test harness, which runs
- * the prebuilt `dist/` with `__tugTestMode` set; and a maker bundle whose
- * Vite was not ready, which falls back to serving that same `dist/` with
- * neither flag set — only the host's `makerMode` knows that deck is a
- * maker's, and without it the Maker menu's gallery item would be a dead
- * click. Outside the host the bridge resolves `null`, so a browser tab
- * answers from the first two alone.
+ * The `window.__tug` test surface, where maker tooling is (`card-kinds.ts`):
+ * a release deck never loads the module. A body attaches its own.
  */
-async function isMakerTooling(
-  hostSettings: Promise<HostSettings | null>,
-): Promise<boolean> {
-  if (import.meta.env.DEV || window.__tugTestMode === true) return true;
-  return (await hostSettings)?.makerMode === true;
-}
-
-/**
- * Load the maker-tooling modules, or nothing in a release deck.
- *
- * Every one of them is a dynamic import, so a release build's reachable
- * chunks carry none of their ~40k lines. Boot awaits the result before the
- * deck deserializes its layout: the loader drops a pane whose only card is
- * unregistered at load, so a registration that resolved later would lose
- * every restored gallery or spike pane.
- */
-async function loadMakerTooling(
+async function loadTestSurface(
   hostSettings: Promise<HostSettings | null>,
 ) {
   if (!(await isMakerTooling(hostSettings))) return null;
-  const [gallery, spikes, fixtures, testSurface] = await Promise.all([
-    import("./components/tugways/cards/gallery-registrations"),
-    import("./spikes/spike-registry"),
-    import("./fixtures/fixture-registrations"),
-    import("./test-surface"),
-  ]);
-  return {
-    registerGalleryCards: gallery.registerGalleryCards,
-    registerSpikeCards: spikes.registerSpikeCards,
-    registerFixtureCards: fixtures.registerFixtureCards,
-    attachTugTestSurface: testSurface.attachTugTestSurface,
-  };
+  return import("./test-surface");
 }
 
 // Async IIFE: wait for tugbank data + WASM before constructing DeckManager.
@@ -516,33 +469,12 @@ async function loadMakerTooling(
   const hostSettings = getSettings();
 
   // Register card types before DeckManager construction so addCard("hello") works
-  // from the first render.
-  registerHelloWorldCard();
-  registerSessionCard();
-  registerAboutCard();
-  registerSettingsCard();
-  registerKeyboardCard();
-  registerDevtoolsCard();
-  // Every sidebar card must register unconditionally and before the deck
-  // restores its layout, so its rail survives reload — `filterRegisteredCards`
-  // drops panes whose only card's componentId is unregistered at load.
-  registerJotsCard();
-  registerOverviewCard();
-  registerArcsCard();
-  registerCardsCard();
-  // Registration order is the order the Layout card lists its rows in.
-  registerLayoutCard();
-  registerTextCard();
-  registerFileViewCard();
-  registerDiffCard();
-  registerCommitCard();
-  const makerTooling = await withBootHorizon(
+  // from the first render. The one list is every page's (`card-kinds.ts`).
+  const [makerTooling, testSurface] = await withBootHorizon(
     "maker-tooling",
-    loadMakerTooling(hostSettings),
+    Promise.all([loadMakerTooling(hostSettings), loadTestSurface(hostSettings)]),
   );
-  makerTooling?.registerGalleryCards();
-  makerTooling?.registerSpikeCards();
-  makerTooling?.registerFixtureCards();
+  registerCardKinds({ maker: makerTooling });
 
   // Dev-build convenience: expose the log store on `window.tugDevLog`
   // so the WebKit Web Inspector console can drive the Log section without
@@ -752,9 +684,9 @@ async function loadMakerTooling(
   // production users never have the global set, since the
   // `WKUserScript` that injects it is `#if DEBUG`-gated in
   // `tugapp/Sources/TestHarness/TestHarnessUserScript.swift`, and a
-  // release deck never loads the module at all (`loadMakerTooling`).
+  // release deck never loads the module at all (`loadTestSurface`).
   // See `test-surface.ts` for the full surface and attach-site rationale ([D03]/[D08]).
-  makerTooling?.attachTugTestSurface(deck);
+  testSurface?.attachTugTestSurface(deck);
 
   // Install the Vite-HMR bridge so React Fast Refresh remounts (the
   // dev-only fifth and sixth "known transitions" beyond tab-switch /
@@ -999,6 +931,19 @@ async function loadMakerTooling(
     diag: {
       /** Card ids currently in the deck, in z-order (last = top). */
       listCardIds: () => deck.getSnapshot().cards.map((c) => c.id),
+      /**
+       * Every registered card kind, in registration order, with the facts
+       * of its registration a test seeds a card by: whether it lives in a
+       * body and how its body is handed off.
+       */
+      registeredKinds: () =>
+        [...getAllRegistrations().values()].map((r) => ({
+          componentId: r.componentId,
+          body: r.body === true,
+          bodyHandOff: r.bodyHandOff ?? null,
+          hidden: r.hidden === true,
+          family: r.family ?? null,
+        })),
       /** Full active state — for ad-hoc inspection only. */
       getDeckState: () => deck.getSnapshot(),
       /**

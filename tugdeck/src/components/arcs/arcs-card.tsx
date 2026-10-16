@@ -152,8 +152,6 @@ import {
   useTrackFollowedCard,
 } from "@/components/tugways/followed-card";
 import { useSeedKeyView } from "@/components/tugways/use-focusable";
-import { useResponderChain } from "@/components/tugways/responder-chain-provider";
-import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { dispatchCommand } from "@/command-dispatch";
 import {
   cardIdForSession,
@@ -587,10 +585,7 @@ const ArcVerbsContext = React.createContext<ArcVerbs | null>(null);
  * gesture, which is a dead click on a control that advertised itself as a
  * door.
  */
-function openArcRoom(
-  chain: ReturnType<typeof useResponderChain>,
-  boundSession: string | null,
-): void {
+function openArcRoom(boundSession: string | null): void {
   if (boundSession === null) return;
   // `cardIdForSession`, which answers for the line rather than for a spawn
   // address a rotation has left behind. Read live here rather than through
@@ -598,18 +593,9 @@ function openArcRoom(
   // since render.
   const cardId = cardIdForSession(boundSession);
   if (cardId === null) return;
-  dispatchCommand("focus-session-card", { cardId });
-  // The card-content scope, not the bare card id: `sendToTarget` walks upward
-  // from its target, the bare id is `card-host`'s, and the session card's
-  // handlers live one scope beneath it — a miss there fails silently. The
-  // guard doubles as the liveness check, since only a mounted session card
-  // registers this responder.
-  const target = `${cardId}-card-content`;
-  if (chain === null || !chain.hasResponder(target)) return;
-  chain.sendToTarget(target, {
-    action: TUG_ACTIONS.REVEAL_CHANGES,
-    phase: "discrete",
-  });
+  // The shell raises the card and sends the reveal to its content, in
+  // whichever page that card's content lives — never this card's own.
+  dispatchCommand("reveal-session-changes", { cardId });
 }
 
 /**
@@ -663,7 +649,6 @@ function useArcRowVerbs(
   const target = useBindTarget(row);
   const followedSessionId = useFollowedSessionId();
   const followed = useFollowedCardFacts();
-  const chain = useResponderChain();
   const entry = row.entry;
   const name = entry.display_name;
   const bound = entry.bound_session ?? null;
@@ -744,7 +729,7 @@ function useArcRowVerbs(
   const onVerb = (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null): void => {
     switch (kind) {
       case "changes":
-        openArcRoom(chain, bound);
+        openArcRoom(bound);
         return;
       case "bind":
         bind();
@@ -817,7 +802,6 @@ function useArcRowVerbs(
 function PlanVerbRow({ row }: { row: DocumentArcRow }): React.ReactElement {
   const verbs = React.useContext(ArcVerbsContext);
   const followed = useFollowedCardFacts();
-  const chain = useResponderChain();
   const entry = row.entry;
   const bound = entry.bound_session ?? null;
   const workerCardOpen = useWorkerCard(entry) !== null;
@@ -843,7 +827,7 @@ function PlanVerbRow({ row }: { row: DocumentArcRow }): React.ReactElement {
   const onVerb = (kind: ArcSurfaceVerbKind, anchor: HTMLElement | null): void => {
     switch (kind) {
       case "changes":
-        openArcRoom(chain, bound);
+        openArcRoom(bound);
         return;
       case "unbind":
         sendUnbind(bound);
@@ -1305,15 +1289,14 @@ function ArcsBody(): React.ReactElement {
   //
   // A row with no open worker card does nothing — and says so before the press
   // rather than after, through the row's own activatable attribute.
-  const chain = useResponderChain();
   const delegate = useMemo<TugListViewDelegate>(() => {
     const activate = (index: number): void => {
       const row = dataSource.rows[index];
       if (row === undefined) return;
-      openArcRoom(chain, row.entry.bound_session ?? null);
+      openArcRoom(row.entry.bound_session ?? null);
     };
     return { onSelect: activate, onActivate: activate };
-  }, [chain, dataSource]);
+  }, [dataSource]);
 
   // The empty state keeps the card, reading exactly as every other rail card's
   // does: the shared word, centered, on one row's worth of height.

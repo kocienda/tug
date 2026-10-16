@@ -18,6 +18,19 @@
       "payload": { "title": "Session", "masthead": null, "activity": null, "telemetry": {} }
     },
     {
+      "from": { "pageId": "body-c2", "role": "body", "cardId": "c2" },
+      "to": "shell",
+      "kind": "card-facts",
+      "payload": {
+        "title": "notes.md",
+        "masthead": null,
+        "activity": null,
+        "telemetry": {},
+        "identity": { "title": "notes.md", "path": "/p/notes.md", "unsaved": true },
+        "titleBar": [{ "commandId": "reveal-card-file", "icon": "FolderOpenDot", "enabled": true }]
+      }
+    },
+    {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": { "card": "c2" },
       "kind": "card-command",
@@ -82,6 +95,48 @@
       "to": { "card": "c1" },
       "kind": "card-command",
       "payload": { "command": "surface-dismissed" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "close-decision" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "content-action", "id": "reveal-changes" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "reveal-line", "payload": { "line": 12, "endLine": 14 } }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-command",
+      "payload": { "command": "inspect", "on": true }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "inspection", "inspection": { "transportState": "live", "turns": 3 } }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "reveal-settings", "payload": { "section": "sessionCard" } }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "dev-log", "payload": { "entries": [{ "level": "info", "source": "body", "message": "ready", "timestamp": 1700000000000 }] } }
     },
     {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
@@ -179,6 +234,30 @@
       "payload": { "advice": "logout" }
     },
     {
+      "from": { "pageId": "body-c2", "role": "body", "cardId": "c2" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "deck-call", "method": "setFlowOffset", "args": [120] }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "close-guard", "asks": true }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "close-decision", "answer": "cancel" }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "inspection", "inspection": { "transportState": "live", "turns": 3 } }
+    },
+    {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": "body",
       "kind": "deck-facts",
@@ -195,6 +274,22 @@
       "to": { "card": "c2" },
       "kind": "card-context",
       "payload": { "folded": true, "arriving": false, "firstResponderCardId": null, "layerShown": false, "spaceId": null }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-context",
+      "payload": {
+        "folded": false,
+        "arriving": false,
+        "firstResponderCardId": "c1",
+        "layerShown": true,
+        "spaceId": "space-1",
+        "arrangement": { "deck": { "panes": [] }, "bandWidth": 1600 },
+        "followed": { "cardId": "c1", "binding": null },
+        "appInfo": { "name": "Tug", "version": "0.8.0" },
+        "railSide": "right"
+      }
     }
   ]
 }

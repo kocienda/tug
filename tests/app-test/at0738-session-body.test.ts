@@ -438,7 +438,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: twoInAColumn, focusCardId: BODY_CARD });
@@ -562,7 +563,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       const WARM = "at0738-warm";
       const COLD = "at0738-cold";
@@ -635,8 +637,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
+        bodies: true,
         env: {
-          TUG_BODY_VIEWS: "1",
           TUG_BODY_FORCE_STALL: "1",
           TUG_BODY_READY_DEADLINE_MS: "1500",
           [STUB_TRANSCRIPT_DIR_ENV]: stubDir,
@@ -684,7 +686,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: TEST_NAME,
-        env: { TUG_BODY_VIEWS: "1", TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
         persistInTestMode: true,
         restoreInTestMode: true,
       });
@@ -786,7 +789,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const before = new Set(webContentProcesses().map((p) => p.pid));
       const app = await launchTugApp({
         testName: TEST_NAME,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       const TURN = "at0738-turn";
       const OTHER = "at0738-other";

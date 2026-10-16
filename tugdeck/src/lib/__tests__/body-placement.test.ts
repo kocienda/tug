@@ -9,9 +9,11 @@ import { describe, expect, test } from "bun:test";
 import {
   bodyHoles,
   bodyVisible,
+  mirrorInsets,
   paneClipPath,
   paneHoles,
   PlacementPoster,
+  railSideFlipped,
   type BodyShownFacts,
   type PlaceBodies,
 } from "../body-placement";
@@ -195,5 +197,15 @@ describe("PlacementPoster", () => {
     expect(posted).toHaveLength(1);
     // A land that measures somewhere else is news.
     expect(poster.offer(placement(301))).toBe(true);
+  });
+});
+
+describe("a rail carried to the other edge", () => {
+  test("mirrors its insets only when the edge it stands on has changed", () => {
+    expect(railSideFlipped("right", "left")).toBe(true);
+    expect(railSideFlipped("left", "left")).toBe(false);
+    expect(railSideFlipped(null, "left")).toBe(false);
+    expect(railSideFlipped("right", null)).toBe(false);
+    expect(mirrorInsets({ top: 36, right: 1, bottom: 0, left: 0 })).toEqual({ top: 36, right: 0, bottom: 0, left: 1 });
   });
 });

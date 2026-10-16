@@ -15,6 +15,23 @@ beforeEach(() => {
 });
 
 describe("TugDevLogStore — microtask-deferred notify", () => {
+  it("adopt() appends another page's entries with their timestamps, under that page's name, and mints their ids", async () => {
+    tugDevLogStore.info("here", "own entry");
+    tugDevLogStore.adopt("shell", [
+      { timestamp: 1_700_000_000_000, level: "warn", source: "body", message: "relayed one", data: { n: 1 } },
+      { timestamp: 1_700_000_000_001, level: "info", source: "deck", message: "relayed two" },
+    ]);
+    await Promise.resolve();
+    const entries = tugDevLogStore.getSnapshot().entries;
+    expect(entries.map((e) => e.message)).toEqual(["own entry", "relayed one", "relayed two"]);
+    expect(entries.map((e) => e.source)).toEqual(["here", "shell/body", "shell/deck"]);
+    expect(entries[1].timestamp).toBe(1_700_000_000_000);
+    expect(entries[1].level).toBe("warn");
+    expect(entries[1].data).toEqual({ n: 1 });
+    expect("data" in entries[2]).toBe(false);
+    expect(new Set(entries.map((e) => e.id)).size).toBe(3);
+  });
+
   it("a synchronous burst of N appends yields exactly 1 listener call", async () => {
     let calls = 0;
     const unsub = tugDevLogStore.subscribe(() => {

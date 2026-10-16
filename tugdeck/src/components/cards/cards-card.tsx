@@ -94,7 +94,6 @@ import { setCardsFilterBinding, shrinkCardsState } from "./cards-escape";
 import { useResponder } from "@/components/tugways/use-responder";
 import { useAnnotationClicks } from "@/components/tugways/use-annotation-clicks";
 import { renderFilterHighlight } from "@/components/tugways/filter-highlight";
-import { useResponderChain } from "@/components/tugways/responder-chain-provider";
 import { TugConfirmPopover } from "@/components/tugways/tug-confirm-popover";
 import { TugIconButton } from "@/components/tugways/tug-icon-button";
 import { fileTip } from "@/components/tugways/entity-tips";
@@ -113,8 +112,6 @@ import {
   useSeedKeyView,
 } from "@/components/tugways/use-focusable";
 import { renderIcon } from "@/components/tugways/tug-tab-bar";
-import { getCardCloseGuard } from "@/lib/card-close-guard";
-import { closeGuardWalk } from "@/lib/close-guard-walk";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
 import { useChangesetAll } from "@/lib/changeset-all-store";
 import { getDeckStore } from "@/lib/deck-store-registry";
@@ -210,20 +207,6 @@ function spaceRowAttrs(
 let lastSelectedRowId: string | null = null;
 
 /**
- * Whether closing this card will stop and ask rather than just close — the
- * card's own close guard has unsaved work to raise a Save / Don't Save sheet
- * over. It is asked BEFORE the close is sent, because the answer decides
- * whether the Cards card fronts the card first: only a close that puts a question on
- * screen needs the user looking at the card it appears on.
- *
- * The pane's `close-tab` handler consults exactly this guard and nothing else,
- * so the reading here and the behaviour there cannot disagree.
- */
-function askedBeforeClosing(cardId: string): boolean {
-  return getCardCloseGuard(cardId)?.needsDecision() === true;
-}
-
-/**
  * The delete confirm's sentence (Spec S03): the workspace by name, what will
  * close, and — only when there are any — how many of those are live sessions.
  *
@@ -242,49 +225,6 @@ function deleteMessage(name: string, cards: number, sessions: number): string {
         ? " (1 session)"
         : ` (${sessions} sessions)`;
   return `Delete ${name} and close ${cardsPhrase}${sessionsPhrase}?`;
-}
-
-/**
- * How long a just-activated workspace is given to finish arriving before its
- * cards are asked whether they hold unsaved work. Generous, because the cost
- * of being early is silence where a sheet was owed; a workspace whose cards
- * are all clean spends the whole of it and then deletes. That is a real pause,
- * which is why it is only ever spent on a workspace that was not already
- * mounted — see the delete's own gate.
- */
-const ARRIVAL_SETTLE_MS = 2_000;
-
-/**
- * Wait until one of `cardIds` holds unsaved work, or until the budget runs
- * out — see {@link CardsContent}'s delete, its only caller, which states why
- * the wait exists.
- *
- * Watching the guards rather than counting frames, because what is being
- * waited for is not a render: a card restores its buffer from the bag the
- * park left behind, and that read is asynchronous. A fixed number of frames
- * is a guess about how long a disk read takes, and the first guess was wrong
- * in the direction that loses work.
- *
- * Returning on the FIRST dirty card is not a race the walk can lose. The walk
- * re-resolves every guard as it reaches it, and the cards after the first one
- * are not reached until the user has answered a sheet — which is orders of
- * magnitude longer than the restore this is waiting on.
- */
-function awaitArrival(cardIds: readonly string[]): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const deadline = performance.now() + ARRIVAL_SETTLE_MS;
-    const poll = (): void => {
-      const dirty = cardIds.some(
-        (id) => getCardCloseGuard(id)?.needsDecision() === true,
-      );
-      if (dirty || performance.now() >= deadline) {
-        resolve();
-        return;
-      }
-      window.requestAnimationFrame(poll);
-    };
-    poll();
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,129 +1079,15 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     [filtering, beginSpaceReorder],
   );
 
-  // The close box names the card it closes — `close-tab` carrying the row's own
-  // `cardId`, walked from that card up to its host pane. This is the tab ×'s
-  // event, and for the same reason: `close` means "close the active one", which
-  // is only ever the row the user aimed at by luck. A row for a background tab
-  // would close its pane's front card instead — the wrong card, silently. The
-  // named path also keeps the close guard attached to the card it concerns, so
-  // a dirty Text buffer is activated before it raises its save sheet.
-  const chain = useResponderChain();
-  // Which cards have a stand-up-and-close walk in flight. A second × on the
-  // same row while one is running would activate the workspace twice and send
-  // two closes at the card — the latch the delete keeps for its own walk, kept
-  // per card because these are per card.
-  const closeWalkRef = useRef<Set<string>>(new Set());
-  const onClose = useCallback(
-    (cardId: string, spaceId: string): void => {
-      if (chain === null) return;
-      const send = (): void => {
-        // A card with unsaved work answers this × with a sheet, and the sheet
-        // comes up on the card — which may be behind another pane, or be a
-        // background tab nobody can see. So front it first, exactly as a plain
-        // click on this row would, flash and all: the question has to arrive
-        // somewhere the user is already looking. A close that simply happens
-        // gets no announcement; the row vanishing is the whole answer.
-        if (askedBeforeClosing(cardId)) {
-          dispatchCommand("focus-session-card", { cardId });
-        }
-        chain.sendToTarget(cardId, {
-          action: TUG_ACTIONS.CLOSE_TAB,
-          value: cardId,
-          phase: "discrete",
-        });
-      };
-      const store = getDeckStore();
-      const elsewhere =
-        store !== null && store.getSpacesSnapshot().activeSpaceId !== spaceId;
-
-      // The card is STANDING — in the workspace on screen, or in one [B06]
-      // left mounted behind it. Its close guard is registered either way, so
-      // the question "will this stop and ask" has an answer right here, and
-      // that answer is the whole of the difference: a close with nothing to
-      // ask just happens, wherever the card is, and the row going away is the
-      // report. Only a close that puts a QUESTION on screen has to go to the
-      // workspace holding it first — a sheet over a hidden layer is a sheet
-      // nobody can answer.
-      if (chain.hasResponder(cardId)) {
-        if (elsewhere && askedBeforeClosing(cardId)) {
-          store?.activateSpace(spaceId);
-        }
-        send();
-        return;
-      }
-
-      // Nothing is standing. A row can outlive its card by a frame (the deck
-      // snapshot the rows were built from is one render behind the unmount),
-      // and in the workspace on screen that is the whole explanation — there
-      // is nothing left to close.
-      if (!elsewhere || store === null) return;
-
-      // So this is a card in a workspace nobody has stood up this run, and it
-      // cannot be ASKED without being stood up: its close guard is registered
-      // by the card at mount, and an unmounted card has none. That is the same
-      // wall the delete walk hits, and it is answered the same way — activate,
-      // wait for the cards to arrive, then let the pane's own close-tab flow
-      // read the guard it now has. The cost is the settle (see
-      // `ARRIVAL_SETTLE_MS`), spent so that a restored buffer with unsaved
-      // edits still gets to raise its sheet instead of being taken silently.
-      if (closeWalkRef.current.has(cardId)) return;
-      closeWalkRef.current.add(cardId);
-      void (async () => {
-        try {
-          store.activateSpace(spaceId);
-          await awaitArrival([cardId]);
-          if (!chain.hasResponder(cardId)) return;
-          send();
-        } finally {
-          closeWalkRef.current.delete(cardId);
-        }
-      })();
-    },
-    [chain],
-  );
-
-  // A pane row's × is the pane's own X, aimed from here. `close-pane` goes to
-  // the PANE's responder (registered under the pane id), which runs the title
-  // bar's close flow whole — save guards, then the confirm. A multi-tab pane
-  // always confirms, so this one always fronts and flashes: the popover it
-  // opens is anchored to that pane's X, off in the deck.
-  const onClosePane = useCallback(
-    (paneId: string, activeCardId: string, spaceId: string): void => {
-      if (chain === null) return;
-      const store = getDeckStore();
-      // A pane × always confirms, so it always has somewhere to arrive: a
-      // stack in a workspace that is not on screen is reached by going there
-      // first, whether its panes are merely hidden or have never stood up at
-      // all. The activation is what puts the popover over its own content.
-      if (store !== null && store.getSpacesSnapshot().activeSpaceId !== spaceId) {
-        if (closeWalkRef.current.has(paneId)) return;
-        closeWalkRef.current.add(paneId);
-        void (async () => {
-          try {
-            store.activateSpace(spaceId);
-            await awaitArrival([activeCardId]);
-            if (!chain.hasResponder(paneId)) return;
-            dispatchCommand("focus-session-card", { cardId: activeCardId });
-            chain.sendToTarget(paneId, {
-              action: TUG_ACTIONS.CLOSE_PANE,
-              phase: "discrete",
-            });
-          } finally {
-            closeWalkRef.current.delete(paneId);
-          }
-        })();
-        return;
-      }
-      if (!chain.hasResponder(paneId)) return;
-      dispatchCommand("focus-session-card", { cardId: activeCardId });
-      chain.sendToTarget(paneId, {
-        action: TUG_ACTIONS.CLOSE_PANE,
-        phase: "discrete",
-      });
-    },
-    [chain],
-  );
+  // The row ×, the pane row's × and the workspace delete destroy other cards,
+  // so the shell runs them: it holds their close guards and their responders
+  // (`lib/card-close-commands`). From a body the commands are forwarded there.
+  const onClose = useCallback((cardId: string, spaceId: string): void => {
+    dispatchCommand("close-card", { cardId, spaceId });
+  }, []);
+  const onClosePane = useCallback((paneId: string, activeCardId: string, spaceId: string): void => {
+    dispatchCommand("close-pane-by-id", { paneId, activeCardId, spaceId });
+  }, []);
 
   // A group folds in ITS workspace only: the collapsed set holds run keys, so
   // folding Sessions here leaves every other workspace's Sessions as it was.
@@ -1304,12 +1130,6 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     cards: number;
     anchor: HTMLElement | null;
   } | null>(null);
-
-  // The guard walk a confirmed delete runs is asynchronous — each dirty card
-  // gets its own sheet — and a second delete gesture while one stands would
-  // put two walks over the same cards. The pane guards its own walk with
-  // `guardRunningRef` for exactly this; this is that latch for the delete.
-  const deleteWalkRunningRef = useRef(false);
 
   const onCommitRename = useCallback(
     (spaceId: string, name: string): void => {
@@ -1438,82 +1258,6 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       anchor: anchorForSpace(spaceId),
     });
   }, [verbRequest, layerShown, anchorForSpace, spaceNameOf]);
-
-  /**
-   * A confirmed delete, in the order Spec S03 gives.
-   *
-   * Activate the workspace FIRST, and not as a courtesy: a workspace nobody
-   * has visited this run has no mounted cards, so their close guards are not
-   * registered and a walk over them would find nothing to ask about and take
-   * the unsaved work silently. Activation is also what puts each sheet over
-   * its own content.
-   *
-   * The card ids are read AFTER the activation for the same reason the count
-   * is read from the store: `getSpaceDeck` answers with the live deck for the
-   * active workspace and with the parked record for any other, and activation
-   * is what moves the deck between the two.
-   *
-   * A `null` walk means no card had anything to ask — the confirm the user
-   * already answered was the whole of the decision, so the delete proceeds. A
-   * `"cancel"` from any card abandons the delete entirely, and the workspace
-   * stays put AND stays active: the user is looking at the card they just
-   * declined to discard.
-   */
-  const runGuardedDelete = useCallback(
-    async (spaceId: string): Promise<void> => {
-      if (deleteWalkRunningRef.current) return;
-      const store = getDeckStore();
-      if (store === null) return;
-      deleteWalkRunningRef.current = true;
-      try {
-        const arriving = store.getSpacesSnapshot().activeSpaceId !== spaceId;
-        // Whether the workspace's cards are ALREADY standing. Since [B06] a
-        // workspace the user has visited stays mounted while the canvas hides
-        // it, so its guards are registered and there is nothing to wait for;
-        // only a workspace that has never been stood up this run has to be
-        // waited on below. Read before the activation, which is what would
-        // otherwise make every workspace look mounted.
-        const wasMounted = store
-          .getSpacesSnapshot()
-          .mountedSpaceIds.includes(spaceId);
-        if (arriving) store.activateSpace(spaceId);
-        const cardIds = (store.getSpaceDeck(spaceId)?.cards ?? []).map(
-          (card) => card.id,
-        );
-        // A workspace that was PARKED has to be given time to arrive before
-        // its cards are asked anything. `activateSpace` commits the deck
-        // synchronously, but a card mounts on the next render and restores its
-        // buffer from the bag the park left behind after that — so a walk run
-        // in this same tick asks a registry that has not heard of these cards,
-        // finds nothing dirty, and deletes the workspace in silence. That is
-        // the exact failure the activation exists to prevent, arriving a few
-        // frames too early.
-        //
-        // Only for a workspace that was not already MOUNTED, though: since
-        // [B06] a visited workspace's cards never came down, so their guards
-        // are live and the wait would be two seconds of silence charged to a
-        // gesture the user has already answered. What is left to wait on is a
-        // workspace being stood up for the first time this run — whose cards
-        // can still arrive dirty, restoring a buffer a previous run left
-        // unsaved.
-        if (arriving && !wasMounted) await awaitArrival(cardIds);
-        const decision = closeGuardWalk(
-          cardIds,
-          (id) => dispatchCommand("focus-session-card", { cardId: id }),
-          // Nothing here tracks which card is front, so every dirty card is
-          // fronted before its sheet. Fronting the card that is already front
-          // is a no-op the dispatch absorbs, which is cheaper than keeping a
-          // second answer to a question the deck already owns.
-          () => false,
-        );
-        if (decision !== null && (await decision()) === "cancel") return;
-        store.deleteSpace(spaceId);
-      } finally {
-        deleteWalkRunningRef.current = false;
-      }
-    },
-    [],
-  );
 
   const cellContext = useMemo<CardsCellContextValue>(
     () => ({
@@ -1888,7 +1632,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
           const armed = pendingDelete;
           setPendingDelete(null);
           if (armed === null) return;
-          void runGuardedDelete(armed.spaceId);
+          dispatchCommand("delete-space-confirmed", { spaceId: armed.spaceId });
         }}
         onCancel={() => setPendingDelete(null)}
       />

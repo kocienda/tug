@@ -389,6 +389,8 @@ export interface PaneBox {
   readonly height: number;
   readonly layoutWidth: number;
   readonly z: number;
+  /** The edge a pinned rail stood on when it was measured (`data-rail-side`); absent for any other pane. */
+  readonly railSide?: string | null;
 }
 
 /**
@@ -456,14 +458,16 @@ function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts |
  * Read every body placeholder under `root` once, and decide each one's
  * visibility from the deck.
  */
-export function measurePlacements(deck: IDeckManagerStore, root: ParentNode): PlaceBodies {
+export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, exact?: Map<string, Rect>): PlaceBodies {
   const bodies: BodyPlacement[] = [];
   let radius = 0;
   for (const el of root.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
     const cardId = el.dataset.cardId;
     if (cardId === undefined || !bodyCardsStore.has(cardId)) continue;
     const facts = shownFactsOf(deck, cardId);
-    const rect = wholePoints(el.getBoundingClientRect());
+    const measured = el.getBoundingClientRect();
+    exact?.set(cardId, { x: measured.x, y: measured.y, width: measured.width, height: measured.height });
+    const rect = wholePoints(measured);
     if (bodies.length === 0) radius = radiusAt(el);
     const z = parseInt(getComputedStyle(el.closest(".tug-pane") ?? el).zIndex, 10);
     bodies.push({
@@ -512,6 +516,13 @@ export class BodyPlacer {
   private floorReport: FloorShownReport | null = null;
   /** Every pane's box and order, read in the last measurement, and the cut each wears. */
   private paneBoxes = new Map<HTMLElement, PaneBox>();
+  /**
+   * Each placeholder's rect as the last measurement read it, before it was
+   * grown to the whole points it is posted at. A plan's insets are taken
+   * from these: an inset taken from a grown rect carries the growth, and a
+   * frame that stood on a half point lands its body a point off.
+   */
+  private readonly exactRects = new Map<string, Rect>();
   private readonly paneClips = new Map<HTMLElement, string>();
   private cancelScheduled: CancelAfterPaint | null = null;
   /** Bodies lidded this frame whose hide the host has not yet been told; posted after the paint. */
@@ -596,7 +607,8 @@ export class BodyPlacer {
     }
     this.lastSkip = null;
     this.measures += 1;
-    const placement = measurePlacements(this.deck, container);
+    this.exactRects.clear();
+    const placement = measurePlacements(this.deck, container, this.exactRects);
     this.paneBoxes = this.readPaneBoxes(container);
     this.poster.offer(placement);
     // A measurement is the whole truth: a body it shows is no longer one a
@@ -676,7 +688,9 @@ export class BodyPlacer {
       if (cardId === undefined) continue;
       const i = last.bodies.findIndex((b) => b.cardId === cardId);
       if (i < 0) continue;
-      const rect = wholePoints(el.getBoundingClientRect());
+      const measured = el.getBoundingClientRect();
+      this.exactRects.set(cardId, { x: measured.x, y: measured.y, width: measured.width, height: measured.height });
+      const rect = wholePoints(measured);
       const b = last.bodies[i];
       if (b.x === rect.x && b.y === rect.y && b.width === rect.width && b.height === rect.height) continue;
       bodies ??= [...last.bodies];
@@ -755,6 +769,7 @@ export class BodyPlacer {
     const frames: CarriedFrame[] = [];
     const bodiesInFrame = new Map<string, string[]>();
     const insets = new Map<string, Insets>();
+    const landingInsets = new Map<string, Insets>();
     const unplannable = new Set<string>();
     input.frames.forEach((f, i) => {
       const cardIds = bodiesIn(f.frame);
@@ -770,21 +785,28 @@ export class BodyPlacer {
       frames.push({ paneId, first, last: lastRect, beats: f.beats });
       bodiesInFrame.set(paneId, cardIds);
       if (box === undefined) return;
+      // A rail's border is on its inner edge, so a rail carried to the other
+      // edge lands with its content box mirrored inside its frame. The
+      // attribute is the commit's, read with no layout ([D211]).
+      const mirrored = railSideFlipped(box.railSide ?? null, f.frame.getAttribute("data-rail-side"));
       for (const cardId of cardIds) {
-        const b = last.bodies.find((p) => p.cardId === cardId);
+        const b = this.exactRects.get(cardId) ?? last.bodies.find((p) => p.cardId === cardId);
         if (b === undefined) continue;
-        insets.set(cardId, {
+        const measured = {
           top: b.y - box.y,
           left: b.x - box.x,
           right: box.x + box.width - (b.x + b.width),
           bottom: box.y + box.height - (b.y + b.height),
-        });
+        };
+        insets.set(cardId, measured);
+        if (mirrored) landingInsets.set(cardId, mirrorInsets(measured));
       }
     });
     const out = planBodyBeats({
       frames,
       placement: last,
       insets,
+      landingInsets,
       bodiesInFrame,
       stillShown: (cardId) => {
         const facts = shownFactsOf(this.deck, cardId);
@@ -823,6 +845,7 @@ export class BodyPlacer {
     this.lastPlan = {
       planId,
       planned: out.plan.map((b) => b.cardId),
+      landings: Object.fromEntries(out.plan.map((b) => [b.cardId, b.landing])),
       refused: [...out.refused, ...unplannable],
       reasons: out.reasons,
       landed: [],
@@ -1040,6 +1063,7 @@ export class BodyPlacer {
         height: rect.height,
         layoutWidth: pane.offsetWidth,
         z: Number.isFinite(z) ? z : 0,
+        railSide: pane.getAttribute("data-rail-side"),
       });
     }
     return boxes;
@@ -1171,6 +1195,8 @@ export interface BeatPlanReport {
   /** Null when nothing was planned and nothing posted. */
   readonly planId: number | null;
   readonly planned: readonly string[];
+  /** Where the plan lands each planned body, viewport px: the rect the host carries it to. */
+  readonly landings: Readonly<Record<string, Rect>>;
   readonly refused: readonly string[];
   readonly reasons: Readonly<Record<string, string>>;
   readonly landed: { cardId: string; lateMs: number | null }[];
@@ -1205,6 +1231,16 @@ export interface RunPlanInput {
   readonly planBeat: (options: BeatOptions) => Beat;
   /** Whether a body whose box changes size is carried as a crossing; refused when false. */
   readonly allowCrossing?: boolean;
+}
+
+/** Whether a rail measured standing on `measured` stands, at the plan, on the other edge. */
+export function railSideFlipped(measured: string | null, now: string | null): boolean {
+  return measured !== null && now !== null && measured !== now;
+}
+
+/** `insets` mirrored left for right: a rail's content box once it stands on the other edge. */
+export function mirrorInsets(insets: Insets): Insets {
+  return { top: insets.top, bottom: insets.bottom, left: insets.right, right: insets.left };
 }
 
 /** The body cards whose placeholder stands in `frame`. Reads no layout. */

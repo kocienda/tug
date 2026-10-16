@@ -181,6 +181,7 @@ export function registerSettingsCard(): void {
     contentFactory: () => <SettingsCardContent />,
     defaultMeta: { title: "Settings", icon: "Settings", closable: true },
     hidden: true,
+    body: true,
     // A configurator: sidebar, tabs, and controls, all engine stops ([P10]).
     // The panel bodies are tabs of this one card rather than registrations of
     // their own, so this single declaration covers them.

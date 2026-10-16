@@ -46,6 +46,8 @@ export function registerFileViewCard(): void {
   registerCard({
     componentId: "file-view",
     contentFactory: (cardId) => <FileViewCardContent cardId={cardId} />,
+    // A body: the viewer reads its file in the card's own page.
+    body: true,
     defaultMeta: { title: "File", icon: "FileText", closable: true },
     category: { label: "Files", icon: "FileText" },
     cardsGroup: "files",

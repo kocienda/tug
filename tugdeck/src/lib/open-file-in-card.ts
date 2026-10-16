@@ -47,6 +47,37 @@ import { findFileViewCardByPath } from "./file-view-open-registry";
 import { isViewableFile } from "./file-kinds";
 import { noteRecentDocument } from "./recent-documents";
 import { flashCardPane } from "./flash-pane-border";
+import { cardIdentityElsewhere } from "./card-identity";
+
+/**
+ * A card of `componentId` bound to `path` whose content is mounted in another
+ * page — a body card — found among the active deck's cards by the path its
+ * page published. The open registries are per page and hold none of these.
+ */
+function bodyCardByPath(store: IDeckManagerStore, componentId: string, path: string): string | null {
+  for (const card of store.getSnapshot().cards) {
+    if (card.componentId === componentId && cardIdentityElsewhere.get(card.id)?.path === path) return card.id;
+  }
+  return null;
+}
+
+/** Reveals a line in a body Text card, in the body's own page. */
+export type BodyLineRevealer = (
+  cardId: string,
+  line: number,
+  endLine?: number,
+  columns?: readonly [number, number],
+) => void;
+
+let bodyLineRevealer: BodyLineRevealer | null = null;
+
+/** Install the revealer for a body Text card's lines. Returns the uninstall. */
+export function setBodyLineRevealer(revealer: BodyLineRevealer): () => void {
+  bodyLineRevealer = revealer;
+  return () => {
+    if (bodyLineRevealer === revealer) bodyLineRevealer = null;
+  };
+}
 
 /**
  * Read the deck-wide save-mode default straight from the tugbank cache
@@ -70,16 +101,16 @@ function openFileInViewerCard(
   path: string,
   originCardId: string | null,
 ): void {
-  const existing = findFileViewCardByPath(path);
-  if (existing) {
+  const existingId = findFileViewCardByPath(path)?.cardId ?? bodyCardByPath(store, "file-view", path);
+  if (existingId !== null) {
     transferFocusForActivation({
       outgoingCardId: store.getFirstResponderCardId(),
-      incomingCardId: existing.cardId,
+      incomingCardId: existingId,
       store,
-      commitMutation: () => store.activateCard(existing.cardId),
-      deferCommit: mayDeferCommit(store, existing.cardId),
+      commitMutation: () => store.activateCard(existingId),
+      deferCommit: mayDeferCommit(store, existingId),
     });
-    flashCardPane(store, existing.cardId);
+    flashCardPane(store, existingId);
     return;
   }
 
@@ -113,19 +144,21 @@ export function openFileInCard(
     return;
   }
 
-  const existing = findTextCardByPath(path);
-  if (existing) {
+  const local = findTextCardByPath(path);
+  const existingId = local?.cardId ?? bodyCardByPath(store, "text", path);
+  if (existingId !== null) {
     transferFocusForActivation({
       outgoingCardId: store.getFirstResponderCardId(),
-      incomingCardId: existing.cardId,
+      incomingCardId: existingId,
       store,
-      commitMutation: () => store.activateCard(existing.cardId),
-      deferCommit: mayDeferCommit(store, existing.cardId),
+      commitMutation: () => store.activateCard(existingId),
+      deferCommit: mayDeferCommit(store, existingId),
     });
     if (line !== undefined) {
-      existing.entry.revealLine(line, endLine, columns);
+      if (local !== null) local.entry.revealLine(line, endLine, columns);
+      else bodyLineRevealer?.(existingId, line, endLine, columns);
     }
-    flashCardPane(store, existing.cardId);
+    flashCardPane(store, existingId);
     return;
   }
 

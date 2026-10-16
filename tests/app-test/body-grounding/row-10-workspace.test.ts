@@ -19,6 +19,11 @@
  * and the shell's own record has the arriving card's lid on from the first
  * frame its placeholder has a box until the host has shown it.
  *
+ * Every other kind that is a body is switched the same way: a card of the
+ * kind at home, and one of the kind in the second workspace — the one the
+ * workspace was made with, for a rail, or opened there — each body hidden as
+ * its workspace departs and shown on its own placeholder as it arrives.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-placement.ts
  * @covers tugdeck/src/lib/body-shell.ts
@@ -31,6 +36,9 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { floorMeasure } from "./_frames";
+import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
+import { kindsUnderTest, sessionUnderTest } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
 import {
   BURST_INTERVAL_MS,
@@ -41,6 +49,7 @@ import {
   expectHidden,
   placeholderOf,
   readSampler,
+  rectOf,
   readStanding,
   type Rect,
 } from "./_motion";
@@ -96,6 +105,14 @@ interface Switch {
 }
 
 async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop: Rect, palette: Awaited<ReturnType<typeof readStanding>>["palette"]): Promise<void> {
+  // Every body standing visible has a place, the cards a workspace was made
+  // with (its rails) as much as the ones the row seeded: the host may show a
+  // departing body there until the hide reaches it.
+  for (const b of await app.bodies()) {
+    if (b.cardId === null || !b.visible || places.has(b.cardId)) continue;
+    const at = await rectOf(app, placeholderOf(b.cardId));
+    if (at !== null) places.set(b.cardId, at);
+  }
   await armSampler(app, leg.watch);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${leg.label}: the burst armed`).toBe(true);
@@ -110,6 +127,13 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   for (const id of leg.arriving) {
     await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(id))})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
     landed.set(id, await expectAtRest(app, id, `${leg.label}: ${id} arrived`));
+  }
+  // A card the workspace was made with arrives too, at the place its own
+  // allocation gives it now.
+  for (const b of await app.bodies()) {
+    if (b.cardId === null || !b.visible || landed.has(b.cardId)) continue;
+    const at = await rectOf(app, placeholderOf(b.cardId));
+    if (at !== null) landed.set(b.cardId, at);
   }
 
   // ---- The host's record: every visible body on its own placeholder ----
@@ -150,14 +174,56 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
 }
 
 describe.skipIf(!SHOULD_RUN)("body-grounding row 10: workspace switch", () => {
-  test(
+  for (const kind of kindsUnderTest(10)) {
+    if (kind.componentId === "session") continue;
+    test(
+      `${kind.componentId}: its departing body hides and its arriving body shows on its own placeholder, with no frame of a body in the wrong place`,
+      async () => {
+        const K = `row10-${kind.componentId}`;
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        try {
+          await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
+          await standUpKind(app, kind, K);
+          await Bun.sleep(400);
+          const home = await app.evalJS<string>(ACTIVE_SPACE);
+          const places = new Map<string, Rect>();
+          places.set(K, await expectAtRest(app, K, `${K} at home`));
+          const standing = await readStanding(app, K, places.get(K)!, floorMeasure(kind.rail));
+          const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
+
+          await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+          await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
+          const away = await app.evalJS<string>(ACTIVE_SPACE);
+          expect(away, "a second workspace is shown").not.toBe(home);
+          await expectHidden(app, K, `${K} after leaving home`);
+          const ofKind = `window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === ${JSON.stringify(kind.componentId)}; }).map(function (c) { return c.id; })`;
+          const madeWith = (await app.evalJS<string[]>(ofKind)).find((id) => id !== K);
+          const K2 = madeWith ?? (await openKind(app, kind));
+          note(`the away workspace's ${kind.componentId} card: ${K2} (${madeWith !== undefined ? "made with the workspace" : "opened there"})`);
+          await standUpKind(app, kind, K2);
+          await Bun.sleep(400);
+          places.set(K2, await expectAtRest(app, K2, `${K2} away`));
+
+          await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K }, places, crop, standing.palette);
+          await Bun.sleep(600);
+          await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [K2], departing: [K], watch: K2 }, places, crop, standing.palette);
+        } finally {
+          await app.close();
+        }
+      },
+      TEST_TIMEOUT_MS,
+    );
+  }
+
+  test.skipIf(!sessionUnderTest(10))(
     "every departing body hides and every arriving body shows on its own placeholder, with no frame of a body in the wrong place",
     async () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        env: { TUG_BODY_VIEWS: "1", [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+        bodies: true,
+        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: A });

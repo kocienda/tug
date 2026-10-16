@@ -21,6 +21,7 @@ import {
 } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { useFocusManager } from "@/components/tugways/use-focusable";
+import { getDeckStore } from "@/lib/deck-store-registry";
 
 /** The followed card id, or `null` when none has been focused. */
 export const FollowedCardContext = createContext<string | null>(null);
@@ -30,12 +31,19 @@ export const FollowedCardContext = createContext<string | null>(null);
  *
  *  The history lives beside the subscription that hears it, and the snapshot
  *  is the remembered card — so a key change is one commit through the door,
- *  where copying the key into state from an effect cost a second. */
+ *  where copying the key into state from an effect cost a second.
+ *
+ *  In a body the page's focus manager knows one card, its own, so the deck
+ *  store answers instead (`getFollowedCardId`): the shell tracks the key card
+ *  and says which card this one follows. */
 export function useTrackFollowedCard(selfCardId: string): string | null {
   const focusManager = useFocusManager();
+  const deck = getDeckStore();
+  const bridged = deck?.getFollowedCardId;
   const lastRef = useRef<string | null>(null);
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
+      if (deck !== null && bridged !== undefined) return deck.subscribe(() => onStoreChange());
       if (focusManager === null) return () => {};
       const remember = (): void => {
         const key = focusManager.keyCard();
@@ -49,9 +57,9 @@ export function useTrackFollowedCard(selfCardId: string): string | null {
         onStoreChange();
       });
     },
-    [focusManager, selfCardId],
+    [focusManager, selfCardId, deck, bridged],
   );
-  return useSyncExternalStore(subscribe, () => lastRef.current);
+  return useSyncExternalStore(subscribe, () => (bridged !== undefined ? bridged() : lastRef.current));
 }
 
 /** Read the enclosing card's followed card id from context. */

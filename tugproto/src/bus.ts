@@ -49,6 +49,18 @@ export interface CardFacts {
   activity: string | null;
   /** `canInterrupt` and `compacted`, each 0 or 1. */
   telemetry: Record<string, number>;
+  /**
+   * What the card holds, as its own page's live identity resolver answers
+   * (the deck's `CardIdentityFacts`), or null when it answers nothing.
+   * Opaque to tugcast.
+   */
+  identity?: Record<string, unknown> | null;
+  /**
+   * The controls the card contributes to its pane's title bar (the deck's
+   * `PaneTitleBarItem`s), each with `enabled` as the card's own chain
+   * answers, or null when it contributes none. Opaque to tugcast.
+   */
+  titleBar?: Record<string, unknown>[] | null;
 }
 
 /** What a `card-command` asks a card to do. */
@@ -62,14 +74,28 @@ export type CardCommandKind =
   | "dispatch"
   | "focus-enter"
   | "surface-activate"
-  | "surface-dismissed";
+  | "surface-dismissed"
+  /** The shell asks the card's own close guard to decide; the card answers `close-decision` advice. */
+  | "close-decision"
+  /** Start (`on: true`) or stop publishing the card's session inspection for a devtools card. */
+  | "inspect"
+  /** A followed card's inspection, relayed to the devtools card that follows it. */
+  | "inspection"
+  /** A chain action, by `id`, sent to the card's content responder. */
+  | "content-action"
+  /** Reveal a line of the card's file; `payload` carries `line`, and `endLine` and `columns` when given. */
+  | "reveal-line"
+  /** Show a section of the Settings card; `payload` carries `section`. */
+  | "reveal-settings"
+  /** The shell's dev log, for the devtools card: `payload` carries `entries`, opaque to the bus. */
+  | "dev-log";
 
 /** `card-command`: the chrome asking a card to act. */
 export interface CardCommand {
   command: CardCommandKind;
   query?: string;
   chord?: { key: string; modifiers: string[] };
-  /** The action id a `dispatch` carries: a card-scoped menu command. */
+  /** The action id a `dispatch` carries (a card-scoped menu command), or a `content-action`'s chain action. */
   id?: string;
   /** The action's payload, for a `dispatch` that has one. */
   payload?: Record<string, unknown>;
@@ -83,6 +109,10 @@ export interface CardCommand {
    * root of the content the shell draws for the card.
    */
   path?: number[];
+  /** Whether an `inspect` starts the card's inspection or stops it. */
+  on?: boolean;
+  /** The inspection an `inspection` relays, opaque to the bus. */
+  inspection?: unknown;
 }
 
 /**
@@ -127,7 +157,18 @@ export type CardAdvice =
   /** Draw the card's deck-scope surface in the shell, or stop drawing it (`null`). */
   | { advice: "surface"; surface: ShellSurface | null }
   /** The card asked to log out, which is the app's to confirm and run. */
-  | { advice: "logout" };
+  | { advice: "logout" }
+  /**
+   * A deck method an arrangement card called (`setFlowOffset`, …), for the
+   * shell to run against its deck when the method is one it lets a body call.
+   */
+  | { advice: "deck-call"; method: string; args: unknown[] }
+  /** Whether the card's own close guard would ask before the card closes. */
+  | { advice: "close-guard"; asks: boolean }
+  /** The card's close guard decided, in answer to a `close-decision` command. */
+  | { advice: "close-decision"; answer: "close" | "cancel" }
+  /** The card's session inspection, for the devtools card that follows it. Opaque to the bus. */
+  | { advice: "inspection"; inspection: unknown };
 
 /** `deck-facts`: what the chrome tells every card about the deck. */
 export interface DeckFacts {
@@ -165,6 +206,26 @@ export interface CardContext {
   firstResponderCardId: string | null;
   layerShown: boolean;
   spaceId: string | null;
+  /**
+   * The shell's arrangement — its deck, its workspaces, and the per-card
+   * facts a card listing them reads — for a kind whose registration says
+   * `bodyDeck: "arrangement"`. Opaque to the bus: `lib/body-arrangement.ts`
+   * writes and reads it.
+   */
+  arrangement?: unknown;
+  /** The card a `bodyFollows` kind follows, and its binding, or null. Opaque to the bus. */
+  followed?: unknown;
+  /**
+   * The app's build identity, for the About card: what the host sent the
+   * shell with its `show-card`, which only the shell hears. Opaque to the bus.
+   */
+  appInfo?: unknown;
+  /**
+   * The deck edge a rail card stands pinned to. Absent for a card that is not
+   * a pinned rail — a content card, or a rail dragged loose — which paints
+   * the content surface; a pinned rail paints the rail's own.
+   */
+  railSide?: "left" | "right";
 }
 
 /** One bus message: a `kind` and its `payload`. */

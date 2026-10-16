@@ -108,6 +108,7 @@ export function registerAboutCard(): void {
     // that override stand alone as the whole title bar.
     defaultMeta: { title: "", closable: true },
     hidden: true,
+    body: true,
     placement: "center",
     sizePolicy: {
       min: { width: 320, height: 360 },

@@ -34,7 +34,10 @@ import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
-import { dispatchCommand } from "./command-dispatch";
+import { dispatchCommand, sendToCardContent } from "./command-dispatch";
+import { closeCard, closePane, deleteSpace } from "./lib/card-close-commands";
+import { requestSettingsReveal } from "./lib/settings-reveal";
+import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./lib/settings-sections-pref";
 import { openDiffInCard } from "@/lib/open-diff-in-card";
 import { openCommitInCard } from "@/lib/open-commit-in-card";
 import {
@@ -986,11 +989,10 @@ export function initActionDispatch(
   // `IMPOSER_SETTLE_END` instead ([B05]). A raise that moves nothing arms no
   // settle and `flashPaneBorderOnSettle` rings immediately, which is what
   // keeps a card already in the reader's slot from going unanswered.
-  registerAction("focus-session-card", (payload) => {
-    const cardId = payload.cardId;
+  const focusSessionCard = (verb: string, cardId: unknown): cardId is string => {
     if (typeof cardId !== "string") {
-      console.warn("focus-session-card: missing or invalid cardId", payload);
-      return;
+      console.warn(`${verb}: missing or invalid cardId`, cardId);
+      return false;
     }
     let pane = deckManager
       .getSnapshot()
@@ -1009,8 +1011,8 @@ export function initActionDispatch(
       }
     }
     if (!pane) {
-      console.warn(`focus-session-card: no pane holds card "${cardId}"`);
-      return;
+      console.warn(`${verb}: no pane holds card "${cardId}"`);
+      return false;
     }
     raiseCard(deckManager, cardId);
     flashPaneBorderOnSettle(pane.id);
@@ -1024,6 +1026,60 @@ export function initActionDispatch(
       queueMicrotask(() => perfMark("tug:action-microtask"));
       window.setTimeout(() => perfMark("tug:action-next-task"), 0);
     }
+    return true;
+  };
+  registerAction("focus-session-card", (payload) => {
+    focusSessionCard("focus-session-card", payload.cardId);
+  });
+  // reveal-session-changes: the raise above, then the card's Changes shade —
+  // the room a surface showing that card's arc opens ([D152]). The reveal is
+  // sent to the card's content wherever it lives, so a surface in one body
+  // opens the shade of a card in another.
+  registerAction("reveal-session-changes", (payload) => {
+    const cardId = payload.cardId;
+    if (!focusSessionCard("reveal-session-changes", cardId)) return;
+    sendToCardContent(cardId, TUG_ACTIONS.REVEAL_CHANGES);
+  });
+  // reveal-settings: open or raise the Settings card and show a section of
+  // it. The request is parked until a Settings card is mounted — in this
+  // document, or, when the card is a body, through the consumer the shell
+  // holds for it — so a bulletin in any page lands the reader on the section
+  // it named ([P17]).
+  registerAction("reveal-settings", (payload) => {
+    const section = payload.section;
+    if (typeof section !== "string" || !SETTINGS_SECTION_IDS.includes(section as SettingsSectionId)) {
+      console.warn("reveal-settings: missing or unknown section", payload);
+      return;
+    }
+    dispatchCommand(TUG_ACTIONS.SHOW_SETTINGS);
+    requestSettingsReveal(section as SettingsSectionId);
+  });
+  // close-card / close-pane-by-id / delete-space-confirmed: a list's gestures that destroy
+  // other cards, run here because this page holds those cards' close guards
+  // and responders, whichever page the list is in.
+  registerAction("close-card", (payload) => {
+    const { cardId, spaceId } = payload;
+    if (typeof cardId !== "string" || typeof spaceId !== "string") {
+      console.warn("close-card: missing cardId or spaceId", payload);
+      return;
+    }
+    closeCard(cardId, spaceId);
+  });
+  registerAction("close-pane-by-id", (payload) => {
+    const { paneId, activeCardId, spaceId } = payload;
+    if (typeof paneId !== "string" || typeof activeCardId !== "string" || typeof spaceId !== "string") {
+      console.warn("close-pane-by-id: missing paneId, activeCardId or spaceId", payload);
+      return;
+    }
+    closePane(paneId, activeCardId, spaceId);
+  });
+  registerAction("delete-space-confirmed", (payload) => {
+    const { spaceId } = payload;
+    if (typeof spaceId !== "string") {
+      console.warn("delete-space-confirmed: missing spaceId", payload);
+      return;
+    }
+    void deleteSpace(spaceId);
   });
 
   // resume-session: open a fresh session card and restore a session into it.
@@ -1395,76 +1451,8 @@ export function initActionDispatch(
     });
   }
 
-  // list_sessions_ok / _err: response to a `list_sessions` request. The
-  // store consumer (step 4) resolves its pending workspace fetch with
-  // the rows or surfaces the error.
-  registerAction("list_sessions_ok", (payload) => {
-    const projectDir = payload.project_dir;
-    const sessions = payload.sessions;
-    if (typeof projectDir !== "string" || !Array.isArray(sessions)) {
-      console.warn("list_sessions_ok: missing or invalid fields", payload);
-      return;
-    }
-    // `dir_exists` gates the picker's Open button. Absent (older
-    // tugcast) defaults to `true` so the dialog fails open — the
-    // spawn-error inline alert is the backstop.
-    const dirExists =
-      typeof payload.dir_exists === "boolean" ? payload.dir_exists : true;
-    // Absent (older tugcast) → `false`: a single-shot response is already
-    // the settled union, so the picker shows no scanning indicator.
-    const scanning =
-      typeof payload.scanning === "boolean" ? payload.scanning : false;
-    const rows = (sessions as Parameters<typeof normalizeSessionRow>[0][]).map(
-      normalizeSessionRow,
-    );
-    // Seed the chip's name cache from the listed rows ([#step-13d]) so a bound
-    // session renamed in a prior run reads correctly once listed. Only a user
-    // `/rename` feeds the chip; an auto `aiTitle` leaves it on the hash.
-    for (const row of rows) {
-      // A listing row is one **line** ([P06]): `session_id` is the segment a
-      // resume would seat, and the identity on it is the line's.
-      const lineId =
-        row.line_id.length > 0 ? row.line_id : identityKeyForSession(row.session_id);
-      sessionLineStore.seat(row.session_id, lineId);
-      sessionNameStore.seedName(lineId, row.name_user_set ? row.name : null);
-      // Seed the chip's tag cache from the listed rows so a bound session reads
-      // its ledger tag once listed (or re-resumed after a legacy backfill).
-      sessionTagStore.seedTag(lineId, row.tag);
-      sessionSynopsisStore.seedSynopsis(lineId, row.synopsis);
-    }
-    publishListSessionsOk({
-      project_dir: projectDir,
-      sessions: rows,
-      dir_exists: dirExists,
-      scanning,
-    });
-  });
-  registerAction("list_sessions_err", (payload) => {
-    const projectDir = payload.project_dir;
-    const reason = payload.reason;
-    if (typeof projectDir !== "string" || typeof reason !== "string") {
-      console.warn("list_sessions_err: missing or invalid fields", payload);
-      return;
-    }
-    publishListSessionsErr({ project_dir: projectDir, reason });
-  });
-  // list_sessions_progress: throttled scan-progress ticks emitted while
-  // the phase-2 JSONL scan parses cache misses. Drives the picker's
-  // determinate "N of M" indicator next to the Sessions label.
-  registerAction("list_sessions_progress", (payload) => {
-    const projectDir = payload.project_dir;
-    const parsed = payload.parsed;
-    const total = payload.total;
-    if (
-      typeof projectDir !== "string" ||
-      typeof parsed !== "number" ||
-      typeof total !== "number"
-    ) {
-      console.warn("list_sessions_progress: missing or invalid fields", payload);
-      return;
-    }
-    publishListSessionsProgress({ project_dir: projectDir, parsed, total });
-  });
+  // The store tails' answers: the shell's, and each body's too.
+  registerStoreTailActions();
 
   // resolve_sessions_ok / _err: the ledger's answer to "which of these cited
   // sessions do you hold?" ([D132]). The store settles both the hits and the
@@ -1516,56 +1504,6 @@ export function initActionDispatch(
       return;
     }
     publishTrashSessionErr({ session_id: sessionId, reason });
-  });
-
-  // list_session_state_changes_ok / _err: response to a
-  // `list_session_state_changes` request from the popover-side reader
-  // store. Rows are oldest-first by insertion order; unknown sessions
-  // surface as an empty array (not an error).
-  registerAction("list_session_state_changes_ok", (payload) => {
-    const tugSessionId = payload.tug_session_id;
-    const rows = payload.rows;
-    if (typeof tugSessionId !== "string" || !Array.isArray(rows)) {
-      console.warn("list_session_state_changes_ok: missing or invalid fields", payload);
-      return;
-    }
-    publishListSessionStateChangesOk({
-      tug_session_id: tugSessionId,
-      rows: rows as SessionStateChangeWireRow[],
-    });
-  });
-  registerAction("list_session_state_changes_err", (payload) => {
-    const tugSessionId = payload.tug_session_id;
-    const reason = payload.reason;
-    if (typeof tugSessionId !== "string" || typeof reason !== "string") {
-      console.warn("list_session_state_changes_err: missing or invalid fields", payload);
-      return;
-    }
-    publishListSessionStateChangesErr({ tug_session_id: tugSessionId, reason });
-  });
-
-  // list_digest_lines_ok: response to the digest-store's app-scoped
-  // ledger-tail request. Lines are oldest-first; an empty ledger is a
-  // valid empty array.
-  registerAction("list_digest_lines_ok", (payload) => {
-    const lines = payload.lines;
-    if (!Array.isArray(lines)) {
-      console.warn("list_digest_lines_ok: missing or invalid lines", payload);
-      return;
-    }
-    publishListDigestLinesOk({ lines: lines as DigestLineWireRow[] });
-  });
-
-  // list_overview_posts_ok: response to the overview-store's app-scoped
-  // ledger-tail request. Posts are oldest-first; an empty channel is a
-  // valid empty array.
-  registerAction("list_overview_posts_ok", (payload) => {
-    const posts = payload.posts;
-    if (!Array.isArray(posts)) {
-      console.warn("list_overview_posts_ok: missing or invalid posts", payload);
-      return;
-    }
-    publishListOverviewPostsOk({ posts: posts as OverviewPostWire[] });
   });
 
   // voiceover-changed: the host's VoiceOver signal ([P10]). The Swift
@@ -1740,4 +1678,137 @@ export function initActionDispatch(
     for (const dispose of disposers) dispose();
     disposers.length = 0;
   };
+}
+
+/**
+ * The answers the connection-scoped stores' first requests wait on — the
+ * session listing, a session's state changes, the digest's and the
+ * Overview's ledger tails — each published to the store that asked.
+ *
+ * Every page that attaches those stores registers these, which is the shell
+ * (from {@link initActionDispatch}) and every body (`body/body-main.ts`): a
+ * page whose store asked and that answers none of them holds the live frames
+ * and never the page before them, so a body's Overview showed no posts.
+ */
+export function registerStoreTailActions(): void {
+  // list_sessions_ok / _err: response to a `list_sessions` request. The
+  // store consumer (step 4) resolves its pending workspace fetch with
+  // the rows or surfaces the error.
+  registerAction("list_sessions_ok", (payload) => {
+    const projectDir = payload.project_dir;
+    const sessions = payload.sessions;
+    if (typeof projectDir !== "string" || !Array.isArray(sessions)) {
+      console.warn("list_sessions_ok: missing or invalid fields", payload);
+      return;
+    }
+    // `dir_exists` gates the picker's Open button. Absent (older
+    // tugcast) defaults to `true` so the dialog fails open — the
+    // spawn-error inline alert is the backstop.
+    const dirExists =
+      typeof payload.dir_exists === "boolean" ? payload.dir_exists : true;
+    // Absent (older tugcast) → `false`: a single-shot response is already
+    // the settled union, so the picker shows no scanning indicator.
+    const scanning =
+      typeof payload.scanning === "boolean" ? payload.scanning : false;
+    const rows = (sessions as Parameters<typeof normalizeSessionRow>[0][]).map(
+      normalizeSessionRow,
+    );
+    // Seed the chip's name cache from the listed rows ([#step-13d]) so a bound
+    // session renamed in a prior run reads correctly once listed. Only a user
+    // `/rename` feeds the chip; an auto `aiTitle` leaves it on the hash.
+    for (const row of rows) {
+      // A listing row is one **line** ([P06]): `session_id` is the segment a
+      // resume would seat, and the identity on it is the line's.
+      const lineId =
+        row.line_id.length > 0 ? row.line_id : identityKeyForSession(row.session_id);
+      sessionLineStore.seat(row.session_id, lineId);
+      sessionNameStore.seedName(lineId, row.name_user_set ? row.name : null);
+      // Seed the chip's tag cache from the listed rows so a bound session reads
+      // its ledger tag once listed (or re-resumed after a legacy backfill).
+      sessionTagStore.seedTag(lineId, row.tag);
+      sessionSynopsisStore.seedSynopsis(lineId, row.synopsis);
+    }
+    publishListSessionsOk({
+      project_dir: projectDir,
+      sessions: rows,
+      dir_exists: dirExists,
+      scanning,
+    });
+  });
+  registerAction("list_sessions_err", (payload) => {
+    const projectDir = payload.project_dir;
+    const reason = payload.reason;
+    if (typeof projectDir !== "string" || typeof reason !== "string") {
+      console.warn("list_sessions_err: missing or invalid fields", payload);
+      return;
+    }
+    publishListSessionsErr({ project_dir: projectDir, reason });
+  });
+  // list_sessions_progress: throttled scan-progress ticks emitted while
+  // the phase-2 JSONL scan parses cache misses. Drives the picker's
+  // determinate "N of M" indicator next to the Sessions label.
+  registerAction("list_sessions_progress", (payload) => {
+    const projectDir = payload.project_dir;
+    const parsed = payload.parsed;
+    const total = payload.total;
+    if (
+      typeof projectDir !== "string" ||
+      typeof parsed !== "number" ||
+      typeof total !== "number"
+    ) {
+      console.warn("list_sessions_progress: missing or invalid fields", payload);
+      return;
+    }
+    publishListSessionsProgress({ project_dir: projectDir, parsed, total });
+  });
+
+  // list_session_state_changes_ok / _err: response to a
+  // `list_session_state_changes` request from the popover-side reader
+  // store. Rows are oldest-first by insertion order; unknown sessions
+  // surface as an empty array (not an error).
+  registerAction("list_session_state_changes_ok", (payload) => {
+    const tugSessionId = payload.tug_session_id;
+    const rows = payload.rows;
+    if (typeof tugSessionId !== "string" || !Array.isArray(rows)) {
+      console.warn("list_session_state_changes_ok: missing or invalid fields", payload);
+      return;
+    }
+    publishListSessionStateChangesOk({
+      tug_session_id: tugSessionId,
+      rows: rows as SessionStateChangeWireRow[],
+    });
+  });
+  registerAction("list_session_state_changes_err", (payload) => {
+    const tugSessionId = payload.tug_session_id;
+    const reason = payload.reason;
+    if (typeof tugSessionId !== "string" || typeof reason !== "string") {
+      console.warn("list_session_state_changes_err: missing or invalid fields", payload);
+      return;
+    }
+    publishListSessionStateChangesErr({ tug_session_id: tugSessionId, reason });
+  });
+
+  // list_digest_lines_ok: response to the digest-store's app-scoped
+  // ledger-tail request. Lines are oldest-first; an empty ledger is a
+  // valid empty array.
+  registerAction("list_digest_lines_ok", (payload) => {
+    const lines = payload.lines;
+    if (!Array.isArray(lines)) {
+      console.warn("list_digest_lines_ok: missing or invalid lines", payload);
+      return;
+    }
+    publishListDigestLinesOk({ lines: lines as DigestLineWireRow[] });
+  });
+
+  // list_overview_posts_ok: response to the overview-store's app-scoped
+  // ledger-tail request. Posts are oldest-first; an empty channel is a
+  // valid empty array.
+  registerAction("list_overview_posts_ok", (payload) => {
+    const posts = payload.posts;
+    if (!Array.isArray(posts)) {
+      console.warn("list_overview_posts_ok: missing or invalid posts", payload);
+      return;
+    }
+    publishListOverviewPostsOk({ posts: posts as OverviewPostWire[] });
+  });
 }

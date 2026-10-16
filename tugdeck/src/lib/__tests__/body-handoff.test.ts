@@ -1,8 +1,10 @@
 /**
- * A Session card is handed to a body at its spawn funnel, and only then:
- * with no body capability the funnel sends as it always did; with it, a
- * Session card becomes a body card once and the funnel sends nothing, a card
- * of another kind and a card whose body failed stay in the shell, and the
+ * A card of a body kind is handed to a body — a spawn kind at its spawn
+ * funnel, and only then: with no body capability the funnel sends as it
+ * always did; with it, such a card becomes a body card once, the host is
+ * told its kind, and the funnel sends nothing; a card whose kind's
+ * registration does not say `body`, and a card whose body failed, stay in
+ * the shell; and the
  * reconnect pass's second fire for a body card asks the host for nothing.
  * The intent a card was handed is kept while it is a body card, so a body
  * that failed before its session was bound can re-run it in the shell, and a
@@ -23,9 +25,13 @@ import {
   _setHostCapabilitiesForTest,
   bodyIntentOf,
   forgetBodyIntent,
+  handOffToBody,
+  isBodyKind,
+  isMountBodyKind,
   suppressHandOff,
 } from "../body-handoff";
 import { registerDeckStore } from "../deck-store-registry";
+import { registerCard } from "../../card-registry";
 import {
   drainOpeningCommand,
   fireFreshSpawn,
@@ -51,12 +57,30 @@ const connection = {
   },
 } as unknown as TugConnection;
 
+// Two kinds of this file's own, so nothing here depends on, or disturbs,
+// another file's registration of a real kind: one handed off at its spawn
+// funnel as the Session card is, one the shell hands off itself.
+registerCard({
+  componentId: "handoff-spawn",
+  contentFactory: () => null,
+  defaultMeta: { title: "Spawn", closable: true },
+  body: true,
+  bodyHandOff: "spawn",
+});
+registerCard({
+  componentId: "handoff-mount",
+  contentFactory: () => null,
+  defaultMeta: { title: "Mount", closable: true },
+  body: true,
+});
+
 const deck = {
   getSnapshot: () => ({
     cards: [
-      { id: "s1", componentId: "session" },
-      { id: "s2", componentId: "session" },
+      { id: "s1", componentId: "handoff-spawn" },
+      { id: "s2", componentId: "handoff-spawn" },
       { id: "g1", componentId: "git" },
+      { id: "m1", componentId: "handoff-mount" },
     ],
   }),
 } as unknown as IDeckManagerStore;
@@ -77,7 +101,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const id of ["s1", "s2", "g1"]) sessionRestoreRegistry._clear(id);
+  for (const id of ["s1", "s2", "g1", "m1"]) sessionRestoreRegistry._clear(id);
   g.webkit = priorWebkit;
   registerDeckStore(null);
   _setHostCapabilitiesForTest({ bodyViews: false });
@@ -92,6 +116,12 @@ describe("without the capability", () => {
     expect(posted).toEqual([]);
     expect(bodyCardsStore.has("s1")).toBe(false);
   });
+
+  test("no kind is a body kind", () => {
+    _setHostCapabilitiesForTest({ bodyViews: false });
+    expect(isBodyKind("handoff-spawn")).toBe(false);
+    expect(isMountBodyKind("handoff-mount")).toBe(false);
+  });
 });
 
 describe("with the capability", () => {
@@ -99,13 +129,37 @@ describe("with the capability", () => {
     _setHostCapabilitiesForTest({ bodyViews: true });
   });
 
-  test("a Session card is handed off once, with the funnel's intent", () => {
+  test("a spawn kind's card is handed off once, with its kind and the funnel's intent", () => {
     fireRestore("s1", "tug-1", "/p", connection);
     expect(controlActions).toEqual([]);
     expect(posted).toEqual([
-      { name: "bodyCreate", body: { cardId: "s1", intent: { kind: "resume", tugSessionId: "tug-1", projectDir: "/p" } } },
+      {
+        name: "bodyCreate",
+        body: {
+          cardId: "s1",
+          componentId: "handoff-spawn",
+          intent: { kind: "resume", tugSessionId: "tug-1", projectDir: "/p" },
+        },
+      },
     ]);
     expect(bodyCardsStore.stateOf("s1")).toBe("creating");
+  });
+
+  test("a body kind is a registration fact; only one without a spawn hand-off is the shell's to hand off", () => {
+    expect(isBodyKind("handoff-spawn")).toBe(true);
+    expect(isBodyKind("handoff-mount")).toBe(true);
+    expect(isBodyKind("git")).toBe(false);
+    expect(isMountBodyKind("handoff-mount")).toBe(true);
+    expect(isMountBodyKind("handoff-spawn")).toBe(false);
+    expect(isMountBodyKind("git")).toBe(false);
+  });
+
+  test("a mount kind's card is handed off with a mount intent and its kind", () => {
+    expect(handOffToBody("m1", () => ({ kind: "mount" }))).toBe(true);
+    expect(posted).toEqual([
+      { name: "bodyCreate", body: { cardId: "m1", componentId: "handoff-mount", intent: { kind: "mount" } } },
+    ]);
+    expect(bodyIntentOf("m1")).toEqual({ kind: "mount" });
   });
 
   test("a fresh spawn carries its stashed opening command into the intent", () => {
@@ -114,6 +168,7 @@ describe("with the capability", () => {
     expect(controlActions).toEqual([]);
     expect(posted[0]?.body).toEqual({
       cardId: "s1",
+      componentId: "handoff-spawn",
       intent: { kind: "fresh", tugSessionId: "tug-1", projectDir: "/p", openingCommand: { name: "arc", args: "go" } },
     });
     expect(drainOpeningCommand("s1")).toBeUndefined();
@@ -124,11 +179,12 @@ describe("with the capability", () => {
     expect(controlActions).toEqual([]);
     expect(posted[0]?.body).toEqual({
       cardId: "s2",
+      componentId: "handoff-spawn",
       intent: { kind: "new", tugSessionId: "tug-2", projectDir: "/p", lineId: "line-2", tag: "odd-kiln" },
     });
   });
 
-  test("a card of another kind is never handed off", () => {
+  test("a card whose kind is not a body kind is never handed off", () => {
     fireRestore("g1", "tug-3", "/p", connection);
     expect(controlActions).toEqual(["spawn_session"]);
     expect(posted).toEqual([]);

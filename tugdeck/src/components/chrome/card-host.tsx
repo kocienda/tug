@@ -122,6 +122,7 @@ import * as paneFrameRegistry from "./pane-frame-registry";
 import * as paneRootRegistry from "./pane-root-registry";
 import { CardPortal } from "./card-portal";
 import { bodyCardsStore } from "@/lib/body-cards-store";
+import { isHandOffSuppressed, isMountBodyKind } from "@/lib/body-handoff";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -651,11 +652,18 @@ export const CardHost = React.memo(CardHostSwitch);
  * this card's content box, so the shell mounts none of it: the card stands
  * here as an empty placeholder filling the box — what the shell measures to
  * place the body. A card that leaves the bodies mounts its content again.
+ *
+ * A card of a kind the shell hands off itself (`isMountBodyKind`) stands as
+ * the placeholder before the hand-off marks it, so it never mounts here for
+ * the commit between the deck holding it and the shell handing it on — one
+ * whose body failed (`isHandOffSuppressed`) mounts here instead.
  */
 function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
   const isBody = useSyncExternalStore(
     bodyCardsStore.subscribe,
-    () => bodyCardsStore.has(props.cardId),
+    () =>
+      bodyCardsStore.has(props.cardId) ||
+      (isMountBodyKind(props.componentId) && !isHandOffSuppressed(props.cardId)),
   );
   if (!isBody) return <CardHostImpl {...props} />;
   return <BodyPlaceholder {...props} />;

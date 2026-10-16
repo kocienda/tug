@@ -58,6 +58,9 @@ export function registerJotsCard(): void {
     // deck's content cards, and each carries a slot picker for an arrangement
     // a rail can never stand in.
     cardsGroup: "none",
+    // A body: the jot list and its editor live in the card's own page, and a
+    // jot dragged out carries its text on the pasteboard every page reads.
+    body: true,
     sizePolicy: {
       min: { width: MIN_JOTS_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_JOTS_WIDTH_PX, height: 900 },

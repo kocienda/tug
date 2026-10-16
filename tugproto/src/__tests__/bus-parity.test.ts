@@ -39,6 +39,19 @@ const DELIVERED: BusDelivered[] = [
     kind: "card-facts",
     payload: { title: "Session", masthead: null, activity: null, telemetry: {} },
   },
+  {
+    from: BODY_C2,
+    to: "shell",
+    kind: "card-facts",
+    payload: {
+      title: "notes.md",
+      masthead: null,
+      activity: null,
+      telemetry: {},
+      identity: { title: "notes.md", path: "/p/notes.md", unsaved: true },
+      titleBar: [{ commandId: "reveal-card-file", icon: "FolderOpenDot", enabled: true }],
+    },
+  },
   { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "find", query: "needle" } },
   { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "focus-prompt" } },
   { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "interrupt" } },
@@ -60,6 +73,23 @@ const DELIVERED: BusDelivered[] = [
   { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "focus-enter", edge: "last" } },
   { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "surface-activate", path: [0, 2, 1] } },
   { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "surface-dismissed" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "close-decision" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "content-action", id: "reveal-changes" } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "reveal-line", payload: { line: 12, endLine: 14 } } },
+  { from: SHELL, to: { card: "c1" }, kind: "card-command", payload: { command: "inspect", on: true } },
+  {
+    from: SHELL,
+    to: { card: "c2" },
+    kind: "card-command",
+    payload: { command: "inspection", inspection: { transportState: "live", turns: 3 } },
+  },
+  { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "reveal-settings", payload: { section: "sessionCard" } } },
+  {
+    from: SHELL,
+    to: { card: "c2" },
+    kind: "card-command",
+    payload: { command: "dev-log", payload: { entries: [{ level: "info", source: "body", message: "ready", timestamp: 1700000000000 }] } },
+  },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-advice", waive: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", heightPx: 240 } },
@@ -96,6 +126,20 @@ const DELIVERED: BusDelivered[] = [
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "surface", surface: null } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "logout" } },
   {
+    from: BODY_C2,
+    to: "shell",
+    kind: "card-advice",
+    payload: { advice: "deck-call", method: "setFlowOffset", args: [120] },
+  },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-guard", asks: true } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-decision", answer: "cancel" } },
+  {
+    from: BODY_C1,
+    to: "shell",
+    kind: "card-advice",
+    payload: { advice: "inspection", inspection: { transportState: "live", turns: 3 } },
+  },
+  {
     from: SHELL,
     to: "body",
     kind: "deck-facts",
@@ -112,6 +156,22 @@ const DELIVERED: BusDelivered[] = [
     to: { card: "c2" },
     kind: "card-context",
     payload: { folded: true, arriving: false, firstResponderCardId: null, layerShown: false, spaceId: null },
+  },
+  {
+    from: SHELL,
+    to: { card: "c2" },
+    kind: "card-context",
+    payload: {
+      folded: false,
+      arriving: false,
+      firstResponderCardId: "c1",
+      layerShown: true,
+      spaceId: "space-1",
+      arrangement: { deck: { panes: [] }, bandWidth: 1600 },
+      followed: { cardId: "c1", binding: null },
+      appInfo: { name: "Tug", version: "0.8.0" },
+      railSide: "right",
+    },
   },
 ];
 
@@ -143,6 +203,10 @@ describe("bus envelope parity", () => {
       "focus-exit": true,
       surface: true,
       logout: true,
+      "deck-call": true,
+      "close-guard": true,
+      "close-decision": true,
+      inspection: true,
     };
     const allCommands: Record<CardCommandKind, true> = {
       find: true,
@@ -155,6 +219,13 @@ describe("bus envelope parity", () => {
       "focus-enter": true,
       "surface-activate": true,
       "surface-dismissed": true,
+      "close-decision": true,
+      inspect: true,
+      inspection: true,
+      "content-action": true,
+      "reveal-line": true,
+      "reveal-settings": true,
+      "dev-log": true,
     };
     expect([...advice].sort()).toEqual(Object.keys(allAdvice).sort());
     expect([...commands].sort()).toEqual(Object.keys(allCommands).sort());

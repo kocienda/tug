@@ -12,10 +12,10 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { ResponderChainManager } from "@/components/tugways/responder-chain";
+import { ResponderChainManager, setUnhandledTargetHook } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { COMMANDS_BY_ID } from "@/components/tugways/command-registry";
-import { dispatchCommand, observeCommands } from "../command-dispatch";
+import { dispatchCommand, observeCommands, sendToCardContent, setCardContentForwarder } from "../command-dispatch";
 import {
   _resetForTest,
   dispatchAction,
@@ -173,6 +173,72 @@ describe("a control frame's named parameters reach a chain handler", () => {
       dispatchCommand(TUG_ACTIONS.OPEN_FILE, { action: "open-file", value: "/tmp/x", path: "/ignored" }),
     ).toBe(true);
     expect(seen).toBe("/tmp/x");
+  });
+});
+
+describe("a card-content action", () => {
+  test("reaches the card's content scope in this document", () => {
+    let ran = 0;
+    chainWith({ id: "c1-card-content", parentId: null, actions: { [TUG_ACTIONS.REVEAL_CHANGES]: () => { ran += 1; } } });
+    expect(sendToCardContent("c1", TUG_ACTIONS.REVEAL_CHANGES)).toBe(true);
+    expect(ran).toBe(1);
+  });
+
+  test("reports a card whose content is not mounted here, rather than throwing", () => {
+    chainWith({ id: "other", parentId: null, actions: {} });
+    expect(sendToCardContent("c1", TUG_ACTIONS.REVEAL_CHANGES)).toBe(false);
+  });
+
+  test("goes to the forwarder when it takes the card, and never to this chain", () => {
+    let ran = 0;
+    chainWith({ id: "c1-card-content", parentId: null, actions: { [TUG_ACTIONS.REVEAL_CHANGES]: () => { ran += 1; } } });
+    const sent: string[] = [];
+    const release = setCardContentForwarder((cardId, action) => {
+      sent.push(`${cardId}:${action}`);
+      return true;
+    });
+    try {
+      expect(sendToCardContent("c1", TUG_ACTIONS.REVEAL_CHANGES)).toBe(true);
+    } finally {
+      release();
+    }
+    expect(sent).toEqual([`c1:${TUG_ACTIONS.REVEAL_CHANGES}`]);
+    expect(ran).toBe(0);
+  });
+});
+
+describe("a targeted dispatch that walks off the root", () => {
+  test("goes to the unhandled-target hook, which can take it", () => {
+    const chain = chainWith({ id: "control-parent", parentId: null, actions: {} });
+    const seen: string[] = [];
+    const release = setUnhandledTargetHook((event) => {
+      seen.push(event.action);
+      return true;
+    });
+    try {
+      expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(true);
+    } finally {
+      release();
+    }
+    expect(seen).toEqual([TUG_ACTIONS.NEW_SPACE]);
+    expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(false);
+  });
+
+  test("never reaches the hook when the chain answers it", () => {
+    let ran = 0;
+    const chain = chainWith({ id: "control-parent", parentId: null, actions: { [TUG_ACTIONS.NEW_SPACE]: () => { ran += 1; } } });
+    let hooked = 0;
+    const release = setUnhandledTargetHook(() => {
+      hooked += 1;
+      return true;
+    });
+    try {
+      expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(true);
+    } finally {
+      release();
+    }
+    expect(ran).toBe(1);
+    expect(hooked).toBe(0);
   });
 });
 

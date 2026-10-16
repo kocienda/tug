@@ -67,6 +67,11 @@ export function registerLayoutCard(): void {
     // Pins to a deck edge and insets the imposition band rather than taking a
     // slot inside it.
     layoutRole: "sidebar",
+    // A body that reads the shell's arrangement off its card context; its row
+    // presses are commands the shell answers, and its miniature's drags are
+    // deck calls the shell runs.
+    body: true,
+    bodyDeck: "arrangement",
     sizePolicy: {
       min: { width: MIN_LAYOUT_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_LAYOUT_WIDTH_PX, height: 900 },

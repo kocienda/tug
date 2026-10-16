@@ -426,6 +426,14 @@ export interface IDeckManagerStore {
    * moment, exactly zero or one card is the first responder.
    */
   getFirstResponderCardId: () => string | null;
+  /**
+   * The card a following card follows, when this store knows it rather than
+   * the page's focus manager: a body's bridge, whose focus manager holds its
+   * one card, answers what the shell's says. Absent on the deck itself;
+   * `useTrackFollowedCard` then tracks the focus manager as it always has.
+   * Changes notify through {@link IDeckManagerStore.subscribe}.
+   */
+  getFollowedCardId?: () => string | null;
 
   /**
    * Subscribe to card CONSTRUCTION events. Fires per card when

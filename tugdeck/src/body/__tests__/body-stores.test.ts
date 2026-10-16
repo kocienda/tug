@@ -11,11 +11,20 @@
  * `SHELL_ONLY` with the reason, which is the one way to make this pass
  * without attaching it.
  *
+ * A store's first page comes back as a CONTROL answer, so attaching it is
+ * half of it: the page that asked has to answer `list_overview_posts_ok` and
+ * the other tail acknowledgements too, or it holds the live frames and never
+ * the page before them.
+ *
  * @covers tugdeck/src/body/body-main.ts
+ * @covers tugdeck/src/action-dispatch.ts
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { registerStoreTailActions } from "../../action-dispatch";
+import { _resetActionRegistryForTest, getRegistryHandler } from "../../action-registry";
 
 const SRC = join(import.meta.dir, "..", "..");
 
@@ -39,5 +48,29 @@ describe("the stores a body attaches", () => {
   test("every store the shell attaches, the body attaches too", () => {
     const missing = [...shell].filter((name) => !body.has(name) && !(name in SHELL_ONLY));
     expect(missing).toEqual([]);
+  });
+});
+
+describe("the answers a body's stores wait on", () => {
+  const TAILS = [
+    "list_sessions_ok",
+    "list_sessions_err",
+    "list_sessions_progress",
+    "list_session_state_changes_ok",
+    "list_session_state_changes_err",
+    "list_digest_lines_ok",
+    "list_overview_posts_ok",
+  ];
+
+  test("one call registers every tail acknowledgement", () => {
+    _resetActionRegistryForTest();
+    registerStoreTailActions();
+    expect(TAILS.filter((name) => getRegistryHandler(name) === undefined)).toEqual([]);
+    _resetActionRegistryForTest();
+  });
+
+  test("the body's boot and the shell's both make it", () => {
+    expect(readFileSync(join(SRC, "body", "body-main.ts"), "utf8")).toMatch(/\bregisterStoreTailActions\(\)/);
+    expect(readFileSync(join(SRC, "action-dispatch.ts"), "utf8")).toMatch(/^ {2}registerStoreTailActions\(\);$/m);
   });
 });

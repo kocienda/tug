@@ -50,14 +50,19 @@ export const FOCUSABLE = "[data-tug-focusable]";
  */
 export const KEY_SINK = "[data-tug-key-sink]";
 
-/** The card host wrapper for a given card id. */
+/**
+ * The card host wrapper for a given card id. A card that is a body holds its
+ * host in its own page, so this selector is evaluated in the card's body —
+ * `app.body(cardId)` — and finds nothing in the shell's document there.
+ */
 export function cardHost(cardId: string): string {
   return `[data-card-host][data-card-id=${JSON.stringify(cardId)}]`;
 }
 
 /**
- * A page-side expression that is true when the keyboard is in `cardId`, stated
- * as an engine fact with the dom-granted case as an explicit alternative.
+ * A page-side expression, evaluated in the page that holds `cardId`'s host,
+ * that is true when that page's keyboard marks are inside the host: the key
+ * view, the first responder, or real DOM focus.
  *
  * Under the focus engine there are two legal shapes: the engine parks the sink
  * outside the card and marks the card's key view (`engine-routed`), or it
@@ -65,18 +70,14 @@ export function cardHost(cardId: string): string {
  * satisfies "the keyboard is here"; only the second one puts
  * `document.activeElement` inside the card host.
  *
- * The deck-side half reads `getActiveCardId()` — the composite first-responder
- * bit, which is the card the engine follows as its key card. Not
- * `getFocusedCardId()`, despite the name: that one reports the TOPMOST pane's
- * active card, a z-order fact that never goes null while any pane exists.
+ * This is the card's half of `keyboardIsInCard` in `card-reach.ts`, which
+ * adds the deck's half and picks the page.
  */
-export function keyboardIsInCard(cardId: string): string {
+export function keyboardInCardHost(cardId: string): string {
   const host = JSON.stringify(cardHost(cardId));
   return `(function(){
   var host = document.querySelector(${host});
   if (host === null) return false;
-  if (typeof window.__tug === "undefined") return false;
-  if (window.__tug.getActiveCardId() !== ${JSON.stringify(cardId)}) return false;
   var keyView = host.querySelector(${JSON.stringify(KEY_VIEW)});
   var fr = document.querySelector(${JSON.stringify(FIRST_RESPONDER)});
   var frInCard = fr !== null && host.contains(fr);

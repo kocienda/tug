@@ -9,6 +9,13 @@
  * the card needs (Save / Don't Save / Cancel) and resolves `"close"` to
  * proceed or `"cancel"` to abort.
  *
+ * A guard may also say when its answer changes (`subscribe`), and the
+ * registry says when a card's guard comes or goes
+ * (`subscribeCardCloseGuards`). A body card's page needs both: the shell
+ * asks the body's guard through a proxy that reads a published fact, and
+ * that fact has to move when the buffer goes dirty, not when something
+ * else happens to notify.
+ *
  * Background tabs stay mounted (CardHost hides them with `display: none`),
  * so every hosted card's guard is live — a whole-pane close must consult
  * ALL of them, visiting each dirty card in turn, never just the active one.
@@ -31,9 +38,24 @@ export interface CardCloseGuard {
    */
   needsDecision(): boolean;
   run: CardCloseDecision;
+  /** Call `listener` whenever `needsDecision()`'s answer may have changed. Returns the release. */
+  subscribe?: (listener: () => void) => () => void;
 }
 
 const guards = new Map<string, CardCloseGuard>();
+const registryListeners = new Set<() => void>();
+
+/** Call `listener` whenever a guard is registered or released, for any card. Returns the release. */
+export function subscribeCardCloseGuards(listener: () => void): () => void {
+  registryListeners.add(listener);
+  return () => {
+    registryListeners.delete(listener);
+  };
+}
+
+function notifyRegistry(): void {
+  for (const listener of [...registryListeners]) listener();
+}
 
 /**
  * Register `guard` for `cardId`. Returns a release that removes it — call
@@ -44,14 +66,43 @@ export function registerCardCloseGuard(
   guard: CardCloseGuard,
 ): () => void {
   guards.set(cardId, guard);
+  notifyRegistry();
   return () => {
     // Only remove if it is still ours — a later registration for the same
     // card id owns the slot now.
-    if (guards.get(cardId) === guard) guards.delete(cardId);
+    if (guards.get(cardId) === guard) {
+      guards.delete(cardId);
+      notifyRegistry();
+    }
   };
 }
 
 /** The close guard for `cardId`, or null when the card registered none. */
 export function getCardCloseGuard(cardId: string): CardCloseGuard | null {
   return guards.get(cardId) ?? null;
+}
+
+/**
+ * Call `listener` whenever `cardId`'s close guard may answer differently:
+ * when the card registers or releases a guard, and whenever the guard it has
+ * says its answer moved. Returns the release.
+ */
+export function watchCardCloseGuard(cardId: string, listener: () => void): () => void {
+  let watched: CardCloseGuard | null = null;
+  let releaseGuard: (() => void) | null = null;
+  const follow = (): void => {
+    const guard = getCardCloseGuard(cardId);
+    if (guard === watched) return;
+    releaseGuard?.();
+    watched = guard;
+    releaseGuard = guard?.subscribe?.(listener) ?? null;
+    listener();
+  };
+  const releaseRegistry = subscribeCardCloseGuards(follow);
+  watched = getCardCloseGuard(cardId);
+  releaseGuard = watched?.subscribe?.(listener) ?? null;
+  return () => {
+    releaseRegistry();
+    releaseGuard?.();
+  };
 }

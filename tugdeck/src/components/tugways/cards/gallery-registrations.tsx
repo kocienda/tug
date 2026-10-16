@@ -41,7 +41,7 @@
 
 import React, { useId, useState } from "react";
 import { Star, ShieldCheck, Bot, Gauge, Hash } from "lucide-react";
-import { registerCard, type CardSizePolicy } from "@/card-registry";
+import { registerCard, type CardRegistration, type CardSizePolicy } from "@/card-registry";
 import { TugBadge } from "@/components/tugways/tug-badge";
 import type { TugBadgeEmphasis, TugBadgeRole, TugBadgeSize } from "@/components/tugways/tug-badge";
 import { TugPopupButton } from "@/components/tugways/tug-popup-button";
@@ -559,13 +559,22 @@ const CATEGORIES = {
   textInput: { label: "Text Input", icon: "TextCursorInput" },
 } as const;
 
+/**
+ * Register one gallery card. Every gallery kind lives in a body — a web view
+ * of its own — which is a fact on the registration (`body: true`), set here
+ * once rather than on each of the entries below.
+ */
+function registerGalleryCard(registration: Omit<CardRegistration, "body">): void {
+  registerCard({ ...registration, body: true });
+}
+
 export function registerGalleryCards(): void {
 
   // ===========================================================================
   // Animation & Theming
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-theme-editor",
     contentFactory: (_cardId) => <GalleryThemeEditor />,
     defaultMeta: { title: "Theme Deriver", icon: "Palette", closable: true },
@@ -575,7 +584,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.animation,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-color-wells",
     contentFactory: (_cardId) => <GalleryColorWells />,
     defaultMeta: { title: "Color Wells", icon: "Palette", closable: true },
@@ -585,7 +594,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.animation,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-color-picker",
     contentFactory: (_cardId) => <GalleryColorPicker />,
     defaultMeta: { title: "Color Picker", icon: "Palette", closable: true },
@@ -596,7 +605,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.animation,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-scale-timing",
     contentFactory: (_cardId) => <GalleryScaleTiming />,
     defaultMeta: { title: "Scale & Timing", icon: "SlidersHorizontal", closable: true },
@@ -606,7 +615,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.animation,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-theme-accessibility",
     contentFactory: (_cardId) => <GalleryThemeAccessibility />,
     defaultMeta: { title: "Theme Accessibility", icon: "Paintbrush", closable: true },
@@ -616,7 +625,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.animation,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-animator",
     contentFactory: (_cardId) => <GalleryAnimator />,
     defaultMeta: { title: "TugAnimator", icon: "Play", closable: true },
@@ -630,7 +639,7 @@ export function registerGalleryCards(): void {
   // Architecture
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-chain-actions",
     contentFactory: (_cardId) => <GalleryChainActions />,
     defaultMeta: { title: "Chain Actions", icon: "Zap", closable: true },
@@ -640,7 +649,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.architecture,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-mutation",
     contentFactory: (_cardId) => <GalleryMutation />,
     defaultMeta: { title: "Mutation Model", icon: "GitBranch", closable: true },
@@ -650,7 +659,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.architecture,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-mutation-tx",
     contentFactory: (_cardId) => <GalleryMutationTx />,
     defaultMeta: { title: "Mutation Transactions", icon: "Layers", closable: true },
@@ -663,7 +672,7 @@ export function registerGalleryCards(): void {
   // The cardId is passed through to GalleryObservableProps so inspector
   // controls can direct setProperty actions to the correct TugPane responder
   // node via sendToTarget. [D04] (#s07-gallery-demo)
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-observable-props",
     contentFactory: (cardId) => <GalleryObservableProps cardId={cardId} />,
     defaultMeta: { title: "Observable Props", icon: "SlidersHorizontal", closable: true },
@@ -677,7 +686,7 @@ export function registerGalleryCards(): void {
   // Preservation Protocol ([D13], [A9]). Every component that opts in
   // should land a new section here so reload / tab-switch / cmd-tab
   // survival is easy to sanity-check by hand.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-state-preservation",
     contentFactory: (_cardId) => <GalleryStatePreservation />,
     defaultMeta: { title: "State Preservation", icon: "Save", closable: true },
@@ -697,7 +706,7 @@ export function registerGalleryCards(): void {
   // Visual fixture for the smart-pick routing inside BashToolBlock:
   // echo (TerminalBlock) vs git show / git diff (DiffBlock) vs git status
   // (TerminalBlock again, must not false-positive).
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-bash-tool-block",
     contentFactory: (_cardId) => <GalleryBashToolBlock />,
     defaultMeta: { title: "BashToolBlock", icon: "Terminal", closable: true },
@@ -714,7 +723,7 @@ export function registerGalleryCards(): void {
   // DefaultToolBlock — the [D11] fallback for tool calls with no
   // bespoke wrapper: unknown tools (with a caution badge) and
   // policy default-intent tools awaiting their bespoke wrapper.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tool-block-default",
     contentFactory: (_cardId) => <GalleryToolBlockDefault />,
     defaultMeta: { title: "DefaultToolBlock", icon: "Wrench", closable: true },
@@ -736,7 +745,7 @@ export function registerGalleryCards(): void {
   // File tool blocks — Read + Edit + Write + NotebookEdit side by
   // side. Extended in [#step-29-5] with Write + NotebookEdit
   // (from [#step-26]).
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tool-block-file",
     contentFactory: (_cardId) => <GalleryToolBlockFile />,
     defaultMeta: { title: "File Tool Blocks", icon: "Files", closable: true },
@@ -758,7 +767,7 @@ export function registerGalleryCards(): void {
 
   // ImageBlock body kind — lazy-load placeholder, EXIF orientation,
   // click-to-fullscreen. Shipped in [#step-27].
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-image-block",
     contentFactory: (_cardId) => <GalleryImageBlock />,
     defaultMeta: { title: "ImageBlock", icon: "Image", closable: true },
@@ -771,7 +780,7 @@ export function registerGalleryCards(): void {
   // Dev chrome — SessionInitBanner ([#step-29]) + ErrorBlock
   // ([#step-29]) + CautionBadge (pre-existing). One card hosts all
   // three so the per-card chrome surfaces co-locate visually.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-dev-chrome",
     contentFactory: (_cardId) => <GalleryDevChrome />,
     defaultMeta: { title: "Session Chrome (banner / error / caution)", icon: "Layers", closable: true },
@@ -782,7 +791,7 @@ export function registerGalleryCards(): void {
   });
 
   // JsonTreeBlock — the collapsible JSON body kind, standalone.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-json-tree-block",
     contentFactory: (_cardId) => <GalleryJsonTreeBlock />,
     defaultMeta: { title: "JsonTreeBlock", icon: "Braces", closable: true },
@@ -793,7 +802,7 @@ export function registerGalleryCards(): void {
   });
 
   // SessionThinkingBlock — the inline collapsible reasoning chrome.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-session-thinking",
     contentFactory: (_cardId) => <GallerySessionThinking />,
     defaultMeta: { title: "SessionThinkingBlock", icon: "Brain", closable: true },
@@ -810,7 +819,7 @@ export function registerGalleryCards(): void {
   // Design exploration for `TugCue` — the upcoming public component for
   // "soft inline banner that's also a click target." Six prototype
   // variants; user vets before the production component ships.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-cue",
     contentFactory: (_cardId) => <GalleryTugCue />,
     defaultMeta: { title: "TugCue", icon: "Lightbulb", closable: true },
@@ -820,7 +829,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.buttons,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-default-button",
     contentFactory: (_cardId) => <GalleryDefaultButton />,
     defaultMeta: { title: "TugDefaultButton", icon: "CornerDownLeft", closable: true },
@@ -830,7 +839,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.buttons,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-icon-button",
     contentFactory: (_cardId) => <GalleryIconButton />,
     defaultMeta: { title: "TugIconButton", icon: "MousePointer2", closable: true },
@@ -840,7 +849,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.buttons,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-popup-button",
     contentFactory: (_cardId) => <GalleryPopupButton />,
     defaultMeta: { title: "TugPopupButton", icon: "ChevronDown", closable: true },
@@ -853,7 +862,7 @@ export function registerGalleryCards(): void {
   // gallery-buttons is the multi-tab entry point: it carries
   // `defaultCards` and `defaultTitle` so `addCard("gallery-buttons")`
   // seeds a starter stack. Display title is "TugPushButton".
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-buttons",
     contentFactory: (_cardId) => <GalleryPushButton />,
     defaultMeta: { title: "TugPushButton", icon: "MousePointerClick", closable: true },
@@ -869,7 +878,7 @@ export function registerGalleryCards(): void {
   // Data Views
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-list-view",
     contentFactory: (_cardId) => <GalleryListView />,
     defaultMeta: { title: "TugListView", icon: "List", closable: true },
@@ -883,7 +892,7 @@ export function registerGalleryCards(): void {
   // UISearchController-style decorator hook. A `TugInput` above the
   // list view drives a substring predicate; the host owns the input
   // and the primitive consumes the derived data source.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-list-view-filter",
     contentFactory: (_cardId) => <GalleryListViewFilter />,
     defaultMeta: { title: "TugListView (filter)", icon: "Search", closable: true },
@@ -897,7 +906,7 @@ export function registerGalleryCards(): void {
   // ring on the list) and input-subordinate (`keyboardSubordinate`, list adds
   // no Tab stop) shapes of the "ring on the component, selection on the row"
   // model.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-list-view-focus",
     contentFactory: (_cardId) => <GalleryListViewFocus />,
     defaultMeta: { title: "TugListView (focus)", icon: "List", closable: true },
@@ -920,7 +929,7 @@ export function registerGalleryCards(): void {
   // that card exercises mutation, streaming, and windowing; this
   // one scopes to the role contract introduced by Phase 0 of
   // `tugplan-session-picker-redesign`.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-list-view-headers",
     contentFactory: (_cardId) => <GalleryListViewHeaders />,
     defaultMeta: { title: "TugListView (headers)", icon: "List", closable: true },
@@ -935,7 +944,7 @@ export function registerGalleryCards(): void {
   // catalogs both variants, the accessory slots, the trailing-reveal
   // policy, the state inputs, and the consumer-owned-selection
   // contract.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-list-row",
     contentFactory: (_cardId) => <GalleryTugListRow />,
     defaultMeta: { title: "TugListRow", icon: "List", closable: true },
@@ -945,7 +954,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.dataViews,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-markdown-view",
     contentFactory: (_cardId) => <GalleryMarkdownView />,
     defaultMeta: { title: "TugMarkdownView", icon: "FileText", closable: true },
@@ -959,7 +968,7 @@ export function registerGalleryCards(): void {
   // Feedback & Status
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-arc-gauge",
     contentFactory: (_cardId) => <GalleryTugArcGauge />,
     defaultMeta: { title: "TugArcGauge", icon: "Gauge", closable: true },
@@ -971,7 +980,7 @@ export function registerGalleryCards(): void {
 
   // The arc lifecycle grammar, whole: six components over one wire entry per
   // moment, and the real SessionIdentityRow reading a handed-in binding.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-arc-lifecycle",
     contentFactory: (_cardId) => <GalleryArcLifecycle />,
     defaultMeta: { title: "Arc Lifecycle", icon: "Route", closable: true },
@@ -981,7 +990,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-progress-indicator",
     contentFactory: (_cardId) => <GalleryTugProgressIndicator />,
     defaultMeta: { title: "TugProgressIndicator", icon: "Activity", closable: true },
@@ -993,7 +1002,7 @@ export function registerGalleryCards(): void {
 
   // An instrument rather than a showcase — a pinned population of one glyph so
   // a profile can be compared to the one before it. See the file header.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-motion-bench",
     contentFactory: (_cardId) => <GalleryMotionBench />,
     defaultMeta: { title: "Motion bench", icon: "Activity", closable: true },
@@ -1007,7 +1016,7 @@ export function registerGalleryCards(): void {
   // residency the motion work is about, and the population the render-cost
   // tripwire measures. A second id rather than a knob, so a test can seat it
   // by name.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-motion-bench-dot",
     contentFactory: (_cardId) => <GalleryMotionBench variant="pulsing-dot" />,
     defaultMeta: { title: "Motion bench (dot)", icon: "Activity", closable: true },
@@ -1022,7 +1031,7 @@ export function registerGalleryCards(): void {
   // is about. Two ids: the list as it is, and the list asking the primitive
   // to skip its off-screen rows with `content-visibility: auto`, so the
   // mechanism bench can read one population both ways.
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-motion-bench-dot-list",
     contentFactory: (_cardId) => (
       <GalleryMotionBench variant="pulsing-dot" host="list" />
@@ -1037,7 +1046,7 @@ export function registerGalleryCards(): void {
     sizePolicy: GALLERY_COMPLEX_SIZE,
     category: CATEGORIES.feedback,
   });
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-motion-bench-dot-list-skip",
     contentFactory: (_cardId) => (
       <GalleryMotionBench variant="pulsing-dot" host="list" offscreenSkip />
@@ -1053,7 +1062,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tool-call-header",
     contentFactory: (_cardId) => <GalleryBlockHeader />,
     defaultMeta: { title: "BlockHeader", icon: "Wrench", closable: true },
@@ -1063,7 +1072,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.blockRenderers,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-badge",
     contentFactory: (_cardId) => <GalleryBadge />,
     defaultMeta: { title: "TugBadge", icon: "Tag", closable: true },
@@ -1073,7 +1082,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-banner",
     contentFactory: (_cardId) => <GalleryBanner />,
     defaultMeta: { title: "TugBanner", icon: "TriangleAlert", closable: true },
@@ -1083,7 +1092,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-bulletin",
     contentFactory: (_cardId) => <GalleryBulletin />,
     defaultMeta: { title: "TugBulletin", icon: "Bell", closable: true },
@@ -1093,7 +1102,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-pane-bulletin",
     contentFactory: (_cardId) => <GalleryPaneBulletin />,
     defaultMeta: { title: "TugPaneBulletin", icon: "Bell", closable: true },
@@ -1103,7 +1112,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-linear-gauge",
     contentFactory: (_cardId) => <GalleryTugLinearGauge />,
     defaultMeta: { title: "TugLinearGauge", icon: "Gauge", closable: true },
@@ -1113,7 +1122,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-marquee",
     contentFactory: (_cardId) => <GalleryMarquee />,
     defaultMeta: { title: "TugMarquee", icon: "MoveHorizontal", closable: true },
@@ -1123,7 +1132,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-card-banner",
     contentFactory: (_cardId) => <GalleryCardBanner />,
     defaultMeta: { title: "TugPaneBanner", icon: "CircleAlert", closable: true },
@@ -1133,7 +1142,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.feedback,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-skeleton",
     contentFactory: (_cardId) => <GallerySkeleton />,
     defaultMeta: { title: "TugSkeleton", icon: "Loader", closable: true },
@@ -1147,7 +1156,7 @@ export function registerGalleryCards(): void {
   // Layout & Structure
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-accordion",
     contentFactory: (_cardId) => <GalleryAccordion />,
     defaultMeta: { title: "TugAccordion", icon: "ChevronDown", closable: true },
@@ -1157,7 +1166,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-atom",
     contentFactory: (_cardId) => <GalleryAtom />,
     defaultMeta: { title: "TugAtom", icon: "AtSign", closable: true },
@@ -1167,7 +1176,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-attachment-strip",
     contentFactory: (_cardId) => <GalleryAttachmentStrip />,
     defaultMeta: { title: "TugAttachmentPreview", icon: "Image", closable: true },
@@ -1177,7 +1186,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-box",
     contentFactory: (_cardId) => <GalleryBox />,
     defaultMeta: { title: "TugBox", icon: "Box", closable: true },
@@ -1187,7 +1196,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-separator",
     contentFactory: (_cardId) => <GallerySeparator />,
     defaultMeta: { title: "TugSeparator", icon: "Minus", closable: true },
@@ -1197,7 +1206,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-clamp",
     contentFactory: (_cardId) => <GalleryTugClamp />,
     defaultMeta: { title: "TugClamp", icon: "ChevronsDownUp", closable: true },
@@ -1207,7 +1216,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-split-pane",
     contentFactory: (_cardId) => <GallerySplitPane />,
     defaultMeta: { title: "TugSplitPane", icon: "Rows2", closable: true },
@@ -1217,7 +1226,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tabbar",
     contentFactory: (_cardId) => <GalleryTabBar />,
     defaultMeta: { title: "TugTabBar", icon: "PanelTop", closable: true },
@@ -1227,7 +1236,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.layout,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-title-bar",
     contentFactory: (_cardId) => <GalleryTitleBar />,
     defaultMeta: { title: "TugTitleBar", icon: "PanelTop", closable: true },
@@ -1242,7 +1251,7 @@ export function registerGalleryCards(): void {
   // Overlays
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-alert",
     contentFactory: (_cardId) => <GalleryAlert />,
     defaultMeta: { title: "TugAlert", icon: "CircleAlert", closable: true },
@@ -1252,7 +1261,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-modal-input-dialog",
     contentFactory: (_cardId) => <GalleryModalInputDialog />,
     defaultMeta: {
@@ -1266,7 +1275,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-confirm-popover",
     contentFactory: (_cardId) => <GalleryConfirmPopover />,
     defaultMeta: { title: "TugConfirmPopover", icon: "ShieldAlert", closable: true },
@@ -1276,7 +1285,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-context-menu",
     contentFactory: (_cardId) => <GalleryContextMenu />,
     defaultMeta: { title: "TugContextMenu", icon: "MousePointer2", closable: true },
@@ -1286,7 +1295,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-dialog-button",
     contentFactory: (_cardId) => <GalleryTugDialogButton />,
     defaultMeta: {
@@ -1300,7 +1309,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tug-inline-dialog",
     contentFactory: (_cardId) => <GalleryTugInlineDialog />,
     defaultMeta: {
@@ -1315,7 +1324,7 @@ export function registerGalleryCards(): void {
   });
 
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-popover",
     contentFactory: (_cardId) => <GalleryPopover />,
     defaultMeta: { title: "TugPopover", icon: "MessageSquareMore", closable: true },
@@ -1325,7 +1334,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-sheet",
     contentFactory: (_cardId) => <GallerySheet />,
     defaultMeta: { title: "TugSheet", icon: "PanelTopOpen", closable: true },
@@ -1335,7 +1344,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.overlays,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-tooltip",
     contentFactory: (_cardId) => <GalleryTooltip />,
     defaultMeta: { title: "TugTooltip", icon: "MessageSquare", closable: true },
@@ -1349,7 +1358,7 @@ export function registerGalleryCards(): void {
   // Selection
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-checkbox",
     contentFactory: (_cardId) => <GalleryCheckbox />,
     defaultMeta: { title: "TugCheckbox", icon: "SquareCheck", closable: true },
@@ -1359,7 +1368,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.selection,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-choice-group",
     contentFactory: (_cardId) => <GalleryChoiceGroup />,
     defaultMeta: { title: "TugChoiceGroup", icon: "ToggleLeft", closable: true },
@@ -1369,7 +1378,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.selection,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-option-group",
     contentFactory: (_cardId) => <GalleryOptionGroup />,
     defaultMeta: { title: "TugOptionGroup", icon: "ToggleLeft", closable: true },
@@ -1379,7 +1388,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.selection,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-radio-group",
     contentFactory: (_cardId) => <GalleryRadioGroup />,
     defaultMeta: { title: "TugRadioGroup", icon: "CircleCheck", closable: true },
@@ -1389,7 +1398,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.selection,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-slider",
     contentFactory: (_cardId) => <GallerySlider />,
     defaultMeta: { title: "TugSlider", icon: "SlidersHorizontal", closable: true },
@@ -1399,7 +1408,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.selection,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-switch",
     contentFactory: (_cardId) => <GallerySwitch />,
     defaultMeta: { title: "TugSwitch", icon: "ToggleRight", closable: true },
@@ -1413,7 +1422,7 @@ export function registerGalleryCards(): void {
   // Text Input
   // ===========================================================================
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-input",
     contentFactory: (_cardId) => <GalleryInput />,
     defaultMeta: { title: "TugInput", icon: "TextCursorInput", closable: true },
@@ -1423,7 +1432,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.textInput,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-file-chooser",
     contentFactory: (_cardId) => <GalleryFileChooser />,
     defaultMeta: { title: "TugFileChooser", icon: "FolderOpen", closable: true },
@@ -1433,7 +1442,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.textInput,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-label",
     contentFactory: (_cardId) => <GalleryLabel />,
     defaultMeta: { title: "TugLabel", icon: "Type", closable: true },
@@ -1443,7 +1452,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.textInput,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-prompt-entry",
     contentFactory: (cardId) => <GalleryPromptEntry cardId={cardId} />,
     defaultMeta: { title: "TugPromptEntry", icon: "MessageSquareText", closable: true },
@@ -1454,7 +1463,7 @@ export function registerGalleryCards(): void {
     engineKind: "em",
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-textarea",
     contentFactory: (_cardId) => <GalleryTextarea />,
     defaultMeta: { title: "TugTextarea", icon: "TextAlignStart", closable: true },
@@ -1464,7 +1473,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.textInput,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-text-editor",
     contentFactory: (cardId) => <GalleryTextEditor cardId={cardId} />,
     defaultMeta: { title: "TugTextEditor", icon: "TextCursorInput", closable: true },
@@ -1475,7 +1484,7 @@ export function registerGalleryCards(): void {
     engineKind: "em",
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-transcript-entry",
     contentFactory: (_cardId) => <GalleryTranscriptEntry />,
     defaultMeta: { title: "TugTranscriptEntry", icon: "MessagesSquare", closable: true },
@@ -1485,7 +1494,7 @@ export function registerGalleryCards(): void {
     category: CATEGORIES.textInput,
   });
 
-  registerCard({
+  registerGalleryCard({
     componentId: "gallery-value-input",
     contentFactory: (_cardId) => <GalleryValueInput />,
     defaultMeta: { title: "TugValueInput", icon: "Hash", closable: true },

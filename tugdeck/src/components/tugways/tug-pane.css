@@ -441,8 +441,15 @@ body {
  * lands, and no longer has to outrank anything here to do it: it is an inset
  * ring on a layer of its own above the chrome, so `box-shadow: none` below and
  * the ring are about different boxes.
+ *
+ * A rail card that is a body paints its own content in its own page, so the
+ * same block keys that page too: its `body` carries the pinned side the shell
+ * tells it (`data-body-rail-side`, written by `body/body-root.tsx`), and its
+ * root carries the treatment. Without it the body painted the content
+ * surface while its rail's chrome and lid painted the sunken one.
  */
-[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side] {
+[data-rail-treatment="panel"] .tug-pane[data-role="sidebar"][data-rail-side],
+html[data-rail-treatment="panel"] body[data-body-rail-side] {
   --tugx-rail-tint: 0;
   --tugx-pane-bg: color-mix(
     in oklch,
