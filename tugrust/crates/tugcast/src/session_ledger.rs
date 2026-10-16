@@ -439,8 +439,10 @@ pub struct SessionRow {
 
 /// One row of the `turns` submission journal. Authored by tugcast at
 /// user-submit time (`insert_pending_turn`) and deleted by the merger's
-/// `turn_complete` intercept (FIFO match) once claude acknowledges the
-/// submission. While the row exists, the user submission is "pending" —
+/// `turn_complete` intercept once a turn end acknowledges it — every row
+/// delivered before the turn ended, not the oldest one alone, because a
+/// prompt submitted into a running turn is steered into that turn and
+/// never earns a `turn_complete` of its own. While the row exists, the user submission is "pending" —
 /// claude hasn't yet recorded it in JSONL. The journal's only durable
 /// role is plugging the gap between user-submit and JSONL-acknowledge so
 /// `runReplay` can render the submission as awaiting-response on
@@ -6030,8 +6032,8 @@ impl SessionLedger {
     // The `turns` table is a journal of pending user submissions: tugcast
     // inserts a row at user-message dispatch (the supervisor's
     // `dispatch_one` intercept), and the merger's `turn_complete`
-    // intercept deletes the oldest pending row for the session via
-    // `delete_oldest_pending_for_session` (FIFO match) once claude
+    // intercept deletes every pending row delivered before the turn ended
+    // via `delete_pending_for_session_through` once claude
     // acknowledges. tugcode reads pending rows for a session via the
     // cross-process bun:sqlite handle in `runReplay` and emits a synthetic
     // `user_message_replay` for any row whose `user_text` does not appear
@@ -6065,43 +6067,56 @@ impl SessionLedger {
         Ok(())
     }
 
-    /// Delete the oldest pending row for `session_id` (FIFO match by
-    /// `created_at` ASC). Called from the merger's `turn_complete`
-    /// intercept (narrowed in [Step 5.3](#step-5-3) to delete-on-ack
-    /// rather than mark-complete-by-id). Returns the deleted row's
-    /// content so the caller can log it; returns `Ok(None)` if there
-    /// were no pending rows for the session (a `turn_complete` arrived
-    /// for a session whose journal is already empty — claude responding
-    /// to a turn the journal didn't see, e.g. resume-after-bootstrap-of-
-    /// older-tugcode-data).
-    pub fn delete_oldest_pending_for_session(
+    /// Delete every pending row for `session_id` created at or before
+    /// `through` (epoch ms), returning them oldest first. Called from the
+    /// merger's `turn_complete` / `turn_cancelled` intercept with the
+    /// instant the turn-ending frame was forwarded: a turn's end
+    /// acknowledges every submission delivered before it — its opener and
+    /// any prompt steered into it mid-turn — and none that arrives after.
+    ///
+    /// It used to pop the oldest row alone (a pure FIFO), on the premise
+    /// that one submission earns one `turn_complete`. A prompt submitted
+    /// into a running turn breaks that premise: claude folds it into the
+    /// turn and ends the turn once, so the FIFO fell one row behind per
+    /// steered prompt and every reload re-emitted a finished prompt as
+    /// pending. On 2026-10-16 one session sat seven rows behind for an
+    /// hour that way.
+    ///
+    /// Returns an empty `Vec` when nothing was pending (a turn ended for
+    /// a session whose journal is already empty — claude responding to a
+    /// turn the journal didn't see, e.g. resume-after-bootstrap-of-older-
+    /// tugcode-data).
+    pub fn delete_pending_for_session_through(
         &self,
         session_id: &str,
-    ) -> Result<Option<JournalRow>, LedgerError> {
+        through: i64,
+    ) -> Result<Vec<JournalRow>, LedgerError> {
         let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let row = tx
-            .query_row(
+        let rows = {
+            let mut stmt = tx.prepare(
                 "SELECT journal_id, session_id, user_text, user_attachments, created_at
                  FROM turns
-                 WHERE session_id = ?1
-                 ORDER BY created_at ASC, journal_id ASC
-                 LIMIT 1",
-                params![session_id],
-                journal_row_from_query,
-            )
-            .optional()?;
-        let Some(decoded) = row else {
-            tx.commit()?;
-            return Ok(None);
+                 WHERE session_id = ?1 AND created_at <= ?2
+                 ORDER BY created_at ASC, journal_id ASC",
+            )?;
+            let decoded = stmt
+                .query_map(params![session_id, through], journal_row_from_query)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            decoded
+                .into_iter()
+                .collect::<Result<Vec<JournalRow>, LedgerError>>()?
         };
-        let row = decoded?;
+        if rows.is_empty() {
+            tx.commit()?;
+            return Ok(rows);
+        }
         tx.execute(
-            "DELETE FROM turns WHERE journal_id = ?1",
-            params![row.journal_id],
+            "DELETE FROM turns WHERE session_id = ?1 AND created_at <= ?2",
+            params![session_id, through],
         )?;
         tx.commit()?;
-        Ok(Some(row))
+        Ok(rows)
     }
 
     /// All pending journal rows for `session_id`, ordered by `created_at`
@@ -15563,7 +15578,8 @@ mod tests {
             .unwrap();
         l.record_wheel_prompt("s1", "w1", "/compact", millis(0))
             .unwrap();
-        l.delete_oldest_pending_for_session("s1").unwrap();
+        l.delete_pending_for_session_through("s1", millis(0))
+            .unwrap();
         assert!(l.list_pending_turns_for_session("s1").unwrap().is_empty());
         assert_eq!(
             l.list_wheel_prompts_for_line("s1").unwrap(),
@@ -15619,59 +15635,71 @@ mod tests {
     }
 
     #[test]
-    fn delete_oldest_pending_for_session_fifo_order() {
+    fn delete_pending_through_consumes_every_row_delivered_before_the_turn_ended() {
         let l = fresh();
         seed_live(&l, "s1", "ws", "card-1", millis(0));
+        // An opener, then two prompts steered into the running turn, then
+        // a prompt queued after the turn ended.
         l.insert_pending_turn("s1", "j_oldest", "first", &[], 1_000)
             .unwrap();
         l.insert_pending_turn("s1", "j_middle", "second", &[], 2_000)
             .unwrap();
         l.insert_pending_turn("s1", "j_newest", "third", &[], 3_000)
             .unwrap();
+        l.insert_pending_turn("s1", "j_after", "fourth", &[], 4_000)
+            .unwrap();
 
-        let popped = l.delete_oldest_pending_for_session("s1").unwrap();
+        let consumed = l.delete_pending_for_session_through("s1", 3_000).unwrap();
+        let ids: Vec<&str> = consumed.iter().map(|r| r.journal_id.as_str()).collect();
         assert_eq!(
-            popped.as_ref().map(|r| r.journal_id.as_str()),
-            Some("j_oldest")
+            ids,
+            vec!["j_oldest", "j_middle", "j_newest"],
+            "the turn's end acknowledges its opener and every prompt steered into it, oldest first",
         );
-        assert_eq!(popped.as_ref().map(|r| r.user_text.as_str()), Some("first"));
+        assert_eq!(consumed[0].user_text, "first");
 
-        let popped = l.delete_oldest_pending_for_session("s1").unwrap();
+        let remaining = l.list_pending_turns_for_session("s1").unwrap();
+        let ids: Vec<&str> = remaining.iter().map(|r| r.journal_id.as_str()).collect();
         assert_eq!(
-            popped.as_ref().map(|r| r.journal_id.as_str()),
-            Some("j_middle")
+            ids,
+            vec!["j_after"],
+            "a prompt delivered after the turn ended is still pending"
         );
 
-        let popped = l.delete_oldest_pending_for_session("s1").unwrap();
-        assert_eq!(
-            popped.as_ref().map(|r| r.journal_id.as_str()),
-            Some("j_newest")
+        // The next turn end consumes it; the one after that finds nothing.
+        let consumed = l.delete_pending_for_session_through("s1", 4_000).unwrap();
+        assert_eq!(consumed.len(), 1);
+        assert!(
+            l.delete_pending_for_session_through("s1", 5_000)
+                .unwrap()
+                .is_empty()
         );
-
-        // Fourth pop returns None — empty journal.
-        assert!(l.delete_oldest_pending_for_session("s1").unwrap().is_none(),);
     }
 
     #[test]
-    fn delete_oldest_pending_for_session_returns_none_on_empty_journal() {
+    fn delete_pending_through_returns_empty_on_empty_journal() {
         let l = fresh();
         seed_live(&l, "s1", "ws", "card-1", millis(0));
         // Session exists but no pending rows.
-        assert!(l.delete_oldest_pending_for_session("s1").unwrap().is_none(),);
-    }
-
-    #[test]
-    fn delete_oldest_pending_for_session_returns_none_on_unknown_session() {
-        let l = fresh();
         assert!(
-            l.delete_oldest_pending_for_session("never-existed")
+            l.delete_pending_for_session_through("s1", millis(0))
                 .unwrap()
-                .is_none(),
+                .is_empty()
         );
     }
 
     #[test]
-    fn delete_oldest_pending_for_session_does_not_touch_other_sessions() {
+    fn delete_pending_through_returns_empty_on_unknown_session() {
+        let l = fresh();
+        assert!(
+            l.delete_pending_for_session_through("never-existed", millis(0))
+                .unwrap()
+                .is_empty(),
+        );
+    }
+
+    #[test]
+    fn delete_pending_through_does_not_touch_other_sessions() {
         let l = fresh();
         seed_live(&l, "s1", "ws", "card-1", millis(0));
         seed_live(&l, "s2", "ws", "card-2", millis(0));
@@ -15680,7 +15708,7 @@ mod tests {
         l.insert_pending_turn("s2", "j_s2", "for s2", &[], 1_000)
             .unwrap();
 
-        l.delete_oldest_pending_for_session("s1").unwrap();
+        l.delete_pending_for_session_through("s1", 1_000).unwrap();
 
         let s2_rows = l.list_pending_turns_for_session("s2").unwrap();
         assert_eq!(s2_rows.len(), 1, "s2's pending row must be untouched");

@@ -1309,6 +1309,16 @@ export interface AddUserMessage {
    * somebody else's words when a window moved.
    */
   origin?: "user" | "wheel";
+  /**
+   * Set only on the opener of the mid-turn snapshot
+   * (`emitInflightTurnFromActiveTurn`): the frames from here to the
+   * bracket's `replay_complete` are the in-flight turn as tugcode holds it,
+   * including whatever it kept off the wire while the bracket ran. A card
+   * that entered the bracket rebuilds the turn from them as ever; a card
+   * that was already showing the turn live and shadowed the bracket takes
+   * from them only what its live cycle lacks. Absent everywhere else.
+   */
+  inflightSnapshot?: boolean;
   ipc_version: number;
 }
 

@@ -100,7 +100,7 @@ pub trait SessionsRecorder: Send + Sync {
     ///
     /// Returns `Result` because the dispatcher's decision to forward
     /// depends on insert success. Sibling
-    /// `delete_oldest_pending_for_session` runs after the wire-side
+    /// `delete_pending_for_session_through` runs after the wire-side
     /// broadcast (forward-before-mutate), so its `Result` is treated as
     /// telemetry — the wire is the source of truth for the live UI; the
     /// journal lagging by one update is a warn, not a user-facing error.
@@ -113,22 +113,26 @@ pub trait SessionsRecorder: Send + Sync {
         now: i64,
     ) -> Result<(), crate::session_ledger::LedgerError>;
 
-    /// Delete the oldest pending journal row for `session_id` (FIFO match
-    /// by `created_at` ASC). Called from the supervisor's merger
-    /// intercept on every outbound `turn_complete` / `turn_cancelled` —
-    /// claude has acknowledged the user's submission, so the journal
+    /// Delete every pending journal row for `session_id` created at or
+    /// before `through` (epoch ms), oldest first. Called from the
+    /// supervisor's merger intercept on every outbound `turn_complete` /
+    /// `turn_cancelled` with the instant the frame was forwarded — the
+    /// turn's end acknowledges every submission delivered before it, the
+    /// opener and any prompt steered into the running turn alike, so each
     /// row's reason for existing (rendering the submission as
-    /// awaiting-response on resume) is gone.
+    /// awaiting-response on resume) is gone. A row created after that
+    /// instant belongs to the next turn and stays.
     ///
-    /// Returns the deleted row's content for logging, or `None` if
-    /// there were no pending rows for the session. The frame has
+    /// Returns the deleted rows' content for logging, empty if
+    /// nothing was pending for the session. The frame has
     /// already been broadcast on the code_output feed before this fires
     /// (forward-before-mutate), so a `LedgerError` here is a
     /// telemetry warn, not a user-visible failure.
-    fn delete_oldest_pending_for_session(
+    fn delete_pending_for_session_through(
         &self,
         session_id: &str,
-    ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError>;
+        through: i64,
+    ) -> Result<Vec<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError>;
 
     /// Record one prompt the **wheel** put on the wire, so a reload can say
     /// who wrote it.
@@ -548,12 +552,15 @@ impl SessionsRecorder for LedgerSessionsRecorder {
         Ok(())
     }
 
-    fn delete_oldest_pending_for_session(
+    fn delete_pending_for_session_through(
         &self,
         session_id: &str,
-    ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
-        let popped = self.ledger.delete_oldest_pending_for_session(session_id)?;
-        if let Some(row) = popped.as_ref() {
+        through: i64,
+    ) -> Result<Vec<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
+        let consumed = self
+            .ledger
+            .delete_pending_for_session_through(session_id, through)?;
+        for row in &consumed {
             tracing::info!(
                 target: "dev::ledger",
                 event = "turn_seen_journal_row_deleted",
@@ -561,7 +568,7 @@ impl SessionsRecorder for LedgerSessionsRecorder {
                 journal_id = %row.journal_id,
             );
         }
-        Ok(popped)
+        Ok(consumed)
     }
 
     fn record_wheel_prompt(&self, session_id: &str, text: &str) {

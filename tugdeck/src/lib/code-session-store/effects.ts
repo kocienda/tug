@@ -142,6 +142,12 @@ export interface DiscardPrependEffect {
  * four of them transition rules the wrapper owns because a schedule spread
  * across every handler that could end the thing being watched is the defect
  * this arc exists to close.
+ *
+ * And `"replay_shadow"` — the horizon of a bracket the store shadowed rather
+ * than entered (`replayShadowActive`): armed by `handleReplayStarted` when a
+ * `replay_started` lands on a live turn, cancelled by the `replay_complete`
+ * that lifts the shadow or by transport loss, and lifting the shadow itself
+ * when it fires.
  */
 export interface ScheduleTimerEffect {
   kind: "schedule_timer";

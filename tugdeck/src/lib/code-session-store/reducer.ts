@@ -723,6 +723,36 @@ export interface CodeSessionState {
    */
   replayPrependActive: boolean;
   /**
+   * True while a replay bracket is open over a live turn without the
+   * store having entered it. A `replay_started` that lands mid-turn is
+   * a rehydration of what this card already shows: the JSONL it reads
+   * is the turn history the live frames already delivered, and the
+   * bracket's in-flight snapshot is the very cycle in `pendingTurn`.
+   * Entering it would mean wiping that cycle; refusing it (the old
+   * rule) let the bracket's frames fall through the live handlers,
+   * which is how a turn in `tool_work` ended in `waking` with no
+   * active message on 2026-10-16. So the bracket is *shadowed*: the
+   * live phase and cycle stay exactly as they are, every frame of the
+   * replay translator's vocabulary is set aside, and `replay_complete`
+   * lifts the shadow. Bounded by `REPLAY_SHADOW_DEADLINE_MS` so a
+   * bracket that never closes cannot eat the live turn. Internal-only —
+   * not surfaced on the snapshot.
+   */
+  replayShadowActive: boolean;
+  /**
+   * True once a shadowed bracket has reached tugcode's mid-turn snapshot
+   * (the `add_user_message` marked `inflightSnapshot`). tugcode keeps the
+   * in-flight turn's live frames off the wire while a bracket runs and
+   * does not send them later: the snapshot, emitted just before
+   * `replay_complete`, is the only record of whatever streamed, was
+   * called or finished inside the window. So from the marker on, a
+   * shadowed bracket takes from the snapshot what the live cycle lacks —
+   * new blocks, the text as it now stands, a tool's input or result the
+   * card never saw, the turn's end — and sets aside the rest
+   * (`snapshotFrameIsNews`). Cleared with the shadow. Internal-only.
+   */
+  replayShadowSnapshot: boolean;
+  /**
    * Replay-clock derived flags. Exposed through the snapshot identically-
    * named (`replayPreflightActive`, `replaySoftBudgetElapsed`,
    * `replayTimeoutDwellActive`); see `types.ts` for semantics. Driven
@@ -990,6 +1020,14 @@ export const REPLAY_TIMEOUT_DWELL_MS = 1500;
 export const REPLAY_PREFLIGHT_TIMEOUT_MS = 12_000;
 export const REPLAY_SILENCE_DEADLINE_MS = 15_000;
 export const REPLAY_BRACKET_DEADLINE_MS = 150_000;
+/**
+ * How long a shadowed bracket (see `CodeSessionState.replayShadowActive`)
+ * may stay open before the shadow lifts on its own. The same horizon as
+ * the entered bracket's absolute cap: the shadow holds back nothing the
+ * card needs, but a shadow that outlives its `replay_complete` would hold
+ * back the live turn, so it ends where a bracket would.
+ */
+export const REPLAY_SHADOW_DEADLINE_MS = REPLAY_BRACKET_DEADLINE_MS;
 
 /**
  * How long the deck waits for *any* answer to a stop before it stops
@@ -1085,6 +1123,21 @@ export const BRACKET_FRAME_TYPES: ReadonlySet<string> = new Set([
   "compact_boundary",
   "compact_summary",
 ]);
+
+/**
+ * The frames a shadowed bracket sets aside: the translator's vocabulary
+ * and the stage markers, which inside a bracket can only be replay — tugcode
+ * keeps the in-flight turn's live frames off the wire while a replay runs,
+ * and carries them in its mid-turn snapshot instead (see
+ * `CodeSessionState.replayShadowSnapshot`). The close itself lifts the
+ * shadow rather than being dropped, and `turn_cancelled` is the live tail's
+ * receipt, which the translator never emits.
+ */
+const SHADOWED_FRAME_TYPES: ReadonlySet<string> = new Set(
+  [...BRACKET_FRAME_TYPES].filter(
+    (t) => t !== "replay_complete" && t !== "turn_cancelled",
+  ),
+);
 
 /**
  * The silence deadline's arming rule, as a pure function of one
@@ -1323,6 +1376,8 @@ export function createInitialState(
     replayWindow: null,
     sessionCreatedAtMs: null,
     replayPrependActive: false,
+    replayShadowActive: false,
+    replayShadowSnapshot: false,
     replayPreflightActive: false,
     replaySoftBudgetElapsed: false,
     replayTimeoutDwellActive: false,
@@ -5623,6 +5678,13 @@ function handleTransportClose(
       ? { transportNonOnlineSince: Date.now() }
       : {};
 
+  // A shadowed bracket dies with the wire: its `replay_complete` is never
+  // coming, and the reconnect's own resume replays from a settled phase.
+  const shadow = liftReplayShadow(state);
+  const shadowCleared =
+    shadow.state === state ? {} : { replayShadowActive: false, replayShadowSnapshot: false };
+  const cancelShadowEffect = shadow.effects;
+
   // Transport close from `idle` no longer drops silently — per [D06]
   // the offline transportState gates submit even for cards that had
   // nothing in flight. Phase stays `idle` (there is nothing to error
@@ -5635,8 +5697,9 @@ function handleTransportClose(
         ...preflightCleared,
         ...caseAEchoesCleared,
         ...transportClock,
+        ...shadowCleared,
       },
-      effects: cancelPreflightEffect,
+      effects: [...cancelPreflightEffect, ...cancelShadowEffect],
     };
   }
 
@@ -5717,10 +5780,12 @@ function handleTransportClose(
       ...preflightCleared,
       ...caseAEchoesCleared,
       ...transportClock,
+      ...shadowCleared,
     },
     effects: [
       ...erroredEffects,
       ...cancelPreflightEffect,
+      ...cancelShadowEffect,
       ...transportLostCommit,
     ],
   };
@@ -5940,21 +6005,47 @@ function handleSessionNotOwned(
 // ---------------------------------------------------------------------------
 
 /**
- * Open a replay window. Allowed only from `idle` or `errored` —
- * other phases mean a live turn is in flight, which would race the
- * supervisor's flush-before-live ordering. The `errored` case is the
+ * Open a replay window. Entered only from `idle` or `errored`. The `errored` case is the
  * explicit invariant: a previously-errored card whose
  * `spawn_session_ok` cleared the error before replay began would
  * already be `idle` by the time `replay_started` lands; this branch
  * exists in case the supervisor sequences differently.
+ *
+ * Any other phase means a live turn is in flight, and the bracket is
+ * **shadowed** rather than entered or refused: `replayShadowActive`
+ * rises, the live phase and cycle are untouched, and the replay's frames
+ * are set aside at `reduce` until `replay_complete` lifts the shadow. A
+ * live card already holds everything the bracket would rehydrate, and the
+ * bracket's in-flight snapshot is the cycle in hand, so nothing is lost by
+ * not entering it — whereas refusing it let the replayed frames through
+ * the live handlers, which wiped the cycle ([F02], 2026-10-16). A
+ * `replay_started` inside an open bracket (`replaying`) is still a
+ * supervisor fault and is dropped as before.
  */
 function handleReplayStarted(
   state: CodeSessionState,
   _event: ReplayStartedEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
-  if (state.phase !== "idle" && state.phase !== "errored") {
+  if (state.phase === "replaying") {
     devLog.warn("code-session-store", `replay_started in unexpected phase ${state.phase}; dropping`);
     return { state, effects: [] };
+  }
+  if (state.phase !== "idle" && state.phase !== "errored") {
+    devLog.warn(
+      "code-session-store",
+      `replay_started in live phase ${state.phase}; shadowing the bracket`,
+    );
+    return {
+      state: { ...state, replayShadowActive: true },
+      effects: [
+        {
+          kind: "schedule_timer",
+          name: "replay_shadow",
+          ms: REPLAY_SHADOW_DEADLINE_MS,
+          fire: { type: "tick_replay_shadow" },
+        },
+      ],
+    };
   }
   return {
     state: {
@@ -6001,12 +6092,17 @@ function handleReplayStarted(
  * Close a replay window. Always returns to `idle` and populates
  * `lastReplayResult` with the success or error variant. Idempotent:
  * a stray `replay_complete` outside `replaying` is logged and
- * dropped so the normal idle / errored state isn't perturbed.
+ * dropped so the normal idle / errored state isn't perturbed. A close
+ * under a shadow lifts it and records nothing: the bracket was never
+ * entered, so it has no outcome, no window and no banner.
  */
 function handleReplayComplete(
   state: CodeSessionState,
   event: ReplayCompleteEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  if (state.replayShadowActive) {
+    return liftReplayShadow(state);
+  }
   if (state.phase !== "replaying") {
     devLog.warn("code-session-store", `replay_complete in unexpected phase ${state.phase}; dropping`);
     return { state, effects: [] };
@@ -7067,6 +7163,88 @@ function handleTickReplayBracket(
 }
 
 /**
+ * Lift a shadowed bracket: the live cycle was never touched, so there is
+ * nothing to restore — only the flag to drop and its deadline to cancel.
+ * The same state reference comes back when no shadow is active, so the
+ * callers that reach here on every close stay reference-stable.
+ */
+function liftReplayShadow(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (!state.replayShadowActive) {
+    return { state, effects: [] };
+  }
+  return {
+    state: { ...state, replayShadowActive: false, replayShadowSnapshot: false },
+    effects: [{ kind: "cancel_timer", name: "replay_shadow" }],
+  };
+}
+
+/**
+ * Whether a frame of tugcode's mid-turn snapshot, arriving under a shadowed
+ * bracket, carries something the live cycle lacks. The snapshot re-emits
+ * the whole turn so a freshly-bound card can rebuild it, and the live
+ * handlers are not all idempotent over that: a re-applied `tool_result`
+ * would run the steering pickup a second time and forward a queued prompt,
+ * and a re-applied `tool_use` would flip a streaming turn back to
+ * `tool_work`. So a tool frame passes only when the card never saw what it
+ * carries. Block opens (idempotent by coordinate), text (which the snapshot
+ * carries whole and the handler replaces), and the turn's end pass; the
+ * snapshot's own opener and anything else is set aside.
+ */
+function snapshotFrameIsNews(state: CodeSessionState, event: CodeSessionEvent): boolean {
+  const turnKey = state.pendingTurn?.turnKey;
+  const entry = turnKey === undefined ? undefined : state.scratch.get(turnKey);
+  const liveCall = (toolUseId: string): ToolUseMessage | null => {
+    const index = entry?.toolCallIndex.get(toolUseId);
+    const message = index === undefined ? undefined : entry?.messages[index];
+    return message?.kind === "tool_use" ? message : null;
+  };
+  switch (event.type) {
+    case "content_block_start":
+    case "assistant_text":
+    case "thinking_text":
+    case "turn_complete":
+      return true;
+    case "tool_use": {
+      const call = liveCall(event.tool_use_id);
+      return call === null || isEmptyToolInput(call.input);
+    }
+    case "tool_result":
+      return liveCall(event.tool_use_id)?.status === "pending";
+    case "tool_use_structured": {
+      const call = liveCall(event.tool_use_id);
+      return call !== null && call.structuredResult === null;
+    }
+    default:
+      return false;
+  }
+}
+
+function isEmptyToolInput(input: unknown): boolean {
+  return typeof input !== "object" || input === null || Object.keys(input).length === 0;
+}
+
+/**
+ * `tick_replay_shadow` — `REPLAY_SHADOW_DEADLINE_MS` passed since a
+ * bracket was shadowed and no `replay_complete` lifted it. The shadow
+ * lifts on its own so the live turn's frames flow again; no error is
+ * raised, because no bracket was entered and the card lost nothing.
+ */
+function handleTickReplayShadow(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
+  if (!state.replayShadowActive) {
+    return { state, effects: [] };
+  }
+  devLog.warn(
+    "code-session-store",
+    "shadowed replay bracket never closed; lifting the shadow",
+  );
+  return liftReplayShadow(state);
+}
+
+/**
  * `tick_interrupt_silence` — the stop went out and nothing came back:
  * no `turn_complete`, no `turn_cancelled`, no `interrupt_noop`, no
  * terminal. Every one of those cancels this timer by clearing
@@ -7869,6 +8047,20 @@ export function reduce(
   state: CodeSessionState,
   event: CodeSessionEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
+  // A shadowed bracket (`replayShadowActive`): the replay's frames are set
+  // aside before any handler sees them. Only the translator's vocabulary
+  // is shadowed, so the user's own actions, timer ticks and transport
+  // events reach their handlers as ever; `replay_complete` is not in the
+  // set and lifts the shadow in `handleReplayComplete`. From the mid-turn
+  // snapshot's opener on, what the live cycle lacks is let through.
+  if (state.replayShadowActive && SHADOWED_FRAME_TYPES.has(event.type)) {
+    if (event.type === "add_user_message" && event.inflightSnapshot === true) {
+      return { state: { ...state, replayShadowSnapshot: true }, effects: [] };
+    }
+    if (!state.replayShadowSnapshot || !snapshotFrameIsNews(state, event)) {
+      return { state, effects: [] };
+    }
+  }
   switch (event.type) {
     case "send":
       return handleSend(state, event);
@@ -8078,6 +8270,8 @@ export function reduce(
       return handleTickReplaySilence(state);
     case "tick_replay_bracket":
       return handleTickReplayBracket(state);
+    case "tick_replay_shadow":
+      return handleTickReplayShadow(state);
     case "tick_interrupt_silence":
       return handleTickInterruptSilence(state);
     case "tick_stream_stall":

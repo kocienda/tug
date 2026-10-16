@@ -21,6 +21,14 @@
  * exists and whose transport is genuinely offline still reads danger; that is a
  * real failure rather than doubt.
  *
+ * **A card this page has no store for answers from what was reported.** A page
+ * builds a session store only for a card it shows ([B02]): the shell for every
+ * card it draws, a body page for its own card. For any other card the phase is
+ * a short key somebody else computed — a body's `card-facts` in the shell
+ * (`bodyFactsStore`), and in a body page the shell's arrangement, mirrored
+ * into `cardActivityElsewhere` ([B06]). Only when neither has a word is the
+ * answer doubt.
+ *
  * Liveness stays OUT of the identity record: two subscriptions, two keys,
  * meeting in the component that mounts them both.
  *
@@ -48,8 +56,8 @@ import {
   cardSessionBindingStore,
 } from "@/lib/card-session-binding-store";
 import { cardServicesStore } from "@/lib/card-services-store";
-import { bodyCardsStore } from "@/lib/body-cards-store";
 import { bodyFactsStore } from "@/lib/body-facts-store";
+import { cardActivityElsewhere } from "@/lib/card-activity-elsewhere";
 import type { ChangesRouteController } from "@/lib/changes-route-controller";
 import type { ArcChangesetEntry } from "@/lib/changeset-types";
 import type { TugProgressIndicatorPhaseVisual } from "@/components/tugways/tug-progress-indicator";
@@ -223,8 +231,8 @@ export function sessionPhaseFromSnapshot(
  */
 export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
   const cardId = cardIdForSession(sessionId);
-  if (cardId !== null && bodyCardsStore.has(cardId)) return bodyPhaseOf(cardId);
   const services = cardId === null ? null : cardServicesStore.getServices(cardId);
+  if (cardId !== null && services === null) return reportedPhaseOf(cardId);
   const joinReady = joinOfferStands(
     arcIdForCard(cardId),
     services?.changesController?.getSnapshot().arcs ?? [],
@@ -236,11 +244,22 @@ export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
 }
 
 /**
- * A body card's phase: the key its body computed and last reported, since no
- * session store for it exists in this page; `"idle"` before the first report.
+ * The phase of a card this page holds no session store for: the key its body
+ * reported to this page (the shell), else the key the shell's arrangement
+ * carried for it into this page (a body); `"idle"` when neither has one.
  */
-function bodyPhaseOf(cardId: string): SessionPhaseKey {
-  return (bodyFactsStore.activityOf(cardId) as SessionPhaseKey | null) ?? "idle";
+export function reportedPhaseOf(cardId: string): SessionPhaseKey {
+  return ((bodyFactsStore.activityOf(cardId) ?? cardActivityElsewhere.get(cardId)) as SessionPhaseKey | null) ?? "idle";
+}
+
+/** Both sources {@link reportedPhaseOf} reads, as one subscription. */
+function subscribeReported(listener: () => void): () => void {
+  const releaseFacts = bodyFactsStore.subscribe(listener);
+  const releaseElsewhere = cardActivityElsewhere.subscribe(listener);
+  return () => {
+    releaseFacts();
+    releaseElsewhere();
+  };
 }
 
 /**
@@ -267,15 +286,11 @@ export function useSessionPhase(sessionId: string): SessionPhaseKey {
   const phase = useSyncExternalStore(store?.subscribe ?? NOOP_SUBSCRIBE, selectPhase, () =>
     sessionPhaseFromSnapshot(null, joinReady),
   );
-  // A body card answers from what its body reported.
-  const isBody = useSyncExternalStore(
-    bodyCardsStore.subscribe,
-    () => cardId !== null && bodyCardsStore.has(cardId),
+  // A card this page has no store for answers from what was reported for it.
+  const reported = useSyncExternalStore(subscribeReported, () =>
+    cardId === null ? "idle" : reportedPhaseOf(cardId),
   );
-  const bodyPhase = useSyncExternalStore(bodyFactsStore.subscribe, () =>
-    cardId === null ? "idle" : bodyPhaseOf(cardId),
-  );
-  return isBody ? bodyPhase : phase;
+  return cardId !== null && store === null ? reported : phase;
 }
 
 /**

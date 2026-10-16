@@ -234,6 +234,7 @@ const addUserMessage = obj({
   timestamp: opt(num),
   promptUuid: opt(str),
   origin: opt(lit("user", "wheel")),
+  inflightSnapshot: opt(bool),
 });
 
 const wakeStarted = obj({

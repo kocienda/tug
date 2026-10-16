@@ -1058,6 +1058,12 @@ export interface AddUserMessageEvent {
    * {@link SendActionEvent}'s live path has always taken.
    */
   origin?: "user" | "wheel";
+  /**
+   * Set when this opener begins tugcode's mid-turn snapshot (the wire
+   * frame's `inflightSnapshot`). A shadowed bracket reads it as the point
+   * where the JSONL history ends and the live turn's own record begins.
+   */
+  inflightSnapshot?: boolean;
   [key: string]: unknown;
 }
 
@@ -1401,6 +1407,17 @@ export interface TickReplayBracketEvent {
 }
 
 /**
+ * Internal action dispatched by the replay shadow's deadline
+ * (`REPLAY_SHADOW_DEADLINE_MS` after a `replay_started` landed on a live
+ * turn and was shadowed rather than entered). The reducer lifts the
+ * shadow so live frames flow again; nothing is abandoned, because nothing
+ * was entered. Dropped when no shadow is active.
+ */
+export interface TickReplayShadowEvent {
+  type: "tick_replay_shadow";
+}
+
+/**
  * Internal action dispatched by the interrupt deadline
  * (`INTERRUPT_SILENCE_DEADLINE_MS` after a CASE B stop went out with no
  * answer of any kind). The reducer raises `stopStalled` and stands the
@@ -1528,6 +1545,7 @@ export type CodeSessionEvent =
   | TickPreflightDoneEvent
   | TickReplaySilenceEvent
   | TickReplayBracketEvent
+  | TickReplayShadowEvent
   | TickInterruptSilenceEvent
   | ForceStopActionEvent
   | PopInteractiveActionEvent

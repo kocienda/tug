@@ -3148,6 +3148,11 @@ export class SessionManager {
       // bracket), so carry the captured uuid here so the freshly-bound
       // client recovers the anchor for the in-flight turn.
       ...(turn.promptUuid !== null ? { promptUuid: turn.promptUuid } : {}),
+      // Marks this opener as the start of the snapshot, so a card that is
+      // already holding this very turn live — and shadowed the bracket
+      // rather than entering it — can take what the suppressed window
+      // carried from here on and set the JSONL history aside.
+      inflightSnapshot: true,
       ipc_version: IPC_VERSION,
     });
 

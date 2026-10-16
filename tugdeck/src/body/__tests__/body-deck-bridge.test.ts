@@ -84,6 +84,7 @@ function arrangement(bandWidth: number, spaceName = "Main"): BodyArrangement {
     railRunHeight: 880,
     bindings: {},
     identities: {},
+    activities: {},
     titles: {},
   };
 }

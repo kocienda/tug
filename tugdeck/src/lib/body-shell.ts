@@ -109,7 +109,7 @@ import { cardIdentityElsewhere, liveCardIdentity } from "./card-identity";
 import { paneTitleBarItemsStore, type PaneTitleBarItem } from "./pane-title-bar-items-store";
 import { setBodyLineRevealer } from "./open-file-in-card";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
-import { isBodyDeckCall, projectArrangement } from "./body-arrangement";
+import { isBodyDeckCall, projectActivities, projectArrangement } from "./body-arrangement";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
@@ -415,6 +415,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
           return title === null && masthead === null ? null : { title, masthead };
         },
         liveCardIdentity,
+        bodyFactsStore.activityOf,
       );
       arrangement.spaceVerb = cardsSpaceVerbRequest.getSnapshot();
       extras.arrangement = arrangement;
@@ -602,11 +603,21 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const resendExtras = (): void => {
     for (const cardId of heard) if (hasExtras(cardId)) sendContext(cardId, false);
   };
+  let sentActivities = JSON.stringify(projectActivities(deck, bodyFactsStore.activityOf));
   releases.push(
     cardSessionBindingStore.subscribe(resendExtras),
     cardTitleStore.subscribe(resendExtras),
     cardIdentityElsewhere.subscribe(resendExtras),
     appInfoStore.subscribe(resendExtras),
+    // An arrangement card lists every card's phase too, read from what each
+    // body reported. A body publishes on every telemetry tick as well, so
+    // the resend waits for some card's phase to move ([B06]).
+    bodyFactsStore.subscribe(() => {
+      const activities = JSON.stringify(projectActivities(deck, bodyFactsStore.activityOf));
+      if (activities === sentActivities) return;
+      sentActivities = activities;
+      for (const cardId of heard) if (registrationOf(cardId)?.bodyDeck === "arrangement") sendContext(cardId, false);
+    }),
     // A followed card's body may come up after the devtools body did: a
     // session spawned into it, or the card re-adopted.
     bodyCardsStore.subscribe(syncInspection),

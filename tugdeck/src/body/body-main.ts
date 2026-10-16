@@ -91,6 +91,7 @@ import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { getSettings } from "../lib/maker-mode-bridge";
 import { getRegistration, type CardIdentityFacts } from "../card-registry";
 import { cardIdentityElsewhere } from "../lib/card-identity";
+import { cardActivityElsewhere } from "../lib/card-activity-elsewhere";
 import { getOpenTextCard } from "../lib/text-card-open-registry";
 import { getCardCloseGuard } from "../lib/card-close-guard";
 import { appInfoStore } from "../lib/app-info-store";
@@ -243,9 +244,9 @@ function putCardStateGuarded(
 
 /**
  * Mirror what the shell holds about cards other than this page's own — their
- * session bindings, titles and live identities — into this page's stores, for
- * an arrangement card that lists them and a following card that names its
- * followed card.
+ * session bindings, titles, live identities and reported session phases —
+ * into this page's stores, for an arrangement card that lists them and a
+ * following card that names its followed card.
  * Those stores are per page and hold only this card's entries otherwise.
  * Returns the mirror's apply; each apply replaces the last, clearing what it
  * no longer names, and writes only what changed. The page's own card is
@@ -255,11 +256,13 @@ function createCardFactsMirror(ownCardId: string): (
   bindings: Record<string, CardSessionBinding>,
   titles: Record<string, { title: string | null; masthead: CardMastheadPayload | null }>,
   identities: Record<string, CardIdentityFacts>,
+  activities: Record<string, string>,
 ) => void {
   let boundBefore = new Map<string, string>();
   let titledBefore = new Set<string>();
   let knownBefore = new Set<string>();
-  return (bindings, titles, identities) => {
+  let reportedBefore = new Set<string>();
+  return (bindings, titles, identities, activities) => {
     const bound = new Map<string, string>();
     for (const [id, binding] of Object.entries(bindings)) {
       if (id === ownCardId) continue;
@@ -282,6 +285,10 @@ function createCardFactsMirror(ownCardId: string): (
     for (const id of known) cardIdentityElsewhere.set(id, identities[id]);
     for (const id of knownBefore) if (!known.has(id)) cardIdentityElsewhere.set(id, null);
     knownBefore = known;
+    const reported = new Set(Object.keys(activities).filter((id) => id !== ownCardId));
+    for (const id of reported) cardActivityElsewhere.set(id, activities[id]);
+    for (const id of reportedBefore) if (!reported.has(id)) cardActivityElsewhere.set(id, null);
+    reportedBefore = reported;
   };
 }
 
@@ -461,7 +468,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
       return { cardId, sessionIds: sessions, lineId: binding?.lineId ?? null };
     }),
   );
-  cardServicesStore.attachBody();
+  cardServicesStore.attachBody(cardId);
   // What this page's chain does not answer — a chord its funnel matched
   // for the deck, a close the pane handles — is the shell's: it dispatches
   // in its own chain, where the pane and the deck stand.
@@ -523,7 +530,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
     if (arrangement !== undefined || followed !== undefined) {
       const bindings = { ...(arrangement?.bindings ?? {}) };
       if (followed?.binding != null) bindings[followed.cardId] = followed.binding;
-      mirror(bindings, arrangement?.titles ?? {}, arrangement?.identities ?? {});
+      mirror(bindings, arrangement?.titles ?? {}, arrangement?.identities ?? {}, arrangement?.activities ?? {});
     }
     // The app's identity the host sent the shell, for the About card.
     const appInfo = message.payload.appInfo;

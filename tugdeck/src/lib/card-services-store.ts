@@ -240,6 +240,16 @@ class CardServicesStore {
    *  (faithful restore window sizing, #step-6). */
   private _deckManager: DeckManager | null = null;
   private _initialized = false;
+  /**
+   * The one card this page shows, when the page is a body. A body page
+   * mirrors other cards' bindings — every card an arrangement body lists,
+   * the card a following body follows — and a mirrored binding is a fact
+   * about another card, never a session for this page to drive: driving
+   * them is what replayed a Session card's transcript into its own body on
+   * every key-card change (2026-10-16). `null` in the shell, which builds
+   * for every bound card that is not a body.
+   */
+  private _bodyCardId: string | null = null;
 
   /**
    * Subscribe to `cardSessionBindingStore` and reconcile once. Called
@@ -262,13 +272,16 @@ class CardServicesStore {
   }
 
   /**
-   * Wire the store in a body page: services are built for the body's card's
-   * binding from now on, ahead of every later binding subscriber, as
-   * {@link attachDeckManager} orders them in the shell. No deck is attached —
-   * closing the card is the shell's, which holds its binding.
+   * Wire the store in a body page: services are built for `cardId`'s binding
+   * — the page's own card — from now on and for no other card's, ahead of
+   * every later binding subscriber, as {@link attachDeckManager} orders them
+   * in the shell. No deck is attached — closing the card is the shell's,
+   * which holds its binding.
    */
-  attachBody(): void {
+  attachBody(cardId: string): void {
+    this._bodyCardId = cardId;
     this._ensureInitialized();
+    this._reconcile();
   }
 
   /**
@@ -322,14 +335,25 @@ class CardServicesStore {
   }
 
   /**
+   * Whether this page builds services for `cardId`'s binding: in a body, only
+   * the page's own card; in the shell, every card that is not a body, whose
+   * session lives in its body and is built there.
+   */
+  private _servesCard(cardId: string): boolean {
+    if (this._bodyCardId !== null) return cardId === this._bodyCardId;
+    return !bodyCardsStore.has(cardId);
+  }
+
+  /**
    * Diff `cardSessionBindingStore`'s current state against the
    * services map. Construct services for new bindings; dispose
    * services for vanished bindings. Notify React subscribers if
    * either map changed.
    *
    * A body card's binding gets no services: its session lives in its body,
-   * which builds them there. The shell keeps the binding itself, so
-   * closing the card still closes the session.
+   * which builds them there, and a body page builds for its own card alone
+   * ({@link _servesCard}). The shell keeps the binding itself, so closing
+   * the card still closes the session.
    */
   private _reconcile(): void {
     const bindings = cardSessionBindingStore.getSnapshot();
@@ -341,7 +365,7 @@ class CardServicesStore {
     // (and a fresh `request_replay`) — without it, `_reconcile` keyed on
     // cardId alone would keep the old session's transcript on a rebind.
     for (const [cardId, binding] of bindings) {
-      if (bodyCardsStore.has(cardId)) continue;
+      if (!this._servesCard(cardId)) continue;
       const existing = this._services.get(cardId);
       const held = this._heldSwaps.get(cardId);
       if (held !== undefined) {
@@ -371,7 +395,7 @@ class CardServicesStore {
 
     // Dispose for vanished bindings.
     for (const cardId of [...this._services.keys()]) {
-      if (bindings.has(cardId) && !bodyCardsStore.has(cardId)) continue;
+      if (bindings.has(cardId) && this._servesCard(cardId)) continue;
       this._dropHeldSwap(cardId);
       this._dispose(cardId);
       changed = true;
@@ -1082,6 +1106,18 @@ class CardServicesStore {
    */
   setHeldSwapLimitForTest(ms: number | null): void {
     this._heldSwapLimitMs = ms ?? HELD_SWAP_LIMIT_MS;
+  }
+
+  /**
+   * Test seam — forget the body card {@link attachBody} recorded, so a suite
+   * that modelled a body page hands the singleton back as a shell. Bun runs
+   * every file in one process, and a store left as a body would refuse the
+   * next file's cards.
+   * @internal
+   */
+  detachBodyForTest(): void {
+    this._bodyCardId = null;
+    this._reconcile();
   }
 }
 

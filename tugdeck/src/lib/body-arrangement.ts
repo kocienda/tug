@@ -64,6 +64,14 @@ export interface BodyArrangement {
    */
   identities: Record<string, CardIdentityFacts>;
   /**
+   * The session phase key each card's body last reported to the shell
+   * (`card-facts` `activity`), for each card whose body has reported one.
+   * The page reading this builds no session store for any card but its own,
+   * so this is where the Layout and Workspaces bodies read the live dot for
+   * every other card from ([B06]).
+   */
+  activities: Record<string, string>;
+  /**
    * A workspace verb the shell's menu or a chord asked the Cards card to
    * answer (`cardsSpaceVerbRequest` in the shell), until a Cards body has been
    * sent it. Its `token` tells a fresh request from one already answered.
@@ -106,14 +114,50 @@ export type ArrangementDeck = Pick<
 >;
 
 /**
- * The shell's arrangement now. `bindings`, `titles` and `identities` are read
- * for the cards the arrangement holds — every workspace's — and nothing else.
+ * Every card the arrangement holds — every workspace's — in a stable order.
+ */
+export function arrangementCardIds(deck: ArrangementDeck): string[] {
+  const spacesSnapshot = deck.getSpacesSnapshot();
+  const states: DeckState[] = [deck.getSnapshot()];
+  for (const space of spacesSnapshot.spaces) {
+    if (space.id === spacesSnapshot.activeSpaceId) continue;
+    const parked = deck.getSpaceDeck(space.id);
+    if (parked !== null) states.push(parked);
+  }
+  const cardIds = new Set<string>();
+  for (const state of states) for (const card of state.cards) cardIds.add(card.id);
+  return [...cardIds];
+}
+
+/**
+ * The reported phase of every card the arrangement holds that has one —
+ * what {@link projectArrangement} fills `activities` with, and what the
+ * shell compares to resend a body's context only when some card's phase
+ * moved, rather than on every telemetry tick a body publishes.
+ */
+export function projectActivities(
+  deck: ArrangementDeck,
+  activities: (cardId: string) => string | null,
+): Record<string, string> {
+  const reported: Record<string, string> = {};
+  for (const cardId of arrangementCardIds(deck)) {
+    const key = activities(cardId);
+    if (key !== null) reported[cardId] = key;
+  }
+  return reported;
+}
+
+/**
+ * The shell's arrangement now. `bindings`, `titles`, `identities` and
+ * `activities` are read for the cards the arrangement holds — every
+ * workspace's — and nothing else.
  */
 export function projectArrangement(
   deck: ArrangementDeck,
   bindings: (cardId: string) => CardSessionBinding | undefined,
   titles: (cardId: string) => ArrangementTitle | null,
   identities: (cardId: string) => CardIdentityFacts | null,
+  activities: (cardId: string) => string | null,
 ): BodyArrangement {
   const live = deck.getSnapshot();
   const spacesSnapshot = deck.getSpacesSnapshot();
@@ -127,13 +171,11 @@ export function projectArrangement(
     const parked = deck.getSpaceDeck(space.id);
     if (parked !== null) decks[space.id] = parked;
   }
-  const cardIds = new Set<string>();
-  for (const state of [live, ...Object.values(decks)]) {
-    for (const card of state.cards) cardIds.add(card.id);
-  }
+  const cardIds = arrangementCardIds(deck);
   const boundCards: Record<string, CardSessionBinding> = {};
   const titledCards: Record<string, ArrangementTitle> = {};
   const knownCards: Record<string, CardIdentityFacts> = {};
+  const reportedCards: Record<string, string> = {};
   for (const cardId of cardIds) {
     const binding = bindings(cardId);
     if (binding !== undefined) boundCards[cardId] = binding;
@@ -141,6 +183,8 @@ export function projectArrangement(
     if (title !== null) titledCards[cardId] = title;
     const identity = identities(cardId);
     if (identity !== null) knownCards[cardId] = identity;
+    const activity = activities(cardId);
+    if (activity !== null) reportedCards[cardId] = activity;
   }
   return {
     deck: live,
@@ -162,6 +206,7 @@ export function projectArrangement(
     bindings: boundCards,
     titles: titledCards,
     identities: knownCards,
+    activities: reportedCards,
   };
 }
 

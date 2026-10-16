@@ -3069,7 +3069,7 @@ impl AgentSupervisor {
         // the forward only happens after `Ok` from `insert_pending_turn`.
         // The journal id is internal to tugcast — not surfaced on the
         // wire, never seen by tugcode (the merger reconciles by
-        // session-scoped FIFO, not by id). Other CODE_INPUT types —
+        // the turn's end, not by id). Other CODE_INPUT types —
         // `tool_approval`, `interrupt`, `permission_mode`, `model_change`,
         // `session_command`, `stop_task`, `request_replay` — are forwarded
         // unchanged; `model_change` and `permission_mode` are read on the way
@@ -3695,17 +3695,26 @@ impl AgentSupervisor {
 
     /// Apply the per-frame journal intercept the merger runs on every
     /// outbound CODE_OUTPUT frame, **after** the wire-side broadcast has
-    /// fired. Narrowed in [Step 5.3](#step-5-3) to a session-scoped FIFO
-    /// mark-seen: every `turn_complete` / `turn_cancelled` frame deletes
-    /// the oldest pending row in the session's journal. The frame is
+    /// fired. A session-scoped mark-seen: every `turn_complete` /
+    /// `turn_cancelled` frame deletes every pending row in the session's
+    /// journal created at or before `seen_at` — the instant the frame was
+    /// forwarded, captured before the broadcast so a submission the deck
+    /// sends in reaction to the turn's end is never caught by it. The frame is
     /// forwarded unchanged — this intercept does not read or write any
     /// payload field except the top-level `type` discriminator.
+    ///
+    /// Why every row and not the oldest: a prompt submitted into a running
+    /// turn is steered into that turn and ends with it, so it never earns a
+    /// `turn_complete` of its own. The FIFO pop this replaced assumed one
+    /// completion per submission and fell one row behind per steered
+    /// prompt; the stale rows then rode every replay as "pending" prompts
+    /// the user had long since seen answered (2026-10-16, seven rows deep).
     ///
     /// Branches on the payload's top-level `type`:
     ///
     /// - `turn_complete` or `turn_cancelled` — call
-    ///   [`SessionsRecorder::delete_oldest_pending_for_session`]. On
-    ///   `Ok(Some)`, an info trace; on `Ok(None)` a warn
+    ///   [`SessionsRecorder::delete_pending_for_session_through`]. On
+    ///   a non-empty `Ok`, a debug trace per row; on an empty `Ok` a warn
     ///   (`turn_complete_no_pending_journal_row` — claude responded for
     ///   a turn the journal didn't see, e.g. resume-of-an-existing-
     ///   conversation where the new tugcode picks up mid-stream); on
@@ -3718,7 +3727,12 @@ impl AgentSupervisor {
     /// `sessions.turn_count`) continues to fire from `agent_bridge.rs`
     /// on the same `turn_complete` event — this intercept is additive
     /// and the two writes hit different tables.
-    async fn apply_outbound_turn_intercept(&self, session_id: &TugSessionId, frame: &Frame) {
+    async fn apply_outbound_turn_intercept(
+        &self,
+        session_id: &TugSessionId,
+        frame: &Frame,
+        seen_at: i64,
+    ) {
         let Some(inspected) =
             super::payload_inspector::InspectedPayload::from_slice(&frame.payload)
         else {
@@ -3727,24 +3741,28 @@ impl AgentSupervisor {
         match inspected.msg_type() {
             Some("turn_complete") | Some("turn_cancelled") => {
                 let kind = inspected.msg_type().unwrap_or("");
-                let popped = {
+                let consumed = {
                     let session_id = session_id.as_str().to_owned();
                     offload_recorder(&self.sessions_recorder, move |r| {
-                        r.delete_oldest_pending_for_session(&session_id)
+                        r.delete_pending_for_session_through(&session_id, seen_at)
                     })
                     .await
                 };
-                match popped {
-                    Ok(Some(row)) => {
-                        tracing::debug!(
-                            target: "dev::ledger",
-                            event = "merger.journal_row_deleted",
-                            session_id = %session_id,
-                            kind,
-                            journal_id = %row.journal_id,
-                        );
+                match consumed {
+                    Ok(rows) if !rows.is_empty() => {
+                        let consumed = rows.len();
+                        for row in &rows {
+                            tracing::debug!(
+                                target: "dev::ledger",
+                                event = "merger.journal_row_deleted",
+                                session_id = %session_id,
+                                kind,
+                                journal_id = %row.journal_id,
+                                consumed,
+                            );
+                        }
                     }
-                    Ok(None) => {
+                    Ok(_) => {
                         warn!(
                             target: "dev::ledger",
                             event = "turn_complete_no_pending_journal_row",
@@ -3829,6 +3847,11 @@ impl AgentSupervisor {
                     // The inbound frame is already tagged `CODE_OUTPUT` by
                     // `relay_session_io` so this send passes through
                     // unchanged.
+                    // The instant this frame is forwarded, read before the
+                    // broadcast: a turn-ending frame consumes every journal
+                    // row delivered up to here, and a submission the deck
+                    // sends on seeing the frame lands after it.
+                    let seen_at = crate::session_ledger::now_millis();
                     self.code_output.publish_tagged(frame.clone());
                     // Turn-boundary tracking for the activity sampler: the
                     // closing `turn_complete` / `turn_cancelled` ends OS-work
@@ -4132,7 +4155,8 @@ impl AgentSupervisor {
                     // apply_outbound_turn_intercept on `replay_brackets_open == 0`
                     // so replay-emitted committed-turn frames don't pop
                     // the user's pending journal row.
-                    self.process_outbound_frame_journal_gate(&id, &frame).await;
+                    self.process_outbound_frame_journal_gate_at(&id, &frame, seen_at)
+                        .await;
                 }
             }
         }
@@ -4174,7 +4198,26 @@ impl AgentSupervisor {
     /// re-entrancy guard prevents legitimate overlapping brackets, so in
     /// healthy operation the counter is 0 between brackets and 1 during
     /// a bracket.
+    ///
+    /// The merger itself calls [`Self::process_outbound_frame_journal_gate_at`]
+    /// with the instant it read before the broadcast; this form reads one
+    /// now and exists for the tests that drive the gate frame by frame.
+    #[cfg(test)]
     async fn process_outbound_frame_journal_gate(&self, session_id: &TugSessionId, frame: &Frame) {
+        let seen_at = crate::session_ledger::now_millis();
+        self.process_outbound_frame_journal_gate_at(session_id, frame, seen_at)
+            .await;
+    }
+
+    /// [`Self::process_outbound_frame_journal_gate`] with the instant the
+    /// frame was forwarded, which the merger reads before its broadcast so
+    /// the journal pop cannot catch a submission sent in reaction to it.
+    async fn process_outbound_frame_journal_gate_at(
+        &self,
+        session_id: &TugSessionId,
+        frame: &Frame,
+        seen_at: i64,
+    ) {
         let Some(inspected) =
             super::payload_inspector::InspectedPayload::from_slice(&frame.payload)
         else {
@@ -4241,7 +4284,8 @@ impl AgentSupervisor {
                         kind = msg_type.unwrap_or(""),
                     );
                 } else {
-                    self.apply_outbound_turn_intercept(session_id, frame).await;
+                    self.apply_outbound_turn_intercept(session_id, frame, seen_at)
+                        .await;
                     let claude_id = {
                         let entry = entry_arc.lock().await;
                         entry.claude_session_id.clone()
@@ -4850,11 +4894,12 @@ impl SessionsRecorder for NoopSessionsRecorder {
     ) -> Result<(), crate::session_ledger::LedgerError> {
         Ok(())
     }
-    fn delete_oldest_pending_for_session(
+    fn delete_pending_for_session_through(
         &self,
         _session_id: &str,
-    ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
-        Ok(None)
+        _through: i64,
+    ) -> Result<Vec<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
+        Ok(Vec::new())
     }
     fn record_wheel_prompt(&self, _session_id: &str, _text: &str) {}
     fn lineage_chain(&self, session_id: &str) -> Vec<String> {
@@ -4916,11 +4961,12 @@ impl SessionsRecorder for CountingSessionsRecorder {
     ) -> Result<(), crate::session_ledger::LedgerError> {
         Ok(())
     }
-    fn delete_oldest_pending_for_session(
+    fn delete_pending_for_session_through(
         &self,
         _session_id: &str,
-    ) -> Result<Option<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
-        Ok(None)
+        _through: i64,
+    ) -> Result<Vec<crate::session_ledger::JournalRow>, crate::session_ledger::LedgerError> {
+        Ok(Vec::new())
     }
     fn record_wheel_prompt(&self, _session_id: &str, _text: &str) {}
     fn lineage_chain(&self, session_id: &str) -> Vec<String> {
@@ -10129,15 +10175,18 @@ mod tests {
         assert_eq!(second["fields"]["turn_count"].as_i64(), Some(0));
     }
 
-    // ── Step 5.3 — merger intercept narrows to FIFO mark-seen ───────────────
+    // ── merger intercept: a turn's end acknowledges every row before it ─────
     //
-    // The merger calls `apply_outbound_turn_intercept(&session_id, &frame)`
-    // on every CODE_OUTPUT frame after the wire-side broadcast. For
-    // `turn_complete` / `turn_cancelled` frames, the intercept pops the
-    // oldest pending row from the session's submission journal (FIFO
-    // match by `created_at`). For other types, it's a no-op. The frame
-    // is forwarded unchanged regardless. See [DM08] in the
-    // mid-turn-replay plan.
+    // The merger calls `apply_outbound_turn_intercept(&session_id, &frame,
+    // seen_at)` on every CODE_OUTPUT frame after the wire-side broadcast,
+    // with `seen_at` read before it. For `turn_complete` / `turn_cancelled`
+    // frames, the intercept deletes every pending row in the session's
+    // submission journal created at or before `seen_at` — the opener and
+    // any prompt steered into the running turn, which never earns a
+    // completion of its own. For other types, it's a no-op. The frame is
+    // forwarded unchanged regardless. See [DM08] in the mid-turn-replay
+    // plan, and `briefs/cards-and-sessions-footing-brief.md` [B04] for why
+    // this replaced the oldest-row pop.
 
     fn turn_complete_frame() -> Frame {
         // The merger reads only `msg_type` from outbound payloads
@@ -10190,44 +10239,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn merger_intercept_pops_journal_in_fifo_order_across_two_turns() {
-        // Two pending submissions in flight; two turn_complete frames
-        // arrive. The journal rows pop in created_at order (oldest first);
-        // after both pops the journal for the session is empty.
+    async fn merger_intercept_consumes_every_row_delivered_before_the_turn_ended() {
+        // An opener and a prompt steered into the running turn; one
+        // turn_complete arrives. Both rows go — the steered prompt ended
+        // with the turn and will never get a completion of its own. A row
+        // delivered after the frame was forwarded is the next turn's and
+        // stays.
         let (sup, ledger, _rx) = make_supervisor_with_ledger();
         let session_id = "sess-fifo";
         seed_session_for_journal_test(&ledger, session_id);
 
-        // Insert two pending rows directly via the journal API (the
+        // Insert the pending rows directly via the journal API (the
         // dispatcher's user_message intercept is exercised in a separate
-        // test); use distinct created_at so FIFO order is unambiguous.
+        // test); use distinct created_at so the cut is unambiguous.
         ledger
             .insert_pending_turn(session_id, "j_oldest", "first", &[], 1_000)
             .unwrap();
         ledger
             .insert_pending_turn(session_id, "j_newer", "second", &[], 2_000)
             .unwrap();
-        assert_eq!(count_pending_for_session(&ledger, session_id), 2);
+        ledger
+            .insert_pending_turn(session_id, "j_after", "third", &[], 3_001)
+            .unwrap();
+        assert_eq!(count_pending_for_session(&ledger, session_id), 3);
 
         let frame = turn_complete_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame, 3_000)
             .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 1);
         let remaining = ledger.list_pending_turns_for_session(session_id).unwrap();
         assert_eq!(
-            remaining[0].journal_id, "j_newer",
-            "FIFO: the oldest row pops first; the newer row remains",
+            remaining[0].journal_id, "j_after",
+            "the turn's end consumes its opener and the prompt steered into it; the row delivered after it remains",
         );
 
         let frame2 = turn_complete_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame2)
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame2, 4_000)
             .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
     }
 
     #[tokio::test]
     async fn merger_intercept_handles_turn_cancelled_same_as_turn_complete() {
-        // turn_cancelled also pops the oldest pending row — the journal
+        // turn_cancelled also consumes the pending rows — the journal
         // doesn't distinguish "claude finished" from "user cancelled"
         // because both land back at "no longer awaiting response".
         let (sup, ledger, _rx) = make_supervisor_with_ledger();
@@ -10240,7 +10294,7 @@ mod tests {
         assert_eq!(count_pending_for_session(&ledger, session_id), 1);
 
         let frame = turn_cancelled_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
+        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame, 1_000)
             .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
     }
@@ -10272,8 +10326,12 @@ mod tests {
             FeedId::CODE_OUTPUT,
             serde_json::to_vec(&assistant_body).unwrap(),
         );
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
-            .await;
+        sup.apply_outbound_turn_intercept(
+            &TugSessionId::new(session_id),
+            &frame,
+            crate::session_ledger::now_millis(),
+        )
+        .await;
         assert_eq!(
             count_pending_for_session(&ledger, session_id),
             1,
@@ -10286,8 +10344,8 @@ mod tests {
         // Spurious turn_complete: claude responds for a session whose
         // journal has no pending rows (e.g., a resume picking up
         // mid-stream where the dispatcher never saw the user_message).
-        // The intercept calls delete_oldest_pending_for_session which
-        // returns Ok(None); a warn fires; the frame is forwarded
+        // The intercept calls delete_pending_for_session_through which
+        // returns an empty Vec; a warn fires; the frame is forwarded
         // unchanged at the merger task level (this test exercises the
         // intercept directly so we just assert the no-throw + journal
         // stays empty).
@@ -10297,9 +10355,13 @@ mod tests {
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
 
         let frame = turn_complete_frame();
-        // Should not panic; intercept handles None gracefully.
-        sup.apply_outbound_turn_intercept(&TugSessionId::new(session_id), &frame)
-            .await;
+        // Should not panic; intercept handles an empty journal gracefully.
+        sup.apply_outbound_turn_intercept(
+            &TugSessionId::new(session_id),
+            &frame,
+            crate::session_ledger::now_millis(),
+        )
+        .await;
         assert_eq!(count_pending_for_session(&ledger, session_id), 0);
     }
 
@@ -10316,8 +10378,12 @@ mod tests {
             .unwrap();
 
         let frame = turn_complete_frame();
-        sup.apply_outbound_turn_intercept(&TugSessionId::new("sess-b"), &frame)
-            .await;
+        sup.apply_outbound_turn_intercept(
+            &TugSessionId::new("sess-b"),
+            &frame,
+            crate::session_ledger::now_millis(),
+        )
+        .await;
 
         assert_eq!(
             count_pending_for_session(&ledger, "sess-a"),

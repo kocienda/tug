@@ -102,8 +102,8 @@ export type JsonlReadResult =
  * shape (mid-turn-replay Step 5.2).
  * Tugcode never writes to this table; tugcast's `dispatch_one`
  * intercept owns inserts (Step 4.3)
- * and the merger's `apply_outbound_turn_intercept` owns FIFO deletes
- * (Step 5.3).
+ * and the merger's `apply_outbound_turn_intercept` owns deletes: a
+ * turn's end consumes every row delivered before it.
  */
 export interface JournalRow {
   journal_id: string;

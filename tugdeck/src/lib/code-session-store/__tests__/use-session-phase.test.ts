@@ -7,9 +7,14 @@
  * answers when the walk comes up empty, and that lives in
  * `sessionPhaseFromSnapshot`, which is pure — and, beside it, which arc row in
  * the changes feed makes a card's join offer stand (`joinOfferStands`).
+ *
+ * One leg of the walk IS checkable here: a card this page holds no services
+ * for answers from the phase reported for it — a body's `card-facts` in the
+ * shell, the shell's arrangement mirrored into `cardActivityElsewhere` in a
+ * body page — and reads idle only when neither has one ([B06]).
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import type { TugProgressIndicatorPhaseVisual } from "@/components/tugways/tug-progress-indicator";
 import type { JobItem } from "../select-jobs";
@@ -23,9 +28,14 @@ import {
   joinOfferStands,
   joinOfferArcName,
   joinOfferBase,
+  reportedPhaseOf,
   sessionPhaseFromSnapshot,
+  sessionPhaseNow,
   type SessionPhaseSource,
 } from "../use-session-phase";
+import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
+import { bodyFactsStore } from "@/lib/body-facts-store";
+import { cardActivityElsewhere } from "@/lib/card-activity-elsewhere";
 
 function snapshot(over: Partial<SessionPhaseSource> = {}): SessionPhaseSource {
   return {
@@ -51,7 +61,43 @@ describe("sessionPhaseFromSnapshot — an unanswered stop reads from a list", ()
   });
 });
 
+afterEach(() => {
+  cardActivityElsewhere._reset();
+  bodyFactsStore._reset();
+  cardSessionBindingStore.clearAll();
+});
+
 describe("unknown liveness reads idle, never danger", () => {
+  test("a card with no services answers from what was reported for it, and idle when nothing was", () => {
+    expect(reportedPhaseOf("c-unreported")).toBe("idle");
+    cardActivityElsewhere.set("c-mirrored", "tool_work");
+    expect(reportedPhaseOf("c-mirrored")).toBe("tool_work");
+    // What the card's own body told this page outranks what another page relayed.
+    bodyFactsStore.applyFacts("c-mirrored", {
+      title: "",
+      masthead: null,
+      activity: "streaming",
+      telemetry: { canInterrupt: 1, compacted: 0 },
+    });
+    expect(reportedPhaseOf("c-mirrored")).toBe("streaming");
+  });
+
+  test("a session bound to a card this page has no store for reads the mirrored phase", () => {
+    cardSessionBindingStore.setBinding("c-elsewhere", {
+      tugSessionId: "tug-elsewhere",
+      lineId: "line-elsewhere",
+      workspaceKey: "wk",
+      projectDir: "/p",
+      sessionMode: "resume",
+    });
+    expect(sessionPhaseNow("tug-elsewhere"), "a bound card nobody reported is doubt").toBe("idle");
+    cardActivityElsewhere.set("c-elsewhere", "awaiting_approval");
+    expect(sessionPhaseNow("tug-elsewhere")).toBe("awaiting_approval");
+    cardActivityElsewhere.set("c-elsewhere", null);
+    expect(sessionPhaseNow("tug-elsewhere"), "forgotten is doubt again").toBe("idle");
+    expect(sessionPhaseNow("tug-unbound"), "no card at all is still idle").toBe("idle");
+  });
+
   test("no snapshot — no card, or services not yet constructed — is idle", () => {
     expect(sessionPhaseFromSnapshot(null)).toBe("idle");
   });

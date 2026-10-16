@@ -1119,7 +1119,8 @@ export class ReplayRunner {
    * Pull the submission journal's pending rows for this session via
    * the cross-process bun:sqlite handle. Read-only; the supervisor's
    * `dispatch_one` intercept owns inserts and the merger's
-   * `apply_outbound_turn_intercept` owns FIFO deletes — tugcode never
+   * `apply_outbound_turn_intercept` owns deletes (a turn's end consumes
+   * every row delivered before it) — tugcode never
    * writes here. Returns `[]` when the DB handle is unavailable
    * (file missing at construction, opted-out by tests) or the read
    * fails (corruption, schema mismatch); the caller treats either as
@@ -1245,7 +1246,7 @@ export class ReplayRunner {
    * `pendingUserMessage`. Confirmed-acceptable 2026-05-05; the
    * messages remain durably stored, render fully when claude
    * responds (in the common single-pending case), and the merger's
-   * FIFO deletion keeps the journal coherent.
+   * turn-end deletion keeps the journal coherent.
    */
   private injectPendingRowSynthetics(
     input: ReplayInput,

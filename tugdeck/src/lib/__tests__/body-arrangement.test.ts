@@ -6,6 +6,10 @@
  * re-keyed to the body's pane id. The deck calls a body may make are exactly
  * the seven moves, and never a workspace delete.
  *
+ * The arrangement also carries the session phase each card's body reported,
+ * for the cards it holds and no other, so a body that lists every card can
+ * draw a live dot for a session it has no store for.
+ *
  * @covers tugdeck/src/lib/body-arrangement.ts
  */
 import { describe, expect, test } from "bun:test";
@@ -15,6 +19,7 @@ import {
   BODY_DECK_CALLS,
   arrangementSnapshot,
   isBodyDeckCall,
+  projectActivities,
   projectArrangement,
   type ArrangementDeck,
 } from "../body-arrangement";
@@ -78,7 +83,11 @@ const projected = () =>
     (id) => (id === "a" || id === "elsewhere" ? BINDING : undefined),
     (id) => (id === "b" ? { title: "tug/odd-kiln", masthead: null } : id === "elsewhere" ? { title: "x", masthead: null } : null),
     (id) => (id === "b" ? { title: "notes.md", path: "/p/notes.md", unsaved: true } : id === "elsewhere" ? { title: "y" } : null),
+    activityOf,
   );
+
+const activityOf = (id: string): string | null =>
+  id === "a" ? "streaming" : id === "b" ? "idle" : id === "elsewhere" ? "tool_work" : null;
 
 describe("projectArrangement", () => {
   test("round-trips through JSON unchanged", () => {
@@ -101,6 +110,19 @@ describe("projectArrangement", () => {
     expect(Object.keys(bindings)).toEqual(["a"]);
     expect(titles).toEqual({ b: { title: "tug/odd-kiln", masthead: null } });
     expect(identities).toEqual({ b: { title: "notes.md", path: "/p/notes.md", unsaved: true } });
+  });
+
+  test("carries the reported phase of every card it holds that has one, across workspaces, and of no other", () => {
+    const { activities } = projected();
+    expect(activities).toEqual({ a: "streaming", b: "idle" });
+    // The same projection the shell fingerprints to resend only on a phase change.
+    expect(projectActivities(deck, activityOf)).toEqual(activities);
+    expect(JSON.stringify(projectActivities(deck, activityOf))).toBe(JSON.stringify(projectActivities(deck, activityOf)));
+  });
+
+  test("a card whose body has not reported is absent, never idle by assumption", () => {
+    expect(projectActivities(deck, () => null)).toEqual({});
+    expect(Object.keys(projectArrangement(deck, () => undefined, () => null, () => null, () => null).activities)).toEqual([]);
   });
 });
 

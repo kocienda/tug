@@ -385,7 +385,7 @@ pub struct LedgerEntry {
     /// Count of replay brackets currently in flight on this session's
     /// outbound stream — incremented on each `replay_started` the merger
     /// observes, saturating-decremented on each `replay_complete`. The
-    /// merger's `apply_outbound_turn_intercept` skips its FIFO journal-pop
+    /// merger's `apply_outbound_turn_intercept` skips its journal-consume
     /// work while this counter is non-zero, so replay-emitted
     /// `turn_complete` frames (from `translateJsonlSession`'s
     /// committed-turn output) don't get treated as live `turn_complete`s

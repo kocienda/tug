@@ -810,6 +810,7 @@ export class SessionEngine {
       // Who authored the submission, as tugcode's translator stated it on
       // the one frame it identified as a stage's opening prompt.
       origin: frame.origin === "wheel" ? "wheel" : undefined,
+      ...(frame.inflightSnapshot === true ? { inflightSnapshot: true } : {}),
       ...(seedSummary !== null ? { compactionSummary: seedSummary } : {}),
       ...(suppressedTurn ? { suppressedTurn: true } : {}),
     };
