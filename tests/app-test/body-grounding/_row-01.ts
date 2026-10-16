@@ -1,6 +1,7 @@
 /**
- * row-01-arrival.test.ts — a new card arrives with nothing of the canvas, the
- * grid or the window showing through, at any frame, warm and cold.
+ * _row-01.ts — what the pieces of row 1 share: a new card arrives with
+ * nothing of the canvas, the grid or the window showing through, at any
+ * frame, warm and cold.
  *
  * The bar's first row ([B02] row 1). ⌘N through the activated session tap
  * opens a card the user's way; the card is handed to a body when its session
@@ -25,17 +26,11 @@
  * armed over the whole window and every frame is read at the rect the
  * placeholder stood at on that frame: a rail slides in as it arrives.
  *
- * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
- * @covers tugdeck/src/lib/body-shell.ts
- * @covers tugdeck/src/lib/body-cards-store.ts
- * @covers tugdeck/src/body/body-main.ts
- * @covers tugdeck/src/components/tugways/tug-pane.css
- * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugapp/Sources/HostFrameMeter.swift
+ * One launch per arrival: `row-01-arrival-warm` and `row-01-arrival-cold`
+ * for the Session card, `row-01-arrival-kinds` for every other kind.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,11 +42,19 @@ import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, type FloorMeasure, type FrameClasses } from "./_frames";
 import { armPlaceholderSampler, openKind, placeholderAt, readPlaceholderSampler } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
+import type { CardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-01-arrival";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 180_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How a piece launches, stated in the piece itself: every row-1 launch takes
+ * the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
 
 const SEED = "row01-seed";
 const BODY_READY_MS = 30_000;
@@ -333,66 +336,58 @@ async function arriveKind(app: App, kind: CardKind, label: string): Promise<Arri
   return { frames, afterHandOff: frames.slice(firstLid), final: frames[frames.length - 1], body: shown!, host, handOffWall };
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 1: arrival", () => {
-  for (const kind of kindsUnderTest(1)) {
-    if (kind.componentId === "session") continue;
-    test(
-      `${kind.componentId}: a card opened the user's way arrives with nothing of the canvas, grid or window showing at any frame`,
-      async () => {
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
-        try {
-          await app.seedDeckState({ state: oneCard, focusCardId: SEED });
-          await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
-          const arrival = await arriveKind(app, kind, kind.componentId);
-          judge(kind.componentId, arrival, floorMeasure(kind.rail));
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
+/** A card of `kind` opened the way it opens, read from the hand-off on. */
+export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<void> {
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch, bodies: true });
+  try {
+    await app.seedDeckState({ state: oneCard, focusCardId: SEED });
+    await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
+    const arrival = await arriveKind(app, kind, kind.componentId);
+    judge(kind.componentId, arrival, floorMeasure(kind.rail));
+  } finally {
+    await app.close();
   }
+}
 
-  test.skipIf(!sessionUnderTest(1))(
-    "⌘N: a card arrives warm, then one cold, with nothing of the canvas, grid or window showing at any frame",
-    async () => {
-      const stubDir = stubDirectory();
-      const app = await launchTugApp({
-        testName: TEST_NAME,
-        foreground: true,
-        bodies: true,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: oneCard, focusCardId: SEED });
-        // The spare is made a beat after the shell paints, and waits connected.
-        const spares = await pollFor(
-          () => app.bodies(),
-          (all) => all.some((b) => b.cardId === null && b.state === "connected"),
-          BODY_READY_MS,
-        );
-        expect(spares.some((b) => b.cardId === null && b.state === "connected"), "a spare body waits, connected").toBe(true);
+/** Launch with the seed card and a spare waiting connected, and run `body`. */
+async function withSpare(launch: Launch, name: string, body: (app: App, stubDir: string) => Promise<void>): Promise<void> {
+  const stubDir = stubDirectory();
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  try {
+    await app.seedDeckState({ state: oneCard, focusCardId: SEED });
+    // The spare is made a beat after the shell paints, and waits connected.
+    const spares = await pollFor(
+      () => app.bodies(),
+      (all) => all.some((b) => b.cardId === null && b.state === "connected"),
+      BODY_READY_MS,
+    );
+    expect(spares.some((b) => b.cardId === null && b.state === "connected"), "a spare body waits, connected").toBe(true);
+    await body(app, stubDir);
+  } finally {
+    await app.close();
+  }
+}
 
-        // ---- Warm: the first card takes the spare ----
-        const warmCard = await newCardByChord(app, SEED);
-        const warm = await arrive(app, warmCard, stubDir, "warm");
-        expect(warm.body.start, "the first card bound the spare").toBe("warm");
-        judge("warm", warm);
+/** ⌘N: the first card takes the warm spare. */
+export function arrivalWarm(launch: Launch): Promise<void> {
+  return withSpare(launch, "warm", async (app, stubDir) => {
+    const warmCard = await newCardByChord(app, SEED);
+    const warm = await arrive(app, warmCard, stubDir, "warm");
+    expect(warm.body.start, "the first card bound the spare").toBe("warm");
+    judge("warm", warm);
+  });
+}
 
-        // ---- Cold: a card spawned while the spare is taken ----
-        const takerCard = await newCardByChord(app, warmCard);
-        const coldCard = await newCardByChord(app, takerCard);
-        await spawnStub(app, takerCard, stubDir);
-        const cold = await arrive(app, coldCard, stubDir, "cold");
-        expect(cold.body.start, "the card spawned behind the spare's taker was made cold").toBe("cold");
-        judge("cold", cold);
-
-        const rect = await placeholderRect(app, coldCard);
-        note(`cold card placeholder ${JSON.stringify(rect)}; body frame ${JSON.stringify(cold.body.frame)}`);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+/** ⌘N twice: a card spawned at once behind the one that took the spare is made cold. */
+export function arrivalCold(launch: Launch): Promise<void> {
+  return withSpare(launch, "cold", async (app, stubDir) => {
+    const takerCard = await newCardByChord(app, SEED);
+    const coldCard = await newCardByChord(app, takerCard);
+    await spawnStub(app, takerCard, stubDir);
+    const cold = await arrive(app, coldCard, stubDir, "cold");
+    expect(cold.body.start, "the card spawned behind the spare's taker was made cold").toBe("cold");
+    judge("cold", cold);
+    const rect = await placeholderRect(app, coldCard);
+    note(`cold card placeholder ${JSON.stringify(rect)}; body frame ${JSON.stringify(cold.body.frame)}`);
+  });
+}

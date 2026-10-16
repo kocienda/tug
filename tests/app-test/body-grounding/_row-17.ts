@@ -1,7 +1,7 @@
 /**
- * row-17-crossing.test.ts — a gesture that changes a body card's size
- * carries the body to its new size on the host, with the bottom edge clean
- * and the transcript pinned.
+ * _row-17.ts — what the pieces of row 17 share: a gesture that changes a
+ * body card's size carries the body to its new size on the host, with the
+ * bottom edge clean and the transcript pinned.
  *
  * The bar's seventeenth row. A settle whose beats change a body's box posts
  * the host a beat plan whose entry carries the landing size, and the host
@@ -47,13 +47,13 @@
  * Overview's column, given posts enough to scroll, is pinned to its bottom
  * across each as a transcript is.
  *
- * @foreground
- * @covers tugdeck/src/body/body-main.ts
- * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugdeck/src/lib/body-placement.ts
+ * One launch driving every leg ran three minutes, so each piece drives one
+ * gesture (or a gesture and its inverse) on its own launch:
+ * `row-17-crossing-<gesture>` for the Session card and
+ * `row-17-crossing-kinds-<gesture>` for every other kind under test.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,7 +64,7 @@ import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixtur
 import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { classifyFrame, describeFrames, floorMeasure } from "./_frames";
 import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
+import type { CardKind } from "./_kinds";
 import {
   BURST_INTERVAL_MS,
   armSampler,
@@ -78,16 +78,26 @@ import {
   readStanding,
   rectOf,
   samplerState,
+  setUpGesture,
   type Rect,
   type Standing,
 } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-17-crossing";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-/** Per test, and the file's wedge cap before it has a recorded time: three launches, each streaming a turn. */
-const TEST_TIMEOUT_MS = 600_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+/** Per test, and a piece's wedge cap before it has a recorded time: one launch streaming a turn. */
+export const TEST_TIMEOUT_MS = 120_000;
 
-const BURST_MS = 3_000;
+/**
+ * How a piece launches, stated in the piece itself: every row-17 launch
+ * takes the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
+
+/** The composite burst: the settle runs about 400 ms, so this covers its set-up, motion and land with room. */
+const BURST_MS = 1_500;
 const SETTLE_MS = 6_000;
 /** How far from its bottom a scroller may stand and still read pinned, px. */
 const PINNED_PX = 2;
@@ -95,6 +105,8 @@ const PINNED_PX = 2;
 const RESIZED_PX = 20;
 /** How many messages the stub's turn streams: it runs for minutes, through every leg. */
 const MESSAGES = 40;
+/** How many of them arrive whole, so the transcript is taller than the box at once and streams on behind. */
+const PREFILL = 4;
 
 interface CrossingAccount {
   planId: number;
@@ -184,7 +196,7 @@ function stackDeck(card: string): Record<string, unknown> {
  * the transcript is following its bottom through every crossing.
  */
 async function standUpBody(app: App, card: string, stubDir: string): Promise<void> {
-  await spawnStub(app, card, stubDir, MESSAGES, 1);
+  await spawnStub(app, card, stubDir, MESSAGES, 1, undefined, PREFILL);
   await waitForBody(app, card);
   await focusBody(app, card);
   const body = app.body(card);
@@ -219,7 +231,7 @@ async function standing(app: App, card: string, rail?: string, kind?: CardKind):
  * corners shows the canvas there. (The pane's border line crosses the
  * patch and reads as grid, so the canvas alone is the reading.)
  */
-async function expectSquareTop(app: App, card: string, palette: Standing["palette"]): Promise<void> {
+export async function expectSquareTop(app: App, card: string, palette: Standing["palette"]): Promise<void> {
   const box = await expectAtRest(app, card, `${card}: corner`);
   const read = async (y: number) => {
     await app.captureBurst({ op: "arm", durationMs: 100, intervalMs: 50, crop: { x: Math.ceil(box.x), y, width: 4, height: 4 } });
@@ -232,7 +244,7 @@ async function expectSquareTop(app: App, card: string, palette: Standing["palett
   expect(top.canvas + top.bare, `${card}: the content box's top corner is square, never the canvas`).toBeLessThan(0.05);
 }
 
-interface Leg {
+export interface Leg {
   label: string;
   /** The gesture. */
   run: (app: App) => Promise<unknown>;
@@ -247,7 +259,7 @@ interface Leg {
  * the composite burst, run `js`, read the host's presented frame until the
  * settle is over, then judge the crossing.
  */
-async function crossLeg(app: App, card: string, leg: Leg, s: Standing, crop: Rect): Promise<void> {
+export async function crossLeg(app: App, card: string, leg: Leg, s: Standing, crop: Rect): Promise<void> {
   const { label } = leg;
   const before = await expectAtRest(app, card, `${label}: before`);
   const scrollBefore = await scrollOf(app, card);
@@ -330,94 +342,100 @@ async function crossLeg(app: App, card: string, leg: Leg, s: Standing, crop: Rec
 }
 
 /** A deck action, dispatched in the shell. */
-const control = (id: string, payload: Record<string, unknown> = {}) => (app: App): Promise<null> =>
+export const control = (id: string, payload: Record<string, unknown> = {}) => (app: App): Promise<null> =>
   app.evalJS<null>(`(window.__tug.dispatchControlAction(${JSON.stringify(id)}, ${JSON.stringify(payload)}), null)`);
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 17: crossings", () => {
-  for (const kind of kindsUnderTest(17)) {
-    if (kind.componentId === "session") continue;
-    test(
-      `${kind.componentId}: the gestures that change its box carry the body to its new size with its chrome`,
-      async () => {
-        const card = `r17-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
-        try {
-          if (kind.componentId === "overview") {
-            const now = Date.now();
-            app.seedLedger({
-              overview_posts: Array.from({ length: MESSAGES }, (_, i) => ({
-                at_ms: now - (MESSAGES - i) * 60_000,
-                author: "observer" as const,
-                body: `Post ${i + 1}: a line of work narrated, long enough to wrap once in a rail and so give the column something to scroll.`,
-                refs: [],
-              })),
-            });
-          }
-          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r17-n0", "r17-n1"] }), focusCardId: card });
-          await standUpKind(app, kind, card);
-          await focusBody(app, card, { composer: false });
-          await Bun.sleep(600);
-          const { standing: s, crop } = await standing(app, card, undefined, kind);
-          const other = kind.componentId === "jots" ? "dashes" : "jots";
-          if (kind.rail) {
-            await control("set-sidebar-side", { componentId: other, side: "right" })(app);
-            await crossLeg(app, card, { label: `${other} joins its edge`, run: control("set-sidebar-open", { componentId: other, open: true }), resizes: true }, s, crop);
-            await crossLeg(app, card, { label: `${other} leaves it`, run: control("set-sidebar-open", { componentId: other, open: false }), resizes: true }, s, crop);
-          } else {
-            await crossLeg(app, card, { label: "bullseye in", run: control("toggle-bullseye"), resizes: true }, s, crop);
-            await crossLeg(app, card, { label: "bullseye out", run: control("toggle-bullseye"), resizes: true }, s, crop);
-          }
-          await crossLeg(app, card, { label: "resize sidebars to fit", run: control("resize-sidebars-to-fit"), resizes: false }, s, crop);
-          await expectNoShellReads(app, card);
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
+export { setUpGesture };
+
+/** A launch's body card, its palette and the crop every leg's burst reads. */
+export interface Stood {
+  app: App;
+  card: string;
+  s: Standing;
+  crop: Rect;
+}
+
+/**
+ * Launch with a body of `kind` stood up — the Overview given posts enough
+ * to scroll — and run `legs`; then its body asked the shell for nothing.
+ */
+export async function withKind(launch: Launch, kind: CardKind, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+  const card = `r17-${kind.componentId}`;
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch, bodies: true });
+  try {
+    if (kind.componentId === "overview") {
+      const now = Date.now();
+      app.seedLedger({
+        overview_posts: Array.from({ length: MESSAGES }, (_, i) => ({
+          at_ms: now - (MESSAGES - i) * 60_000,
+          author: "observer" as const,
+          body: `Post ${i + 1}: a line of work narrated, long enough to wrap once in a rail and so give the column something to scroll.`,
+          refs: [],
+        })),
+      });
+    }
+    await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r17-n0", "r17-n1"] }), focusCardId: card });
+    await standUpKind(app, kind, card);
+    await focusBody(app, card, { composer: false });
+    await Bun.sleep(600);
+    const { standing: s, crop } = await standing(app, card, undefined, kind);
+    await legs({ app, card, s, crop });
+    await expectNoShellReads(app, card);
+  } finally {
+    await app.close();
   }
+}
 
-  test.skipIf(!sessionUnderTest(17))(
-    "bullseye, the sidebars, fit and a new card carry the body with its chrome in a four-up flow",
-    async () => {
-      const stubDir = stubDirectory();
-      const card = "r17-a";
-      const app = await launchTugApp({ testName: `${TEST_NAME}-flow`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
-      try {
-        await app.seedDeckState({ state: flowDeck(card), focusCardId: card });
-        await standUpBody(app, card, stubDir);
-        const { standing: s, crop } = await standing(app, card, "r17-layout-pane");
-        await expectSquareTop(app, card, s.palette);
-        await crossLeg(app, card, { label: "bullseye in", run: control("toggle-bullseye"), resizes: true }, s, crop);
-        await crossLeg(app, card, { label: "bullseye out", run: control("toggle-bullseye"), resizes: true }, s, crop);
-        await crossLeg(app, card, { label: "sidebars hide", run: control("toggle-sidebars"), resizes: false }, s, crop);
-        await crossLeg(app, card, { label: "sidebars show", run: control("toggle-sidebars"), resizes: false }, s, crop);
-        await crossLeg(app, card, { label: "resize sidebars to fit", run: control("resize-sidebars-to-fit"), resizes: false }, s, crop);
-        // ⌘N's own action opens a card beside the body card; its neighbours
-        // ride the arrival's fused room beat, which carries size terms.
-        await crossLeg(app, card, { label: "new card", run: control("show-card", { component: "session" }), resizes: false, moves: true }, s, crop);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+/**
+ * The gesture that changes a kind's box, or with `inverse` the gesture that
+ * takes it back (the first made as its set-up): a rail's when another rail
+ * card joins its edge and when that card goes, a content kind's bullseye in
+ * and out.
+ */
+export async function kindResizeLeg(kind: CardKind, inverse: boolean, { app, card, s, crop }: Stood): Promise<void> {
+  const other = kind.componentId === "jots" ? "dashes" : "jots";
+  if (kind.rail) {
+    await control("set-sidebar-side", { componentId: other, side: "right" })(app);
+    const join = control("set-sidebar-open", { componentId: other, open: true });
+    if (!inverse) return crossLeg(app, card, { label: `${other} joins its edge`, run: join, resizes: true }, s, crop);
+    await setUpGesture(app, card, `${other} joins its edge`, join);
+    await crossLeg(app, card, { label: `${other} leaves it`, run: control("set-sidebar-open", { componentId: other, open: false }), resizes: true }, s, crop);
+  } else {
+    if (!inverse) return crossLeg(app, card, { label: "bullseye in", run: control("toggle-bullseye"), resizes: true }, s, crop);
+    await setUpGesture(app, card, "bullseye in", control("toggle-bullseye"));
+    await crossLeg(app, card, { label: "bullseye out", run: control("toggle-bullseye"), resizes: true }, s, crop);
+  }
+}
 
-  test.skipIf(!sessionUnderTest(17))(
-    "a column split carries the body to its shorter box",
-    async () => {
-      const stubDir = stubDirectory();
-      const card = "r17-c";
-      const app = await launchTugApp({ testName: `${TEST_NAME}-split`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
-      try {
-        await app.seedDeckState({ state: stackDeck(card), focusCardId: card });
-        await standUpBody(app, card, stubDir);
-        const { standing: s, crop } = await standing(app, card);
-        await crossLeg(app, card, { label: "split", run: control("set-column-mode", { slot: 0, mode: "split" }), resizes: true }, s, crop);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+/**
+ * Launch with the Session body card second in a four-up flow of six,
+ * streaming, and a Layout card on the left rail, and run `legs`.
+ */
+export async function withFlow(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+  const stubDir = stubDirectory();
+  const card = "r17-a";
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  try {
+    await app.seedDeckState({ state: flowDeck(card), focusCardId: card });
+    await standUpBody(app, card, stubDir);
+    const { standing: s, crop } = await standing(app, card, "r17-layout-pane");
+    await legs({ app, card, s, crop });
+  } finally {
+    await app.close();
+  }
+}
+
+/** Launch with the Session body card in front of a column it shares, streaming, and run `legs`. */
+export async function withStack(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
+  const stubDir = stubDirectory();
+  const card = "r17-c";
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  try {
+    await app.seedDeckState({ state: stackDeck(card), focusCardId: card });
+    await standUpBody(app, card, stubDir);
+    const { standing: s, crop } = await standing(app, card);
+    await legs({ app, card, s, crop });
+  } finally {
+    await app.close();
+  }
+}

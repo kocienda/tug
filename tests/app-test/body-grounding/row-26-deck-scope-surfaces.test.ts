@@ -126,7 +126,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
           },
           focusCardId: A,
         });
-        await spawnStub(app, A, stubDir, 1, TURNS);
+        // Each turn's one message arrives whole: the placard needs the turns, not their text.
+        await spawnStub(app, A, stubDir, 1, TURNS, undefined, 1);
         await waitForBody(app, A);
         await focusBody(app, A);
         const body = app.body(A);
@@ -134,10 +135,24 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
         // placard lists, and which make it taller than the room the card has
         // above its Z2 row.
         for (let i = 0; i < TURNS; i++) {
+          // A turn that arrives whole is over in a few frames, so the page
+          // records every frame's phase: the turn ran once it left idle and
+          // came back.
+          await body.evalJS<null>(`(function () {
+            var w = (window.__r26Phase = { left: false, done: false });
+            var tick = function () {
+              if (w.done) return;
+              var p = ${promptPhase};
+              if (p !== null && p !== "idle") w.left = true;
+              requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+            return null;
+          })()`);
           await app.nativeType(`turn ${i + 1}`);
           await app.nativeKey("Return", ["cmd"]);
-          await body.waitForCondition<boolean>(`${promptPhase} !== "idle"`, { timeoutMs: SETTLE_MS });
-          await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 30_000 });
+          await body.waitForCondition<boolean>(`window.__r26Phase.left && ${promptPhase} === "idle"`, { timeoutMs: 30_000 });
+          await body.evalJS<null>("(window.__r26Phase.done = true, null)");
         }
         const frame = (await bodyOf(app, A))!.frame;
 

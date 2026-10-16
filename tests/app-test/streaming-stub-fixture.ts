@@ -107,6 +107,15 @@ function messageText(index: number): string {
   ].join("\n");
 }
 
+/** A prefilled message: prose only, its height and none of a fenced block's well. */
+function prefillText(index: number): string {
+  const n = index + 1;
+  const sentence =
+    `Before pass ${n}, the reader traced every caller of the module and wrote down what each one expects back, ` +
+    "so that the change could be judged against the callers rather than against the module alone.";
+  return [`## Before pass ${n}`, "", sentence, "", sentence, "", sentence, "", sentence, ""].join("\n");
+}
+
 /** A message's text as the deltas a model would stream it in: a word apiece. */
 function deltasOf(text: string): string[] {
   return text.match(/\S+\s*|\s+/g) ?? [text];
@@ -121,11 +130,21 @@ function deltasOf(text: string): string[] {
  * are still running when the last drive is made. `text` writes each
  * message's markdown; a reading that needs particular constructs passes its
  * own.
+ *
+ * `prefill` messages at the head of each turn arrive whole, each one
+ * complete output with no partial deltas, so a card that needs a transcript
+ * taller than its box has one a few frames after the prompt instead of after
+ * seconds of streaming, and a reading that needs many turns, not their text,
+ * has each one end at once; the messages after them stream as before. Their
+ * job is height, so they are prose (`prefillText`): a fenced block's dark
+ * well sits near the canvas colour, and a reading that judges a standing
+ * body by colour would count a screenful of them as floor.
  */
 export function streamingTranscript(
   messages = 40,
   turns = 1,
   text: (index: number) => string = messageText,
+  prefill = 0,
 ): TugcodeTranscript {
   const replayed: { index: number; description: string; outputs: unknown[] }[] = [];
   let seq = 0;
@@ -135,7 +154,7 @@ export function streamingTranscript(
     for (let m = 0; m < messages; m++) {
       const k = t * messages + m;
       const msgId = `stub-msg-${k}`;
-      const body = text(k);
+      const body = m < prefill ? prefillText(k) : text(k);
       outputs.push({
         type: "content_block_start",
         msg_id: msgId,
@@ -144,7 +163,7 @@ export function streamingTranscript(
         ipc_version: IPC_VERSION,
       });
       let rev = 0;
-      for (const delta of deltasOf(body)) {
+      for (const delta of m < prefill ? [] : deltasOf(body)) {
         outputs.push({
           type: "assistant_text",
           msg_id: msgId,

@@ -1,6 +1,7 @@
 /**
- * row-02-drag.test.ts — a card drags as one piece: masthead, frame and
- * content move together under the pointer, and land together.
+ * _row-02.ts — what the pieces of row 2 share: a card drags as one piece:
+ * masthead, frame and content move together under the pointer, and land
+ * together.
  *
  * The bar's second row ([B02] row 2). A body card's grab handle is pressed
  * and dragged through the activated session tap — a real mouse-down, a trail
@@ -28,14 +29,11 @@
  * its chrome offers: a content card's grab handle, and a rail's whole title
  * bar, which is what a rail wears in place of a handle.
  *
- * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
- * @covers tugdeck/src/lib/body-shell.ts
- * @covers tugapp/Sources/BodyViewController.swift
- * @covers tugapp/Sources/TestHarness/NativeEventHandlers.swift
+ * The Session card's drag is `row-02-drag-session`, every other kind's
+ * `row-02-drag-kinds`, one launch each.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,11 +45,19 @@ import { onTestRunEnd } from "../_harness/test-cleanup";
 import { STUB_TRANSCRIPT_DIR_ENV, streamingTranscript, stubDirectory } from "../streaming-stub-fixture";
 import { classifyFrame, describeFrames, edgeNearOnRow, fillOnRow, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses } from "./_frames";
 import { expectNoShellReads, kindDeck, standUpKind } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest } from "./_kinds";
+import type { CardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-02-drag";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 180_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How a piece launches, stated in the piece itself: every row-2 launch takes
+ * the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
 
 const CARD = "row02-body";
 const frameSel = (card: string): string => `.tug-pane:has([data-card-id="${card}"])`;
@@ -61,8 +67,8 @@ const handleSel = (card: string, rail: boolean): string =>
 const placeholderSel = (card: string): string => `[data-body-placeholder][data-card-id="${card}"]`;
 const BODY_READY_MS = 30_000;
 const PLACED_MS = 3_000;
-/** The burst over the whole gesture: the trail, the hold, the release and the landing. */
-const BURST_MS = 5_000;
+/** The burst over the whole gesture: the trail (about 700 ms), the hold, the release and the landing. */
+const BURST_MS = 3_000;
 const BURST_INTERVAL_MS = 33;
 /** How far the hand carries the card, at most; shortened to what the window allows. */
 const TRAVEL_X = 200;
@@ -413,63 +419,46 @@ async function dragLeg(app: App, card: string, handle: Rect, measure: FloorMeasu
   ).toBe(0);
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 2: drag", () => {
-  for (const kind of kindsUnderTest(2)) {
-    if (kind.componentId === "session") continue;
-    test(
-      `${kind.componentId}: a body card dragged by its chrome moves as one piece under the pointer and lands as one`,
-      async () => {
-        const card = `row02-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
-        try {
-          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row02-seed"] }), focusCardId: card });
-          await standUpKind(app, kind, card);
-          const handle = await pollFor(() => rectOf(app, handleSel(card, kind.rail)), (r) => r !== null && r.width > 0, PLACED_MS);
-          expect(handle, `the ${kind.componentId} card's chrome offers a drag surface`).not.toBeNull();
-          await Bun.sleep(400);
-          await dragLeg(app, card, handle!, floorMeasure(kind.rail), kind.rail);
-          await expectNoShellReads(app, card);
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
+/** Launch with a body of `kind` stood up beside a Session card, and drag it by the surface its chrome offers. */
+export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
+  const card = `row02-${kind.componentId}`;
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch, bodies: true });
+  try {
+    await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row02-seed"] }), focusCardId: card });
+    await standUpKind(app, kind, card);
+    const handle = await pollFor(() => rectOf(app, handleSel(card, kind.rail)), (r) => r !== null && r.width > 0, PLACED_MS);
+    expect(handle, `the ${kind.componentId} card's chrome offers a drag surface`).not.toBeNull();
+    await Bun.sleep(400);
+    await dragLeg(app, card, handle!, floorMeasure(kind.rail), kind.rail);
+    await expectNoShellReads(app, card);
+  } finally {
+    await app.close();
   }
+}
 
-  test.skipIf(!sessionUnderTest(2))(
-    "a body card dragged by its handle moves as one piece under the pointer and lands as one",
-    async () => {
-      const stubDir = stubDirectory();
-      const app = await launchTugApp({
-        testName: TEST_NAME,
-        foreground: true,
-        bodies: true,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: oneCard, focusCardId: CARD });
-        const tugSessionId = randomUUID();
-        const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-row02-project-")));
-        onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
-        writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(2, 1)));
-        await app.spawnSessionNew(CARD, { tugSessionId, projectDir });
-        const shown = await pollFor(() => bodyOf(app, CARD), (b) => b !== null && b.visible, BODY_READY_MS);
-        expect(shown?.visible, "the body card's body is placed visible").toBe(true);
+/** Launch with one Session body card, its stub turn run out, and drag it by its grab handle. */
+export async function dragSession(launch: Launch): Promise<void> {
+  const stubDir = stubDirectory();
+  const app = await launchTugApp({ testName: TEST_NAME, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  try {
+    await app.seedDeckState({ state: oneCard, focusCardId: CARD });
+    const tugSessionId = randomUUID();
+    const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-row02-project-")));
+    onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
+    writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(2, 1)));
+    await app.spawnSessionNew(CARD, { tugSessionId, projectDir });
+    const shown = await pollFor(() => bodyOf(app, CARD), (b) => b !== null && b.visible, BODY_READY_MS);
+    expect(shown?.visible, "the body card's body is placed visible").toBe(true);
 
-        // The turn the stub replays runs out, and the masthead — whose lead
-        // line carries the grab handle — is bound.
-        const body = app.body(CARD);
-        await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 90_000 });
-        const handle = await pollFor(() => rectOf(app, handleSel(CARD, false)), (r) => r !== null && r.width > 0, PLACED_MS);
-        expect(handle, "the body card's masthead carries a grab handle").not.toBeNull();
-        await Bun.sleep(400);
+    // The masthead — whose lead line carries the grab handle — is bound.
+    const body = app.body(CARD);
+    await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 90_000 });
+    const handle = await pollFor(() => rectOf(app, handleSel(CARD, false)), (r) => r !== null && r.width > 0, PLACED_MS);
+    expect(handle, "the body card's masthead carries a grab handle").not.toBeNull();
+    await Bun.sleep(400);
 
-        await dragLeg(app, CARD, handle!);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+    await dragLeg(app, CARD, handle!);
+  } finally {
+    await app.close();
+  }
+}

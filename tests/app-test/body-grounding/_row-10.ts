@@ -1,6 +1,6 @@
 /**
- * row-10-workspace.test.ts — a workspace switch hides every departing body
- * and shows every arriving one, each in its own place.
+ * _row-10.ts — what the pieces of row 10 share: a workspace switch hides
+ * every departing body and shows every arriving one, each in its own place.
  *
  * The bar's tenth row ([B02] row 10). Two body session cards stand in the
  * home workspace; a second workspace, made through the deck's own verb,
@@ -24,13 +24,13 @@
  * workspace was made with, for a rail, or opened there — each body hidden as
  * its workspace departs and shown on its own placeholder as it arrives.
  *
- * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
- * @covers tugdeck/src/lib/body-shell.ts
- * @covers tugapp/Sources/BodyViewController.swift
+ * One launch per switch: `row-10-workspace-session-home` reads the switch
+ * from the away workspace home, `row-10-workspace-session-away` makes that
+ * switch as its set-up and reads the one back; `row-10-workspace-kinds-home`
+ * and `-kinds-away` do the same for every other kind.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
@@ -38,7 +38,7 @@ import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixtur
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
 import { floorMeasure } from "./_frames";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest } from "./_kinds";
+import type { CardKind } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
 import {
   BURST_INTERVAL_MS,
@@ -55,12 +55,21 @@ import {
 } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-10-workspace";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 300_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How a piece launches, stated in the piece itself: every row-10 launch
+ * takes the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
 
 const A = "row10-a";
 const B = "row10-b";
-const BURST_MS = 2_500;
+/** The burst over one switch: a single commit, so any hole shows in its first few hundred ms. */
+const BURST_MS = 1_200;
 const ACTIVE_SPACE = "window.tugdeck.diag.getSpaces().activeSpaceId";
 
 function deck(): Record<string, unknown> {
@@ -173,108 +182,111 @@ async function switchLeg(app: App, leg: Switch, places: Map<string, Rect>, crop:
   expect(bare.length, `${leg.label}: no frame shows the bare window through an open hole`).toBe(0);
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 10: workspace switch", () => {
-  for (const kind of kindsUnderTest(10)) {
-    if (kind.componentId === "session") continue;
-    test(
-      `${kind.componentId}: its departing body hides and its arriving body shows on its own placeholder, with no frame of a body in the wrong place`,
-      async () => {
-        const K = `row10-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
-        try {
-          await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
-          await standUpKind(app, kind, K);
-          await Bun.sleep(400);
-          const home = await app.evalJS<string>(ACTIVE_SPACE);
-          const places = new Map<string, Rect>();
-          places.set(K, await expectAtRest(app, K, `${K} at home`));
-          const standing = await readStanding(app, K, places.get(K)!, floorMeasure(kind.rail));
-          const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
+/** Which switch a piece reads: from the away workspace home, or (that one made first) home to away. */
+export type Leg = "home" | "away";
 
-          await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
-          await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
-          const away = await app.evalJS<string>(ACTIVE_SPACE);
-          expect(away, "a second workspace is shown").not.toBe(home);
-          await expectHidden(app, K, `${K} after leaving home`);
-          const ofKind = `window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === ${JSON.stringify(kind.componentId)}; }).map(function (c) { return c.id; })`;
-          const madeWith = (await app.evalJS<string[]>(ofKind)).find((id) => id !== K);
-          const K2 = madeWith ?? (await openKind(app, kind));
-          note(`the away workspace's ${kind.componentId} card: ${K2} (${madeWith !== undefined ? "made with the workspace" : "opened there"})`);
-          await standUpKind(app, kind, K2);
-          await Bun.sleep(400);
-          places.set(K2, await expectAtRest(app, K2, `${K2} away`));
-
-          await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K }, places, crop, standing.palette);
-          await Bun.sleep(600);
-          await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [K2], departing: [K], watch: K2 }, places, crop, standing.palette);
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
+/** Switch to `toSpaceId` without reading it — the set-up for the switch back — and wait for `arriving` to show. */
+async function switchQuietly(app: App, toSpaceId: string, arriving: readonly string[]): Promise<void> {
+  await app.evalJS<null>(`(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(toSpaceId)} }), null)`);
+  await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id === toSpaceId, 5_000);
+  for (const id of arriving) {
+    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(placeholderOf(id))})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
   }
+  await Bun.sleep(600);
+}
 
-  test.skipIf(!sessionUnderTest(10))(
-    "every departing body hides and every arriving body shows on its own placeholder, with no frame of a body in the wrong place",
-    async () => {
-      const stubDir = stubDirectory();
-      const app = await launchTugApp({
-        testName: TEST_NAME,
-        foreground: true,
-        bodies: true,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: deck(), focusCardId: A });
-        await spawnStub(app, A, stubDir, 2);
-        await spawnStub(app, B, stubDir, 2);
-        await waitForBody(app, A);
-        await waitForBody(app, B);
-        await focusBody(app, A);
-        await Bun.sleep(400);
-        const home = await app.evalJS<string>(ACTIVE_SPACE);
-        const places = new Map<string, Rect>();
-        places.set(A, await expectAtRest(app, A, "A at home"));
-        places.set(B, await expectAtRest(app, B, "B at home"));
-        const standing = await readStanding(app, A, places.get(A)!);
-        const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
+/** A card of `kind` at home and one in a second workspace, switched away → home or (that made first) home → away. */
+export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
+  const K = `row10-${kind.componentId}`;
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, ...launch, bodies: true });
+  try {
+    await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
+    await standUpKind(app, kind, K);
+    await Bun.sleep(400);
+    const home = await app.evalJS<string>(ACTIVE_SPACE);
+    const places = new Map<string, Rect>();
+    places.set(K, await expectAtRest(app, K, `${K} at home`));
+    const standing = await readStanding(app, K, places.get(K)!, floorMeasure(kind.rail));
+    const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
 
-        // ---- The away workspace, with a body card of its own ----
-        await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
-        await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
-        const away = await app.evalJS<string>(ACTIVE_SPACE);
-        expect(away, "a second workspace is shown").not.toBe(home);
-        await expectHidden(app, A, "A after leaving home");
-        await expectHidden(app, B, "B after leaving home");
-        // The verb reveals the Cards card and opens a rename; Escape leaves it.
-        await app.nativeKey("Escape", []);
-        await Bun.sleep(300);
-        const focusedBefore = await app.getFocusedCardId();
-        await app.nativeKey("n", ["cmd"]);
-        const C = (await pollFor(() => app.getFocusedCardId(), (c) => c !== null && c !== focusedBefore && c !== A && c !== B, 10_000))!;
-        expect(C, "⌘N opened a card in the away workspace and the deck focused it").not.toBe(focusedBefore);
-        await pollFor(
-          () => app.evalJS<boolean>(`document.querySelector('[data-imposer-settling]') === null && document.querySelector('.tug-pane[data-arriving]') === null`),
-          (v) => v,
-          5_000,
-        );
-        await Bun.sleep(400);
-        note(`away cards ${JSON.stringify(await app.evalJS<unknown>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return [c.id, c.componentId]; })"))}; bodies ${JSON.stringify((await app.bodies()).map((b) => [b.cardId, b.state, b.visible]))}`);
-        await spawnStub(app, C, stubDir, 2);
-        await waitForBody(app, C);
-        await focusBody(app, C);
-        await Bun.sleep(400);
-        places.set(C, await expectAtRest(app, C, "C away"));
-        note(`home ${home}: A ${JSON.stringify(places.get(A))}, B ${JSON.stringify(places.get(B))}; away ${away}: C ${JSON.stringify(places.get(C))}`);
+    await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+    await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
+    const away = await app.evalJS<string>(ACTIVE_SPACE);
+    expect(away, "a second workspace is shown").not.toBe(home);
+    await expectHidden(app, K, `${K} after leaving home`);
+    const ofKind = `window.tugdeck.diag.getDeckState().cards.filter(function (c) { return c.componentId === ${JSON.stringify(kind.componentId)}; }).map(function (c) { return c.id; })`;
+    const madeWith = (await app.evalJS<string[]>(ofKind)).find((id) => id !== K);
+    const K2 = madeWith ?? (await openKind(app, kind));
+    note(`the away workspace's ${kind.componentId} card: ${K2} (${madeWith !== undefined ? "made with the workspace" : "opened there"})`);
+    await standUpKind(app, kind, K2);
+    await Bun.sleep(400);
+    places.set(K2, await expectAtRest(app, K2, `${K2} away`));
 
-        await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [A, B], departing: [C], watch: A }, places, crop, standing.palette);
-        await Bun.sleep(600);
-        await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [C], departing: [A, B], watch: C }, places, crop, standing.palette);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+    if (leg === "home") {
+      await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [K], departing: [K2], watch: K }, places, crop, standing.palette);
+    } else {
+      await switchQuietly(app, home, [K]);
+      await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [K2], departing: [K], watch: K2 }, places, crop, standing.palette);
+    }
+  } finally {
+    await app.close();
+  }
+}
+
+/** Two Session bodies at home and a third opened by ⌘N in a second workspace, switched away → home or (that made first) home → away. */
+export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
+  const stubDir = stubDirectory();
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  try {
+    await app.seedDeckState({ state: deck(), focusCardId: A });
+    await spawnStub(app, A, stubDir, 2);
+    await spawnStub(app, B, stubDir, 2);
+    await waitForBody(app, A);
+    await waitForBody(app, B);
+    await focusBody(app, A);
+    await Bun.sleep(400);
+    const home = await app.evalJS<string>(ACTIVE_SPACE);
+    const places = new Map<string, Rect>();
+    places.set(A, await expectAtRest(app, A, "A at home"));
+    places.set(B, await expectAtRest(app, B, "B at home"));
+    const standing = await readStanding(app, A, places.get(A)!);
+    const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
+
+    // ---- The away workspace, with a body card of its own ----
+    await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
+    await pollFor(() => app.evalJS<string>(ACTIVE_SPACE), (id) => id !== home, 10_000);
+    const away = await app.evalJS<string>(ACTIVE_SPACE);
+    expect(away, "a second workspace is shown").not.toBe(home);
+    await expectHidden(app, A, "A after leaving home");
+    await expectHidden(app, B, "B after leaving home");
+    // The verb reveals the Cards card and opens a rename; Escape leaves it.
+    await app.nativeKey("Escape", []);
+    await Bun.sleep(300);
+    const focusedBefore = await app.getFocusedCardId();
+    await app.nativeKey("n", ["cmd"]);
+    const C = (await pollFor(() => app.getFocusedCardId(), (c) => c !== null && c !== focusedBefore && c !== A && c !== B, 10_000))!;
+    expect(C, "⌘N opened a card in the away workspace and the deck focused it").not.toBe(focusedBefore);
+    await pollFor(
+      () => app.evalJS<boolean>(`document.querySelector('[data-imposer-settling]') === null && document.querySelector('.tug-pane[data-arriving]') === null`),
+      (v) => v,
+      5_000,
+    );
+    await Bun.sleep(400);
+    note(`away cards ${JSON.stringify(await app.evalJS<unknown>("window.tugdeck.diag.getDeckState().cards.map(function (c) { return [c.id, c.componentId]; })"))}; bodies ${JSON.stringify((await app.bodies()).map((b) => [b.cardId, b.state, b.visible]))}`);
+    await spawnStub(app, C, stubDir, 2);
+    await waitForBody(app, C);
+    await focusBody(app, C);
+    await Bun.sleep(400);
+    places.set(C, await expectAtRest(app, C, "C away"));
+    note(`home ${home}: A ${JSON.stringify(places.get(A))}, B ${JSON.stringify(places.get(B))}; away ${away}: C ${JSON.stringify(places.get(C))}`);
+
+    if (leg === "home") {
+      await switchLeg(app, { label: "away → home", toSpaceId: home, arriving: [A, B], departing: [C], watch: A }, places, crop, standing.palette);
+    } else {
+      await switchQuietly(app, home, [A, B]);
+      await switchLeg(app, { label: "home → away", toSpaceId: away, arriving: [C], departing: [A, B], watch: C }, places, crop, standing.palette);
+    }
+  } finally {
+    await app.close();
+  }
+}

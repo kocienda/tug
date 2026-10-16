@@ -1152,19 +1152,7 @@
     "kind": "session"
   },
   {
-    "file": "body-grounding/row-01-arrival.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "body-grounding/row-02-drag.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "body-grounding/row-04-slide.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "body-grounding/row-12-composer.test.ts",
     "kind": "session"
   },
   {

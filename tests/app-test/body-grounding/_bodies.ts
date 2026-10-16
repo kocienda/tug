@@ -74,15 +74,16 @@ export async function bodyOf(app: App, cardId: string): Promise<BodyViewSnapshot
  * Spawn a stub session into `cardId`, its transcript `messages` long over
  * `turns` turns, in a scratch project dir unless `projectDir` names one. The
  * transcript plays only when a prompt is sent; until then the card is empty.
+ * The first `prefill` messages of each turn arrive whole (`streamingTranscript`).
  */
-export async function spawnStub(app: App, cardId: string, stubDir: string, messages = 2, turns = 1, projectDir?: string): Promise<void> {
+export async function spawnStub(app: App, cardId: string, stubDir: string, messages = 2, turns = 1, projectDir?: string, prefill = 0): Promise<void> {
   const tugSessionId = randomUUID();
   if (projectDir === undefined) {
     const scratch = realpathSync(mkdtempSync(join(tmpdir(), `tug-${cardId}-project-`)));
     onTestRunEnd(() => rmSync(scratch, { recursive: true, force: true }));
     projectDir = scratch;
   }
-  writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(messages, turns)));
+  writeFileSync(join(stubDir, `${tugSessionId}.json`), JSON.stringify(streamingTranscript(messages, turns, undefined, prefill)));
   await app.spawnSessionNew(cardId, { tugSessionId, projectDir });
 }
 

@@ -476,8 +476,12 @@ export function advancedRatio(samples: readonly { t: number; x: number; y: numbe
   return { ratio: moved / pairs, ticks: pairs, spanMs: samples[last].t - samples[first - 1].t };
 }
 
-/** How long a carried gesture's composite burst and host frame meter run. */
-const CARRY_BURST_MS = 2_500;
+/**
+ * How long a carried gesture's composite burst and host frame meter run: a
+ * settle runs about 400 ms, so this covers its set-up, motion and land with
+ * room, and the leg waits it out before reading the meter.
+ */
+const CARRY_BURST_MS = 1_500;
 /** How long a carried gesture's settle may take. */
 const CARRY_SETTLE_MS = 6_000;
 /** The share of host ticks the presentation must advance on across its motion. */
@@ -577,6 +581,20 @@ export async function carryLeg(
   );
   expect(advance.ticks, `${label}: the host saw ${card}'s presentation move`).toBeGreaterThan(3);
   expect(advance.ratio, `${label}: ${card}'s presentation advanced on at least ${ADVANCED_BAR * 100}% of host ticks across its motion`).toBeGreaterThanOrEqual(ADVANCED_BAR);
+}
+
+/**
+ * Make a gesture without judging it — the set-up for a leg that reads its
+ * inverse — and wait for its settle to be over and `card` at rest, focused.
+ */
+export async function setUpGesture(app: App, card: string, label: string, run: (app: App) => Promise<unknown>): Promise<void> {
+  await armSampler(app, card);
+  await run(app);
+  const settle = await pollFor(() => samplerState(app), (v) => v.saw && !v.now, CARRY_SETTLE_MS);
+  note(`${label} (set-up): settle seen ${settle.saw}, running ${settle.now}`);
+  await focusBody(app, card, { composer: false });
+  await Bun.sleep(300);
+  await expectAtRest(app, card, `${label} (set-up): after`);
 }
 
 /** The palette from `card`'s standing body, and a crop across the window at its content box's top. */
