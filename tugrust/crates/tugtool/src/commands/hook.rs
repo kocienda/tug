@@ -4,12 +4,22 @@
 //!
 //! The wrapper (`tugplug/hooks/pre-tool-use.sh`) locates this binary and
 //! pipes the hook's JSON straight through. Everything else — parsing the
-//! payload, the auto-approve prefixes, the file-ops gate — lives here, where
-//! it is compiled, tested, and versioned with the grammar it answers from.
+//! payload, the auto-approve prefixes, the file-ops gate, the test-runner
+//! wrap — lives here, where it is compiled, tested, and versioned with the
+//! grammar it answers from.
 //!
 //! Exit 0 always: the decision is the JSON on stdout, and an empty stdout
 //! means "no opinion" — Claude Code falls through to its normal permission
 //! flow. A hook that crashed would block work, so nothing here is allowed to.
+//!
+//! One answer is not a permission decision at all. A `cargo nextest run`,
+//! `cargo test` or `bun test` the model types is rewritten, through the
+//! hook's `updatedInput`, to run inside `tugtool test run`, so the block it
+//! runs in gets the run panel without anybody remembering to wire it. The
+//! rewrite carries no `permissionDecision`: Claude Code judges the wrapped
+//! command exactly as it would have judged the bare one, and the transcript
+//! keeps showing what the model typed — the `tool_use` block is never
+//! rewritten, only the input the tool runs.
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -26,9 +36,10 @@ use tugchanges_core::shell_ops::{ParseOutcome, parse_shell_ops};
 #[derive(Subcommand)]
 pub enum HookCommands {
     /// Answer a PreToolUse hook: read the hook's JSON payload from stdin and
-    /// print the permission decision. Auto-approves the plugin's own skills
-    /// and the read-only Bash prefixes; denies a Bash command whose file
-    /// operations the change ledger cannot read; says nothing otherwise.
+    /// print the decision. Auto-approves the plugin's own skills and the
+    /// read-only Bash prefixes; denies a Bash command whose file operations
+    /// the change ledger cannot read; rewrites a test runner at the head of a
+    /// Bash command to run inside `tugtool test run`; says nothing otherwise.
     PreToolUse,
 }
 
@@ -57,36 +68,54 @@ const APPROVED_BASH: &[&str] = &["grep", "ls", "find", "tugtool"];
 /// Skills under this namespace are the plugin's own.
 const PLUGIN_SKILL_PREFIX: &str = "tugplug:";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Decision {
     Allow(&'static str),
     Deny(String),
+    /// No permission opinion — the tool's whole input, with its command
+    /// rewritten. `updatedInput` replaces the input rather than patching it,
+    /// so every other field (`description`, `timeout`, `run_in_background`)
+    /// is carried across unchanged.
+    Rewrite(Value),
 }
 
 impl Decision {
     fn render(&self) -> String {
-        let (decision, reason) = match self {
-            Decision::Allow(reason) => ("allow", reason.to_string()),
-            Decision::Deny(reason) => ("deny", reason.clone()),
-        };
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Specific<'a> {
             hook_event_name: &'a str,
-            permission_decision: &'a str,
-            permission_decision_reason: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            permission_decision: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            permission_decision_reason: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            updated_input: Option<&'a Value>,
         }
         #[derive(Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Output<'a> {
             hook_specific_output: Specific<'a>,
         }
+        let mut specific = Specific {
+            hook_event_name: "PreToolUse",
+            permission_decision: None,
+            permission_decision_reason: None,
+            updated_input: None,
+        };
+        match self {
+            Decision::Allow(reason) => {
+                specific.permission_decision = Some("allow");
+                specific.permission_decision_reason = Some(reason);
+            }
+            Decision::Deny(reason) => {
+                specific.permission_decision = Some("deny");
+                specific.permission_decision_reason = Some(reason);
+            }
+            Decision::Rewrite(input) => specific.updated_input = Some(input),
+        }
         serde_json::to_string(&Output {
-            hook_specific_output: Specific {
-                hook_event_name: "PreToolUse",
-                permission_decision: decision,
-                permission_decision_reason: &reason,
-            },
+            hook_specific_output: specific,
         })
         .unwrap_or_default()
     }
@@ -141,14 +170,175 @@ pub(crate) fn pre_tool_use_with(
                 .or_else(|| std::env::current_dir().ok())
                 .unwrap_or_default();
             let gate = gate_decision(command, &base);
-            (gate.decision == "deny").then(|| {
-                Decision::Deny(gate.reason.unwrap_or_else(|| {
+            if gate.decision == "deny" {
+                return Some(Decision::Deny(gate.reason.unwrap_or_else(|| {
                     "this command names no file the change ledger can resolve".to_string()
-                }))
-            })
+                })));
+            }
+            test_runner_rewrite(payload, &hook_binary())
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Test runners run inside `tugtool test run`
+// ---------------------------------------------------------------------------
+
+/// The runners the hook recognises at the head of a command, and the
+/// `test run --kind` each one is.
+const TEST_RUNNERS: &[(&[&str], &str)] = &[
+    (&["cargo", "nextest", "run"], "nextest"),
+    (&["cargo", "test"], "cargo-test"),
+    (&["bun", "test"], "bun"),
+];
+
+/// Shell syntax the wrap does not read past. A runner followed by any of
+/// these sits in a pipeline, a sequence, a redirection or a grouping, and
+/// the wrap leaves the whole command to the shell rather than parse it. A
+/// `$VAR` or a quoted word is not in the list: the arguments are copied
+/// verbatim into the same shell, which reads them as it would have.
+const SHELL_SYNTAX: &[char] = &['|', ';', '&', '<', '>', '(', ')', '`', '\n'];
+
+/// A test runner read off the head of a command.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TestRunner<'a> {
+    /// The directory a leading `cd <dir> &&` names, verbatim.
+    pub cd: Option<&'a str>,
+    /// The `test run --kind` the runner is.
+    pub kind: &'a str,
+    /// The runner's own words — `cargo nextest run`, `bun test`.
+    pub head: String,
+    /// The runner and its arguments, from the head to the end of the command.
+    pub rest: &'a str,
+}
+
+/// Read a recognised runner off a command: an optional `cd <dir> &&`, then
+/// `cargo nextest run`, `cargo test` or `bun test`, then its arguments and
+/// nothing else.
+///
+/// Everything else is `None`, and that one rule covers the cases the wrap
+/// must not touch. A command already going through `tugtool test run` or a
+/// `just test-…` recipe has a different head. A runner mid-pipeline, or
+/// followed by `&&`, has shell syntax in its tail. An environment assignment
+/// before the runner is its head, and a second `cd` is shell syntax in the
+/// first one's tail.
+pub(crate) fn recognise_test_runner(command: &str) -> Option<TestRunner<'_>> {
+    let trimmed = command.trim();
+    let (cd, rest) = match trimmed.strip_prefix("cd ") {
+        Some(after) => {
+            let (dir, rest) = after.split_once("&&")?;
+            let dir = dir.trim();
+            if dir.is_empty() || dir.contains(SHELL_SYNTAX) {
+                return None;
+            }
+            (Some(dir), rest.trim())
+        }
+        None => (None, trimmed),
+    };
+    if rest.contains(SHELL_SYNTAX) {
+        return None;
+    }
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    TEST_RUNNERS
+        .iter()
+        .find(|(head, _)| words.len() >= head.len() && words[..head.len()] == **head)
+        .map(|(head, kind)| TestRunner {
+            cd,
+            kind,
+            head: head.join(" "),
+            rest,
+        })
+}
+
+/// The command a recognised runner becomes: the same `cd` prefix, the call
+/// id in the environment so the run's reports land on their own block, and
+/// this binary's `test run` around the runner and its arguments, verbatim.
+///
+/// The suite is the ledger's key for the run. Rust runs share `rust` with
+/// `just test-rust`, so a crate run and the workspace run are one history.
+/// A bun run takes the name of the directory it runs in, which is how the
+/// recipes name theirs.
+pub(crate) fn wrap_test_runner(
+    command: &str,
+    cwd: Option<&str>,
+    tool_use_id: Option<&str>,
+    tugtool: &str,
+) -> Option<String> {
+    let runner = recognise_test_runner(command)?;
+    let suite = match runner.kind {
+        "bun" => dir_name(runner.cd.or(cwd)).unwrap_or("bun"),
+        _ => "rust",
+    };
+    let mut out = String::new();
+    if let Some(dir) = runner.cd {
+        out.push_str(&format!("cd {dir} && "));
+    }
+    if let Some(id) = tool_use_id.filter(|id| is_plain_word(id)) {
+        out.push_str(&format!("TUG_TOOL_USE_ID={id} "));
+    }
+    out.push_str(&format!(
+        "{} test run --suite {} --kind {} --label {} --needle {} -- {}",
+        shell_word(tugtool),
+        shell_word(suite),
+        runner.kind,
+        shell_word(&runner.head),
+        shell_word(&runner.head),
+        runner.rest
+    ));
+    Some(out)
+}
+
+/// The last component of a directory as typed — quotes stripped — when it
+/// is a plain name; `None` for anything the shell would still have to read.
+fn dir_name(path: Option<&str>) -> Option<&str> {
+    let path = path?.trim().trim_matches(['\'', '"']);
+    let name = path.trim_end_matches('/').rsplit('/').next()?;
+    is_plain_word(name).then_some(name)
+}
+
+/// Letters, digits, `.`, `_`, `-`: a word every shell reads as itself.
+fn is_plain_word(word: &str) -> bool {
+    !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// A word for the shell: bare when it is plain, single-quoted otherwise.
+fn shell_word(word: &str) -> String {
+    let bare = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | ':'));
+    if bare {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
+}
+
+/// The rewrite for a Bash call whose command is a recognised runner, or
+/// `None`. The call's `tool_use_id` rides the rewritten command; the other
+/// input fields ride the rewritten input untouched.
+pub(crate) fn test_runner_rewrite(payload: &Value, tugtool: &str) -> Option<Decision> {
+    let input = payload.get("tool_input")?.as_object()?;
+    let command = input.get("command")?.as_str()?;
+    let cwd = payload.get("cwd").and_then(Value::as_str);
+    let id = payload.get("tool_use_id").and_then(Value::as_str);
+    let wrapped = wrap_test_runner(command, cwd, id, tugtool)?;
+    let mut updated = input.clone();
+    updated.insert("command".into(), wrapped.into());
+    Some(Decision::Rewrite(Value::Object(updated)))
+}
+
+/// This binary, by the path it runs from — the one `tugtool` the rewritten
+/// command is sure to find whatever the model's shell has on its PATH.
+fn hook_binary() -> String {
+    std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "tugtool".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -660,5 +850,152 @@ mod tests {
         assert_eq!(out["hookSpecificOutput"]["hookEventName"], "PreToolUse");
         assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "allow");
         assert_eq!(out["hookSpecificOutput"]["permissionDecisionReason"], "x");
+        assert!(out["hookSpecificOutput"].get("updatedInput").is_none());
+    }
+
+    // ── The test-runner wrap ──────────────────────────────────────────────
+
+    const TUGTOOL: &str = "/Applications/Tug.app/Contents/MacOS/tugtool";
+
+    fn wrap(command: &str) -> Option<String> {
+        wrap_test_runner(command, Some("/proj"), Some("toolu_01A"), TUGTOOL)
+    }
+
+    #[test]
+    fn a_runner_at_the_head_is_wrapped_with_its_arguments_verbatim() {
+        assert_eq!(
+            wrap("cargo nextest run -p tugtool -- --nocapture").as_deref(),
+            Some(
+                "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool test run \
+                 --suite rust --kind nextest --label 'cargo nextest run' --needle 'cargo nextest run' \
+                 -- cargo nextest run -p tugtool -- --nocapture"
+            )
+        );
+        assert_eq!(
+            wrap("cargo test").as_deref(),
+            Some(
+                "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool test run \
+                 --suite rust --kind cargo-test --label 'cargo test' --needle 'cargo test' -- cargo test"
+            )
+        );
+    }
+
+    #[test]
+    fn a_cd_prefix_is_kept_and_names_a_bun_suite() {
+        assert_eq!(
+            wrap("cd tugdeck && bun test src/lib").as_deref(),
+            Some(
+                "cd tugdeck && TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool \
+                 test run --suite tugdeck --kind bun --label 'bun test' --needle 'bun test' -- bun test src/lib"
+            )
+        );
+        // With no cd, the bun suite is the call's own directory.
+        assert!(wrap("bun test").unwrap().contains("--suite proj "));
+        // A directory the shell would still have to read names no suite.
+        assert!(
+            wrap("cd \"$DIR\" && bun test")
+                .unwrap()
+                .contains("--suite bun ")
+        );
+    }
+
+    #[test]
+    fn a_runner_that_is_not_the_whole_command_is_left_alone() {
+        for command in [
+            "cargo nextest run 2>&1 | tail -5",
+            "cargo nextest run && echo ok",
+            "cargo test; echo done",
+            "RUST_LOG=debug cargo test",
+            "cd a && cd b && cargo test",
+            "(cd tugrust && cargo test)",
+            "cargo nextest run > out.txt",
+            "cargo build",
+            "bunx tsc --noEmit",
+        ] {
+            assert_eq!(wrap(command), None, "{command}");
+        }
+    }
+
+    #[test]
+    fn an_already_wrapped_run_has_a_different_head() {
+        assert_eq!(
+            wrap("tugtool test run --suite rust --kind nextest -- cargo nextest run"),
+            None
+        );
+        assert_eq!(wrap("just test-rust"), None);
+    }
+
+    #[test]
+    fn without_a_call_id_the_wrap_still_happens_and_carries_none() {
+        let out = wrap_test_runner("bun test", None, None, TUGTOOL).unwrap();
+        assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
+        assert!(out.starts_with(TUGTOOL), "{out}");
+        // An id that is not a plain word is not put in a shell's environment.
+        let out = wrap_test_runner("bun test", None, Some("x; rm -rf /"), TUGTOOL).unwrap();
+        assert!(!out.contains("TUG_TOOL_USE_ID"), "{out}");
+    }
+
+    #[test]
+    fn a_binary_path_with_a_space_is_quoted() {
+        let out =
+            wrap_test_runner("bun test", None, None, "/Applications/Tug 2.app/tugtool").unwrap();
+        assert!(
+            out.starts_with("'/Applications/Tug 2.app/tugtool' test run"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn the_rewrite_replaces_the_command_and_keeps_every_other_field() {
+        let payload = json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": "cargo nextest run", "description": "Run tests", "timeout": 600000 },
+            "cwd": "/proj",
+            "tool_use_id": "toolu_01A",
+        });
+        let Some(Decision::Rewrite(input)) = test_runner_rewrite(&payload, TUGTOOL) else {
+            panic!("expected a rewrite");
+        };
+        assert_eq!(input["description"], "Run tests");
+        assert_eq!(input["timeout"], 600000);
+        assert!(
+            input["command"]
+                .as_str()
+                .unwrap()
+                .starts_with("TUG_TOOL_USE_ID=toolu_01A ")
+        );
+
+        // Rendered, it is `updatedInput` alone: no permission decision.
+        let out: Value = serde_json::from_str(&Decision::Rewrite(input).render()).unwrap();
+        let specific = &out["hookSpecificOutput"];
+        assert_eq!(specific["hookEventName"], "PreToolUse");
+        assert!(specific.get("permissionDecision").is_none());
+        assert_eq!(specific["updatedInput"]["description"], "Run tests");
+    }
+
+    #[test]
+    fn the_hook_wraps_a_typed_runner_and_a_deny_outranks_the_wrap() {
+        let dir = checkout();
+        let cwd = dir.path().to_string_lossy().into_owned();
+        match pre_tool_use(&bash_in("cargo nextest run -p tugtool", &cwd)) {
+            Some(Decision::Rewrite(input)) => {
+                let command = input["command"].as_str().unwrap();
+                assert!(
+                    command.contains(" test run --suite rust --kind nextest "),
+                    "{command}"
+                );
+                assert!(
+                    command.ends_with(" -- cargo nextest run -p tugtool"),
+                    "{command}"
+                );
+            }
+            other => panic!("expected a rewrite, got {other:?}"),
+        }
+        // And after a step closed this turn the wrap still happens: a test
+        // run is a read of the last step's work, not the next step's.
+        assert!(matches!(
+            pre_tool_use_after_closing(&bash_in("bun test", &cwd), 1),
+            Some(Decision::Rewrite(_))
+        ));
     }
 }

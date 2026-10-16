@@ -7,9 +7,12 @@ default:
 build:
     #!/usr/bin/env bash
     set -euo pipefail
+    bash tugrust/scripts/report-phase.sh build 0 "Rust debug binaries" --of "Rust debug binaries" "tugcode" --needle "just app-debug" --needle "just launch"
     cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank
     cd ..
+    bash tugrust/scripts/report-phase.sh build 1 "tugcode"
     bash tugrust/scripts/compile-tugcode.sh tugrust/target/debug/tugcode
+    bash tugrust/scripts/report-phase.sh build 2
     # Only the main checkout owns ~/.local/bin. A linked worktree (an arc under
     # .tug/worktrees/) builds its own ephemeral binaries; pointing the global
     # symlinks at them would dangle every tug* tool the moment the arc is torn
@@ -58,9 +61,11 @@ test: test-rust test-ts test-swift test-standalone
 # tuglaws/, no CLAUDE.md, no .tugtool/, an empty PATH, and a fresh HOME —
 # only a bundle-shaped directory holding tugtool and the plugin.
 test-standalone:
-    @"{{justfile_directory()}}/tugrust/target/debug/tugtool" progress --label standalone --needle "just test" -- running >/dev/null 2>&1 || true
+    @bash tugrust/scripts/report-phase.sh test-standalone 0 "build tugtool" --of "build tugtool" "tugplug tests" --needle "just test"
     cd tugrust && cargo build -p tugtool
+    @bash tugrust/scripts/report-phase.sh test-standalone 1 "tugplug tests"
     cd tugplug && bun test __tests__/
+    @bash tugrust/scripts/report-phase.sh test-standalone 2
 
 # Run Rust tests. `--no-fail-fast`: one pass names every failure, so a red
 # gate is one round of fixing rather than one round per broken test.
@@ -141,12 +146,13 @@ test-ts:
 # imports nothing past Foundation can: a test that needs AppKit, a window or
 # a menu is an app-test and lives in tests/app-test/.
 test-swift:
-    @"{{justfile_directory()}}/tugrust/target/debug/tugtool" progress --label swift --needle "just test" -- running >/dev/null 2>&1 || true
+    @bash tugrust/scripts/report-phase.sh test-swift 0 "xcodebuild TugTests" --of "xcodebuild TugTests" --needle "just test"
     bash tugrust/scripts/xcodebuild-quiet.sh "TugTests" \
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
         -destination 'platform=macOS,arch=arm64' \
         -derivedDataPath "$(bash tugrust/scripts/derived-data-path.sh debug)-tests" \
         test -only-testing:TugTests
+    @bash tugrust/scripts/report-phase.sh test-swift 1
 
 # Regenerate every checked-in golden fixture from the code that produces it.
 #
@@ -157,10 +163,15 @@ test-swift:
 # nobody reads until the gate is already red. Adding a new golden means adding
 # its line here — an unlisted golden is one nothing here can rebuild.
 golden:
+    @bash tugrust/scripts/report-phase.sh golden 0 "imposer solutions" --of "imposer solutions" "beat plan" "session digest" "tugmark golden"
     cd tugdeck && IMPOSER_GOLDEN_UPDATE=1 bun test src/lib/__tests__/layout-imposer-solutions.test.ts
+    @bash tugrust/scripts/report-phase.sh golden 1 "beat plan"
     cd tugdeck && BEAT_PLAN_GOLDEN_UPDATE=1 bun test src/lib/__tests__/body-beat-plan.test.ts
+    @bash tugrust/scripts/report-phase.sh golden 2 "session digest"
     cd tugrust && TUG_DIGEST_GOLDEN_UPDATE=1 cargo nextest run -p tugcast session_digest
+    @bash tugrust/scripts/report-phase.sh golden 3 "tugmark golden"
     just tugmark-golden
+    @bash tugrust/scripts/report-phase.sh golden 4
 
 # Regenerate the tugmark drift golden (tugdeck/crates/tugmark/corpus/golden.json)
 # from the corpus and the newest stream-json catalog, then hold the page's
@@ -181,12 +192,19 @@ tugmark-fuzz seed="" batches="20":
     seed="{{seed}}"
     [ -n "$seed" ] || seed=$(( (RANDOM << 15) | RANDOM ))
     echo "tugmark-fuzz: seed $seed"
+    # One phase for the Rust invariant, then one per bun batch.
+    phases=("rust invariant")
+    for i in $(seq 1 {{batches}}); do phases+=("bun batch $i"); done
+    report="{{justfile_directory()}}/tugrust/scripts/report-phase.sh"
+    bash "$report" tugmark-fuzz 0 "rust invariant" --of "${phases[@]}"
     (cd tugrust && TUGMARK_FUZZ_SEED="$seed" TUGMARK_FUZZ_CASES=200000 cargo nextest run -p tugcast --test tugmark_invariant fuzz)
     cd tugdeck
     for i in $(seq 0 $(( {{batches}} - 1 ))); do
+        bash "$report" tugmark-fuzz $(( i + 1 )) "bun batch $(( i + 1 ))"
         TUGMARK_FUZZ_SEED=$(( seed + i )) TUGMARK_FUZZ_CASES=1000 \
             bun test src/lib/markdown/__tests__/sanitize-invariant.test.ts -t "holds the invariant over"
     done
+    bash "$report" tugmark-fuzz $(( {{batches}} + 1 ))
 
 # Capture Claude Code fixtures + capabilities snapshot (~2-3 min; real-claude)
 capture-capabilities:
@@ -381,7 +399,7 @@ fmt:
 # `@tug-optical-nudge:` comment saying what it corrects, which is what makes
 # the remaining ones countable. The runtime half is `at0625-type-baseline`,
 # because no stylesheet scan can see a rendered baseline.
-lint: tugplug-lint shellcheck wasm-check
+lint: tugplug-lint recipe-lint shellcheck wasm-check
     cd tugdeck && bun run audit:visibility
     cd tugdeck && bun run audit:motion
     cd tugdeck && bun run check
@@ -413,6 +431,16 @@ shellcheck:
 # with no absence clause. Contract: tugplug/CLAUDE.md.
 tugplug-lint:
     bun scripts/tugplug-lint.ts
+
+# A long recipe reports its progress with a unit — `tugtool progress phase`
+# through tugrust/scripts/report-phase.sh, `tugtool progress --unit`, or
+# `tugtool test run` — or delegates to a recipe or script that does, so the
+# Bash block draws its run panel instead of sitting silent for minutes. The
+# list of long recipes and the named exemptions (each with its reason) are in
+# the script; the test drives the check over a fixture Justfile.
+recipe-lint:
+    bun scripts/recipe-lint.ts
+    bun test scripts/__tests__/recipe-lint.test.ts
 
 # Regenerate the "Libraries shipped inside Tug.app" half of
 # THIRD_PARTY_NOTICES.md from the lockfiles. `just lint` runs the same script
@@ -519,12 +547,14 @@ app-debug: build wasm
     # resource-bundle targets would all take the same name and collide
     # ("Multiple commands produce ....bundle").
     DERIVED="$(bash tugrust/scripts/derived-data-path.sh debug)"
+    bash tugrust/scripts/report-phase.sh app-debug 0 "Xcode build" --of "Xcode build" "sign" "launch"
     bash tugrust/scripts/xcodebuild-quiet.sh "${PRODUCT_NAME}.app (Debug)" \
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
         -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED" build
     APP_DIR="$DERIVED/Build/Products/Debug/${PRODUCT_NAME}.app"
     # With no Developer ID certificate, sign ad-hoc rather than fail: the
     # interactive bundle runs either way. See sign-bundle.sh's header.
+    bash tugrust/scripts/report-phase.sh app-debug 1 "sign"
     TUG_SIGN_ALLOW_ADHOC=1 bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
     # Non-blocking orphan-detection preamble so users get a nudge to
     # clean up bundle-less data dirs without ever failing the build.
@@ -545,9 +575,11 @@ app-debug: build wasm
         tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.deck bodies --type bool true >/dev/null
     fi
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
+    bash tugrust/scripts/report-phase.sh app-debug 2 "launch"
     # Scrub the launching instance's env before `open` propagates it: one
     # shared list, in launch-scrubbed.sh, so the launches cannot drift.
     bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
+    bash tugrust/scripts/report-phase.sh app-debug 3
 
 # Build a Release bundle and (re)launch the cwd-derived release
 # instance. Quit-prior runs first for the same reason as app-debug.
@@ -576,13 +608,16 @@ app-release: wasm
     # The xcodebuild copy phase reads these from tugrust/target/release/.
     # --dev makes the Rust build incremental and skips an unchanged tugdeck
     # build; it changes caching only, never what is built.
+    bash tugrust/scripts/report-phase.sh app-release 0 "release inputs" --of "release inputs" "Xcode build" "sign" "launch"
     bash tugrust/scripts/build-release-inputs.sh --dev
     DERIVED="$(bash tugrust/scripts/derived-data-path.sh release)"
+    bash tugrust/scripts/report-phase.sh app-release 1 "Xcode build"
     bash tugrust/scripts/xcodebuild-quiet.sh "${PRODUCT_NAME}.app (Release)" \
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Release \
         -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DERIVED" build
     APP_DIR="$DERIVED/Build/Products/Release/${PRODUCT_NAME}.app"
     # Ad-hoc fallback when there is no Developer ID certificate, as in app-debug.
+    bash tugrust/scripts/report-phase.sh app-release 2 "sign"
     TUG_SIGN_ALLOW_ADHOC=1 bash tugrust/scripts/sign-bundle.sh "$APP_DIR"
     # Seed source-tree-path for the release instance too. AppDelegate
     # falls back to BuildInfo.sourceTree if the tugbank value is
@@ -591,9 +626,11 @@ app-release: wasm
     # developer checkout.
     tugrust/target/debug/tugbank --instance "$INSTANCE_ID" write dev.tugapp.app source-tree-path "$(pwd)" >/dev/null
     echo "==> Launching $INSTANCE_ID ($APP_DIR)"
+    bash tugrust/scripts/report-phase.sh app-release 3 "launch"
     # Scrub the launching instance's env before `open` propagates it: one
     # shared list, in launch-scrubbed.sh, so the launches cannot drift.
     bash tugrust/scripts/launch-scrubbed.sh open "$APP_DIR"
+    bash tugrust/scripts/report-phase.sh app-release 4
 
 # Relaunch the cwd-derived debug instance without rebuilding.
 launch-debug:
@@ -1503,33 +1540,13 @@ build-app:
 
     # Each phase also reports to the calling Session card's running block, so
     # a `just app-test` that rebuilds first does not sit silent for minutes.
-    # The workspace's own tugtool, else PATH's; with neither, no report.
-    TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
-    [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
     # The block draws the build as its five phases: those landed with their
-    # times, the one running since when, the rest to come.
+    # times, the one running since when, the rest to come. `progress phase`
+    # keeps the phase state and builds the rows; this writes one line each.
     PHASES=("Rust debug binaries" "tugdeck build" "app-test deps" "Xcode build" "re-sign")
-    PHASE_AT=()
     report_phase() {
-        local n="$1" now i rows="" row
-        now="$(date +%s)"
-        PHASE_AT[n]="$now"
-        if [ -z "$TUGTOOL_BIN" ] || [ -z "${TUG_SESSION_ID:-}" ]; then
-            return 0
-        fi
-        for i in "${!PHASES[@]}"; do
-            if [ "$i" -lt "$n" ]; then
-                row="$(printf '{"name":"%s","status":"pass","index":%d,"secs":%d}' "${PHASES[i]}" "$i" "$(( PHASE_AT[i + 1] - PHASE_AT[i] ))")"
-            elif [ "$i" -eq "$n" ]; then
-                row="$(printf '{"name":"%s","status":"running","index":%d,"started_at_ms":%d}' "${PHASES[i]}" "$i" "$(( now * 1000 ))")"
-            else
-                row="$(printf '{"name":"%s","status":"pending","index":%d}' "${PHASES[i]}" "$i")"
-            fi
-            rows="${rows:+$rows,}$row"
-        done
-        printf '[%s]' "$rows" | "$TUGTOOL_BIN" progress --label build-app --unit phase --units-json - \
-            --done "$n" --total "${#PHASES[@]}" --needle "just build-app" --needle "just app-test" \
-            -- "${PHASES[n]:-built}" >/dev/null 2>&1 || true
+        bash tugrust/scripts/report-phase.sh build-app "$1" ${PHASES[$1]:+"${PHASES[$1]}"} \
+            --of "${PHASES[@]}" --needle "just app-test"
     }
 
     echo "==> [1/5] Rust debug binaries"

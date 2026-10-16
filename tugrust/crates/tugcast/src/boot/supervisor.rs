@@ -58,6 +58,7 @@ pub(crate) async fn supervisor(
         notify_socket_path,
         ledger,
         prompt_ledger,
+        run_gaps,
     } = ledgers;
     let InkLedgers {
         shell_ledger,
@@ -237,6 +238,11 @@ pub(crate) async fn supervisor(
     // session's prompt lineage into before acknowledging the move.
     if let Some(pl) = prompt_ledger.as_ref() {
         supervisor.set_prompt_ledger(Arc::clone(pl));
+    }
+    // And the run-gaps record, which a long Bash call that reported nothing
+    // is written into when its `tool_result` closes it.
+    if let Some(rg) = run_gaps.as_ref() {
+        supervisor.set_run_gaps(Arc::clone(rg));
     }
 
     // The changeset scribe ([P11]/[P22]): the maintained-draft engine runs a

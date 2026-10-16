@@ -2395,6 +2395,9 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
       // publish its throwaway sessions to the developer's real index and
       // read the developer's real sessions back as findable.
       TUG_SESSION_INDEX_DB: `${instanceDataDir}/session_index.db`,
+      // The machine-wide record of long Bash calls that reported nothing,
+      // redirected for the same reason.
+      TUG_RUN_GAPS_DB: `${instanceDataDir}/run_gaps.db`,
     },
     logPath,
     expectedSurfaceVersion: opts.expectedSurfaceVersion ?? EXPECTED_SURFACE_VERSION,

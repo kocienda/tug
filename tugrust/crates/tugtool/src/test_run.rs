@@ -8,11 +8,18 @@
 //! whose output was filtered or scrolled away is named by
 //! `tugtool test last --failures` rather than by running it again.
 //!
-//! Both runners are quiet about passing tests when stderr is not a terminal:
-//! bun prints nothing for a green file, and nextest prints no `PASS` line.
-//! So the wrapper asks each for one mark per passing test — bun's `--dots`,
-//! nextest's `--status-level pass` — counts the marks, and swallows them, so
-//! what reaches the reader is what the bare command would have printed.
+//! Bun and nextest are quiet about passing tests when stderr is not a
+//! terminal: bun prints nothing for a green file, and nextest prints no
+//! `PASS` line. So the wrapper asks each for one mark per passing test —
+//! bun's `--dots`, nextest's `--status-level pass` — counts the marks, and
+//! swallows them, so what reaches the reader is what the bare command would
+//! have printed. `cargo test` already prints one line per test, on stdout,
+//! and is followed there with nothing added or taken away.
+//!
+//! A run that writes no junit document — a `cargo test`, or a nextest run
+//! that named no `--junit` — is recorded from what the follower counted off
+//! the stream, with the failing tests it saw as the record's failures. So
+//! the wrap needs nothing of the project's runner configuration.
 //!
 //! Every parser here is a pure function over bytes or lines, unit-tested
 //! against output captured from the real runners.
@@ -25,7 +32,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use tugtool_core::apptest_ledger::resolve_base_root;
-use tugtool_core::test_ledger::{self, JunitRun, TestRun};
+use tugtool_core::test_ledger::{self, JunitFailure, JunitRun, TestRun};
 
 use crate::changes::AppError;
 use crate::progress::{RunReport, post_run_progress};
@@ -37,6 +44,9 @@ use crate::test_ledger_cli::{git_facts, now_epoch, read_junit, record};
 pub enum RunKind {
     Bun,
     Nextest,
+    /// `cargo test` — libtest's own reporter: `running N tests`, then one
+    /// `test <name> ... ok` line per test, on stdout, and no junit document.
+    CargoTest,
 }
 
 /// What a run has shown so far.
@@ -215,17 +225,22 @@ impl ProgressSink for Poster {
 }
 
 /// The report a progress state becomes. A bun run's total is not known up
-/// front, so the suite's last recorded count stands in for it, marked `~`
-/// in the text because it is history rather than a promise.
+/// front, so the suite's last recorded count stands in as the track's
+/// `total`, marked `~` in the text because it is history rather than a
+/// promise; a live count that passes it lifts it, which is an estimate
+/// drifting rather than an error.
 fn report_of(
     progress: &Progress,
     label: &str,
     needles: &[String],
     total_from_history: Option<u64>,
 ) -> RunReport {
-    let (done, text) = match (progress.total, total_from_history) {
-        (None, Some(n)) => (None, format!("{}/~{n} · {}", progress.done, progress.text)),
-        _ => (Some(progress.done), progress.text.clone()),
+    let (total, text) = match (progress.total, total_from_history) {
+        (None, Some(n)) => (
+            Some(n.max(progress.done)),
+            format!("{}/~{n} · {}", progress.done, progress.text),
+        ),
+        (total, _) => (total, progress.text.clone()),
     };
     let units: Vec<serde_json::Value> = progress
         .failed
@@ -241,8 +256,8 @@ fn report_of(
     RunReport {
         label: Some(label.to_string()),
         text,
-        done,
-        total: progress.total,
+        done: Some(progress.done),
+        total,
         failures: Some(progress.failures),
         unit: Some("test".to_string()),
         jobs: None,
@@ -271,7 +286,7 @@ fn sink_for(args: &RunArgs) -> Box<dyn ProgressSink> {
     let needles = args.needles.clone();
     let history = match args.kind {
         RunKind::Bun => recorded_total(&args.suite),
-        RunKind::Nextest => None,
+        RunKind::Nextest | RunKind::CargoTest => None,
     };
     Box::new(Poster::start(move |progress| {
         post_run_progress(&report_of(progress, &label, &needles, history))
@@ -471,41 +486,102 @@ pub fn nextest_line(raw: &str) -> NextestLine {
 }
 
 // ---------------------------------------------------------------------------
+// cargo test
+// ---------------------------------------------------------------------------
+
+/// What one line of `cargo test`'s stdout said — libtest's reporter.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CargoTestLine {
+    /// `running N tests` — one per test binary, so the counts add up.
+    Running(u64),
+    /// `test <name> ... ok`.
+    Pass(String),
+    /// `test <name> ... FAILED`.
+    Fail(String),
+    /// Everything else, `ignored` and `test result:` lines included.
+    Other,
+}
+
+/// Classify one line of `cargo test`'s stdout.
+pub fn cargo_test_line(raw: &str) -> CargoTestLine {
+    let line = strip_ansi(raw);
+    let t = line.trim();
+    if let Some(rest) = t.strip_prefix("running ") {
+        let mut words = rest.split_whitespace();
+        if let (Some(n), Some("test" | "tests"), None) = (words.next(), words.next(), words.next())
+            && let Ok(n) = n.parse()
+        {
+            return CargoTestLine::Running(n);
+        }
+    }
+    if let Some(rest) = t.strip_prefix("test ")
+        && let Some((name, status)) = rest.rsplit_once(" ... ")
+    {
+        return match status.trim() {
+            "ok" => CargoTestLine::Pass(name.to_string()),
+            "FAILED" => CargoTestLine::Fail(name.to_string()),
+            _ => CargoTestLine::Other,
+        };
+    }
+    CargoTestLine::Other
+}
+
+// ---------------------------------------------------------------------------
 // The run
 // ---------------------------------------------------------------------------
 
 /// The argv to spawn: the command, with the runner's progress and record
 /// flags inserted before any `--` that hands arguments on to the tests.
 pub fn wrapped_argv(kind: RunKind, command: &[String], junit_tmp: Option<&Path>) -> Vec<String> {
+    let split = command
+        .iter()
+        .position(|a| a == "--")
+        .unwrap_or(command.len());
+    let marks = asks_for_marks(kind, command);
     let extra: Vec<String> = match kind {
         RunKind::Bun => {
-            let mut v = vec!["--dots".to_string(), "--reporter=junit".to_string()];
+            let mut v = Vec::new();
+            if marks {
+                v.push("--dots".to_string());
+            }
+            v.push("--reporter=junit".to_string());
             if let Some(p) = junit_tmp {
                 v.push(format!("--reporter-outfile={}", p.display()));
             }
             v
         }
-        RunKind::Nextest => {
-            if command.iter().any(|a| a.starts_with("--status-level")) {
-                Vec::new()
-            } else {
-                vec!["--status-level".to_string(), "pass".to_string()]
-            }
-        }
+        RunKind::Nextest if marks => vec!["--status-level".to_string(), "pass".to_string()],
+        RunKind::Nextest => Vec::new(),
+        // libtest already prints every test; nothing to ask for.
+        RunKind::CargoTest => Vec::new(),
     };
-    let split = command
-        .iter()
-        .position(|a| a == "--")
-        .unwrap_or(command.len());
     let mut argv = command[..split].to_vec();
     argv.extend(extra);
     argv.extend_from_slice(&command[split..]);
     argv
 }
 
+/// Whether the wrapper asks the runner for its one-mark-per-pass output —
+/// bun's `--dots`, nextest's `--status-level pass` — which it then counts
+/// and swallows. A command that already names that flag asked for the
+/// output itself, so the wrapper adds nothing and swallows nothing: what
+/// the command prints is what the bare command would have printed. Read
+/// before any `--`, past which the arguments are the tests' own.
+pub fn asks_for_marks(kind: RunKind, command: &[String]) -> bool {
+    let mut runner_args = command.iter().take_while(|a| *a != "--");
+    match kind {
+        RunKind::Bun => !runner_args.any(|a| a == "--dots"),
+        RunKind::Nextest => !runner_args.any(|a| a.starts_with("--status-level")),
+        RunKind::CargoTest => false,
+    }
+}
+
 /// The followers a run's stderr feeds, and the progress they add up to.
 struct Follow {
     kind: RunKind,
+    /// Whether the per-pass marks are the wrapper's to swallow — true when
+    /// it asked for them ([`asks_for_marks`]), false when the command did.
+    swallow_marks: bool,
     dots: BunDots,
     bun: BunFailures,
     line: Vec<u8>,
@@ -517,6 +593,7 @@ impl Follow {
     fn new(kind: RunKind) -> Self {
         Follow {
             kind,
+            swallow_marks: true,
             dots: BunDots::default(),
             bun: BunFailures::default(),
             line: Vec::new(),
@@ -534,12 +611,63 @@ impl Follow {
             RunKind::Bun => {
                 // bun's pass-through is the dots filter's; the lines it
                 // forwards only feed the counts.
-                let forward = self.dots.feed(chunk);
-                self.lines(&forward);
+                let filtered = self.dots.feed(chunk);
+                self.lines(&filtered);
                 self.progress.done = self.dots.ticks() + self.progress.failures;
-                forward
+                if self.swallow_marks {
+                    filtered
+                } else {
+                    chunk.to_vec()
+                }
             }
             RunKind::Nextest => self.lines(chunk),
+            // cargo's stderr is the build; the tests are on stdout.
+            RunKind::CargoTest => chunk.to_vec(),
+        }
+    }
+
+    /// Take one stdout chunk, returning what to forward — which is all of
+    /// it, always. Only `cargo test` reports on stdout, and it is read
+    /// without being filtered.
+    fn feed_stdout(&mut self, chunk: &[u8]) -> Vec<u8> {
+        if self.kind == RunKind::CargoTest {
+            self.lines(chunk);
+        }
+        chunk.to_vec()
+    }
+
+    /// The run as a record, from the stream alone — for a runner that wrote
+    /// no junit document. A nextest test's name is `<binary> <path>`, and
+    /// the binary is the record's file.
+    fn tally(&self) -> JunitRun {
+        let failures = self
+            .progress
+            .failed
+            .iter()
+            .map(|f| {
+                let (file, name) = match self.kind {
+                    RunKind::Nextest => f
+                        .name
+                        .split_once(' ')
+                        .map(|(b, t)| (b.to_string(), t.to_string()))
+                        .unwrap_or_else(|| (String::new(), f.name.clone())),
+                    _ => (String::new(), f.name.clone()),
+                };
+                JunitFailure {
+                    file,
+                    name,
+                    classname: String::new(),
+                    message: f.message.clone(),
+                    detail: String::new(),
+                }
+            })
+            .collect();
+        JunitRun {
+            tests: self.progress.done as i64,
+            failed: self.progress.failures as i64,
+            skipped: 0,
+            files: Vec::new(),
+            failures,
         }
     }
 
@@ -596,7 +724,7 @@ impl Follow {
                     NextestLine::Pass(test) => {
                         self.progress.done += 1;
                         self.progress.text = test;
-                        return false;
+                        return !self.swallow_marks;
                     }
                     NextestLine::Fail(test) => {
                         self.progress.done += 1;
@@ -606,6 +734,25 @@ impl Follow {
                     }
                     NextestLine::Summary => self.nextest_summary = true,
                     NextestLine::Other => {}
+                }
+                true
+            }
+            RunKind::CargoTest => {
+                match cargo_test_line(text) {
+                    CargoTestLine::Running(n) => {
+                        self.progress.total = Some(self.progress.total.unwrap_or(0) + n)
+                    }
+                    CargoTestLine::Pass(test) => {
+                        self.progress.done += 1;
+                        self.progress.text = test;
+                    }
+                    CargoTestLine::Fail(test) => {
+                        self.progress.done += 1;
+                        self.progress.failures += 1;
+                        self.progress.note_failure(&test, "");
+                        self.progress.text = test;
+                    }
+                    CargoTestLine::Other => {}
                 }
                 true
             }
@@ -667,22 +814,19 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
             "test run names the command to run after `--`".into(),
         ));
     };
+    // The document the run is recorded from, when there is one: the path
+    // named, or a temporary one bun is pointed at. A nextest or cargo run
+    // with no path is recorded from the follower's tally instead.
     let junit_path = match (args.kind, &args.junit) {
-        (RunKind::Nextest, None) => {
-            return Err(AppError::Exit2(
-                "unresolved",
-                "--kind nextest names its junit document with --junit".into(),
-            ));
-        }
-        (RunKind::Nextest, Some(p)) => p.clone(),
-        (RunKind::Bun, Some(p)) => p.clone(),
-        (RunKind::Bun, None) => junit_tmp_path(),
+        (_, Some(p)) => Some(p.clone()),
+        (RunKind::Bun, None) => Some(junit_tmp_path()),
+        (RunKind::Nextest | RunKind::CargoTest, None) => None,
     };
     let remove_junit = args.kind == RunKind::Bun && args.junit.is_none();
     let argv = wrapped_argv(
         args.kind,
         &args.command,
-        (args.kind == RunKind::Bun).then_some(junit_path.as_path()),
+        junit_path.as_deref().filter(|_| args.kind == RunKind::Bun),
     );
 
     let started_at = now_epoch();
@@ -702,12 +846,30 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         }
     };
 
-    let follow = Arc::new(Mutex::new(Follow::new(args.kind)));
+    let follow = Arc::new(Mutex::new(Follow {
+        swallow_marks: asks_for_marks(args.kind, &args.command),
+        ..Follow::new(args.kind)
+    }));
     let sink = Arc::new(Mutex::new(sink_for(&args)));
     let session: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let stdout = child.stdout.take().expect("stdout is piped");
-    let out_thread = std::thread::spawn(move || pump(stdout, |b| b.to_vec(), false));
+    let (f, s, sess) = (follow.clone(), sink.clone(), session.clone());
+    let out_thread = std::thread::spawn(move || {
+        pump(
+            stdout,
+            |chunk| {
+                let mut follow = f.lock();
+                let before = follow.progress.clone();
+                let out = follow.feed_stdout(chunk);
+                if follow.progress != before {
+                    observe(&s, &sess, &follow.progress);
+                }
+                out
+            },
+            false,
+        )
+    });
 
     let stderr = child.stderr.take().expect("stderr is piped");
     let (f, s, sess) = (follow.clone(), sink.clone(), session.clone());
@@ -724,17 +886,20 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
                 out
             },
             true,
-        );
-        let mut follow = f.lock();
-        let tail = follow.finish();
-        if !tail.is_empty() {
-            let _ = std::io::stderr().lock().write_all(&tail);
-        }
+        )
     });
 
     let status = child.wait();
     let _ = out_thread.join();
     let _ = err_thread.join();
+    // Both streams are closed, so a final unterminated line is whole.
+    {
+        let mut follow = follow.lock();
+        let tail = follow.finish();
+        if !tail.is_empty() {
+            let _ = std::io::stderr().lock().write_all(&tail);
+        }
+    }
     if let Some(id) = sink.lock().finish() {
         session.lock().get_or_insert(id);
     }
@@ -749,31 +914,36 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
     // Record. Telemetry-grade: a failure here is one stderr line and changes
     // nothing about the run's own status.
     let follow = follow.lock();
-    let fresh = std::fs::metadata(&junit_path)
-        .and_then(|m| m.modified())
-        .is_ok_and(|m| m >= started_wall);
-    let mut doc = if fresh {
-        match read_junit(&junit_path) {
-            Ok(d) => Some(d),
-            Err(why) => {
-                eprintln!("[test] no per-test record: {why}");
+    let mut doc = match &junit_path {
+        Some(junit_path) => {
+            let fresh = std::fs::metadata(junit_path)
+                .and_then(|m| m.modified())
+                .is_ok_and(|m| m >= started_wall);
+            if fresh {
+                match read_junit(junit_path) {
+                    Ok(d) => Some(d),
+                    Err(why) => {
+                        eprintln!("[test] no per-test record: {why}");
+                        None
+                    }
+                }
+            } else {
+                eprintln!(
+                    "[test] no per-test record: {} was not written",
+                    junit_path.display()
+                );
                 None
             }
         }
-    } else {
-        eprintln!(
-            "[test] no per-test record: {} was not written",
-            junit_path.display()
-        );
-        None
+        None => Some(follow.tally()),
     };
     if let Some(d) = doc.as_mut()
         && args.kind == RunKind::Bun
     {
         follow.bun.merge_into(d);
     }
-    if remove_junit {
-        let _ = std::fs::remove_file(&junit_path);
+    if remove_junit && let Some(junit_path) = &junit_path {
+        let _ = std::fs::remove_file(junit_path);
     }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -1024,6 +1194,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn marks_the_command_asked_for_itself_are_forwarded_not_swallowed() {
+        let argv =
+            |words: &[&str]| -> Vec<String> { words.iter().map(|s| s.to_string()).collect() };
+        let cmd = argv(&["cargo", "nextest", "run", "--status-level", "all"]);
+        assert!(!asks_for_marks(RunKind::Nextest, &cmd));
+        assert_eq!(wrapped_argv(RunKind::Nextest, &cmd, None), cmd);
+        let mut follow = Follow {
+            swallow_marks: false,
+            ..Follow::new(RunKind::Nextest)
+        };
+        let mut out = Vec::new();
+        for line in NEXTEST_STDERR.split_inclusive('\n') {
+            out.extend(follow.feed(line.as_bytes()));
+        }
+        assert_eq!(out, NEXTEST_STDERR.as_bytes(), "nothing is swallowed");
+        assert_eq!(follow.progress.done, 12, "and every pass is still counted");
+
+        let cmd = argv(&["bun", "test", "--dots"]);
+        assert!(!asks_for_marks(RunKind::Bun, &cmd));
+        assert_eq!(
+            wrapped_argv(RunKind::Bun, &cmd, None),
+            argv(&["bun", "test", "--dots", "--reporter=junit"])
+        );
+        let mut follow = Follow {
+            swallow_marks: false,
+            ..Follow::new(RunKind::Bun)
+        };
+        assert_eq!(follow.feed(b"....\n"), b"....\n".to_vec());
+        assert_eq!(follow.progress.done, 4);
+
+        // A `--status-level` past the `--` is a test's argument, not nextest's.
+        assert!(asks_for_marks(
+            RunKind::Nextest,
+            &argv(&["cargo", "nextest", "run", "--", "--status-level"])
+        ));
+    }
+
     fn state(done: u64, failures: u64) -> Progress {
         Progress {
             done,
@@ -1094,12 +1302,30 @@ mod tests {
     }
 
     #[test]
-    fn a_bun_report_carries_its_historical_total_in_the_text() {
+    fn a_bun_report_uses_its_recorded_total_and_a_live_count_past_it_lifts_it() {
         let needles = vec!["just test".to_string()];
         let bun = report_of(&state(120, 2), "bun test · tugdeck", &needles, Some(10191));
         assert_eq!(bun.text, "120/~10191 · t120");
-        assert_eq!((bun.done, bun.total, bun.failures), (None, None, Some(2)));
+        assert_eq!(
+            (bun.done, bun.total, bun.failures),
+            (Some(120), Some(10191), Some(2))
+        );
         assert_eq!(bun.needles, needles);
+
+        // The suite grew since the record: the total follows the count.
+        let past = report_of(
+            &state(10200, 0),
+            "bun test · tugdeck",
+            &needles,
+            Some(10191),
+        );
+        assert_eq!((past.done, past.total), (Some(10200), Some(10200)));
+        assert_eq!(past.text, "10200/~10191 · t10200");
+
+        // No record yet: no track, and a plain line.
+        let fresh = report_of(&state(5, 0), "bun test · tugdeck", &needles, None);
+        assert_eq!((fresh.done, fresh.total), (Some(5), None));
+        assert_eq!(fresh.text, "t5");
 
         let nextest = Progress {
             total: Some(7400),
@@ -1143,6 +1369,84 @@ mod tests {
                 name: "jots > keeps chips".into(),
                 message: "expected 2, got 1".into(),
             }]
+        );
+    }
+
+    /// `cargo test`'s stdout, as libtest writes it for two binaries: three
+    /// tests, one failure, one ignored, and a doc-test binary with none.
+    const CARGO_TEST_STDOUT: &str = "\nrunning 3 tests\ntest a::one ... ok\ntest a::two ... FAILED\ntest a::three ... ignored\n\nfailures:\n\n---- a::two stdout ----\nthread 'a::two' panicked at src/lib.rs:5:9:\nboom\n\nfailures:\n    a::two\n\ntest result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n\nrunning 1 test\ntest b::one ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests x\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n";
+
+    #[test]
+    fn cargo_test_stdout_is_followed_whole_and_forwarded_whole() {
+        let mut follow = Follow::new(RunKind::CargoTest);
+        let mut out = Vec::new();
+        for chunk in CARGO_TEST_STDOUT.as_bytes().chunks(17) {
+            out.extend(follow.feed_stdout(chunk));
+        }
+        assert_eq!(out, CARGO_TEST_STDOUT.as_bytes(), "nothing is swallowed");
+        assert_eq!(
+            follow.progress.total,
+            Some(4),
+            "the binaries' counts add up"
+        );
+        assert_eq!(
+            follow.progress.done, 3,
+            "ignored is neither a pass nor a fail"
+        );
+        assert_eq!(follow.progress.failures, 1);
+        assert_eq!(follow.progress.failed[0].name, "a::two");
+        // Its stderr is the build, and passes through untouched.
+        assert_eq!(
+            follow.feed(b"   Compiling x v0.1.0\n"),
+            b"   Compiling x v0.1.0\n".to_vec()
+        );
+    }
+
+    #[test]
+    fn cargo_test_line_classification() {
+        assert_eq!(
+            cargo_test_line("running 12 tests"),
+            CargoTestLine::Running(12)
+        );
+        assert_eq!(cargo_test_line("running 1 test"), CargoTestLine::Running(1));
+        assert_eq!(
+            cargo_test_line("test parser::reads_a_dash - should panic ... ok"),
+            CargoTestLine::Pass("parser::reads_a_dash - should panic".into())
+        );
+        assert_eq!(
+            cargo_test_line("test src/lib.rs - run (line 3) ... FAILED"),
+            CargoTestLine::Fail("src/lib.rs - run (line 3)".into())
+        );
+        assert_eq!(cargo_test_line("test a ... ignored"), CargoTestLine::Other);
+        assert_eq!(
+            cargo_test_line("test result: FAILED. 1 passed; 1 failed"),
+            CargoTestLine::Other
+        );
+    }
+
+    #[test]
+    fn a_run_with_no_junit_is_recorded_from_the_tally() {
+        let mut follow = Follow::new(RunKind::Nextest);
+        for line in NEXTEST_STDERR.split_inclusive('\n') {
+            follow.feed(line.as_bytes());
+        }
+        let doc = follow.tally();
+        assert_eq!((doc.tests, doc.failed, doc.skipped), (12, 1, 0));
+        assert_eq!(doc.failures.len(), 1);
+        assert_eq!(
+            doc.failures[0].file, "tugcore",
+            "nextest's binary is the file"
+        );
+        assert_eq!(doc.failures[0].name, "tests::bad");
+
+        let mut follow = Follow::new(RunKind::CargoTest);
+        follow.feed_stdout(CARGO_TEST_STDOUT.as_bytes());
+        let doc = follow.tally();
+        assert_eq!((doc.tests, doc.failed), (3, 1));
+        assert_eq!(doc.failures[0].name, "a::two");
+        assert_eq!(
+            doc.failures[0].file, "",
+            "libtest names no binary on the line"
         );
     }
 

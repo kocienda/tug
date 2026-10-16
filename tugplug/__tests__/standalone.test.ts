@@ -168,6 +168,33 @@ describe("the hook script, from the bundle alone", () => {
     expect(hook({ tool_name: "Bash", tool_input: { command: "cargo build" }, cwd: project })).toBeNull();
   });
 
+  /**
+   * The wrap is the plugin's one rewrite, and it has to hold on a user's
+   * machine: the rewritten command names the bundle's own tugtool by path,
+   * because the model's shell may have no tugtool on its PATH at all.
+   */
+  test("rewrites a typed test runner to run inside tugtool test run, carrying the call id", () => {
+    const decision = hook({
+      tool_name: "Bash",
+      tool_input: { command: "cargo nextest run -p app", description: "Run the crate's tests" },
+      cwd: project,
+      tool_use_id: "toolu_01standalone",
+    });
+    const specific = decision.hookSpecificOutput;
+    expect(specific.permissionDecision).toBeUndefined();
+    expect(specific.updatedInput.description).toBe("Run the crate's tests");
+    const command: string = specific.updatedInput.command;
+    expect(command.startsWith("TUG_TOOL_USE_ID=toolu_01standalone ")).toBe(true);
+    expect(command).toContain(`${join(bundle, "Contents/MacOS/tugtool")} test run --suite rust --kind nextest `);
+    expect(command.endsWith(" -- cargo nextest run -p app")).toBe(true);
+  });
+
+  test("leaves a runner alone when it is not the whole command", () => {
+    expect(
+      hook({ tool_name: "Bash", tool_input: { command: "cargo nextest run 2>&1 | tail -5" }, cwd: project }),
+    ).toBeNull();
+  });
+
   test("says so, visibly, when no tugtool can be found at all", () => {
     const elsewhere = join(lab, "elsewhere-plugin");
     if (!existsSync(elsewhere)) cpSync(pluginRoot, elsewhere, { recursive: true });

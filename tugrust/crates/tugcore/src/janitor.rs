@@ -185,6 +185,10 @@ pub const TMP_PREFIXES: &[TmpPrefix] = &[
     // `tugtool deck motion settle|rest --frame-phases`' per-run directory of
     // `xctrace` traces; the run prints the trace's path for a second reading.
     dir("tug-frame-phases-"),
+    // `tugtool progress phase`'s per-session run state, one small file per
+    // recipe label. Read only between one phase call and the next, so a
+    // day-old directory is a finished run's leftovers.
+    dir("tug-progress-phase"),
     // `testTmpDir()` in the app-test harness.
     dir("tug-scratch-"),
     dir("tugcast-capture-"),

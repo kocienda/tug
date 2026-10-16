@@ -429,6 +429,11 @@ pub struct AgentSupervisor {
     /// still happens, and recall falls back to the fork edge tugcode writes
     /// later. Set via [`AgentSupervisor::set_prompt_ledger`] in `main.rs`.
     pub prompt_ledger: Option<Arc<crate::prompt_ledger::PromptLedger>>,
+    /// The record of long Bash calls that reported no unit, written at the
+    /// `tool_result` that ends one. `None` when the record could not be
+    /// opened at boot, which costs the record its rows and the calls
+    /// nothing. Set via [`AgentSupervisor::set_run_gaps`].
+    pub run_gaps: Option<Arc<tugcore::run_gaps::RunGaps>>,
     /// The one digester, read by the `list_digest_lines` CONTROL op — the
     /// deck's mount-time tail. Shared with the digest bridge, which is its
     /// only writer. `None` in tests that don't exercise the read (and before
@@ -1128,6 +1133,70 @@ pub struct OpenRun {
     pub background: bool,
     /// The job's `task_id`, once its `task_started` confirmed it.
     pub task_id: Option<String>,
+    /// Whether a progress report carrying a `unit` has attached to this call
+    /// — the block has a run panel, and the call is not a gap.
+    pub unit_reported: bool,
+}
+
+/// The gap row a closing foreground call earns, or `None`: it ran past
+/// [`tugcore::run_gaps::GAP_THRESHOLD_MS`] and no unit report attached to it.
+/// The one decision the record rests on, pure so it is tested as one.
+pub fn gap_of(
+    run: &OpenRun,
+    now_ms: i64,
+    project_dir: &str,
+    session_id: &str,
+) -> Option<tugcore::run_gaps::GapRow> {
+    let wall_ms = now_ms - run.opened_at_ms;
+    if run.unit_reported || wall_ms < tugcore::run_gaps::GAP_THRESHOLD_MS {
+        return None;
+    }
+    Some(tugcore::run_gaps::GapRow {
+        head: tugcore::run_gaps::command_head(&run.command),
+        command: run.command.clone(),
+        project_dir: project_dir.to_string(),
+        session_id: session_id.to_string(),
+        wall_ms,
+        ended_at_ms: now_ms,
+    })
+}
+
+#[cfg(test)]
+mod gap_tests {
+    use super::*;
+
+    fn run(opened_at_ms: i64, unit_reported: bool) -> OpenRun {
+        OpenRun {
+            command: "cd tugrust && cargo nextest run -p tugtool".into(),
+            opened_at_ms,
+            background: false,
+            task_id: None,
+            unit_reported,
+        }
+    }
+
+    #[test]
+    fn a_long_unreported_call_is_a_gap_with_its_head_and_wall_time() {
+        let row = gap_of(&run(1_000, false), 1_000 + 20_000, "/proj", "seg-1").unwrap();
+        assert_eq!(row.head, "cargo nextest");
+        assert_eq!(row.wall_ms, 20_000, "the threshold itself counts");
+        assert_eq!(row.ended_at_ms, 21_000);
+        assert_eq!(
+            (row.project_dir.as_str(), row.session_id.as_str()),
+            ("/proj", "seg-1")
+        );
+        assert_eq!(row.command, "cd tugrust && cargo nextest run -p tugtool");
+    }
+
+    #[test]
+    fn a_long_reported_call_is_no_gap() {
+        assert_eq!(gap_of(&run(0, true), 60_000, "/proj", "seg-1"), None);
+    }
+
+    #[test]
+    fn a_short_call_is_no_gap_however_silent() {
+        assert_eq!(gap_of(&run(0, false), 19_999, "/proj", "seg-1"), None);
+    }
 }
 
 /// The most open runs one session keeps; the oldest goes first.
@@ -1182,6 +1251,7 @@ fn parse_bash_run(payload: &[u8], now_ms: i64) -> Option<(String, OpenRun)> {
             opened_at_ms: now_ms,
             background,
             task_id: None,
+            unit_reported: false,
         },
     ))
 }
@@ -1871,6 +1941,7 @@ impl AgentSupervisor {
             shell_ledger: None,
             refs_ledger: None,
             prompt_ledger: None,
+            run_gaps: None,
             digester: None,
             scribe: None,
             spawner_factory,
@@ -2889,6 +2960,11 @@ impl AgentSupervisor {
         self.prompt_ledger = Some(ledger);
     }
 
+    /// Hand the supervisor the run-gaps record a closing long call writes to.
+    pub fn set_run_gaps(&mut self, gaps: Arc<tugcore::run_gaps::RunGaps>) {
+        self.run_gaps = Some(gaps);
+    }
+
     /// Record a moved session's prompt lineage: the chain the session it moved
     /// away from reads through, followed by the new id.
     ///
@@ -3413,6 +3489,12 @@ impl AgentSupervisor {
     /// A call answered: a foreground run is over. A background run's call
     /// answers at once while its command keeps going, so it stays, and
     /// leaves when its job does.
+    ///
+    /// A foreground run that ran long and reported no unit is recorded as a
+    /// gap here — the one place its wall time and its silence are both
+    /// known. Telemetry: a record that fails is a `warn!` and nothing else.
+    /// A background run's end is its job's, not its call's, and is not
+    /// recorded; the record is for the runs a session waits on.
     pub(super) async fn close_run(&self, session_id: &TugSessionId, payload: &[u8]) {
         let Some(tool_use_id) = parse_tool_result_id(payload) else {
             return;
@@ -3428,9 +3510,26 @@ impl AgentSupervisor {
         if entry
             .open_runs
             .get(&tool_use_id)
-            .is_some_and(|run| !run.background)
+            .is_none_or(|run| run.background)
         {
-            entry.open_runs.remove(&tool_use_id);
+            return;
+        }
+        let Some(run) = entry.open_runs.remove(&tool_use_id) else {
+            return;
+        };
+        let Some(gaps) = self.run_gaps.as_ref() else {
+            return;
+        };
+        let project_dir = entry.project_dir.to_string_lossy().into_owned();
+        drop(entry);
+        if let Some(row) = gap_of(
+            &run,
+            crate::session_ledger::now_millis(),
+            &project_dir,
+            session_id.as_str(),
+        ) && let Err(err) = gaps.record(&row)
+        {
+            warn!(error = %err, head = %row.head, "run gap not recorded");
         }
     }
 
@@ -3450,10 +3549,19 @@ impl AgentSupervisor {
             let ledger = self.ledger.lock().await;
             ledger.get(&TugSessionId::new(segment)).cloned()
         }?;
-        let attached = entry_arc
-            .lock()
-            .await
-            .attach_run(report.tool_use_id.as_deref(), &report.needles);
+        let attached = {
+            let mut entry = entry_arc.lock().await;
+            let attached = entry.attach_run(report.tool_use_id.as_deref(), &report.needles);
+            // A report with a unit is the run panel: the call it reached is
+            // reporting, and is no gap when it closes.
+            if report.unit.is_some()
+                && let Some(id) = attached.as_deref()
+                && let Some(run) = entry.open_runs.get_mut(id)
+            {
+                run.unit_reported = true;
+            }
+            attached
+        };
         let payload = run_progress_payload(
             segment,
             attached.as_deref(),
@@ -7902,7 +8010,9 @@ mod tests {
             "absent numbers are omitted, not null: {frame}"
         );
         assert!(
-            frame.get("unit").is_none() && frame.get("units").is_none() && frame.get("jobs").is_none(),
+            frame.get("unit").is_none()
+                && frame.get("units").is_none()
+                && frame.get("jobs").is_none(),
             "a report without units is the one line, as before: {frame}"
         );
         assert!(frame["at_ms"].as_i64().is_some());
@@ -7944,7 +8054,10 @@ mod tests {
         let frame = next_run_progress(&mut code_rx, "sess-units");
         assert_eq!(frame["unit"], "file");
         assert_eq!(frame["jobs"], 4);
-        assert_eq!(frame["units"], rows, "the rows reach the block as the reporter wrote them");
+        assert_eq!(
+            frame["units"], rows,
+            "the rows reach the block as the reporter wrote them"
+        );
     }
 
     #[tokio::test]

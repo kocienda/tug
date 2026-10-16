@@ -252,3 +252,125 @@ fn an_instance_too_old_to_know_the_op_is_shrugged_off() {
         "run_progress"
     );
 }
+
+/// `build-app`'s phase calls, as the recipe makes them, against a stand-in
+/// instance: one line per phase, and the verb posts the whole run as phase
+/// rows each time — what the recipe's own JSON builder used to send.
+#[test]
+fn build_app_phase_calls_post_the_run_as_phase_rows() {
+    let (_dir, tmp) = scratch();
+    let (port, requests) = fake_tugcast(Answer::Ok);
+    register_fake_instance(&tmp, port);
+    let phases = ["Rust debug binaries", "tugdeck build", "re-sign"];
+    let phase = |n: usize| {
+        let name = phases.get(n).copied().unwrap_or("built");
+        let mut cmd = progress(&tmp);
+        cmd.env("TUG_SESSION_ID", "seg-0")
+            .args(["phase", "build-app", &n.to_string(), name, "--of"])
+            .args(phases)
+            .args(["--needle", "just build-app", "--needle", "just app-test"]);
+        silent(&mut cmd);
+        requests.recv_timeout(Duration::from_secs(5)).unwrap()
+    };
+
+    let body = phase(0);
+    assert_eq!(body["op"], "run_progress");
+    assert_eq!(body["label"], "build-app");
+    assert_eq!(body["unit"], "phase");
+    assert_eq!(body["text"], "Rust debug binaries");
+    assert_eq!(
+        (body["done"].as_u64(), body["total"].as_u64()),
+        (Some(0), Some(3))
+    );
+    assert_eq!(
+        body["needles"],
+        serde_json::json!(["just build-app", "just app-test"])
+    );
+    let units = body["units"].as_array().unwrap();
+    assert_eq!(units.len(), 3);
+    assert_eq!(units[0]["status"], "running");
+    assert!(units[0]["started_at_ms"].as_i64().unwrap() > 0);
+    assert_eq!(
+        units[1],
+        serde_json::json!({"name": "tugdeck build", "status": "pending", "index": 1})
+    );
+
+    let body = phase(1);
+    let units = body["units"].as_array().unwrap();
+    assert_eq!(body["done"], 1);
+    assert_eq!(units[0]["status"], "pass");
+    assert!(units[0]["secs"].is_number(), "{units:?}");
+    assert_eq!(units[1]["status"], "running");
+    assert_eq!(units[2]["status"], "pending");
+
+    let body = phase(3);
+    assert_eq!(body["text"], "built");
+    assert_eq!(body["done"], 3);
+    let statuses: Vec<&str> = body["units"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["status"].as_str().unwrap())
+        .collect();
+    assert_eq!(statuses, ["pass", "pass", "pass"]);
+
+    // The recipe run again under the same label starts a fresh run.
+    let body = phase(0);
+    assert_eq!(body["done"], 0);
+    assert_eq!(body["units"][1]["status"], "pending");
+}
+
+/// `progress gaps` reads the machine-global record tugcast writes, through
+/// the same redirect every harness sets, ranking heads by count then time.
+#[test]
+fn gaps_lists_the_record_by_head_and_an_absent_record_is_empty() {
+    use tugcore::run_gaps::{GapRow, RunGaps};
+    let (_dir, tmp) = scratch();
+    let db = tmp.join("run_gaps.db");
+
+    let empty = progress(&tmp)
+        .env("TUG_RUN_GAPS_DB", &db)
+        .arg("gaps")
+        .output()
+        .unwrap();
+    assert!(empty.status.success());
+    assert!(String::from_utf8_lossy(&empty.stdout).contains("no long unreported runs"));
+
+    let gaps = RunGaps::open(&db).unwrap();
+    let row = |head: &str, wall_ms: i64| GapRow {
+        head: head.into(),
+        command: format!("{head} …"),
+        project_dir: "/proj".into(),
+        session_id: "seg-0".into(),
+        wall_ms,
+        ended_at_ms: 1_000,
+    };
+    gaps.record(&row("just build-app", 125_000)).unwrap();
+    gaps.record(&row("cargo nextest", 30_000)).unwrap();
+    gaps.record(&row("cargo nextest", 45_000)).unwrap();
+    drop(gaps);
+
+    let out = progress(&tmp)
+        .env("TUG_RUN_GAPS_DB", &db)
+        .arg("gaps")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[1].starts_with("2 "), "{text}");
+    assert!(lines[1].ends_with("cargo nextest"), "{text}");
+    assert!(lines[1].contains(" 75s "), "{text}");
+    assert!(lines[2].contains(" 2m 05s "), "{text}");
+    assert!(lines[2].ends_with("just build-app"), "{text}");
+
+    let out = progress(&tmp)
+        .env("TUG_RUN_GAPS_DB", &db)
+        .args(["--json", "gaps"])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["data"]["gaps"][0]["head"], "cargo nextest");
+    assert_eq!(json["data"]["gaps"][0]["count"], 2);
+    assert_eq!(json["data"]["gaps"][0]["totalMs"], 75_000);
+}

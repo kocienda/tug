@@ -121,6 +121,7 @@ export async function startRealTugcast(): Promise<RealTugcast> {
     TUGBANK_PATH: bankPath,
     TUG_CHANGES_DB: join(scratch, "changes.db"),
     TUG_SESSION_INDEX_DB: join(scratch, "session_index.db"),
+    TUG_RUN_GAPS_DB: join(scratch, "run_gaps.db"),
   });
 
   const logPath = join(scratch, "tugcast.log");

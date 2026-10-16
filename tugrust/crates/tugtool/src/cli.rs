@@ -292,8 +292,12 @@ pub enum Commands {
     ///
     /// Silent and always exits 0: a report that cannot be delivered changes
     /// nothing about the command reporting it, and with no calling session
-    /// nothing is sent at all.
+    /// nothing is sent at all. `progress gaps` reads the record of long
+    /// runs that never reported.
+    #[command(subcommand_negates_reqs = true)]
     Progress {
+        #[command(subcommand)]
+        command: Option<ProgressCommands>,
         /// The run's short name (`rust`, `app-test`).
         #[arg(long)]
         label: Option<String>,
@@ -323,7 +327,8 @@ pub enum Commands {
         #[arg(long = "needle")]
         needles: Vec<String>,
         /// The progress line.
-        text: String,
+        #[arg(required = true)]
+        text: Option<String>,
     },
 
     /// This card's claude session — ask the wheel to seat a fresh one.
@@ -333,6 +338,39 @@ pub enum Commands {
     /// The plugin's Claude Code hooks — payload in on stdin, decision out.
     #[command(subcommand)]
     Hook(crate::commands::HookCommands),
+}
+
+#[derive(Subcommand)]
+pub enum ProgressCommands {
+    /// The long Bash calls that ended with no progress report, by command
+    /// head: how many, and how long they ran in all. Where the next report
+    /// is due.
+    Gaps,
+    /// One phase of a run begins: `phase <label> <n> <name>`. The run's
+    /// phase state is kept between calls, keyed by the label and the calling
+    /// session, and each call posts the whole run as phase rows — the landed
+    /// phases with their times, this one running, the rest to come — so a
+    /// recipe writes one line per phase and builds no JSON. `n` equal to the
+    /// number of names, with no name, is the finish. Silent, and always
+    /// exits 0.
+    Phase {
+        /// The run's short name (`build-app`).
+        label: String,
+        /// Which phase begins, counting from 0; the number of names finishes.
+        n: usize,
+        /// The phase's name, and the report's text line. Left off, the call
+        /// names no phase: with `n` past the names it is the finish.
+        name: Option<String>,
+        /// Every phase name in order. Given once, it is kept for the calls
+        /// after it; never given, the names accumulate as phases are
+        /// reported and nothing is drawn as pending.
+        #[arg(long = "of", num_args = 1..)]
+        of: Vec<String>,
+        /// Text the running command contains, for matching the report to it
+        /// when the session has several calls open.
+        #[arg(long = "needle")]
+        needles: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -523,8 +561,10 @@ pub enum TestCommands {
         /// Which runner the command is.
         #[arg(long, value_enum)]
         kind: crate::test_run::RunKind,
-        /// The junit document the command writes (required for nextest; bun
-        /// is pointed at a temporary one).
+        /// The junit document the command writes. Bun is pointed at a
+        /// temporary one when none is named; a nextest or cargo-test run
+        /// with none is recorded from the tally the wrapper counts off its
+        /// output.
         #[arg(long)]
         junit: Option<PathBuf>,
         /// The label progress is shown under.

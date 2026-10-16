@@ -235,8 +235,32 @@ fn main() -> ExitCode {
             changes::finish(command, json, result)
         }
 
+        // The record of long calls that reported nothing. A reader, exits 0.
+        Some(Commands::Progress {
+            command: Some(cli::ProgressCommands::Gaps),
+            ..
+        }) => {
+            progress::run_gaps(json);
+            ExitCode::SUCCESS
+        }
+        Some(Commands::Progress {
+            command:
+                Some(cli::ProgressCommands::Phase {
+                    label,
+                    n,
+                    name,
+                    of,
+                    needles,
+                }),
+            ..
+        }) => {
+            progress::run_phase(&label, n, name.as_deref(), &of, needles);
+            ExitCode::SUCCESS
+        }
+
         // A running command's progress line. Telemetry: silent, always 0.
         Some(Commands::Progress {
+            command: None,
             label,
             done,
             total,
@@ -252,7 +276,7 @@ fn main() -> ExitCode {
             let units = units_json.as_deref().and_then(progress::read_units);
             progress::run(progress::RunReport {
                 label,
-                text,
+                text: text.unwrap_or_default(),
                 done,
                 total,
                 failures,

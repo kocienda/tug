@@ -111,6 +111,18 @@ pub(crate) fn have_calling_session() -> bool {
     posted_session_id().is_some()
 }
 
+/// A file-name-safe token for the calling session, for state a verb keeps
+/// between its own calls on the session's behalf (`progress phase` keeps a
+/// run's phases this way). Derived from the id and not reversible to it, so
+/// the id still does not leave this module.
+pub(crate) fn calling_session_token() -> Option<String> {
+    use std::hash::{Hash, Hasher};
+    let id = posted_session_id()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
+}
+
 /// The id this process was born with, for a commit's session trailers.
 ///
 /// The one other place the raw id may leave this module, and for the reason it

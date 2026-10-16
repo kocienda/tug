@@ -62,6 +62,16 @@ fi
 # from inside the workspace to pick up `tugdeck/crates/rust-toolchain.toml`.
 cd "$CRATES_DIR"
 
+# One phase per crate on the calling Session card's running block, through
+# `tugtool progress phase`; `just wasm` runs alone and under the app recipes.
+REPORT="$REPO_ROOT/tugrust/scripts/report-phase.sh"
+crate_names=()
+for manifest in "${crate_manifests[@]}"; do
+    crate_names+=("$(basename "$(dirname "$manifest")")")
+done
+bash "$REPORT" wasm 0 "${crate_names[0]}" --of "${crate_names[@]}" \
+    --needle "just app-debug" --needle "just app-release"
+
 # Panic locations in registry crates carry the absolute path of the cargo
 # home, and std's carry the sysroot's wherever `rust-src` is installed
 # (elsewhere they stay rustc's own `/rustc/<commit>`), so without these the
@@ -71,10 +81,13 @@ RUST_SRC="$(rustc --print sysroot)/lib/rustlib/src/rust"
 RUST_COMMIT="$(rustc -vV | sed -n 's/^commit-hash: //p')"
 export RUSTFLAGS="--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$RUST_SRC=/rustc/$RUST_COMMIT ${RUSTFLAGS:-}"
 
+i=0
 for manifest in "${crate_manifests[@]}"; do
     crate_dir="$(dirname "$manifest")"
     crate_name="$(basename "$crate_dir")"
     echo "==> building $crate_name"
+    [ "$i" -eq 0 ] || bash "$REPORT" wasm "$i" "$crate_name"
+    i=$(( i + 1 ))
     "$WASM_PACK" build --target web --release "$crate_dir"
 
     pkg_gitignore="$crate_dir/pkg/.gitignore"
@@ -86,4 +99,5 @@ for manifest in "${crate_manifests[@]}"; do
     fi
 done
 
+bash "$REPORT" wasm "${#crate_names[@]}"
 echo "==> wasm build complete"

@@ -92,6 +92,10 @@ mkdir -p "$DERIVED_DATA" "$STAGING_DIR"
 # via one script so the two release paths can't drift on which binaries or flags
 # they build. The Tug Xcode copy phase requires all of these in target/release.
 echo "==> Building release inputs (shared with app-release)"
+# The build's phases on the calling Session card's running block, through
+# `tugtool progress phase`. Labelled `dmg`; `just notarize` runs it too.
+REPORT="$SCRIPT_DIR/report-phase.sh"
+bash "$REPORT" dmg 0 "release inputs" --of "release inputs" "Xcode build" "assemble" "sign" "notarize" "DMG" --needle "just notarize"
 bash "$SCRIPT_DIR/build-release-inputs.sh"
 
 # Step 3: Build Mac app with xcodebuild
@@ -119,10 +123,12 @@ XCODE_ARGS=(
 if [ "$NIGHTLY" = true ]; then
     XCODE_ARGS+=(ASSETCATALOG_COMPILER_APPICON_NAME="$ICON_NAME")
 fi
+bash "$REPORT" dmg 1 "Xcode build"
 bash "$SCRIPT_DIR/xcodebuild-quiet.sh" "Tug.app (Release)" "${XCODE_ARGS[@]}" build
 
 # Step 4: Copy xcodebuild output to staging
 echo "==> Assembling .app bundle"
+bash "$REPORT" dmg 2 "assemble"
 XCODE_APP="$DERIVED_DATA/Build/Products/Release/Tug.app"
 STAGING_APP="$STAGING_DIR/$APP_NAME.app"
 
@@ -200,6 +206,7 @@ fi
 # DEVELOPER_ID_NAME: passed through as a full codesign identity
 # string (e.g. "Developer ID Application: Jane Doe (TEAMID)"). If
 # unset, sign-bundle.sh auto-detects from the login keychain.
+bash "$REPORT" dmg 3 "sign"
 if [ "$SKIP_SIGN" = false ]; then
     echo "==> Code signing (inside-out, per [D16])"
     SIGN_IDENTITY_ARG=()
@@ -236,6 +243,7 @@ fi
 # APPLE_ID / TEAM_ID / NOTARY_PASSWORD env vars. The keychain
 # profile keeps the app-specific password out of command history,
 # env files, and CI logs.
+bash "$REPORT" dmg 4 "notarize"
 if [ "$SKIP_SIGN" = false ] && [ "$SKIP_NOTARIZE" = false ]; then
     bash "$SCRIPT_DIR/notarize.sh" "$STAGING_APP"
 else
@@ -272,6 +280,7 @@ fi
 # headless under notary/CI conditions, unlike create-dmg/osascript approaches.
 # settings.py + background.tiff + VolumeIcon.icns live in scripts/dmg/.
 echo "==> Creating DMG (dmgbuild)"
+bash "$REPORT" dmg 5 "DMG"
 PRODUCTS_DIR="$REPO_ROOT/products"
 mkdir -p "$PRODUCTS_DIR"
 OUTPUT_DMG="$PRODUCTS_DIR/$DMG_NAME"
@@ -310,6 +319,7 @@ else
 fi
 
 echo "==> Build complete: $OUTPUT_DMG"
+bash "$REPORT" dmg 6
 if [ -n "$UPDATE_ZIP" ]; then
     echo "==>                 $UPDATE_ZIP"
 fi
