@@ -1068,6 +1068,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// the shell had named another card, and took the keyboard from it
     /// (row 6's reading: a sidebar shown from the menu). Refusing here,
     /// before `super` resigns anyone, leaves the keyboard where it was.
+    @discardableResult
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let view = responder as? ClickThroughWebView, let named = view.keyboardNamed,
            !named(), !view.liveClickInside {
