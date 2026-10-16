@@ -1,6 +1,6 @@
 # Scroll Intent — the attribution doctrine
 
-*Who owns a scroll, and which writes yield to whom. The doctrine behind `SmartScroll` ([D93]), the extent floor, and every programmatic `scrollTop` writer in the transcript stack. Behavioral pins: `tests/app-test/at0333-follow-bottom-unattributed.test.ts` (polarity), `at0335-scroll-displacement.test.ts` (the zero criterion), `at0336-conservation-probe.test.ts` (conservation).*
+*Who owns a scroll, and which writes yield to whom. The doctrine behind `SmartScroll` ([D93]), the extent floor, and every programmatic `scrollTop` writer in the transcript stack. Behavioral pins: `tests/app-test/at0333-follow-bottom-unattributed.test.ts` (polarity), `at0335-scroll-clamp.test.ts` and `at0335-scroll-reader-held.test.ts` (the zero criterion and the extent floor).*
 
 ## The doctrine
 
@@ -153,6 +153,7 @@ Scroll position is appearance-adjacent state that lives in the DOM and in `Smart
 - [D93] in `design-decisions.md` — the six-phase machine, the six listeners, and the amended attribution guard this doc grounds.
 - The two-pass estimated-jump/correction protocol is documented at `pendingScrollCorrectionRef` in `tug-list-view.tsx`; its pass 2 is the supersedable correction above.
 - `card-state-model.md` / `state-preservation.md` — where the anchor the anchor-writer serializes is saved and restored.
-- `tests/app-test/at0333-follow-bottom-unattributed.test.ts` — the polarity pins (scrollbar-silent disengage, correction supersede, re-engage, the gesture-end re-engage with the anchoring gate's two states, and the dialog-close attributed-arrival rule in both directions).
-- `tests/app-test/at0335-scroll-displacement.test.ts` — the clamp pins (counter published, a simulated clamp witnessed and never counter-written, window swaps clean, wheel reaches the bottom, a clamp never flips follow-bottom, quiet arrival, idle-user recovery). Every real drive asserts **zero** on both surfaces — the attribute and the trace ring; only the `forceCommitClamp` tests see a nonzero count, because they take the floor down and manufacture the record deliberately.
-- `tests/app-test/at0336-conservation-probe.test.ts` — the permanent conservation harness: the ledger-vs-live probe, the window-swap replica that once displaced 2,368px deterministically, the anchoring-off A/B, the mover-capture proof that no JavaScript runs in the gap, and the height-post countermeasure that became the floor.
+- `tests/app-test/at0333-follow-bottom-unattributed.test.ts` — the polarity pins (correction supersede, the gesture-end re-engage with the anchoring gate closed, and the dialog-close attributed-arrival rule in both directions, whose second half is the unattributed re-engage).
+- `tests/app-test/at0335-scroll-clamp.test.ts` — the clamp pins (counter published, a simulated clamp detected, witnessed and never counter-written, a clamp never flips follow-bottom, idle-user recovery). Only the `forceCommitClamp` drives see a nonzero count, because they take the floor down and manufacture the record deliberately.
+- `tests/app-test/at0335-scroll-reader-held.test.ts` — the reader pins (a scrollbar-silent park is never reverted and opens the anchoring gate, window swaps displace nobody and the extent floor tracks the extent, a wheel reaches the bottom). Every real drive asserts **zero** on both surfaces — the attribute and the trace ring.
+- `tugdeck/src/__tests__/smart-scroll-jitter.test.ts` — a pixel of jitter under fresh growth does not release the live edge while a real unattributed move does, and the flip record's shape.

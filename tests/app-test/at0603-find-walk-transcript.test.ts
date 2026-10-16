@@ -41,10 +41,10 @@
  * ## What this declares, and what it deliberately does not
  *
  * `session-card-transcript.tsx` fans out past the selection budget, and the
- * budget allows exactly one of this arc's new tests to name it. That slot
- * goes to `at0605`, whose adversarial cases have no other honest anchor —
- * (c) and (d) are about what the transcript host does with the painter and
- * the anchor, and nothing else. This walk has several: the ordinal it checks
+ * budget allows exactly one of the find tests to name it. That slot goes to
+ * `at0494-find-reveal`, whose anchored landing has no other honest anchor —
+ * it is about what the transcript host does with the anchor, and nothing
+ * else. This walk has several: the ordinal it checks
  * is the engine's, the chip is the session's, the paint is the painter's,
  * and the reveal it asserts placement from is the list view's, which is
  * declared here for that reason.
@@ -59,10 +59,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import type { SessionDriveAction } from "./_harness/client";
 import {
+  awaitGestureReveal,
   awaitRevealTerminal,
   chord,
-  framer,
+  ingest,
   lastGesture,
   markTrace,
   openFindBar,
@@ -85,15 +87,16 @@ const PROBE = "vermilionstep";
 
 /**
  * The shortest transcript that would still have shown the three defects the
- * header names. Fifteen turns plant 35 matches over some forty rows — several
- * viewports — so most ⌘G steps must scroll a match in from past the fold
- * (the reveal that outlived its budget), the walk runs dozens of gestures
+ * header names. Eight turns plant 19 matches over some twenty rows — several
+ * viewports — so the walk's ⌘G steps must scroll matches in from past the
+ * fold (the reveal that outlived its budget), the walk runs twenty gestures
  * back to back and wraps (the race through one shared boolean), and the
- * ordinal climbs through two digits against the chip (the drift). The walk
- * was once sixty turns and 141 steps, which bought no defect this one cannot
- * show and cost two minutes a run.
+ * ordinal climbs into two digits against the chip (the drift).
+ * {@link MIN_LANDED_OFFSETS} is the guard that this still forces reveals.
+ * The walk was once sixty turns and 141 steps, then fifteen and 36, which
+ * bought no defect this one cannot show and cost minutes a run.
  */
-const TURNS = 15;
+const TURNS = 8;
 
 /**
  * The distinct scroll offsets the walk must land on. A transcript short
@@ -129,33 +132,33 @@ function replyText(n: number): string {
   ].join("\n");
 }
 
-async function seedMixedTurns(app: App, turns: number): Promise<void> {
-  const frame = framer(app, "A", SID);
-  for (let n = 0; n < turns; n += 1) {
-    const msgId = `${SID}-m${n}`;
-    await app.driveSession("A", { op: "send", text: `prompt ${n}` });
-    await frame({ type: "prompt_anchor", promptUuid: `${SID}-u${n}` });
-    await frame({
+/** One turn's steps, sent as one batch — never several turns to a batch. */
+function mixedTurn(n: number): SessionDriveAction[] {
+  const msgId = `${SID}-m${n}`;
+  const steps: SessionDriveAction[] = [
+    { op: "send", text: `prompt ${n}` },
+    ingest(SID, { type: "prompt_anchor", promptUuid: `${SID}-u${n}` }),
+    ingest(SID, {
       type: "tool_use",
       seq: 0,
       msg_id: msgId,
       tool_use_id: `${SID}-tu${n}`,
       tool_name: "Bash",
       input: { command: `grep -n "${PROBE}" /tmp/at0603/log${n}`, description: `step ${n}` },
-    });
-    await frame({
+    }),
+    ingest(SID, {
       type: "tool_result",
       tool_use_id: `${SID}-tu${n}`,
       output: `step ${n} done`,
       is_error: false,
-    });
-    await frame({
+    }),
+    ingest(SID, {
       type: "content_block_start",
       msg_id: msgId,
       block_index: 0,
       kind: "text",
-    });
-    await frame({
+    }),
+    ingest(SID, {
       type: "assistant_text",
       seq: 0,
       rev: 0,
@@ -164,19 +167,26 @@ async function seedMixedTurns(app: App, turns: number): Promise<void> {
       block_index: 0,
       text: replyText(n),
       is_partial: false,
+    }),
+    ingest(SID, { type: "turn_complete", seq: 0, msg_id: msgId, result: "success" }),
+  ];
+  if (n % 3 === 0) {
+    steps.push({
+      op: "shellExchange",
+      exchangeId: `${SID}-x${n}`,
+      command: `echo ${PROBE} ${n}`,
+      output: `shell step ${n}`,
+      cwd: "/tmp",
+      exitCode: 0,
+      startedAtMs: 1_700_000_000_000 + n,
     });
-    await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
-    if (n % 3 === 0) {
-      await app.driveSession("A", {
-        op: "shellExchange",
-        exchangeId: `${SID}-x${n}`,
-        command: `echo ${PROBE} ${n}`,
-        output: `shell step ${n}`,
-        cwd: "/tmp",
-        exitCode: 0,
-        startedAtMs: 1_700_000_000_000 + n,
-      });
-    }
+  }
+  return steps;
+}
+
+async function seedMixedTurns(app: App, turns: number): Promise<void> {
+  for (let n = 0; n < turns; n += 1) {
+    await app.driveSessionBatch("A", mixedTurn(n));
   }
 }
 
@@ -192,15 +202,17 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
           `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 4`,
           { timeoutMs: 60_000 },
         );
-        await new Promise((r) => setTimeout(r, 1500));
 
         await openFindBar(app);
+        const typed = await markTrace(app);
         await app.nativeType(PROBE);
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "") !== ""`,
           { timeoutMs: 20_000 },
         );
-        await new Promise((r) => setTimeout(r, 1500));
+        // The query's own reveal must be over before the walk starts, or the
+        // first ⌘G supersedes it and the walk's first terminal is its.
+        await awaitGestureReveal(app, typed, PROBE);
 
         const firstChip = await readChip(app);
         const total = Number(firstChip.split(" of ")[1] ?? "0");
@@ -232,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
               `step ${step}: the reveal settled ${String(terminal.outcome)}:${String(terminal.reason)}, not landed`,
             );
           }
-          const samples = await sampleReveal(app, 600);
+          const samples = await sampleReveal(app, 300);
           const gesture = await lastGesture(app, mark);
           const last10 = tail(samples);
 

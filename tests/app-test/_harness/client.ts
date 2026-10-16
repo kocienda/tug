@@ -1009,6 +1009,32 @@ export async function driveSession(
 }
 
 /**
+ * Drive a bound session card through a run of steps in one evaluate, and
+ * wait for the store to settle once, after the last. The steps reach the
+ * ingest Worker in order, so the store reduces them as `driveSession` would
+ * have one at a time; what a run gives up is a settled read between steps.
+ * Seeding a transcript is the use, one turn per run: sixty turns are
+ * hundreds of frames, and a round trip and a settle wait apiece is most of a
+ * file's wall time (60 turns: 4.7 s frame by frame, 1.7 s a turn at a time).
+ * A run spanning several turns' sends stopped the app answering, 2026-10-16.
+ */
+export async function driveSessionBatch(
+  caller: HarnessCaller,
+  cardId: string,
+  actions: readonly SessionDriveAction[],
+  evalOpts?: EvalJsOptions,
+): Promise<void> {
+  if (actions.length === 0) return;
+  const script = callSurface(
+    `(${lit(actions)}.forEach((a) => window.__tug.driveSession(${lit(cardId)}, a)), null)`,
+  );
+  await caller.evalJS<null>(script, evalOpts);
+  await caller.waitForCondition<boolean>(
+    callSurface(`window.__tug.sessionSettled(${lit(cardId)})`),
+  );
+}
+
+/**
  * Drop the app's real WebSocket, so the entire recovery path runs:
  * close → `connectionDidClose` → backoff → reconnect →
  * `connectionDidReconnect` → every services bag disposed → restore.

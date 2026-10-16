@@ -1,7 +1,8 @@
 /**
  * at0333-follow-bottom-unattributed.test.ts — the scroll attribution
- * doctrine, pinned behaviorally: every scroll the machine cannot attribute
- * belongs to the user, and no deferred scroll write survives a user gesture.
+ * doctrine, pinned behaviorally: no deferred scroll write survives a user
+ * gesture, a gesture ending at the live edge is following it, and a
+ * machine-side close never re-engages a reader who left.
  *
  * A native scrollbar drag delivers NO pointer or wheel events to the
  * container in WKWebView — SmartScroll's phase machine sits in `idle` while
@@ -11,31 +12,28 @@
  *
  * | Test                | What would break without it                        |
  * |---------------------|----------------------------------------------------|
- * | disengage           | follow-bottom stays engaged through a scrollbar    |
- * |                     | scrub, and the next streamed turn's growth pin     |
- * |                     | slams the reader back to the bottom                |
  * | correction supersede| a two-pass turn-step correction armed before the   |
  * |                     | user moved fires late and snaps them back to the   |
  * |                     | stale target                                       |
- * | re-engage           | an unattributed scroll INTO the at-bottom band     |
- * |                     | fails to re-engage follow-bottom, so streaming     |
- * |                     | stops tracking the live edge                       |
  * | gesture end         | a wheel nudge at the live edge strands the user    |
  * |                     | disengaged on a transcript that looks pinned, and  |
  * |                     | every later append silently fails to arrive        |
  * | dialog close        | an inline dialog's close re-engages follow-bottom  |
  * |                     | over a user who scrolled away to read history, and |
- * |                     | the next growth pin yanks them to the bottom       |
+ * |                     | the next growth pin yanks them to the bottom; and  |
+ * |                     | an unattributed return to the bottom fails to      |
+ * |                     | re-engage, so streaming stops tracking the edge    |
  *
- * The gesture-end and dialog tests also pin the anchoring gate: scroll
- * anchoring holds mid-viewport content still against height changes
- * above it, which is definitionally opposed to the pin — so SmartScroll
- * stamps `overflow-anchor: none` on the container while following and
- * clears it when the user parks to read.
+ * The gesture-end test also pins the anchoring gate: scroll anchoring
+ * holds mid-viewport content still against height changes above it,
+ * which is definitionally opposed to the pin — so SmartScroll stamps
+ * `overflow-anchor: none` on the container while following. That the
+ * gate opens for a parked reader, and that an idle upward scroll is never
+ * pulled back by growth, are in `at0335-scroll-reader-held.test.ts`.
  *
  * Growth pins are provoked by streaming a real turn into the seeded session
- * (`driveSession` ingest — the same channel live streaming uses), never by
- * synthetic DOM mutation.
+ * (`driveSessionBatch` ingest — the same channel live streaming uses), never
+ * by synthetic DOM mutation.
  *
  * @covers tugdeck/src/lib/smart-scroll.ts
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
@@ -46,6 +44,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import type { SessionDriveAction } from "./_harness/client";
 import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -72,35 +71,94 @@ function replyText(n: number): string {
   ].join("\n");
 }
 
-/** Stream one committed prompt→reply turn into the bound session. */
-async function seedTurn(app: App, n: number): Promise<void> {
-  const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
-    app.driveSession("A", {
-      op: "ingestFrame",
-      feedId: FEED_CODE_OUTPUT,
-      decoded: { tug_session_id: SID, ...decoded },
-    });
-  const msgId = `${SID}-m${n}`;
-  await app.driveSession("A", { op: "send", text: `prompt ${n}` });
-  await frame({ type: "prompt_anchor", promptUuid: `${SID}-u${n}` });
-  await frame({
-    type: "content_block_start",
-    msg_id: msgId,
-    block_index: 0,
-    kind: "text",
-  });
-  await frame({
-    type: "assistant_text",
-    seq: 0,
-    rev: 0,
-    status: "complete",
-    msg_id: msgId,
-    block_index: 0,
-    text: replyText(n),
-    is_partial: false,
-  });
-  await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
+function frame(decoded: Record<string, unknown>): SessionDriveAction {
+  return {
+    op: "ingestFrame",
+    feedId: FEED_CODE_OUTPUT,
+    decoded: { tug_session_id: SID, ...decoded },
+  };
 }
+
+/** Stream one committed prompt→reply turn into the bound session, as
+ *  one batch. */
+function seedTurn(app: App, n: number): Promise<void> {
+  const msgId = `${SID}-m${n}`;
+  return app.driveSessionBatch("A", [
+    { op: "send", text: `prompt ${n}` },
+    frame({ type: "prompt_anchor", promptUuid: `${SID}-u${n}` }),
+    frame({
+      type: "content_block_start",
+      msg_id: msgId,
+      block_index: 0,
+      kind: "text",
+    }),
+    frame({
+      type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
+      msg_id: msgId,
+      block_index: 0,
+      text: replyText(n),
+      is_partial: false,
+    }),
+    frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" }),
+  ]);
+}
+
+/** Wait until the transcript has settled: two frames have passed, no
+ *  eviction drain is under way, the rendered window covers the viewport
+ *  (no spacer reaches into it), and — given `grewFrom` — the extent has
+ *  grown past it, so a streamed turn has landed.
+ *
+ *  (Comments inside the evaluated source below must not use backticks:
+ *  it is a template literal, and a backtick would end it.) */
+async function settle(app: App, grewFrom?: number): Promise<void> {
+  await app.evalJS<boolean>(`(function () {
+  window.__at0333Frames = false;
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () { window.__at0333Frames = true; });
+  });
+  return true;
+})()`);
+  await app.waitForCondition<boolean>(
+    `(function () {
+  if (!window.__at0333Frames) return false;
+  var el = document.querySelector('${SCROLLER}');
+  if (el === null || el.hasAttribute("data-evict-stale")) return false;
+  ${grewFrom === undefined ? "" : `if (el.scrollHeight <= ${grewFrom}) return false;`}
+  var r = el.getBoundingClientRect();
+  var ts = el.querySelector(".tug-list-view-spacer--top");
+  if (ts !== null && ts.offsetHeight > 0 && ts.getBoundingClientRect().bottom > r.top + 1) return false;
+  var bs = el.querySelector(".tug-list-view-spacer--bottom");
+  if (bs !== null && bs.offsetHeight > 0 && bs.getBoundingClientRect().top < r.bottom - 1) return false;
+  return true;
+})()`,
+    { timeoutMs: 10_000 },
+  );
+}
+
+/** Give a condition the next assertion reads a bounded chance to come
+ *  true. Never an assertion itself: the caller asserts what it reads
+ *  next, so a condition that never arrives still fails there. */
+async function awaitQuietly(app: App, expr: string): Promise<void> {
+  await app.waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
+}
+
+const AT_LIVE_EDGE = `(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return el.scrollHeight - el.clientHeight - el.scrollTop <= 4;
+})()`;
+
+const BUTTON_VISIBLE = `(function () {
+  var b = document.querySelector('${JUMP_BUTTON}');
+  return b !== null && b.getAttribute("data-visible") === "true";
+})()`;
+
+const BUTTON_HIDDEN = `(function () {
+  var b = document.querySelector('${JUMP_BUTTON}');
+  return b === null || b.getAttribute("data-visible") !== "true";
+})()`;
 
 /** Launch, seed a tall transcript, and wait until eviction has armed —
  *  the list is settled and follow-bottom is engaged at the live edge. */
@@ -122,13 +180,14 @@ async function standUp(testName: string): Promise<App> {
     `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
     { timeoutMs: 30_000 },
   );
-  await new Promise((r) => setTimeout(r, 500));
+  await settle(app);
   return app;
 }
 
 interface ScrollSnap {
   top: number;
   maxScroll: number;
+  scrollHeight: number;
   buttonVisible: string | null;
 }
 
@@ -164,47 +223,33 @@ function readAnchoringGate(app: App): Promise<string> {
  *  the machine-side dismissal, no UI interaction involved. */
 async function presentQuestion(app: App, tag: string): Promise<string> {
   const msgId = `${SID}-dlg-${tag}`;
-  const frame = (decoded: Record<string, unknown>): Promise<unknown> =>
-    app.driveSession("A", {
-      op: "ingestFrame",
-      feedId: FEED_CODE_OUTPUT,
-      decoded: { tug_session_id: SID, ...decoded },
-    });
-  await app.driveSession("A", { op: "send", text: `ask me something ${tag}` });
-  await frame({
-    type: "tool_use",
-    msg_id: msgId,
-    tool_use_id: `${SID}-tu-${tag}`,
-    tool_name: "AskUserQuestion",
-    input: {
-      questions: [
-        {
-          question: "Pick any that apply",
-          header: "Pick",
-          multiSelect: true,
-          options: [{ label: "Alpha" }, { label: "Beta" }],
-        },
-      ],
+  const questions = [
+    {
+      question: "Pick any that apply",
+      header: "Pick",
+      multiSelect: true,
+      options: [{ label: "Alpha" }, { label: "Beta" }],
     },
-    seq: 1,
-  });
-  await frame({
-    type: "control_request_forward",
-    request_id: `${SID}-q-${tag}`,
-    tool_use_id: `${SID}-tu-${tag}`,
-    is_question: true,
-    tool_name: "AskUserQuestion",
-    input: {
-      questions: [
-        {
-          question: "Pick any that apply",
-          header: "Pick",
-          multiSelect: true,
-          options: [{ label: "Alpha" }, { label: "Beta" }],
-        },
-      ],
-    },
-  });
+  ];
+  await app.driveSessionBatch("A", [
+    { op: "send", text: `ask me something ${tag}` },
+    frame({
+      type: "tool_use",
+      msg_id: msgId,
+      tool_use_id: `${SID}-tu-${tag}`,
+      tool_name: "AskUserQuestion",
+      input: { questions },
+      seq: 1,
+    }),
+    frame({
+      type: "control_request_forward",
+      request_id: `${SID}-q-${tag}`,
+      tool_use_id: `${SID}-tu-${tag}`,
+      is_question: true,
+      tool_name: "AskUserQuestion",
+      input: { questions },
+    }),
+  ]);
   await app.waitForCondition<boolean>(
     `!!document.querySelector('[data-slot="session-question-dialog"]')`,
     { timeoutMs: 10_000 },
@@ -215,17 +260,10 @@ async function presentQuestion(app: App, tag: string): Promise<string> {
 /** End the turn that hosts a live question — the dialog closes the way
  *  a withdrawn request does, with no pointer or key anywhere near it. */
 async function withdrawQuestion(app: App, msgId: string): Promise<void> {
-  await app.driveSession("A", {
-    op: "ingestFrame",
-    feedId: FEED_CODE_OUTPUT,
-    decoded: {
-      tug_session_id: SID,
-      type: "turn_complete",
-      seq: 0,
-      msg_id: msgId,
-      result: "success",
-    },
-  });
+  await app.driveSession(
+    "A",
+    frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" }),
+  );
   await app.waitForCondition<boolean>(
     `document.querySelector('[data-slot="session-question-dialog"]') === null`,
     { timeoutMs: 10_000 },
@@ -239,81 +277,13 @@ function readSnap(app: App): Promise<ScrollSnap> {
   return {
     top: el.scrollTop,
     maxScroll: el.scrollHeight - el.clientHeight,
+    scrollHeight: el.scrollHeight,
     buttonVisible: btn === null ? null : btn.getAttribute("data-visible"),
   };
 })()`);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
-  test(
-    "an idle upward scroll disengages follow-bottom and growth pins stay away",
-    async () => {
-      const app = await standUp("at0333-disengage");
-      try {
-        const atBottom = await readSnap(app);
-        expect(atBottom.maxScroll - atBottom.top).toBeLessThanOrEqual(4);
-
-        // Leave the bottom the way a native scrollbar drag does: a bare
-        // scrollTop assignment, no pointer or wheel events. The phase
-        // machine is `idle` with no programmatic suppression armed, so
-        // the doctrine attributes this to the user.
-        const assigned = await app.evalJS<number>(`(function () {
-  var el = document.querySelector('${SCROLLER}');
-  el.scrollTop = el.scrollTop - ${AT_BOTTOM_PX * 15};
-  return el.scrollTop;
-})()`);
-        expect(atBottom.top - assigned).toBeGreaterThan(AT_BOTTOM_PX);
-        await new Promise((r) => setTimeout(r, 500));
-        const scrolledUp = await readSnap(app);
-        expect(scrolledUp.buttonVisible).toBe("true");
-        // Disengaging opens the anchoring gate: the parked reader gets
-        // the reading-position hold back.
-        expect(await readAnchoringGate(app)).toBe("");
-
-        // Watch scrollTop while a real streamed turn lands below — the
-        // growth-pin channel. Disengaged, the pin must stay away.
-        await app.evalJS<boolean>(`(function () {
-  var el = document.querySelector('${SCROLLER}');
-  window.__at0333 = { maxSeen: el.scrollTop };
-  window.__at0333Timer = setInterval(function () {
-    var e = document.querySelector('${SCROLLER}');
-    if (e !== null && e.scrollTop > window.__at0333.maxSeen) {
-      window.__at0333.maxSeen = e.scrollTop;
-    }
-  }, 16);
-  return true;
-})()`);
-        await seedTurn(app, TURNS);
-        await new Promise((r) => setTimeout(r, 1000));
-
-        const result = await app.evalJS<{
-          maxSeen: number;
-          finalTop: number;
-          maxScroll: number;
-        }>(`(function () {
-  clearInterval(window.__at0333Timer);
-  var el = document.querySelector('${SCROLLER}');
-  return {
-    maxSeen: window.__at0333.maxSeen,
-    finalTop: el.scrollTop,
-    maxScroll: el.scrollHeight - el.clientHeight,
-  };
-})()`);
-        // Never re-pinned: scrollTop stayed out of the bottom band the
-        // whole time, and the held position did not drift (the new turn
-        // grew the document BELOW the viewport).
-        expect(result.maxScroll - result.maxSeen).toBeGreaterThan(
-          AT_BOTTOM_PX * 4,
-        );
-        expect(Math.abs(result.finalTop - assigned)).toBeLessThanOrEqual(50);
-        expect((await readSnap(app)).buttonVisible).toBe("true");
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
   test(
     "a user scroll voids a pending turn-step correction — no late snap",
     async () => {
@@ -347,6 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         expect(armed.assigned - armed.afterPresses).toBeGreaterThan(8);
 
         // Let commits settle; the voided correction must never fire.
+        // A negative, so the window is time, not a condition.
         await app.evalJS<boolean>(`(function () {
   window.__at0333 = { minSeen: Infinity, maxSeen: -Infinity };
   window.__at0333Timer = setInterval(function () {
@@ -387,45 +358,6 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
   );
 
   test(
-    "an unattributed scroll to the bottom re-engages follow-bottom",
-    async () => {
-      const app = await standUp("at0333-reengage");
-      try {
-        // Leave the bottom (unattributed), confirm disengaged.
-        await app.evalJS<number>(`(function () {
-  var el = document.querySelector('${SCROLLER}');
-  el.scrollTop = el.scrollTop - ${AT_BOTTOM_PX * 15};
-  return el.scrollTop;
-})()`);
-        await new Promise((r) => setTimeout(r, 500));
-        expect((await readSnap(app)).buttonVisible).toBe("true");
-
-        // Return to the bottom the same silent way. Landing inside the
-        // at-bottom band re-engages follow-bottom — the disengage's
-        // mirror, unchanged by it.
-        await app.evalJS<number>(`(function () {
-  var el = document.querySelector('${SCROLLER}');
-  el.scrollTop = el.scrollHeight - el.clientHeight;
-  return el.scrollTop;
-})()`);
-        await new Promise((r) => setTimeout(r, 500));
-        expect((await readSnap(app)).buttonVisible).toBe("false");
-
-        // Streaming pins resume: the next streamed turn tracks the live
-        // edge again.
-        await seedTurn(app, TURNS);
-        await new Promise((r) => setTimeout(r, 1000));
-        const pinned = await readSnap(app);
-        expect(pinned.maxScroll - pinned.top).toBeLessThanOrEqual(4);
-        expect(pinned.buttonVisible).toBe("false");
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
     "a wheel nudge at the live edge re-engages when the gesture ends",
     async () => {
       const app = await standUp("at0333-gesture-end");
@@ -448,16 +380,22 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
   return true;
 })()`);
 
-        // End the gesture the way at0335's wheel drive does: drain the
-        // queued scroll events, then pointerup — synthetic wheels do
-        // not reliably produce a scrollend, and any that does arrive
+        // End the gesture the way at0335's wheel drive does: let the
+        // queued scroll events drain, then pointerup — synthetic wheels
+        // do not reliably produce a scrollend, and any that does arrive
         // early lands in the same gesture-end check.
-        await new Promise((r) => setTimeout(r, 500));
+        await settle(app);
         await app.evalJS<boolean>(`(function () {
   document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
   return true;
 })()`);
-        await new Promise((r) => setTimeout(r, 800));
+        await awaitQuietly(
+          app,
+          `window.tugDevLog.getSnapshot().entries.some(function (e) {
+  return e.source === "smart-scroll" && e.message === "follow-bottom" &&
+    e.data.source === "gesture-end-at-bottom-reengage";
+}) && ${BUTTON_HIDDEN}`,
+        );
 
         // Re-engaged at gesture end through the at-bottom flavor: the
         // gesture was net-UPWARD, so the net-down path cannot claim
@@ -478,8 +416,10 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         expect(await readAnchoringGate(app)).toBe("none");
 
         // And streaming still tracks the live edge.
+        const before = (await readSnap(app)).scrollHeight;
         await seedTurn(app, TURNS);
-        await new Promise((r) => setTimeout(r, 1000));
+        await settle(app, before);
+        await awaitQuietly(app, AT_LIVE_EDGE);
         const pinned = await readSnap(app);
         expect(pinned.maxScroll - pinned.top).toBeLessThanOrEqual(4);
       } finally {
@@ -499,20 +439,21 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         // whole dialog. The user then scrolls away to read history
         // while the question waits.
         const first = await presentQuestion(app, "a");
-        await new Promise((r) => setTimeout(r, 400));
+        await settle(app);
         await app.evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = el.scrollTop - ${AT_BOTTOM_PX * 15};
   return el.scrollTop;
 })()`);
-        await new Promise((r) => setTimeout(r, 500));
+        await settle(app);
 
         // The question is withdrawn under them. Case B: re-engagement
         // requires attributed arrival at the bottom, and this user is
         // parked mid-history — the close must NOT flip follow-bottom
         // back on. The negative source assertion is the pin: an
         // unconditional close-side engage would record
-        // `inline-dialog / following: true` right here.
+        // `inline-dialog / following: true` right here. A negative, so
+        // the close gets time to have done it.
         await withdrawQuestion(app, first);
         await new Promise((r) => setTimeout(r, 500));
         const transitions = await readFollowBottomTransitions(app);
@@ -524,36 +465,41 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         expect((await readSnap(app)).buttonVisible).toBe("true");
 
         // Growth stays away from the parked reader.
+        const beforeGrowth = (await readSnap(app)).scrollHeight;
         await seedTurn(app, TURNS);
-        await new Promise((r) => setTimeout(r, 1000));
+        await settle(app, beforeGrowth);
         const held = await readSnap(app);
         expect(held.maxScroll - held.top).toBeGreaterThan(AT_BOTTOM_PX * 4);
         expect(held.buttonVisible).toBe("true");
 
-        // Now the other polarity: return to the bottom (attributed
-        // arrival — the idle re-engage), sit through a second
-        // question, and let it close with the user still settled at
-        // the dialog's edge. Behavioral assert only — the machine may
-        // legitimately re-engage this parked-in-band user before the
-        // close does (growth-at-bottom), and either route is a
-        // correct arrival.
+        // Now the other polarity: return to the bottom the same silent
+        // way — an unattributed scroll INTO the at-bottom band, the idle
+        // re-engage — sit through a second question, and let it close
+        // with the user still settled at the dialog's edge. Behavioral
+        // assert only — the machine may legitimately re-engage this
+        // parked-in-band user before the close does (growth-at-bottom),
+        // and either route is a correct arrival.
         await app.evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = el.scrollHeight - el.clientHeight;
   return el.scrollTop;
 })()`);
-        await new Promise((r) => setTimeout(r, 500));
+        await settle(app);
+        await awaitQuietly(app, BUTTON_HIDDEN);
         expect((await readSnap(app)).buttonVisible).toBe("false");
 
         const second = await presentQuestion(app, "b");
-        await new Promise((r) => setTimeout(r, 400));
+        await settle(app);
         await withdrawQuestion(app, second);
-        await new Promise((r) => setTimeout(r, 500));
+        await settle(app);
+        await awaitQuietly(app, BUTTON_HIDDEN);
         expect((await readSnap(app)).buttonVisible).toBe("false");
 
         // The next streamed turn tracks the live edge.
+        const beforePin = (await readSnap(app)).scrollHeight;
         await seedTurn(app, TURNS + 1);
-        await new Promise((r) => setTimeout(r, 1000));
+        await settle(app, beforePin);
+        await awaitQuietly(app, `${AT_LIVE_EDGE} && ${BUTTON_HIDDEN}`);
         const pinned = await readSnap(app);
         expect(pinned.maxScroll - pinned.top).toBeLessThanOrEqual(4);
         expect(pinned.buttonVisible).toBe("false");

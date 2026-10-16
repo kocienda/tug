@@ -31,6 +31,7 @@
  */
 
 import type { App } from "./_harness";
+import type { SessionDriveAction } from "./_harness/client";
 
 /** The transcript scroller's stable scroll key. */
 export const SCROLLER = '[data-tug-scroll-key="session-card-transcript"]';
@@ -127,8 +128,7 @@ export interface Reveal {
 
 /**
  * The active match's rect against the scroller's visible band, as one
- * expression — lifted from `at0494-find-reveal-in-view.test.ts`, which
- * keeps its own copy deliberately (this step does not edit that file).
+ * expression — first written for at0494, whose files now read it here.
  *
  * The band's top is the scroller's own top plus the ENTRY-scoped pin stack,
  * read from an element inside the active match's entry: the pin stack is
@@ -302,6 +302,95 @@ export async function awaitRevealTerminal(
   return null;
 }
 
+/**
+ * Wait for the reveal that answers the last gesture recorded after `mark`
+ * — on `query`, when one is named — and return it. Typing fires a gesture
+ * per keystroke the debounce lets through, and a burst of ⌘G fires one per
+ * press, so the first reveal to settle after a mark is often an earlier
+ * gesture's, settled `superseded` by the one the caller is waiting on.
+ * This waits for the newest gesture's own outcome instead: a reveal is
+ * matched to its gesture by `navSeq`, and a `superseded` answer means a
+ * newer gesture exists, so the wait goes on.
+ *
+ * Polled in the page by `waitForCondition`. Returns `null` on timeout,
+ * as {@link awaitRevealTerminal} does.
+ */
+export async function awaitGestureReveal(
+  app: App,
+  mark: number,
+  query?: string,
+  timeoutMs = 10_000,
+): Promise<FindTraceEventLike | null> {
+  const want = query === undefined ? "null" : JSON.stringify(query);
+  try {
+    return await app.waitForCondition<FindTraceEventLike | null>(
+      `(function () {
+  var events = window.__findTrace ? window.__findTrace.dump({ since: ${mark} }) : [];
+  var want = ${want};
+  var gesture = null;
+  for (var e of events) {
+    if (e.kind === "gesture" && (want === null || e.query === want)) gesture = e;
+  }
+  if (gesture === null) return null;
+  var reveal = null;
+  for (var r of events) {
+    if (r.kind === "reveal" && r.navSeq === gesture.navSeq) reveal = r;
+  }
+  if (reveal === null || reveal.outcome === "superseded") return null;
+  return reveal;
+})()`,
+      { timeoutMs },
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Wait for a gesture on `query` recorded after `mark`, and return it. The
+ * Text card records gestures and no reveals — CM6 scrolls its own
+ * selection — so this is what a Text card keystroke is waited on by.
+ */
+export async function awaitGesture(
+  app: App,
+  mark: number,
+  query: string,
+  timeoutMs = 10_000,
+): Promise<FindTraceEventLike> {
+  return app.waitForCondition<FindTraceEventLike>(
+    `(function () {
+  var events = window.__findTrace ? window.__findTrace.dump({ since: ${mark} }) : [];
+  var found = null;
+  for (var e of events) {
+    if (e.kind === "gesture" && e.query === ${JSON.stringify(query)}) found = e;
+  }
+  return found;
+})()`,
+    { timeoutMs },
+  );
+}
+
+/**
+ * Wait out `n` animation frames in the page — what a raw `scrollTop` write
+ * needs before the list view has re-rendered around it. A sleep long
+ * enough to usually be enough was here before; a frame count is the thing
+ * itself.
+ */
+export async function waitFrames(app: App, n = 3): Promise<void> {
+  await app.evalJS<boolean>(`(function () {
+  window.__findFrames = 0;
+  function tick() {
+    window.__findFrames += 1;
+    if (window.__findFrames < ${n}) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  return true;
+})()`);
+  await app.waitForCondition<boolean>(`(window.__findFrames || 0) >= ${n}`, {
+    timeoutMs: 5000,
+  });
+}
+
 /** The trace's view of the last gesture recorded after `mark`. */
 export async function lastGesture(
   app: App,
@@ -346,6 +435,63 @@ export function framer(
       feedId: 0x40,
       decoded: { tug_session_id: sessionId, ...decoded },
     });
+}
+
+/** One decoded CODE_OUTPUT frame, as a drive step a batch can carry. */
+export function ingest(
+  sessionId: string,
+  decoded: Record<string, unknown>,
+): SessionDriveAction {
+  return {
+    op: "ingestFrame",
+    feedId: 0x40,
+    decoded: { tug_session_id: sessionId, ...decoded },
+  };
+}
+
+/**
+ * One prose turn's steps: the send, the anchor, and a complete reply
+ * carrying `text`. Message and anchor ids are `${sessionId}-m${n}` and
+ * `${sessionId}-u${n}`.
+ */
+export function proseTurn(
+  sessionId: string,
+  n: number,
+  text: string,
+): SessionDriveAction[] {
+  const msgId = `${sessionId}-m${n}`;
+  return [
+    { op: "send", text: `prompt ${n}` },
+    ingest(sessionId, { type: "prompt_anchor", promptUuid: `${sessionId}-u${n}` }),
+    ingest(sessionId, { type: "content_block_start", msg_id: msgId, block_index: 0, kind: "text" }),
+    ingest(sessionId, {
+      type: "assistant_text",
+      seq: 0,
+      rev: 0,
+      status: "complete",
+      msg_id: msgId,
+      block_index: 0,
+      text,
+      is_partial: false,
+    }),
+    ingest(sessionId, { type: "turn_complete", seq: 0, msg_id: msgId, result: "success" }),
+  ];
+}
+
+/**
+ * Seed `turns` prose turns, one batch per turn — a batch spanning several
+ * turns' sends stops the app answering ({@link App.driveSessionBatch}).
+ */
+export async function seedProseTurns(
+  app: App,
+  cardId: string,
+  sessionId: string,
+  turns: number,
+  replyText: (n: number) => string,
+): Promise<void> {
+  for (let n = 0; n < turns; n += 1) {
+    await app.driveSessionBatch(cardId, proseTurn(sessionId, n, replyText(n)));
+  }
 }
 
 /** Open the find bar on a Session card and wait for its field. */

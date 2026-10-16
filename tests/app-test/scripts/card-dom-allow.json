@@ -556,7 +556,15 @@
     "kind": "unknown"
   },
   {
-    "file": "at0494-find-reveal-in-view.test.ts",
+    "file": "at0494-find-paint.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0494-find-reveal-editor.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0494-find-reveal.test.ts",
     "kind": "session"
   },
   {
@@ -816,12 +824,16 @@
     "kind": "text"
   },
   {
-    "file": "at0605-find-adversarial.test.ts",
+    "file": "at0605-find-burst.test.ts",
     "kind": "session"
   },
   {
-    "file": "at0605-find-adversarial.test.ts",
-    "kind": "text"
+    "file": "at0605-find-reveal-range.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0605-find-second-card.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0607-text-card-compare-sheet.test.ts",

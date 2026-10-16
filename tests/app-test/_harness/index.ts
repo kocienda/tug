@@ -1163,6 +1163,18 @@ export class App {
   }
 
   /**
+   * Drive a run of steps in one evaluate and wait for the store to settle
+   * once — see {@link client.driveSessionBatch}. The way to seed a transcript.
+   */
+  driveSessionBatch(
+    cardId: string,
+    actions: readonly client.SessionDriveAction[],
+    opts?: EvalJsOptions,
+  ): Promise<void> {
+    return client.driveSessionBatch(this as HarnessCaller, cardId, actions, opts);
+  }
+
+  /**
    * Drop the real WebSocket and let the app recover on its own.
    *
    * Unlike `driveSession(..., {op: "transportClose"})` — which only
@@ -1949,6 +1961,11 @@ export class BodyApp implements HarnessCaller {
   /** Drive this body's card's session — see {@link App.driveSession}. */
   driveSession(action: client.SessionDriveAction, opts?: EvalJsOptions): Promise<void> {
     return client.driveSession(this, this.cardId, action, opts);
+  }
+
+  /** Drive a run of steps on this body's card — see {@link App.driveSessionBatch}. */
+  driveSessionBatch(actions: readonly client.SessionDriveAction[], opts?: EvalJsOptions): Promise<void> {
+    return client.driveSessionBatch(this, this.cardId, actions, opts);
   }
 
   /** This body's card's editor state — see {@link App.getEmCardState}. */
