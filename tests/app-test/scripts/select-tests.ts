@@ -996,10 +996,21 @@ function normalizeTestName(name: string): string {
     return name.replace(/^\.\//, "").replace(/^tests\/app-test\//, "");
 }
 
+/**
+ * The declarations of a file named on the command line, wherever it lives. The corpus
+ * table covers the three swept directories; a reading under `readings/` is never swept
+ * and is only ever named, and its `@foreground` and `@motion` still decide its queue.
+ */
+const corpusByFile = new Map(coverage.map((c) => [c.file, c]));
+function namedCoverage(name: string): TestCoverage | undefined {
+    const known = corpusByFile.get(name);
+    if (known !== undefined) return known;
+    return existsSync(join(APP_TEST_DIR, name)) ? readCoverage(name) : undefined;
+}
+
 if (foregroundOnly) {
-    const tagged = new Set(coverage.filter((c) => c.foreground).map((c) => c.file));
     for (const name of explicit.map(normalizeTestName)) {
-        if (tagged.has(name)) process.stdout.write(`${name}\n`);
+        if (namedCoverage(name)?.foreground) process.stdout.write(`${name}\n`);
     }
     process.exit(0);
 }
@@ -1020,9 +1031,8 @@ function queueOf(c: TestCoverage | undefined): Queue {
 }
 
 if (queuesOnly) {
-    const byFile = new Map(coverage.map((c) => [c.file, c]));
     for (const name of explicit.map(normalizeTestName)) {
-        process.stdout.write(`${queueOf(byFile.get(name))}\t${name}\n`);
+        process.stdout.write(`${queueOf(namedCoverage(name))}\t${name}\n`);
     }
     process.exit(0);
 }

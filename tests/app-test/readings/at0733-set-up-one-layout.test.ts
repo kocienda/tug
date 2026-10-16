@@ -48,8 +48,8 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 
-import { note, type App } from "./_harness";
-import { rmTempTugbank } from "./_harness/tugbank-helpers";
+import { note, type App } from "../_harness";
+import { rmTempTugbank } from "../_harness/tugbank-helpers";
 import {
   AFTER_LAND_MS,
   SHOULD_RUN,
@@ -58,7 +58,7 @@ import {
   launch,
   transcriptArms,
   wait,
-} from "./settle-frames-fixture";
+} from "../settle-frames-fixture";
 
 const TEST_NAME = "at0733-set-up-one-layout";
 const ARMS = transcriptArms();

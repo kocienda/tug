@@ -39,7 +39,7 @@ import { dirname, join } from "node:path";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, promptPhase, sessionPane, spawnStub, waitForBody } from "../body-grounding/_bodies";
 
 const TEST_NAME = "body-grounding-record-reading";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

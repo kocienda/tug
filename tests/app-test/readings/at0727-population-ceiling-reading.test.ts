@@ -59,10 +59,10 @@ import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 
-import { note, type App } from "./_harness";
-import { rmTempTugbank } from "./_harness/tugbank-helpers";
-import { DEFAULT_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
-import { sealedClause } from "../../tugdeck/src/lib/motion-guard/settle-bar";
+import { note, type App } from "../_harness";
+import { rmTempTugbank } from "../_harness/tugbank-helpers";
+import { DEFAULT_OVERVIEW_WIDTH_PX } from "../../../tugdeck/src/lib/overview-measure";
+import { sealedClause } from "../../../tugdeck/src/lib/motion-guard/settle-bar";
 import {
   AFTER_LAND_MS,
   SHOULD_RUN,
@@ -73,13 +73,13 @@ import {
   settleBeatRows,
   settleFrameRows,
   transcriptArms,
-} from "./settle-frames-fixture";
+} from "../settle-frames-fixture";
 import {
   STUB_TRANSCRIPT_DIR_ENV,
   bindStreamingStubs,
   startStreams,
   stubDirectory,
-} from "./streaming-stub-fixture";
+} from "../streaming-stub-fixture";
 
 const TEST_NAME = "at0727-population-ceiling-reading";
 const ARMS = transcriptArms();
@@ -160,7 +160,7 @@ const SCROLLERS = '[data-tug-scroll-key="session-card-transcript"]';
 const OVERVIEW_COLUMN = '[data-testid="overview-card"] .overview-transcript';
 
 /** This checkout, and its HEAD — a path and a sha the annotator resolves. */
-const REPO_ROOT = resolve(import.meta.dir, "../..");
+const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const HEAD_SHA = execSync("git rev-parse HEAD", { cwd: REPO_ROOT }).toString().trim();
 
 /** Four session cards four-up, a Layout rail on the right and an Overview on the left. */

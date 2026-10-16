@@ -58,15 +58,15 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 
-import { note, type App } from "./_harness";
-import { rmTempTugbank } from "./_harness/tugbank-helpers";
-import { AFTER_LAND_MS, SHOULD_RUN, blobFor, launch, transcriptArms } from "./settle-frames-fixture";
+import { note, type App } from "../_harness";
+import { rmTempTugbank } from "../_harness/tugbank-helpers";
+import { AFTER_LAND_MS, SHOULD_RUN, blobFor, launch, transcriptArms } from "../settle-frames-fixture";
 import {
   STUB_TRANSCRIPT_DIR_ENV,
   bindStreamingStubs,
   startStreams,
   stubDirectory,
-} from "./streaming-stub-fixture";
+} from "../streaming-stub-fixture";
 
 const TEST_NAME = "at0725-streaming-settle-reading";
 const ARMS = transcriptArms();

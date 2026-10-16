@@ -50,9 +50,9 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 
-import { note, type App } from "./_harness";
-import { rmTempTugbank } from "./_harness/tugbank-helpers";
-import { DEFAULT_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
+import { note, type App } from "../_harness";
+import { rmTempTugbank } from "../_harness/tugbank-helpers";
+import { DEFAULT_OVERVIEW_WIDTH_PX } from "../../../tugdeck/src/lib/overview-measure";
 import {
   AFTER_LAND_MS,
   SHOULD_RUN,
@@ -60,7 +60,7 @@ import {
   launch,
   transcriptArms,
   wait,
-} from "./settle-frames-fixture";
+} from "../settle-frames-fixture";
 
 const TEST_NAME = "at0734-parked-content-bench";
 const ARMS = transcriptArms();

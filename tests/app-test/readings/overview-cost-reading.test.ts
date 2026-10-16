@@ -20,8 +20,8 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "../_harness";
 import { cardPage } from "../_harness/card-reach";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { cardKind, kindPane, kindSidebars } from "./_kinds";
+import { pollFor, sessionPane, spawnStub, waitForBody } from "../body-grounding/_bodies";
+import { cardKind, kindPane, kindSidebars } from "../body-grounding/_kinds";
 
 const TEST_NAME = "body-grounding-overview-cost-reading";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";

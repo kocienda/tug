@@ -648,6 +648,7 @@ tests/app-test/
     version-handshake.test.ts # EXPECTED_SURFACE_VERSION mismatch error.
     wait-for-condition.test.ts # evalJS error translation, timeout, immediate-truthy.
   body-grounding/             # The body view grounding bar: one file per row, on the app's own event path.
+  readings/                   # Readings and benches: instruments that print a number for a brief. Never swept or selected; run by name.
   at{NNNN}-<slug>.test.ts     # AT-numbered scenario tests; prefix must match inventory.
   bunfig.toml                 # [test] root = "." — no test preload.
   tsconfig.json               # Path alias @/_harness. tsc --noEmit must be clean.

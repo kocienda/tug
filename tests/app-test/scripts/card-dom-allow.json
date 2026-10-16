@@ -1036,18 +1036,6 @@
     "kind": "cards"
   },
   {
-    "file": "at0725-streaming-settle-reading.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0727-population-ceiling-reading.test.ts",
-    "kind": "overview"
-  },
-  {
-    "file": "at0727-population-ceiling-reading.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "at0728-overview-window.test.ts",
     "kind": "overview"
   },
@@ -1064,10 +1052,6 @@
     "kind": "session"
   },
   {
-    "file": "at0735-standing-taxes-reading.test.ts",
-    "kind": "unknown"
-  },
-  {
     "file": "at0738-session-body.test.ts",
     "kind": "session"
   },
@@ -1078,10 +1062,6 @@
   {
     "file": "body-grounding/chrome-under-bodies.test.ts",
     "kind": "text"
-  },
-  {
-    "file": "body-grounding/overview-cost-reading.test.ts",
-    "kind": "overview"
   },
   {
     "file": "body-grounding/probe-tap.test.ts",
