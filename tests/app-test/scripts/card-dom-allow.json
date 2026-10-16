@@ -472,10 +472,6 @@
     "kind": "session"
   },
   {
-    "file": "at0444-join-slow-resolver.test.ts",
-    "kind": "dashes"
-  },
-  {
     "file": "at0445-join-reveal.test.ts",
     "kind": "dashes"
   },

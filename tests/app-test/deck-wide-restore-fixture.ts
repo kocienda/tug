@@ -1,69 +1,14 @@
 /**
- * at0037-deck-wide-restore-consistency.test.ts — multi-card restore
- * preserves the active/inactive selection invariants ([AT0037]).
+ * deck-wide-restore-fixture.ts — the four layouts, the seeded per-card bags,
+ * the phase-B invariants and the two trigger drivers (`appReload`, and a
+ * graceful quit and relaunch) the at0037 deck-wide restore files share.
  *
- * Renamed from `m26-*`; the
- * original `m26` prefix collided with the AT0026 overlay-policy tag
- * (gated by `at0026-overlay-persistence.test.ts`). AT0037 was assigned in
- * the canonical inventory at `tuglaws/at-series-inventory.md`.
- *
- * ## What this gates
- *
- * The engine paint API split into active vs. inactive paths and
- * CardHost's `onRestore` routes by `isActive`. This test
- * verifies the result on multi-card decks:
- *
- *   1. Exactly one card holds document focus — the deck-level
- *      first responder.
- *   2. Exactly one card's range is in `window.getSelection()` (same
- *      card).
- *   3. Every inactive card's selection lives in
- *      `selectionGuard.cardRanges` and is observable via
- *      `__tug.getCaretState(cardId)`.
- *   4. Every inactive card's range is in the
- *      `inactive-selection` CSS Custom Highlight; the active card's
- *      range is NOT.
- *   5. Every card's bag-on-disk has the four 25C.3 axes
- *      (text/atoms/selection/scrollTop) preserved.
- *
- * Pre-25C.4: tests fail because every card's restore calls
- * `setSelectedRange` (focus + `addRange` + `removeAllRanges`), the
- * last writer wins the global Selection / focus, and the deck-level
- * first responder may not be the last writer.
- * Post-25C.4: deterministic — only the active card runs
- * `paintMirrorAsActive`; every inactive card runs
- * `paintMirrorAsInactive(publish)`.
- *
- * ## Test matrix (4 layouts × 2 triggers = 8 tests)
- *
- *   | Layout | Pane geometry | Active (deck FR) | Inactive |
- *   |--------|---------------|------------------|----------|
- *   | L1 | 1 pane, 2 cards (tabs) | gallery-prompt-entry #A | gallery-prompt-entry #B |
- *   | L2 | 1 pane, 2 cards (tabs) | gallery-prompt-entry | dev |
- *   | L3 | 1 pane, 2 cards (tabs) | dev | gallery-prompt-entry |
- *   | L4 | 2 panes, 1 card each | gallery-prompt-entry (in active pane) | dev (pane-active in non-active pane) |
- *
- * L4 is the load-bearing case for the "active = deck-level first
- * responder, NOT pane-active" precision ("Defining
- * 'active' precisely"). Dev is the active card of P2, but P2 is
- * not the active pane — so dev is NOT the deck-level first
- * responder, and its selection routes through
- * `paintMirrorAsInactive`.
- *
- * Triggers: `app.appReload()` (Layer 1 primitive) and
- * `app.quitGracefully()` + relaunch.
- *
- * Gating: `describe.skipIf(!SHOULD_RUN)`.
- *
- * @covers tugdeck/src/card-state-cache.ts
- * @covers tugdeck/src/layout-persistence.ts
- * @covers tugdeck/src/serialization.ts
- * @covers tugdeck/src/card-state-orchestrator.ts
- * @covers tugdeck/src/components/tugways/selection-guard.ts
- * @covers tugdeck/src/deck-manager.ts
+ * Split out of `at0037-deck-wide-restore-consistency.test.ts` when that file
+ * was cut into `at0037-deck-wide-restore-reload`, `-relaunch-l1-l2` and
+ * `-relaunch-l3-l4` to keep each under the 20 s budget.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
 import {
   mkTempTugbank,
@@ -72,9 +17,9 @@ import {
   tugbankRead,
 } from "./_harness/tugbank-helpers";
 
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
-const TEST_TIMEOUT_MS = 90_000;
+export const TEST_TIMEOUT_MS = 90_000;
 
 const PROMPT_INPUT_SELECTOR =
   '[data-slot="tug-text-editor"] .cm-content';
@@ -192,7 +137,7 @@ function buildDeckShape(layout: Layout) {
   };
 }
 
-function makeLayout(id: LayoutId): Layout {
+export function makeLayout(id: LayoutId): Layout {
   switch (id) {
     case "L1":
       return {
@@ -587,7 +532,7 @@ async function assertPhaseBInvariants(
 // Trigger drivers
 // ---------------------------------------------------------------------------
 
-async function runAppReloadScenario(layout: Layout): Promise<void> {
+export async function runAppReloadScenario(layout: Layout): Promise<void> {
   const tugbankPath = mkTempTugbank();
   try {
     seedTugbankForLaunch(tugbankPath);
@@ -609,7 +554,7 @@ async function runAppReloadScenario(layout: Layout): Promise<void> {
   }
 }
 
-async function runRelaunchScenario(layout: Layout): Promise<void> {
+export async function runRelaunchScenario(layout: Layout): Promise<void> {
   const tugbankPath = mkTempTugbank();
   try {
     seedTugbankForLaunch(tugbankPath);
@@ -644,53 +589,3 @@ async function runRelaunchScenario(layout: Layout): Promise<void> {
     rmTempTugbank(tugbankPath);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Test cases — 4 layouts × 2 triggers
-// ---------------------------------------------------------------------------
-
-describe.skipIf(!SHOULD_RUN)(
-  "m37: deck-wide restore consistency (active/inactive paint split)",
-  () => {
-    test(
-      "L1 (1 pane, 2 cards: gallery-prompt-entry × 2) × appReload",
-      () => runAppReloadScenario(makeLayout("L1")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L1 (1 pane, 2 cards: gallery-prompt-entry × 2) × relaunch",
-      () => runRelaunchScenario(makeLayout("L1")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L2 (1 pane: gallery-prompt-entry active + dev inactive) × appReload",
-      () => runAppReloadScenario(makeLayout("L2")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L2 (1 pane: gallery-prompt-entry active + dev inactive) × relaunch",
-      () => runRelaunchScenario(makeLayout("L2")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L3 (1 pane: dev active + gallery-prompt-entry inactive) × appReload",
-      () => runAppReloadScenario(makeLayout("L3")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L3 (1 pane: dev active + gallery-prompt-entry inactive) × relaunch",
-      () => runRelaunchScenario(makeLayout("L3")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L4 (2 panes: gallery-prompt-entry in active pane, dev pane-active in non-active pane) × appReload",
-      () => runAppReloadScenario(makeLayout("L4")),
-      TEST_TIMEOUT_MS,
-    );
-    test(
-      "L4 (2 panes: gallery-prompt-entry in active pane, dev pane-active in non-active pane) × relaunch",
-      () => runRelaunchScenario(makeLayout("L4")),
-      TEST_TIMEOUT_MS,
-    );
-  },
-);

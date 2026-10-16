@@ -550,7 +550,7 @@ pub async fn run_arc_engine(
     // nothing at all. `MissedTickBehavior::Delay` because a sweep that ran
     // long should push the next wake out rather than fire a burst of catch-up
     // sweeps that would each re-read every arc's documents.
-    let mut clock = tokio::time::interval(CLOCK_POLL);
+    let mut clock = tokio::time::interval(clock_poll());
     clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     clock.tick().await; // the first tick of an interval is immediate
 
@@ -640,6 +640,7 @@ async fn depart(ctx: &ArcContext, state: &ArcMemory, present: &[(String, BoundAr
             continue;
         };
         let stage = record.stages[record.stages.len() - 1].stage;
+        let reason = departure_reason(ctx, &arc.session).await;
         stop_arc_for_session(
             &ctx.supervisor,
             &ctx.wheel,
@@ -647,7 +648,7 @@ async fn depart(ctx: &ArcContext, state: &ArcMemory, present: &[(String, BoundAr
             &arc.project,
             &arc.name,
             stage,
-            ArcStopReason::SeatLost,
+            reason,
             StopDelivery {
                 hand_back: HandBack::Send,
                 record: true,
@@ -655,6 +656,38 @@ async fn depart(ctx: &ArcContext, state: &ArcMemory, present: &[(String, BoundAr
         )
         .await;
         evict_for_stop(state, &key, None).await;
+    }
+}
+
+/// Why a departed arc's seat went away, as far as this process knows.
+///
+/// A seat whose session died until the bridge's crash budget was spent
+/// leaves the sweep the same way any closed row does — the card unbinds and
+/// its row closes — but the cause is known, and it is the stage's session
+/// ending: `SessionGone`, the reason a sweep reading the dead child would have
+/// written had it got there first. Which one did used to be a race (`at0505`,
+/// 2026-10-16: the third kill spent the budget and the row closed before any
+/// sweep read the child gone). `SeatLost` stays for a row that closed for no
+/// reason this process can name.
+async fn departure_reason(ctx: &ArcContext, session: &TugSessionId) -> ArcStopReason {
+    let entry = {
+        let ledger = ctx.supervisor.ledger.lock().await;
+        ledger.get(session).cloned()
+    };
+    let Some(entry) = entry else {
+        return ArcStopReason::SeatLost;
+    };
+    let entry = entry.lock().await;
+    session_died(entry.spawn_state, entry.crash_budget.is_exhausted())
+}
+
+/// The pure half of [`departure_reason`]: a spent crash budget, or a bridge
+/// that ended `Errored`, is the session dying.
+fn session_died(spawn_state: SpawnState, budget_spent: bool) -> ArcStopReason {
+    if budget_spent || spawn_state == SpawnState::Errored {
+        ArcStopReason::SessionGone
+    } else {
+        ArcStopReason::SeatLost
     }
 }
 
@@ -821,6 +854,44 @@ const CLOCK_POLL: Duration = Duration::from_secs(60);
 /// seconds is an order of magnitude of headroom over the only legitimate case
 /// and still turns the wedge `at0505` found from *forever* into *late*.
 pub(crate) const CHILD_GONE_GRACE: Duration = Duration::from_secs(30);
+
+/// [`CLOCK_POLL`], or under an app-test launch the `TUG_ARC_CLOCK_POLL_MS`
+/// override. A test whose subject is what the clock does — a dead owner
+/// clocked, a live foreign owner never clocked — otherwise waits out a whole
+/// minute for one tick, and a negative watched for less than a minute holds
+/// no sweep at all and proves nothing.
+fn clock_poll() -> Duration {
+    tuned_for_app_test(
+        std::env::var("TUG_ARC_CLOCK_POLL_MS").ok().as_deref(),
+        crate::shared_agent::app_test_gated(),
+        CLOCK_POLL,
+    )
+}
+
+/// [`CHILD_GONE_GRACE`], or under an app-test launch the
+/// `TUG_ARC_CHILD_GONE_GRACE_MS` override, so `at0505` reads a killed stage
+/// as gone without waiting out thirty seconds.
+fn child_gone_grace() -> Duration {
+    tuned_for_app_test(
+        std::env::var("TUG_ARC_CHILD_GONE_GRACE_MS").ok().as_deref(),
+        crate::shared_agent::app_test_gated(),
+        CHILD_GONE_GRACE,
+    )
+}
+
+/// A duration a test may shorten and a user never can: the override is read
+/// only when `gated` (an app-test launch), and only a whole number of
+/// milliseconds counts. Floored at 100 ms — a zero `interval` panics, and a
+/// clock faster than that would re-read every arc's documents in a spin.
+fn tuned_for_app_test(raw: Option<&str>, gated: bool, default: Duration) -> Duration {
+    if !gated {
+        return default;
+    }
+    match raw.and_then(|s| s.trim().parse::<u64>().ok()) {
+        Some(ms) => Duration::from_millis(ms.max(100)),
+        None => default,
+    }
+}
 
 /// Whether the arc's clock has run out.
 ///
@@ -1778,7 +1849,7 @@ async fn session_snapshot(ctx: &ArcContext, id: &TugSessionId) -> Option<Session
             // ordinary retry from being read as a death.
             SpawnState::Spawning | SpawnState::Live => entry
                 .child_gone_at
-                .is_none_or(|gone| gone.elapsed() < CHILD_GONE_GRACE),
+                .is_none_or(|gone| gone.elapsed() < child_gone_grace()),
             SpawnState::Errored | SpawnState::Closed => false,
         };
         (
@@ -3542,6 +3613,30 @@ fn report_append(
 mod tests {
     use super::*;
     use std::time::{Duration, SystemTime};
+
+    /// A departed seat whose session died — the crash budget spent, or the
+    /// bridge ended `Errored` — stops as `SessionGone`; a row that closed
+    /// under a session this process saw nothing wrong with is `SeatLost`.
+    #[test]
+    fn a_departure_names_a_dead_session() {
+        assert_eq!(session_died(SpawnState::Live, true), ArcStopReason::SessionGone);
+        assert_eq!(session_died(SpawnState::Errored, false), ArcStopReason::SessionGone);
+        assert_eq!(session_died(SpawnState::Live, false), ArcStopReason::SeatLost);
+        assert_eq!(session_died(SpawnState::Closed, false), ArcStopReason::SeatLost);
+    }
+
+    /// A user's tugcast never takes the override, however it is spelled; an
+    /// app-test launch takes a whole number of milliseconds, floored at 100,
+    /// and anything else leaves the default.
+    #[test]
+    fn app_test_tuning_is_test_only() {
+        let d = Duration::from_secs(60);
+        assert_eq!(tuned_for_app_test(Some("1000"), false, d), d);
+        assert_eq!(tuned_for_app_test(Some("1000"), true, d), Duration::from_millis(1000));
+        assert_eq!(tuned_for_app_test(Some("0"), true, d), Duration::from_millis(100));
+        assert_eq!(tuned_for_app_test(Some("soon"), true, d), d);
+        assert_eq!(tuned_for_app_test(None, true, d), d);
+    }
 
     /// An open job stamped `since`, of the kind these tests are about: a
     /// backgrounded `Bash` command. The kind is recorded at the launch ([P03]),

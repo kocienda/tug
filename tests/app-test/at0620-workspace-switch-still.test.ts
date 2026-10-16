@@ -10,9 +10,9 @@
  * every part of which was deleted by `8a4fd3687`. Nothing here has tested a
  * cover since. What it tests is stillness, which is a property of the switch
  * rather than of a mechanism, so the name is now the property. The cadence
- * half — whether the switch DELIVERS its frames — belongs to
- * `at0643-workspace-switch-cadence.test.ts`, which holds it to the deck-wide
- * two-display-frame bar.
+ * half — whether the switch DELIVERS its frames — was `at0643`'s, deleted
+ * 2026-10-16 as flaky at its own baseline and built on seeded transcripts;
+ * it is read on the real app by `tugtool deck motion settle`.
  *
  * ## Why it began as a recording rather than an assertion
  *

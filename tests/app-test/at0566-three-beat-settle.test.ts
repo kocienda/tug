@@ -44,11 +44,11 @@
  *
  * Both cards are bound because claim 4 reads the composer and Z2, and an
  * unbound Session card renders the project picker rather than the card body.
- * They are bound to REAL resumed transcripts (`real-transcript-fixture.ts`),
- * on two arms: the slice everywhere, and in the whale arm the mover carries
- * the corpus's whale. A card with a transcript answers every resize beat with
- * its own work — its list view pins, restores and rebases — and the claims
- * are read over the beats a user's cards actually run.
+ * They are bare: bound, and carrying no transcript. They used to resume real
+ * transcripts on two arms, the slice and the whale; the corpus no longer
+ * seeds a transcript to have something to move ([B04] of
+ * `app-test-corpus-cut`), and what a transcript does under a real settle is
+ * read on the live deck by `tugtool deck motion settle`.
  *
  * `@covers` names the settle engine that plans and launches the beats, the
  * planner that partitions a frame's terms into them, and the recipe table each
@@ -59,12 +59,10 @@
  * @covers tugdeck/src/components/chrome/settle-engine.ts
  * @covers tugdeck/src/lib/pane-flip.ts
  * @covers tugdeck/src/lib/imposer-motion.ts
- * @covers tests/app-test/real-transcript-fixture.ts
  */
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
-import { bindForTest, transcriptArms, type TranscriptSize } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -446,7 +444,7 @@ async function assertAtRest(app: App, label: string): Promise<void> {
 }
 
 /** Bring both Session cards up bound on a fresh app. */
-async function openCards(app: App, size: TranscriptSize): Promise<void> {
+async function openCards(app: App): Promise<void> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: deckShape(), focusCardId: SITTER });
   for (const card of CARD_IDS) {
@@ -455,11 +453,10 @@ async function openCards(app: App, size: TranscriptSize): Promise<void> {
       { timeoutMs: 30_000 },
     );
   }
-  await bindForTest(app, CARD_IDS, {
-    size,
-    whaleCards: [MOVER],
-    label: `at0566 [${size}]`,
-  });
+  for (const card of CARD_IDS) {
+    await app.bindSession(card, { tugSessionId: `at0566-${card}` });
+    await app.awaitEngineReady(card);
+  }
   for (const card of CARD_IDS) {
     await app.waitForCondition<boolean>(
       `document.querySelector(${JSON.stringify(transcriptSel(card))}) !== null && document.querySelector(${JSON.stringify(entrySel(card))}) !== null && document.querySelector(${JSON.stringify(z2Sel(card))}) !== null`,
@@ -475,13 +472,13 @@ async function openCards(app: App, size: TranscriptSize): Promise<void> {
   await wait(AFTER_LAND_MS);
 }
 
-for (const arm of transcriptArms()) describe.skipIf(!SHOULD_RUN || arm.skip)(`AT0566: the three-beat settle [${arm.size}]`, () => {
+describe.skipIf(!SHOULD_RUN)("AT0566: the three-beat settle", () => {
   test(
     "a split arrival shrinks then moves, a departure moves then grows, and a stack move is one move beat",
     async () => {
-      const app = await launchTugApp({ testName: `at0566-three-beat-settle-${arm.size}` });
+      const app = await launchTugApp({ testName: "at0566-three-beat-settle" });
       try {
-        await openCards(app, arm.size);
+        await openCards(app);
 
         // ── The split arrival: make room, then move in ─────────────────
         // Slot 0 is divided before the mover arrives, so the arrival is into

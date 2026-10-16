@@ -43,7 +43,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
@@ -174,20 +174,13 @@ function arcReport(): { stopped: [string, string] | null; stages: number } {
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * A write into the project, which would be a changeset recompute and so a
- * sweep on an instance that had registered the project's workspace. B has
- * not — only a real spawn registers one, and B's card is never spawned — so
- * measured, these wake nothing: the stop lands on B's first `CLOCK_POLL`
- * tick, a minute after its engine started (59 s on 2026-10-16). They are kept
- * because they cost nothing and make the file correct on a build whose
- * aggregate does learn the project from the seeded row.
+ * B's runner clock, shortened for this launch (`TUG_ARC_CLOCK_POLL_MS`, read
+ * only under an app-test launch). B never spawns a card, so it never
+ * registers the project's workspace and no changeset recompute wakes its
+ * engine: the clock is the only thing that sweeps the bound arc, and at the
+ * shipped minute the stop landed 59 s after B came up (2026-10-16).
  */
-async function nudgeSweeps(rounds: number): Promise<void> {
-  for (let i = 0; i < rounds; i += 1) {
-    writeFileSync(join(projectDir(), `at0510-nudge-${Date.now()}-${i}.txt`), `${Date.now()}\n`);
-    await settle(1_500);
-  }
-}
+const CLOCK_POLL_MS = 1_000;
 
 describe.skipIf(!SHOULD_RUN)("AT0510: an arc whose owner is gone is judged", () => {
   test(
@@ -209,7 +202,11 @@ describe.skipIf(!SHOULD_RUN)("AT0510: an arc whose owner is gone is judged", () 
         appB = await launchTugApp({
           testName: "at0510-dead-owner-B",
           instanceId: idB,
-          env: { TUGBANK_PATH: bankB, TUG_DATA_DIR: dataRoot },
+          env: {
+            TUGBANK_PATH: bankB,
+            TUG_DATA_DIR: dataRoot,
+            TUG_ARC_CLOCK_POLL_MS: String(CLOCK_POLL_MS),
+          },
         });
         await awaitDeck(appB);
         // Seeded after launch, because `demote_live_to_closed` flips every
@@ -230,11 +227,13 @@ describe.skipIf(!SHOULD_RUN)("AT0510: an arc whose owner is gone is judged", () 
         note(`at0510: B up and bound to an arc owned by ${idA}, which is not live`);
 
         const startedAt = Date.now();
-        const deadline = startedAt + 120_000;
+        // A few clock ticks: the first sweep after the binding lands reads
+        // the dead owner, and the one-second stall deadline is past by then.
+        const deadline = startedAt + 15 * CLOCK_POLL_MS;
         for (;;) {
-          await nudgeSweeps(1);
           if (arcStopLines().length > 0) break;
           if (Date.now() >= deadline) break;
+          await settle(250);
         }
         const after = arcReport();
         note(

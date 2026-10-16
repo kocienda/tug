@@ -382,10 +382,11 @@ Two options shape what the fixture builds:
 - **`cleanMerge: true`** puts the base's rewrite in a file of its own, so the
   squash has nothing to reconcile. The clean join is its own arc rather than the
   absence of one: it resolves and anchors a candidate.
-- **A slow resolver stub** — `read -r _charter; sleep 15; …` — is how `at0444`
-  holds a run silent past the twelve-second deadline the client used to enforce.
-  Nothing is emitted during the sleep, on purpose: the point is that a run which
-  cannot speak is still a run, and only the server can say otherwise.
+- **A slow resolver stub** — `read -r _charter; sleep 15; …` — held a run silent
+  past the twelve-second deadline the client used to enforce, in `at0444`
+  (deleted 2026-10-16: a 15 s silence cannot fit the 20 s file budget). The
+  guarantee — a run that cannot speak is still a run, and only the server can
+  say otherwise — is pinned by `changeset-join-store.test.ts`.
 
 ## Selectors that mirror the product
 

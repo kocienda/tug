@@ -59,18 +59,17 @@
  * card's own uuid, which `build_tugcode_command` puts in its argv, and the tree
  * beneath it is claude.
  *
- * **One kill is terminal here, and finding that out is what this file is
- * for.** The bridge is *written* to retry — `RelayOutcome::Crashed` records
- * against the per-session crash budget and respawns a second later, which is
- * what would make a transient death invisible to the work. Driven for real, no
- * respawn arrives: `ps` under the app's own tugcast shows no tugcode for the
- * card at all, twenty-four seconds and five kill rounds later, and the ledger
- * row still reads `live`. Two drafts of this file were spent assuming
- * otherwise — one broke out of the loop believing a quiet four seconds meant a
- * dead tree, the next spent a crash budget that was never being spent — and
- * both were arguing with the machine. Every round's pids stay in the
- * diagnostics for that reason: a round that killed nothing is a claim about
- * the machine, not noise.
+ * **The respawn is real now, and the crash budget is what ends it.** The
+ * bridge retries — `RelayOutcome::Crashed` records against the per-session
+ * crash budget (three in a minute) and respawns a second later, which is what
+ * makes a transient death invisible to the work. When this file was written no
+ * respawn arrived, and one kill was terminal; on 2026-10-16 every kill round
+ * killed a new pid pair, and it is the third kill, spending the budget, that
+ * ends the session. Every round's pids stay in the diagnostics for that
+ * reason: a round that killed nothing is a claim about the machine, not noise.
+ * The departure that follows is recorded `session gone` because the budget
+ * was spent (`departure_reason` in `arc_runner.rs`); before that it raced the
+ * sweep and could read `seat lost`.
  *
  * That is the defect, and it is the one W7 fixes. `spawn_state` is the
  * *bridge's* account of itself, so an entry whose child died and whose retry
@@ -284,25 +283,42 @@ function killTheStage(): number[] {
  * something quite different from "the arc decided to wait".
  */
 function ledgerState(): unknown {
-  const out = JSON.parse(
-    tugtool(["arc", "bind", ARC, "--dry-run", "--json"], {
-      cwd: projectDir(),
-      binaryRoot: CHECKOUT,
-      env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
-    }),
-  ) as { data: unknown };
-  return out.data;
+  try {
+    const out = JSON.parse(
+      tugtool(["arc", "bind", ARC, "--dry-run", "--json"], {
+        cwd: projectDir(),
+        binaryRoot: CHECKOUT,
+        env: { ...scratch?.cli.env, TUG_SESSION_ID: SID },
+      }),
+    ) as { data: unknown };
+    return out.data;
+  } catch (err) {
+    // After the decision the session is closed and the binding refuses it:
+    // that refusal is the reading, so it is returned rather than thrown.
+    return { refused: String(err).split("\n").find((l) => l.includes('"message"'))?.trim() ?? String(err) };
+  }
 }
+
+/** `CHILD_GONE_GRACE` for this launch (`TUG_ARC_CHILD_GONE_GRACE_MS`). */
+const CHILD_GONE_GRACE_MS = 4_000;
 
 describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
   test(
-    "the arc stops as session gone, and the card has already unbound",
+    "the arc stops as session gone, and its card says so",
     async () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
       const app = await launchTugApp({
         testName: "at0505-arc-stage-kill",
-        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
+        env: {
+          TUGBANK_PATH: tugbankPath,
+          TUG_DATA_DIR: scratch?.dataRoot ?? "",
+          // Both read only under an app-test launch. The grace still clears
+          // a crash-retry (about a second) by four times over, and the clock
+          // is what sweeps after it: a dead child wakes nothing else.
+          TUG_ARC_CHILD_GONE_GRACE_MS: String(CHILD_GONE_GRACE_MS),
+          TUG_ARC_CLOCK_POLL_MS: "1000",
+        },
       });
       const cli = tugtoolPath(CHECKOUT);
       try {
@@ -322,17 +338,20 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // Delivered on a cadence rather than once, and **no round breaks
         // early**: a round that finds nothing has either looked inside the
         // one-second backoff or watched a tree that is not coming back, and
-        // only the next round can tell those apart. The rounds outlast the
-        // backoff by six times over, so what the pids show is the machine's
-        // answer to "does the bridge bring this session back", which is the
-        // question the fix turns on.
+        // only the next round can tell those apart. Each round outlasts the
+        // one-second backoff twice over, so what the pids show is the
+        // machine's answer to "does the bridge bring this session back",
+        // which is the question the fix turns on.
         const killed: number[][] = [];
-        for (let round = 0; round < 5; round += 1) {
+        let liveInsideGrace: unknown = null;
+        for (let round = 0; round < 3; round += 1) {
           killed.push(killTheStage());
-          await settle(6_000);
+          await settle(2_000);
+          // Read inside the grace, before the decision can close the row.
+          if (round === 0) liveInsideGrace = ledgerState();
         }
         note(`at0505 killed subtrees, per round: ${JSON.stringify(killed)}`);
-        note(`at0505 the ledger after the kill: ${JSON.stringify(ledgerState())}`);
+        note(`at0505 the ledger inside the grace: ${JSON.stringify(liveInsideGrace)}`);
         expect(
           killed[0]!.length,
           "a rotation seated a real subprocess tree to kill",
@@ -342,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // had gone non-live would take the arc out of the sweep entirely and
         // "the arc decided nothing" would mean something else again.
         expect(
-          (ledgerState() as { state: string }).state,
+          (liveInsideGrace as { state?: string } | null)?.state,
           "the ledger row is still live, so the arc is still swept",
         ).toBe("live");
 
@@ -352,14 +371,10 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // the thing this file exists to prove is that one arrives at all. The
         // arc's own wake is a turn ending or a changeset recompute, and a dead
         // child produces neither, so the sweep that decides this is the
-        // engine's own clock poll — a minute's granularity, hence the budget.
-        //
-        // The sweep is woken rather than waited for: a write into the watched
-        // project is a changeset recompute, which the runner sweeps on just as
-        // it does on its own minute (at0510 wakes it the same way). The decision
-        // still cannot land before `CHILD_GONE_GRACE` has run from the first
-        // kill, and that grace — not the wake — is this file's floor.
-        const deadline = Date.now() + 150_000;
+        // engine's clock, shortened for this launch with the grace. At the
+        // shipped 30 s grace and minute clock this wait was the file's floor
+        // (41 s alone, 2026-10-16).
+        const deadline = Date.now() + 20_000;
         let arc = arcReport();
         for (let nudge = 0; arc.stopped === null && Date.now() < deadline; nudge += 1) {
           writeFileSync(`${projectDir()}/at0505-nudge-${nudge}.txt`, `${Date.now()}\n`);
@@ -373,15 +388,17 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         expect(arc.stopped?.[1], "and said its session ended").toBe("session gone");
         expect(arc.done, "a stop is not a completion").toBe(false);
 
-        // ── And the card is already gone ─────────────────────────────────
+        // ── And the card says so ─────────────────────────────────────────
         //
-        // The stop's own sentence reaches a live card as a shell-exchange row
-        // under `/arc-run` ([D111]) — `at0476` asserts exactly that for a
-        // `arc stop`. It cannot here, and the reason is the point: the card
-        // whose session died has unbound and fallen back to its picker, so
-        // there is no transcript for a receipt to enter. The rows are read
-        // anyway, and both readings are noted, because "no rows" is the claim
-        // and a claim wants its evidence.
+        // The stop's own sentence reaches the card as a shell-exchange row
+        // ([D111]) — `at0476` asserts the same for an `arc stop`. This file
+        // used to claim the opposite: the card whose session died unbound and
+        // fell back to its picker, so there was no transcript for a receipt to
+        // enter. Since the card reloads only for a named reason
+        // (`briefs/session-reload-reasons-brief.md`, `4aafad97a`) it stays,
+        // and the user decided on 2026-10-16 that this is right: the card
+        // keeps its transcript and paints the stop, with its resume affordance.
+        // That reverses the old claim, on purpose.
         const readRows = async (): Promise<string[]> =>
           JSON.parse(
             await app.evalJS<string>(
@@ -391,15 +408,13 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
             ),
           ) as string[];
         //
-        // Waited on the picker, which is the condition the claim reads: once
-        // the card has unbound there is no transcript for a receipt to enter,
-        // and the rows are read after it. (This used to wait 45 s for the
-        // receipt text the claim says never comes, which spent the whole
-        // window on every green run.)
+        // Waited on the receipt itself, which is the condition the claim
+        // reads; a timeout falls through to the assertions, which say what
+        // the card held instead.
         await app
           .waitForCondition<boolean>(
-            `document.querySelector('[data-card-id="A"] [data-slot="session-card-picker"]') !== null`,
-            { timeoutMs: 30_000 },
+            `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})).some((el) => (el.textContent || "").includes("its session ended"))`,
+            { timeoutMs: 10_000 },
           )
           .catch(() => undefined);
         const seen = await readRows();
@@ -422,12 +437,12 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         );
         expect(
           onThePicker,
-          "the card unbound when its session died, which is why no receipt paints",
-        ).toBe(true);
+          "the card keeps its session's transcript rather than falling back to its picker",
+        ).toBe(false);
         expect(
-          seen,
-          "and there is no transcript left for one to enter",
-        ).toEqual([]);
+          seen.some((row) => row.includes("Stopped") && row.includes("its session ended")),
+          "and the stop's receipt paints there, saying its session ended",
+        ).toBe(true);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

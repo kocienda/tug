@@ -14,17 +14,15 @@
  * owner that never ran and an owner that ran and died are one verdict,
  * `ForeignDead`, which is why that arm no longer needs A at all.
  *
- * **A measured gap in the window below (2026-10-16).** Split out and run
- * alone, the dead-owner arm's stop landed 59 s after B came up, on B's first
- * `CLOCK_POLL` tick, with the project writes of `nudgeSweeps` waking nothing:
- * B never spawns a card, so it never registers the scratch project's
- * workspace, and its changeset aggregate has nothing to recompute. B's runner
- * therefore sweeps at its startup (before the binding is seeded) and then a
- * minute later — so this file's nine-second window most likely holds no
- * sweep of the bound arc at all, and the original single-file run's window
- * (which ended long before that first tick) held none either. Making the
- * negative evidence inside the 20 s budget needs a sweep this file can cause:
- * a test-mode `CLOCK_POLL`, or a control verb that sweeps now.
+ * **The window holds sweeps because B's clock is shortened.** B never spawns
+ * a card, so it never registers the scratch project's workspace and no
+ * changeset recompute wakes its engine; the clock is the only thing that
+ * sweeps the bound arc. At the shipped minute the window below held no sweep
+ * at all, and neither did the original single-file run's: its negative was
+ * vacuous (found 2026-10-16). B now launches with a one-second clock
+ * (`TUG_ARC_CLOCK_POLL_MS`, read only under an app-test launch), and the
+ * window spans five ticks — the same clock under which
+ * `at0510-dead-owner-clocked` stops a dead owner's arc within a couple.
  *
  * ## Why this exists
  *
@@ -104,7 +102,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
@@ -244,20 +242,8 @@ function arcReport(): { stopped: [string, string] | null; stages: number } {
 
 const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Wake the engine without waiting out `CLOCK_POLL`.
- *
- * The runner sweeps on a changeset recompute as well as on its own minute,
- * and a write into the watched project is what produces one. Several sweeps
- * inside a few seconds is what makes "still nothing" evidence rather than
- * impatience.
- */
-async function nudgeSweeps(rounds: number): Promise<void> {
-  for (let i = 0; i < rounds; i += 1) {
-    writeFileSync(join(projectDir(), `at0510-nudge-${i}.txt`), `${Date.now()}\n`);
-    await settle(1_500);
-  }
-}
+/** B's runner clock for this launch; the watched window is five of its ticks. */
+const CLOCK_POLL_MS = 1_000;
 
 describe.skipIf(!SHOULD_RUN)("AT0510: an arc is judged only by the instance that seated it", () => {
   test(
@@ -293,7 +279,11 @@ describe.skipIf(!SHOULD_RUN)("AT0510: an arc is judged only by the instance that
         appB = await launchTugApp({
           testName: "at0510-foreign-B",
           instanceId: idB,
-          env: { TUGBANK_PATH: bankB, TUG_DATA_DIR: dataRoot },
+          env: {
+            TUGBANK_PATH: bankB,
+            TUG_DATA_DIR: dataRoot,
+            TUG_ARC_CLOCK_POLL_MS: String(CLOCK_POLL_MS),
+          },
         });
         await awaitDeck(appB);
         // The binding is seeded, not spawned. B's runner sweeps whatever its
@@ -322,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)("AT0510: an arc is judged only by the instance that
         note(`at0510: B up and bound to the arc as ${idB}, with A still live`);
 
         // ── The claim: B watches and writes nothing ───────────────────────
-        await nudgeSweeps(6);
+        await settle(5 * CLOCK_POLL_MS);
         expect(arcStopLines(), "B wrote no stop for an arc it does not own").toEqual([]);
         const during = arcReport();
         expect(during.stopped, "the arc is untouched").toBeNull();
