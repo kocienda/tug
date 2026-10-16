@@ -1144,6 +1144,13 @@ pub struct RunProgressReport {
     pub done: Option<u64>,
     pub total: Option<u64>,
     pub failures: Option<u64>,
+    /// What the run counts (`file`, `test`, `phase`).
+    pub unit: Option<String>,
+    /// How many units run at once.
+    pub jobs: Option<u64>,
+    /// The run's unit rows, opaque here: the reporter writes them and the
+    /// block reads them.
+    pub units: Option<serde_json::Value>,
     /// Substrings of the command the reporter expects to be running under.
     pub needles: Vec<String>,
 }
@@ -1211,10 +1218,17 @@ fn run_progress_payload(
         ("done", report.done),
         ("total", report.total),
         ("failures", report.failures),
+        ("jobs", report.jobs),
     ] {
         if let Some(n) = value {
             body.insert(key.into(), n.into());
         }
+    }
+    if let Some(unit) = &report.unit {
+        body.insert("unit".into(), unit.clone().into());
+    }
+    if let Some(units) = &report.units {
+        body.insert("units".into(), units.clone());
     }
     body.insert("at_ms".into(), at_ms.into());
     let bytes = serde_json::to_vec(&body).expect("a json object of plain values serializes");
@@ -7886,7 +7900,50 @@ mod tests {
             frame.get("total").is_none() && frame.get("failures").is_none(),
             "absent numbers are omitted, not null: {frame}"
         );
+        assert!(
+            frame.get("unit").is_none() && frame.get("units").is_none() && frame.get("jobs").is_none(),
+            "a report without units is the one line, as before: {frame}"
+        );
         assert!(frame["at_ms"].as_i64().is_some());
+    }
+
+    #[tokio::test]
+    async fn a_unit_report_carries_its_unit_jobs_and_rows_to_the_block_untouched() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-units");
+        insert_ledger_entry(&sup, &id).await;
+        let mut code_rx = sup.code_output.subscribe();
+        sup.record_run_open(&id, &bash_use("toolu_U", "just app-test", false))
+            .await;
+
+        let rows = serde_json::json!([
+            {"name": "at0339-composer-order-census", "status": "fail", "index": 3,
+             "passed": 1, "total": 2, "secs": 14, "median": 9,
+             "title": "composer clears after send", "message": "timed out"},
+            {"name": "at0352-pane-split-restore", "status": "running", "index": 5,
+             "started_at_ms": 1_760_000_000_000_i64, "median": 11},
+        ]);
+        let answer = sup
+            .publish_run_progress(
+                "sess-units",
+                RunProgressReport {
+                    label: Some("app-test".into()),
+                    text: "at0339 FAIL".into(),
+                    done: Some(4),
+                    total: Some(25),
+                    unit: Some("file".into()),
+                    jobs: Some(4),
+                    units: Some(rows.clone()),
+                    ..RunProgressReport::default()
+                },
+            )
+            .await;
+        assert_eq!(answer, Some((true, Some("toolu_U".to_owned()))));
+
+        let frame = next_run_progress(&mut code_rx, "sess-units");
+        assert_eq!(frame["unit"], "file");
+        assert_eq!(frame["jobs"], 4);
+        assert_eq!(frame["units"], rows, "the rows reach the block as the reporter wrote them");
     }
 
     #[tokio::test]

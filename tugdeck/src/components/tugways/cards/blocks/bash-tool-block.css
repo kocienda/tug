@@ -72,3 +72,9 @@
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
+
+/* A settled run's strip is the collapsed block's one line; expanded, the
+   finished panel in the body says everything it does. */
+[data-slot="bash-tool-block"]:not([data-block-collapsed="true"]) .bash-run-strip {
+  display: none;
+}

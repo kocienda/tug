@@ -3,9 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   RunProgressStore,
   RUN_PROGRESS_CAP,
+  RUN_SETTLED_CAP,
   engineLiveness,
   formatRunProgressLine,
   liveElapsedMs,
+  narrowRunUnits,
 } from "../run-progress-store";
 
 describe("RunProgressStore — a running command's reports", () => {
@@ -133,5 +135,73 @@ describe("RunProgressStore — the engine heartbeat", () => {
     for (let i = 0; i <= RUN_PROGRESS_CAP; i++) store.applyHeartbeat(`t${i}`, 1, i);
     expect(store.get("t0")).toBeNull();
     expect(store.get(`t${RUN_PROGRESS_CAP}`)).not.toBeNull();
+  });
+});
+
+describe("RunProgressStore — a run that names its unit", () => {
+  const ROWS = [
+    { name: "at0310", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
+    { name: "at0339", status: "fail", index: 1, title: "clears", message: "timed out", history: "red in the last 7" },
+    { name: "at0352", status: "running", index: 2, started_at_ms: 1_000, median: 11 },
+  ];
+
+  test("its rows are narrowed at the door, and a report without a unit carries none", () => {
+    const store = new RunProgressStore();
+    store.applyReport(
+      { tool_use_id: "t", label: "app-test", text: "x", done: 2, total: 3, unit: "file", jobs: 4, units: ROWS },
+      1000,
+    );
+    const p = store.get("t")!;
+    expect(p.unit).toBe("file");
+    expect(p.jobs).toBe(4);
+    expect(p.units?.map((u) => [u.name, u.status])).toEqual([
+      ["at0310", "pass"],
+      ["at0339", "fail"],
+      ["at0352", "running"],
+    ]);
+    expect(p.units?.[2]?.startedAtMs).toBe(1_000);
+    expect(p.units?.[1]?.history).toBe("red in the last 7");
+
+    store.applyReport({ tool_use_id: "u", text: "y", jobs: 4, units: ROWS }, 1000);
+    expect(store.get("u")?.units).toBeUndefined();
+    expect(store.get("u")?.jobs).toBeUndefined();
+  });
+
+  test("a row with no name or a status it does not know is dropped; a mistyped field is absent", () => {
+    expect(
+      narrowRunUnits([
+        { name: "a", status: "pass", secs: "7" },
+        { status: "pass" },
+        { name: "b", status: "exploded" },
+        "c",
+        null,
+      ]),
+    ).toEqual([{ name: "a", status: "pass" }]);
+    expect(narrowRunUnits({ name: "a" })).toBeUndefined();
+  });
+
+  test("closing settles the last report, and a run without a unit does not", () => {
+    const store = new RunProgressStore();
+    store.applyReport({ tool_use_id: "t", text: "x", unit: "file", units: ROWS }, 1000);
+    store.applyReport({ tool_use_id: "u", text: "y" }, 1000);
+    let heard = 0;
+    store.subscribe("t", () => heard++);
+    store.close("t");
+    store.close("u");
+    expect(store.get("t")).toBeNull();
+    expect(store.getSettled("t")?.units?.length).toBe(3);
+    expect(store.getSettled("u")).toBeNull();
+    expect(heard, "the block hears the close, and reads the settled run on it").toBe(1);
+  });
+
+  test("settled runs outlive a cleared transport and are capped oldest first", () => {
+    const store = new RunProgressStore();
+    for (let i = 0; i <= RUN_SETTLED_CAP; i++) {
+      store.applyReport({ tool_use_id: `t${i}`, text: "x", unit: "test", units: [] }, i);
+      store.close(`t${i}`);
+    }
+    store.clear();
+    expect(store.getSettled("t0")).toBeNull();
+    expect(store.getSettled(`t${RUN_SETTLED_CAP}`)?.unit).toBe("test");
   });
 });

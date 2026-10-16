@@ -15,7 +15,17 @@
  * the engine; the call's result removes the band. A second report that no
  * call claimed lands on the JOBS placard's card-level line.
  *
+ * A report that names its unit is a run panel instead of the line: a
+ * `just app-test` call reports its files — one landed, one red, one in
+ * flight, one to come — and the collapsed block shows the panel's track,
+ * lane and red card. When the call returns red, the collapsed block is the
+ * verdict strip with no error band under it, and expanding it shows the
+ * finished panel: the verdict, both reds with their history, and the
+ * command's output folded at the foot.
+ *
  * @covers tugdeck/src/components/tugways/cards/blocks/bash-tool-block.tsx
+ * @covers tugdeck/src/components/tugways/tug-run-panel.tsx
+ * @covers tugdeck/src/lib/run-panel-model.ts
  * @covers tugdeck/src/lib/run-progress-store.ts
  * @covers tugdeck/src/components/tugways/blocks/block-header.tsx
  * @covers tugdeck/src/components/tugways/blocks/block-chrome.tsx
@@ -34,6 +44,10 @@ const FEED_CODE_OUTPUT = 0x40;
 const SID = "at0707-A";
 const USE_ID = `${SID}-tc1`;
 const BLOCK = `[data-slot="bash-tool-block"][data-tool-use-id="${USE_ID}"]`;
+const RUN_ID = `${SID}-tc2`;
+const RUN_BLOCK = `[data-slot="bash-tool-block"][data-tool-use-id="${RUN_ID}"]`;
+const RUN_PANEL = `${RUN_BLOCK} [data-slot="tug-run-panel"]`;
+const RUN_STRIP = `${RUN_BLOCK} [data-slot="bash-run-strip"]`;
 const BAND = `${BLOCK} [data-slot="bash-live-band"]`;
 const ELAPSED = `${BLOCK} [data-slot="tool-call-header-elapsed"]`;
 const JOBS_CELL = '[data-slot="tug-status-cell"][data-priority="jobs"]';
@@ -45,6 +59,16 @@ function frame(app: App, decoded: Record<string, unknown>): Promise<unknown> {
     feedId: FEED_CODE_OUTPUT,
     decoded: { tug_session_id: SID, ...decoded },
   });
+}
+
+function count(app: App, selector: string): Promise<number> {
+  return app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
+}
+
+function shown(app: App, selector: string): Promise<boolean> {
+  return app.evalJS<boolean>(
+    `(function () { const el = document.querySelector(${JSON.stringify(selector)}); return el !== null && getComputedStyle(el).display !== "none"; })()`,
+  );
 }
 
 function text(app: App, selector: string): Promise<string | null> {
@@ -129,6 +153,95 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           `!document.querySelector(${JSON.stringify(BAND)})`,
           { timeoutMs: 10_000 },
         );
+
+        // ── A run that names its unit: the panel, then the verdict ───────
+        await frame(app, {
+          type: "tool_use",
+          msg_id: `${SID}-m2`,
+          tool_use_id: RUN_ID,
+          tool_name: "Bash",
+          input: { command: "just app-test at0310 at0339 at0352 at0360" },
+          seq: 2,
+        });
+        await frame(app, {
+          type: "run_progress",
+          tool_use_id: RUN_ID,
+          label: "app-test",
+          text: "at0339 FAIL (1/2) 14s",
+          done: 2,
+          total: 4,
+          failures: 1,
+          unit: "file",
+          jobs: 2,
+          units: [
+            { name: "at0310-file-view-open", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
+            { name: "at0339-composer-order-census", status: "fail", index: 1, passed: 1, total: 2, secs: 14,
+              median: 9, title: "composer clears after send", message: "data-empty wait timed out" },
+            { name: "at0352-pane-split-restore", status: "running", index: 2, started_at_ms: Date.now() - 5_000, median: 11 },
+            { name: "at0360-session-identity-menu", status: "pending", index: 3, median: 7 },
+          ],
+        });
+        await app.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RUN_PANEL)})`, {
+          timeoutMs: 10_000,
+        });
+        expect(
+          await app.evalJS<string | null>(
+            `(document.querySelector(${JSON.stringify(RUN_BLOCK)}) || { getAttribute: () => null }).getAttribute("data-block-collapsed")`,
+          ),
+          "the running panel reads while the block is collapsed",
+        ).toBe("true");
+        expect(await count(app, `${RUN_PANEL} .tug-run-panel-cell`), "a cell per file").toBe(4);
+        expect(await count(app, `${RUN_PANEL} .tug-run-panel-cell[data-status="fail"]`)).toBe(1);
+        expect(await count(app, `${RUN_PANEL} [data-slot="tug-run-panel-lane"]`), "one file in flight").toBe(1);
+        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-fraction"]`)).toContain("files");
+        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("composer clears after send");
+        expect(await count(app, `${RUN_BLOCK} [data-slot="bash-live-band"]`), "no one-line band beside it").toBe(0);
+
+        await frame(app, {
+          type: "run_progress",
+          tool_use_id: RUN_ID,
+          label: "app-test",
+          text: "2 passed, 1 failed, 1 wedged",
+          done: 4,
+          total: 4,
+          failures: 2,
+          unit: "file",
+          jobs: 2,
+          units: [
+            { name: "at0310-file-view-open", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
+            { name: "at0339-composer-order-census", status: "fail", index: 1, passed: 1, total: 2, secs: 14,
+              median: 9, title: "composer clears after send", message: "data-empty wait timed out",
+              history: "red in the last 7 recorded runs" },
+            { name: "at0352-pane-split-restore", status: "wedged", index: 2, secs: 120, median: 11,
+              message: "stopped at its 120s cap" },
+            { name: "at0360-session-identity-menu", status: "pass", index: 3, passed: 3, total: 3, secs: 7, median: 7 },
+          ],
+        });
+        await frame(app, {
+          type: "tool_result",
+          tool_use_id: RUN_ID,
+          is_error: true,
+          output: "Exit code 1\nVERDICT: FAIL  (2/4 files green)",
+        });
+        await app.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RUN_STRIP)})`, {
+          timeoutMs: 10_000,
+        });
+        expect(await shown(app, RUN_STRIP), "collapsed, the settled run is its strip").toBe(true);
+        expect(await text(app, RUN_STRIP)).toContain("RED");
+        expect(await count(app, `${RUN_BLOCK} [data-slot="tool-block-notice"]`), "the strip, not the error band").toBe(0);
+
+        await app.click(`${RUN_BLOCK} [data-slot="tool-call-header-disclosure"]`);
+        await app.waitForCondition<boolean>(
+          `!!document.querySelector(${JSON.stringify(`${RUN_PANEL}[data-state="finished"]`)})`,
+          { timeoutMs: 10_000 },
+        );
+        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-verdict"]`)).toContain(
+          "1 of 4 files failed, 1 wedged",
+        );
+        expect(await count(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`), "both reds stay open").toBe(2);
+        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("red in the last 7 recorded runs");
+        expect(await text(app, `${RUN_PANEL} .tug-run-panel-folds`), "the output is a fold at the foot").toContain("Output");
+        expect(await shown(app, RUN_STRIP), "expanded, the panel says what the strip did").toBe(false);
 
         // A report no call claimed: the card's line, on the JOBS placard.
         await frame(app, {

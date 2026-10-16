@@ -38,3 +38,14 @@ export function useRunProgressFrom(
 export function useRunProgress(key: string | null): RunProgress | null {
   return useRunProgressFrom(useContext(RunProgressContext), key);
 }
+
+/** Read a closed call's settled run from the transcript's store. */
+export function useSettledRun(key: string): RunProgress | null {
+  const store = useContext(RunProgressContext);
+  const subscribe = useCallback(
+    (cb: () => void) => (store ? store.subscribe(key, cb) : NOOP_UNSUBSCRIBE),
+    [store, key],
+  );
+  const read = useCallback(() => (store ? store.getSettled(key) : null), [store, key]);
+  return useSyncExternalStore(subscribe, read, read);
+}

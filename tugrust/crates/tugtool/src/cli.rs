@@ -306,6 +306,18 @@ pub enum Commands {
         /// Failures so far.
         #[arg(long)]
         failures: Option<u64>,
+        /// What the run counts — `file`, `test`, `phase`. A report that
+        /// names its unit is drawn as a run panel rather than one line.
+        #[arg(long)]
+        unit: Option<String>,
+        /// How many units run at once.
+        #[arg(long)]
+        jobs: Option<u64>,
+        /// The run's units as a JSON array, read from this path (`-` reads
+        /// stdin). One that cannot be read, or is not an array, is left off
+        /// the report rather than failing it.
+        #[arg(long = "units-json")]
+        units_json: Option<String>,
         /// Text the running command contains, for matching the report to it
         /// when the session has several calls open.
         #[arg(long = "needle")]

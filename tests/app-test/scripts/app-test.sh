@@ -621,6 +621,9 @@ run_one_file() {
         reach_out="$RUNDIR/reach/$(printf '%s' "$f" | tr '/' '_').json"
     fi
     file_start="$(date +%s)"
+    # The block's run panel draws this file's lane from here.
+    printf '%s' "$((file_start * 1000))" > "$out.start"
+    post_units "$f started"
     # The file runs under its wedge cap (run-capped.sh), which kills it and
     # leaves $out.wedged behind when the app has stopped answering.
     local cap
@@ -699,9 +702,7 @@ report_progress() {
     local nth elapsed detail="" first title msg
     # shellcheck disable=SC2012  # counting rows the runner named itself
     nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
-    if [ -n "$TUGTOOL_BIN" ]; then
-        "$TUGTOOL_BIN" progress --label app-test --done "$nth" --total "${#FILES[@]}" --failures "$(grep -lE '^(FAIL|ERR|WEDGED):' "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')" --needle "just app-test" -- "$f $status ($passed/$total) ${secs}s" >/dev/null 2>&1 || true
-    fi
+    post_units "$f $status ($passed/$total) ${secs}s"
     [ -n "$PROGRESS" ] || return 0
     elapsed=$(( $(date +%s) - START_EPOCH ))
     # The first record's title and the first line of its message: enough to
@@ -725,6 +726,27 @@ report_progress() {
     printf '%3d/%-3d %02d:%02d  %-6s %-56s (%d/%d)  %4ds%s\n' \
         "$nth" "${#FILES[@]}" $((elapsed / 60)) $((elapsed % 60)) \
         "[$status]" "$f" "$passed" "$total" "$secs" "$detail"
+}
+
+# The run as the calling Session card's block draws it: every file's state as
+# a unit row (scripts/run-units.ts), with `text` the one line a reader without
+# the panel sees. Built only when a session is listening, so a run from a
+# plain terminal spends nothing on it; synchronous, so a file's start can
+# never land after its own result. Telemetry: it never fails the run.
+post_units() {
+    local text="$1" units nth fails
+    if [ -z "$TUGTOOL_BIN" ] || [ -z "${TUG_SESSION_ID:-}" ]; then
+        return 0
+    fi
+    # shellcheck disable=SC2012  # counting rows the runner named itself
+    nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
+    fails="$(grep -lE '^(FAIL|ERR|WEDGED):' "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
+    units="$(mktemp "$RUNDIR/units.XXXXXX")"
+    bun scripts/run-units.ts "$RUNDIR" "$CAPS_FILE" "${FILES[@]}" > "$units" 2>/dev/null || printf '[]' > "$units"
+    "$TUGTOOL_BIN" progress --label app-test --unit file --jobs "$JOBS" --units-json "$units" \
+        --done "$nth" --total "${#FILES[@]}" --failures "$fails" --needle "just app-test" \
+        -- "$text" >/dev/null 2>&1 || true
+    rm -f "$units"
 }
 
 # Fold one finished file's $RUNDIR output into the arrays the summary reads.
@@ -828,6 +850,8 @@ for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
     if [ "$FG_DECISION" = "skip" ]; then
         [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
         RESULT_ROWS+=("SKIP:$f:0:0:0")
+        printf '%s\n' "SKIP:$f:0:0:0" > "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').row"
+        post_units "$f SKIP"
         [ -n "$PROGRESS" ] && printf '%3d/%-3d %5s  %-6s %-56s (skipped — takes the screen)\n' \
             "${#RESULT_ROWS[@]}" "${#FILES[@]}" "" "[SKIP]" "$f"
         continue
@@ -1018,6 +1042,16 @@ if [ ${#FAIL_DETAILS[@]} -gt 0 ]; then
         [ -n "$dmsg" ] && printf '%s\n' "$dmsg" | sed 's/^/      /'
         [ -n "$dloc" ] && echo "      $dloc"
     done
+fi
+
+# The block's last report: every file landed, and each red carrying the line
+# the record says of it. Posted before the call returns, so the block settles
+# on this.
+if [ -n "${TUG_SESSION_ID:-}" ]; then
+    for f in ${RED_FILES[@]+"${RED_FILES[@]}"}; do
+        printf '%s\t%s\n' "$f" "$(history_line "$f" | sed 's/^ *history: //')"
+    done > "$RUNDIR/history.tsv"
+    post_units "$files_passed passed, $((files_failed + files_errored)) failed, $files_wedged wedged"
 fi
 
 # The JSON document, when asked for. It is serialized from the SAME arrays

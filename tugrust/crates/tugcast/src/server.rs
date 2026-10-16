@@ -997,6 +997,16 @@ struct SessionApiRequest {
     total: Option<u64>,
     #[serde(default)]
     failures: Option<u64>,
+    /// `run_progress`: what the run counts (`file`, `test`, `phase`).
+    #[serde(default)]
+    unit: Option<String>,
+    /// `run_progress`: how many units run at once.
+    #[serde(default)]
+    jobs: Option<u64>,
+    /// `run_progress`: the run's unit rows, carried to the block opaque — a
+    /// view of the run, which this server has no reason to read.
+    #[serde(default)]
+    units: Option<serde_json::Value>,
     /// `run_progress`: substrings of the command the reporter expects to be
     /// running under, for the attachment's needle rule.
     #[serde(default)]
@@ -1204,6 +1214,11 @@ async fn session_handler(
             done: req.done,
             total: req.total,
             failures: req.failures,
+            unit: req.unit.clone(),
+            jobs: req.jobs,
+            // Anything but an array is not a unit list; the report goes on
+            // without it rather than being refused.
+            units: req.units.clone().filter(|u| u.is_array()),
             needles: req.needles.clone().unwrap_or_default(),
         };
         let Some((on_block, attached)) = supervisor.publish_run_progress(&live, report).await

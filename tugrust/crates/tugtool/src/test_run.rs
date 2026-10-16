@@ -50,6 +50,37 @@ pub struct Progress {
     /// The latest thing worth showing: a failing test, a crate compiling, the
     /// last test finished, or `running`.
     pub text: String,
+    /// The failing tests so far, in the order they failed, up to
+    /// [`FAILED_KEPT`] — the rows the block's run panel draws as reds.
+    pub failed: Vec<FailedTest>,
+}
+
+/// One failing test, as a report carries it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FailedTest {
+    /// How many tests had finished when it failed: where its mark sits on
+    /// the run's band.
+    pub index: u64,
+    pub name: String,
+    /// Why, when the runner said so on the line it failed on (bun does;
+    /// nextest's reason comes later, in its output).
+    pub message: String,
+}
+
+/// The most failing tests one report carries. A run that fails more than
+/// this is one whose tally is the news, not its fortieth red.
+pub const FAILED_KEPT: usize = 32;
+
+impl Progress {
+    fn note_failure(&mut self, name: &str, message: &str) {
+        if self.failed.len() < FAILED_KEPT {
+            self.failed.push(FailedTest {
+                index: self.done,
+                name: name.to_string(),
+                message: message.to_string(),
+            });
+        }
+    }
 }
 
 /// Where progress goes as it changes. The wrapper calls `observe` on every
@@ -196,12 +227,26 @@ fn report_of(
         (None, Some(n)) => (None, format!("{}/~{n} · {}", progress.done, progress.text)),
         _ => (Some(progress.done), progress.text.clone()),
     };
+    let units: Vec<serde_json::Value> = progress
+        .failed
+        .iter()
+        .map(|f| {
+            let mut row = serde_json::json!({ "name": f.name, "status": "fail", "index": f.index });
+            if !f.message.is_empty() {
+                row["message"] = f.message.clone().into();
+            }
+            row
+        })
+        .collect();
     RunReport {
         label: Some(label.to_string()),
         text,
         done,
         total: progress.total,
         failures: Some(progress.failures),
+        unit: Some("test".to_string()),
+        jobs: None,
+        units: Some(serde_json::Value::Array(units)),
         needles: needles.to_vec(),
     }
 }
@@ -345,11 +390,6 @@ impl BunFailures {
         let message = self.last_error.take().unwrap_or_default();
         self.failed.push((name.to_string(), message));
         true
-    }
-
-    /// The most recent failing test's name.
-    pub fn last_name(&self) -> Option<&str> {
-        self.failed.last().map(|(n, _)| n.as_str())
     }
 
     /// Fill in each message-less junit failure from the stderr it was printed
@@ -536,8 +576,10 @@ impl Follow {
             RunKind::Bun => {
                 if self.bun.line(text) {
                     self.progress.failures += 1;
-                    if let Some(name) = self.bun.last_name() {
-                        self.progress.text = name.to_string();
+                    if let Some((name, message)) = self.bun.failed.last().cloned() {
+                        self.progress.done = self.dots.ticks() + self.progress.failures;
+                        self.progress.note_failure(&name, &message);
+                        self.progress.text = name;
                     }
                 }
                 true
@@ -559,6 +601,7 @@ impl Follow {
                     NextestLine::Fail(test) => {
                         self.progress.done += 1;
                         self.progress.failures += 1;
+                        self.progress.note_failure(&test, "");
                         self.progress.text = test;
                     }
                     NextestLine::Summary => self.nextest_summary = true,
@@ -987,6 +1030,7 @@ mod tests {
             total: None,
             failures,
             text: format!("t{done}"),
+            failed: Vec::new(),
         }
     }
 
@@ -1064,5 +1108,51 @@ mod tests {
         let rust = report_of(&nextest, "rust", &needles, None);
         assert_eq!(rust.text, "t3120");
         assert_eq!((rust.done, rust.total), (Some(3120), Some(7400)));
+    }
+
+    #[test]
+    fn a_report_names_its_unit_and_carries_each_failure_as_a_row() {
+        let mut follow = Follow::new(RunKind::Nextest);
+        for line in [
+            "    Starting 3 tests across 1 binary\n",
+            "        PASS [   0.010s] tugcast feeds::a\n",
+            "        FAIL [   0.020s] tugcast feeds::jots::reopen_keeps_chips\n",
+            "        PASS [   0.010s] tugcast feeds::c\n",
+        ] {
+            follow.feed(line.as_bytes());
+        }
+        let report = report_of(&follow.progress, "rust", &[], None);
+        assert_eq!(report.unit.as_deref(), Some("test"));
+        assert_eq!(
+            report.units,
+            Some(serde_json::json!([
+                {"name": "tugcast feeds::jots::reopen_keeps_chips", "status": "fail", "index": 2}
+            ])),
+            "the row sits where the run was when it failed"
+        );
+    }
+
+    #[test]
+    fn a_bun_failure_row_carries_the_message_bun_printed_with_it() {
+        let mut follow = Follow::new(RunKind::Bun);
+        follow.feed(b"..\nerror: expected 2, got 1\n(fail) jots > keeps chips [0.26ms]\n");
+        assert_eq!(
+            follow.progress.failed,
+            vec![FailedTest {
+                index: 3,
+                name: "jots > keeps chips".into(),
+                message: "expected 2, got 1".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn failures_past_the_cap_are_counted_but_not_carried() {
+        let mut follow = Follow::new(RunKind::Nextest);
+        for i in 0..(FAILED_KEPT + 5) {
+            follow.feed(format!("        FAIL [   0.020s] bin t{i}\n").as_bytes());
+        }
+        assert_eq!(follow.progress.failures, (FAILED_KEPT + 5) as u64);
+        assert_eq!(follow.progress.failed.len(), FAILED_KEPT);
     }
 }

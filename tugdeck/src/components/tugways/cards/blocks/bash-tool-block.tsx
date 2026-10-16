@@ -31,7 +31,15 @@
  *     reports its own progress (`tugtool progress`, `tugtool test
  *     run`), the latest report rides the chrome's live band
  *     ({@link BashLiveBand}) — between header and body, so it reads
- *     while the block is collapsed.
+ *     while the block is collapsed. A report that names its unit
+ *     (`file`, `test`, `phase`) is drawn there as a running
+ *     {@link TugRunPanel}; one that does not is the one line.
+ *   - A run that named its unit settles when the call returns: a
+ *     collapsed block shows the verdict strip ({@link TugRunStrip}) on
+ *     the live band, and the expanded body is the finished panel with
+ *     the command's output folded at its foot. A settled run is a view
+ *     the page keeps, not part of the record — a block restored without
+ *     one renders its output as it always did.
  *   - `status === "ready"` → steady-state render.
  *   - `status === "error"` → chrome paints the error stripe, the
  *     plain-text `tool_result.output` (if any) renders as the inline
@@ -103,8 +111,9 @@ import {
   type BlockNotice,
 } from "../../blocks/block-notice";
 import { TugProgressIndicator } from "../../tug-progress-indicator";
-import { useRunProgress } from "../../blocks/run-progress-context";
+import { useRunProgress, useSettledRun } from "../../blocks/run-progress-context";
 import { formatRunProgressLine } from "@/lib/run-progress-store";
+import { TugRunPanel, TugRunStrip, isRunPanelReport } from "../../tug-run-panel";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
 import type { ToolBlockProps } from "../../blocks/types";
 
@@ -283,6 +292,15 @@ export function tryParseBashDiff(
  */
 export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => {
   const progress = useRunProgress(toolUseId);
+  if (isRunPanelReport(progress)) {
+    // Re-rendered by every report and every engine heartbeat (about once a
+    // second), which is the clock the lanes' elapsed reads against.
+    return (
+      <div data-slot="bash-run-panel" className="bash-run-panel">
+        <TugRunPanel run={progress} state="running" nowMs={Date.now()} />
+      </div>
+    );
+  }
   if (progress?.text === undefined) return null;
   const ring =
     progress.total !== undefined ? (
@@ -341,6 +359,13 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
 
   const commandRef = useAnnotatedElement<HTMLElement>([bashInput.command]);
 
+  // A run that named its unit, settled when this call returned. Its panel
+  // takes the body, its strip the collapsed band.
+  const settledRun = useSettledRun(toolUseId);
+  const settled = !preview && status !== "streaming" && settledRun !== null ? settledRun : null;
+  const callFailed = isError || status === "error";
+  const wallSecs = durationMs !== undefined ? durationMs / 1000 : undefined;
+
   // The command renders on the header's wrapping command row. While the
   // block is collapsed it clamps to `--tugx-toolheader-clamp-lines` via the
   // shared `tool-call-header-clamp` class (a long heredoc would otherwise
@@ -367,8 +392,10 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
   // On error, the failure rides the notice band so it's readable while
   // collapsed; the full output still renders in the body below (one expand
   // away), so the clamped band never hides detail.
+  // A settled run's verdict strip says how it ended, so the error band
+  // would only repeat its first line.
   const notice: BlockNotice | undefined =
-    status === "error" && textOutput !== undefined && textOutput.length > 0
+    settled === null && status === "error" && textOutput !== undefined && textOutput.length > 0
       ? { tone: "error", text: textOutput }
       : undefined;
 
@@ -464,6 +491,21 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
       />
     );
   }
+  if (settled !== null && commit === null) {
+    body = (
+      <div data-slot="bash-run-panel" className="bash-run-panel">
+        <TugRunPanel
+          run={settled}
+          state="finished"
+          nowMs={0}
+          callFailed={callFailed}
+          {...(wallSecs !== undefined ? { wallSecs } : {})}
+          output={body}
+          foldKey={`${toolUseId}-run-folds`}
+        />
+      </div>
+    );
+  }
 
   // Header one-line result: only `interrupted`. No exit-code badge — the
   // Anthropic Bash result carries `is_error`, not the real shell exit code,
@@ -515,6 +557,14 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
       liveBand={
         status === "streaming" && !preview ? (
           <BashLiveBand toolUseId={toolUseId} />
+        ) : settled !== null ? (
+          <div data-slot="bash-run-strip" className="bash-run-strip">
+            <TugRunStrip
+              run={settled}
+              callFailed={callFailed}
+              {...(wallSecs !== undefined ? { wallSecs } : {})}
+            />
+          </div>
         ) : undefined
       }
       footerBadges={footerBadges}

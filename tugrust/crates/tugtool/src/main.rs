@@ -241,15 +241,24 @@ fn main() -> ExitCode {
             done,
             total,
             failures,
+            unit,
+            jobs,
+            units_json,
             needles,
             text,
         }) => {
+            // Read before anything else, so a pipe feeding the units is
+            // drained even when there is no session to report to.
+            let units = units_json.as_deref().and_then(progress::read_units);
             progress::run(progress::RunReport {
                 label,
                 text,
                 done,
                 total,
                 failures,
+                unit,
+                jobs,
+                units,
                 needles,
             });
             ExitCode::SUCCESS

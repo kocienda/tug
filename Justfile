@@ -1506,18 +1506,43 @@ build-app:
     # The workspace's own tugtool, else PATH's; with neither, no report.
     TUGTOOL_BIN="{{justfile_directory()}}/tugrust/target/debug/tugtool"
     [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
+    # The block draws the build as its five phases: those landed with their
+    # times, the one running since when, the rest to come.
+    PHASES=("Rust debug binaries" "tugdeck build" "app-test deps" "Xcode build" "re-sign")
+    PHASE_AT=()
+    report_phase() {
+        local n="$1" now i rows="" row
+        now="$(date +%s)"
+        PHASE_AT[n]="$now"
+        if [ -z "$TUGTOOL_BIN" ] || [ -z "${TUG_SESSION_ID:-}" ]; then
+            return 0
+        fi
+        for i in "${!PHASES[@]}"; do
+            if [ "$i" -lt "$n" ]; then
+                row="$(printf '{"name":"%s","status":"pass","index":%d,"secs":%d}' "${PHASES[i]}" "$i" "$(( PHASE_AT[i + 1] - PHASE_AT[i] ))")"
+            elif [ "$i" -eq "$n" ]; then
+                row="$(printf '{"name":"%s","status":"running","index":%d,"started_at_ms":%d}' "${PHASES[i]}" "$i" "$(( now * 1000 ))")"
+            else
+                row="$(printf '{"name":"%s","status":"pending","index":%d}' "${PHASES[i]}" "$i")"
+            fi
+            rows="${rows:+$rows,}$row"
+        done
+        printf '[%s]' "$rows" | "$TUGTOOL_BIN" progress --label build-app --unit phase --units-json - \
+            --done "$n" --total "${#PHASES[@]}" --needle "just build-app" --needle "just app-test" \
+            -- "${PHASES[n]:-built}" >/dev/null 2>&1 || true
+    }
 
     echo "==> [1/5] Rust debug binaries"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 1 --total 5 --needle "just build-app" --needle "just app-test" -- "Rust debug binaries" >/dev/null 2>&1 || true
+    report_phase 0
     (cd tugrust && cargo build -p tugcast -p tugexec -p tugtool -p tugrelaunch -p tugbank)
     bash tugrust/scripts/compile-tugcode.sh tugrust/target/debug/tugcode
 
     echo "==> [2/5] tugdeck deps + prebuilt dist"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 2 --total 5 --needle "just build-app" --needle "just app-test" -- "tugdeck build" >/dev/null 2>&1 || true
+    report_phase 1
     (cd tugdeck && bun install && bun run build)
 
     echo "==> [3/5] tests/app-test deps"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 3 --total 5 --needle "just build-app" --needle "just app-test" -- "app-test deps" >/dev/null 2>&1 || true
+    report_phase 2
     (cd tests/app-test && bun install)
 
     # PRODUCT_NAME names the built `.app` per variant (Tug-apptest under
@@ -1530,7 +1555,7 @@ build-app:
     # DerivedData and so never clobber each other's `.app`.
     DERIVED="$(bash tugrust/scripts/derived-data-path.sh debug)"
     echo "==> [4/5] Build ${PRODUCT_NAME}.app (Debug)"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 4 --total 5 --needle "just build-app" --needle "just app-test" -- "Xcode build" >/dev/null 2>&1 || true
+    report_phase 3
     find tugapp/Sources -name '*.swift' -exec touch {} +
     bash tugrust/scripts/xcodebuild-quiet.sh "${PRODUCT_NAME}.app (Debug)" \
         -project tugapp/Tug.xcodeproj -scheme Tug -configuration Debug \
@@ -1545,8 +1570,9 @@ build-app:
     # then seals the outer .app with Tug.entitlements. `--deep` is
     # intentionally absent — see tugrust/scripts/sign-bundle.sh.
     echo "==> [5/5] Re-sign inside-out with Developer ID"
-    [ -z "$TUGTOOL_BIN" ] || "$TUGTOOL_BIN" progress --label build-app --done 5 --total 5 --needle "just build-app" --needle "just app-test" -- "re-sign" >/dev/null 2>&1 || true
+    report_phase 4
     bash tugrust/scripts/sign-bundle.sh "$APP_DIR" "$SIGNING_IDENTITY"
+    report_phase 5
 
     # Capture the bundle's designated requirement (DR) into a
     # sentinel so subsequent `app-test` runs can detect drift. Under
