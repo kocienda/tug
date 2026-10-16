@@ -528,12 +528,6 @@ const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b/;
 const MOTION_LINE = /^\s*\*?\s*@motion\b/;
 
 /**
- * The per-gesture settle files, by name. Each one reads the settle's own frame record, so
- * each one is a motion file whether or not its author remembered to say so.
- */
-const SETTLE_FILE = /^at\d{4}-settle-/;
-
-/**
  * The launch option the `@foreground` tag declares. Matched anywhere in the file body.
  *
  * Anything that is not literally `false` counts. A launch site may compute the flag
@@ -1176,7 +1170,6 @@ if (holesOnly) {
 
 if (checkOnly) {
     const missing = coverage.filter((c) => c.covers.length === 0);
-    const unmotioned = coverage.filter((c) => SETTLE_FILE.test(c.file) && !c.motion);
     const dangling = coverage.flatMap((c) =>
         c.covers.filter((p) => !resolvesOnDisk(p)).map((p) => ({ file: c.file, pattern: p })),
     );
@@ -1304,13 +1297,6 @@ if (checkOnly) {
         );
     }
 
-    if (unmotioned.length > 0) {
-        process.stderr.write(
-            `[select-tests] ${unmotioned.length} per-gesture settle file(s) carry no @motion tag — they\n` +
-                `               would run inside a batch, where their frame readings are of the batch:\n`,
-        );
-        for (const u of unmotioned) process.stderr.write(`  ${u.file}\n`);
-    }
     if (missing.length > 0) {
         process.stderr.write(
             `[select-tests] ${missing.length} test file(s) declare no @covers — they can never be\n` +
@@ -1327,7 +1313,6 @@ if (checkOnly) {
     }
     if (
         missing.length === 0 &&
-        unmotioned.length === 0 &&
         dangling.length === 0 &&
         overBudget.length === 0 &&
         raised.length === 0 &&

@@ -4,8 +4,7 @@
  *
  * The doors are fakes that keep the marks in a map, since `bun test` has no
  * DOM to write them on. What the real doors do to a frame is gated in the
- * app, by `at0689-retarget-ends-crossings.test.ts` and
- * `at0698-settle-drop-mid-flight.test.ts`.
+ * app, by `at0689-retarget-ends-crossings.test.ts`.
  */
 
 import { describe, expect, test } from "bun:test";

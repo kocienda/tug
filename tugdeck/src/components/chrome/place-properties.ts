@@ -121,7 +121,8 @@ export function columnWriter(
  * the layer's own write in the same commit, which runs after this effect.
  * Overwriting them here instead landed under the bullseye exit's land: a
  * forced layout and a list view's re-window in the hand-back frame
- * (`at0705-settle-bullseye.test.ts`, read with the window in front).
+ * (read on the live deck with `tugtool deck motion settle --gesture bullseye`,
+ * the window in front).
  */
 export function adoptColumnProperties(frame: HTMLElement, slot: number): void {
   const layer = frame.closest(`.${SPACE_LAYER_CLASS}`);

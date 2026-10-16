@@ -1,6 +1,5 @@
 /**
- * select-tests-motion.test.ts — the `@motion` declaration, the queues it sorts a run into,
- * and the check that keeps a per-gesture settle file from forgetting it.
+ * select-tests-motion.test.ts — the `@motion` declaration and the queues it sorts a run into.
  *
  * These run the real `select-tests.ts` as a subprocess. The cases that need a broken
  * declaration run it against a copy of the corpus with one file's docblock rewritten, so
@@ -19,9 +18,7 @@ import { copyAppTestTree } from "./copy-app-test-tree";
 const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
 
-/** A per-gesture settle file: tagged `@motion`, and named so the check demands it. */
-const SETTLE = "at0697-settle-activation.test.ts";
-/** A motion file outside the settle naming, tagged by reading what it samples. */
+/** A motion file, tagged by reading what it samples. */
 const MOTION = "at0643-workspace-switch-cadence.test.ts";
 /** A file in the settle number range that samples nothing, and carries no tag. */
 const IN_RANGE_PLAIN = "at0709-insert-file-image.test.ts";
@@ -49,9 +46,8 @@ function queues(script: string, files: string[]): [string, string][] {
 
 describe("--queues against the real corpus", () => {
     test("each file is named with its queue, in the order given", () => {
-        expect(queues(SCRIPT, [PLAIN, SETTLE, FOREGROUND, IN_RANGE_PLAIN, MOTION])).toEqual([
+        expect(queues(SCRIPT, [PLAIN, FOREGROUND, IN_RANGE_PLAIN, MOTION])).toEqual([
             ["batch", PLAIN],
-            ["motion", SETTLE],
             ["foreground", FOREGROUND],
             ["batch", IN_RANGE_PLAIN],
             ["motion", MOTION],
@@ -59,15 +55,11 @@ describe("--queues against the real corpus", () => {
     });
 
     test("accepts the repo-root-relative form and names the file the way the runner does", () => {
-        expect(queues(SCRIPT, [`tests/app-test/${SETTLE}`])).toEqual([["motion", SETTLE]]);
+        expect(queues(SCRIPT, [`tests/app-test/${MOTION}`])).toEqual([["motion", MOTION]]);
     });
 
     test("a name the corpus does not know runs in the batch, as it always did", () => {
         expect(queues(SCRIPT, ["zz-not-a-file.test.ts"])).toEqual([["batch", "zz-not-a-file.test.ts"]]);
-    });
-
-    test("the corpus carries no per-gesture settle file without the tag", () => {
-        expect(run(SCRIPT, ["--check"]).err).not.toContain("carry no @motion tag");
     });
 });
 
@@ -113,16 +105,5 @@ describe("against a corpus copy with a declaration rewritten", () => {
             () => queues(script, [MOTION]),
         );
         expect(got).toEqual([["batch", MOTION]]);
-    });
-
-    test("--check refuses a per-gesture settle file that dropped the tag", () => {
-        const r = rewritten(
-            SETTLE,
-            (s) => s.replace(/^ \* @motion\n/m, ""),
-            () => run(script, ["--check"]),
-        );
-        expect(r.code).toBe(1);
-        expect(r.err).toContain("carry no @motion tag");
-        expect(r.err).toContain(SETTLE);
     });
 });

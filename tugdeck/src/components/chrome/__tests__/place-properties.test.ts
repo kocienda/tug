@@ -3,8 +3,8 @@
  * values, and a frame that already carries them keeps its own.
  *
  * The door is pure over a layer's readers and their inline styles, so it is
- * tested here over fakes; `at0456` and `at0705` are where the wiring is
- * proved on the live deck.
+ * tested here over fakes; `at0456` is where the wiring is proved on the
+ * live deck.
  */
 
 import { describe, expect, test } from "bun:test";
