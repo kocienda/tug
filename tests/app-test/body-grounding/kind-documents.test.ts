@@ -221,6 +221,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
           READ_MS,
         );
         expect(gearUp, "the gear stands enabled in the shell's title bar, answered by the body's chain").toBe(true);
+        // The gear rests inside the pane's rollup, revealed on a title-bar
+        // hover and unhittable until then. Pin the row open first (at0416).
+        await app.revealPaneControls(paneOf(F));
         await clickSettled(app, gear);
         const sheet = await pollFor(() => file.evalJS<boolean>(present(IMAGE_SHEET)), (v) => v, READ_MS);
         expect(sheet, "the gear in the shell's title bar opens the image settings sheet in the body").toBe(true);

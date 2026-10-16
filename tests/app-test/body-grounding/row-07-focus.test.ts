@@ -7,8 +7,8 @@
  * handing the pointer to the body's page, whose `pointerdown` asks the
  * shell to activate its card — makes that body the window's first
  * responder, and so does the Focus Card chord; typing then lands in that
- * body's composer and in no other page. A click in the Text card takes the
- * keyboard back to the shell. The shell's own surface (the Close popover)
+ * body's composer and in no other page. A click in the Text card's body
+ * takes the keyboard there, and to no other body. The shell's own surface (the Close popover)
  * and the body's own (the slash-command popup, the session picker) take
  * focus while they stand and give it back when they go. And closing the
  * key card hands the keyboard to the next card's body.
@@ -53,7 +53,7 @@ import {
   waitForBody,
 } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
+import { cardKind, kindsUnderTest, sessionUnderTest, type CardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-07-focus";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -62,7 +62,8 @@ const TEST_TIMEOUT_MS = 240_000;
 const A = "row07-a";
 const B = "row07-b";
 const T = "row07-text";
-const TEXT_EDITOR = `[data-card-id="${T}"] [data-slot="tug-text-card-editor"] .cm-content`;
+/** In the Text card's own body. */
+const TEXT_EDITOR = '[data-slot="tug-text-card-editor"] .cm-content';
 const SLASH_POPUP = '[data-slot="tug-completion-menu"]';
 /** In a page: the slash-command popup stands and is shown (it is hidden, not removed, when it closes). */
 const slashPopupShown = `(function () {
@@ -158,6 +159,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
           await spawnStub(app, B, stubDir, 2);
           await waitForBody(app, B);
           const b = app.body(B);
+          const t = await standUpKind(app, cardKind("text"), T);
 
           // ---- A click in its body makes it key; typing lands in its field ----
           await b.nativeClickAtElement(PROMPT_INPUT);
@@ -166,9 +168,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
           await expectHolder(app, card, `after a click in the ${kind.componentId} card`);
           if (kind.field !== undefined) await typesInto(app, k, kind, "kk", b);
 
-          // ---- A click in the Text card takes the keyboard back to the shell ----
-          await app.nativeClickAtElement(TEXT_EDITOR);
-          await expectHolder(app, null, "after a click in the Text card");
+          // ---- A click in the Text card's body takes the keyboard there ----
+          await t.nativeClickAtElement(TEXT_EDITOR);
+          await expectHolder(app, T, "after a click in the Text card");
 
           // ---- The Focus Card chord brings it back: it stands to the Text card's right ----
           await app.nativeKey("ArrowRight", ["alt", "cmd"]);
@@ -232,6 +234,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         await waitForBody(app, B);
         const a = app.body(A);
         const b = app.body(B);
+        const t = await standUpKind(app, cardKind("text"), T);
         await focusBody(app, A);
         await expectHolder(app, A, "at the start");
 
@@ -259,12 +262,12 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         expect(inA, "typing lands in A's composer").toContain("aa");
         expect(await b.evalJS<string | null>(composerText), "and not in B's").not.toContain("aa");
 
-        // ---- A click in the Text card takes the keyboard back to the shell ----
-        await app.nativeClickAtElement(TEXT_EDITOR);
-        await expectHolder(app, null, "after a click in the Text card");
+        // ---- A click in the Text card's body takes the keyboard there ----
+        await t.nativeClickAtElement(TEXT_EDITOR);
+        await expectHolder(app, T, "after a click in the Text card");
         await app.nativeType("tt");
-        const inT = await pollFor(() => app.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`), (t) => t.includes("tt"), SETTLE_MS);
-        expect(inT, "typing lands in the Text card").toContain("tt");
+        const inT = await pollFor(() => t.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`), (s) => s.includes("tt"), SETTLE_MS);
+        expect(inT, "typing lands in the Text card's body").toContain("tt");
         expect(await a.evalJS<string | null>(composerText), "and not in A's body").not.toContain("tt");
         expect(await b.evalJS<string | null>(composerText), "nor in B's").not.toContain("tt");
 

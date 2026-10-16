@@ -98,10 +98,17 @@
     var(--tugx-rail-tint-hue) calc(var(--tugx-rail-tint) * 100%)
   );
   background-color: var(--tugx-rail-margin-canvas);
+  /* One un-tiled image per axis, not a 24px tile. WebKit rasterizes a tile
+     at the CTM scale and steps it at a whole device pixel, so at 70 % zoom
+     a 24px tile is 34 device px and the pitch drifts to 24.29px — 3.3px off
+     the root's lattice by the twelfth line (at0714). A repeating gradient
+     over the whole box is stepped once. Oversized by one tile so the last
+     line is not a seam at the box's edge. */
   background-image:
-    linear-gradient(var(--tugx-rail-margin-grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--tugx-rail-margin-grid) 1px, transparent 1px);
-  background-size: 24px 24px;
+    repeating-linear-gradient(var(--tugx-rail-margin-grid) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, var(--tugx-rail-margin-grid) 0 1px, transparent 1px 24px);
+  background-size: 100% calc(100% + 24px), calc(100% + 24px) 100%;
+  background-repeat: no-repeat;
 }
 
 .tug-margin-cap--left {
@@ -113,7 +120,7 @@
   /* Its left edge is the root's width less its own (`--tugx-margin-cap-width`,
      written beside its inline width by `deck-canvas.tsx`); the pattern is
      pulled back by that edge's remainder over the 24px tile. */
-  background-position-x: calc(
-    -1 * mod(var(--tug-viewport-width, 100vw) - var(--tugx-margin-cap-width, 0px), 24px)
-  );
+  background-position-x:
+    0,
+    calc(-1 * mod(var(--tug-viewport-width, 100vw) - var(--tugx-margin-cap-width, 0px), 24px));
 }

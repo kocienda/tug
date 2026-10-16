@@ -194,6 +194,18 @@ export class AssetProjection extends Subscribable {
     if (this.failures.delete(name)) this.derive();
   }
 
+  /**
+   * Record that `path` was just written — an upload for it landed — so a tile
+   * the probe had marked missing paints again. The miss is sticky by design
+   * (a typo stays visible without a re-probe per keystroke), which is exactly
+   * wrong for the one case where the file arrives AFTER the link: a draft
+   * restored from its aside links assets its instance's home has yet to
+   * receive, and the drop that brings them in used to leave the tile broken.
+   */
+  notePresent(path: string): void {
+    if (this.missing.delete(path)) this.derive();
+  }
+
   /** The message behind a failed tile, if any. */
   failureFor(name: string): string | undefined {
     return this.failures.get(name)?.message;

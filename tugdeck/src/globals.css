@@ -56,10 +56,13 @@ body {
   height: var(--tug-viewport-height, 100%);
   transform-origin: 0 0;
   background-color: var(--tug7-surface-global-primary-normal-canvas-rest);
+  /* One un-tiled image per axis: a 24px tile drifts under a fractional zoom
+     (see `margin-cap.css`), and the caps hold their phase to this grid. */
   background-image:
-    linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px),
-    linear-gradient(90deg, var(--tug7-surface-global-primary-normal-grid-rest) 1px, transparent 1px);
-  background-size: 24px 24px;
+    repeating-linear-gradient(var(--tug7-surface-global-primary-normal-grid-rest) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, var(--tug7-surface-global-primary-normal-grid-rest) 0 1px, transparent 1px 24px);
+  background-size: 100% calc(100% + 24px), calc(100% + 24px) 100%;
+  background-repeat: no-repeat;
 }
 
 /* A host that makes bodies places them BENEATH this page, so the page's own

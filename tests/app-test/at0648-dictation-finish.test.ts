@@ -202,12 +202,16 @@ describe.skipIf(!SHOULD_RUN)("AT0648: ⌘D, focus-out, and the finish", () => {
         expect(await app.evalJS<boolean>(exists(USER_TURN))).toBe(false);
 
         // ── 2. ⌘D with the caret nowhere does nothing. ────────────────────
-        await app.evalJS<null>(`(window.__tug.setFirstResponder("deck-canvas"), null)`);
-        await app.nativeKey("d", ["cmd"]);
-        // Native events are delivered in order, so a later native gesture that
-        // we *can* await is what proves the chord above was fully processed —
-        // there is no frame to wait on here, and a mic that opened would have
-        // opened by now.
+        // The chord is dispatched in-page, in the same task as the chain move
+        // (as at0165 does): a native ⌘D is adjudicated by AppKit against the
+        // last PUBLISHED menu state, which still says the composer holds the
+        // keyboard until the after-paint republish lands, so the menu item
+        // fires and the mic opens from a gesture no user can make.
+        await app.evalJS<null>(
+          `(window.__tug.setFirstResponder("deck-canvas"),
+            document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", key: "d", metaKey: true, bubbles: true, cancelable: true })),
+            null)`,
+        );
         await focusComposer(app);
         expect(await app.evalJS<boolean>(modeIs(MIC, "idle"))).toBe(true);
 

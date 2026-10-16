@@ -1146,6 +1146,7 @@ export const TugTextCardEditor = React.forwardRef<
           host,
           getAssetBase: () => assetBaseDescriptor(),
           onError: (name, message) => reportAttachmentFailure(name, message),
+          onAttached: (path) => assetProjectionRef.current?.notePresent(path),
         }),
         // ⌘V with image data. The native clipboard bridge's read result
         // carries no image bytes at all, so the DOM `paste` event is the only
@@ -1190,6 +1191,7 @@ export const TugTextCardEditor = React.forwardRef<
                 files,
                 reportAttachmentFailure,
                 false,
+                (path) => assetProjectionRef.current?.notePresent(path),
               );
               if (!view.dom.isConnected || links.length === 0) return;
               const pos = Math.min(at, view.state.doc.length);

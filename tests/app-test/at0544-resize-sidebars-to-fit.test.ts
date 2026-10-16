@@ -239,11 +239,13 @@ describe.skipIf(!SHOULD_RUN)(
             ).toBeGreaterThan(right.layout.pane + EPSILON);
             // And it actually MOVED: the equal division is what the rail
             // stood at a moment ago, and a verb that did nothing would leave
-            // it there.
+            // it there. Sub-pixel is the only exclusion this needs: how FAR it
+            // moves is the two asks' difference, and the Layout card's ask has
+            // grown to nearly tie the Overview's (2026-10-16, the Bodies row).
             expect(
               Math.abs(right.layout.pane - rightBefore.layout.pane),
               "the verb moved the right rail's sash",
-            ).toBeGreaterThan(EPSILON * 4);
+            ).toBeGreaterThan(EPSILON);
 
             // ── Both rails are exactly full. ──
             //

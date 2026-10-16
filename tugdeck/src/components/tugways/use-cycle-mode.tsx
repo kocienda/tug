@@ -286,8 +286,19 @@ export function useCycleMode({
   // the gesture's semantics (a live caret returns to the ring rather than
   // toggling off, [P09]); the card owns only where the ring lands.
   const toggle = useCallback(() => {
-    manager?.toggleKbfManual();
-  }, [manager]);
+    if (manager === null) return;
+    const on = manager.toggleKbfManual();
+    // Entering on the way IN happens here, in the gesture's own task. The
+    // mirror below enters too, but on the next React commit — and under a
+    // motion gate's hold (a fold still landing) that commit can be hundreds
+    // of milliseconds out. A ⇧⇥ pressed in that gap walked the base order,
+    // which holds no stops, and was consumed with nothing to show ([P07]);
+    // the cycle then opened on the commit and the NEXT press worked. The bit
+    // and the scope go up together, as `pushMode` says they must.
+    if (!on || ctx === null || !enabled || !isKeyCard) return;
+    if (ctx.currentFocusMode() !== BASE_FOCUS_MODE) return;
+    enter();
+  }, [manager, ctx, enabled, isKeyCard, enter]);
 
   // Mirror the deck-global bit onto this card's cycle scope ([P05]).
   //

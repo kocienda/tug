@@ -8,8 +8,9 @@
  * a body holding the keyboard: typing, ⌘K, the Edit chords in its composer
  * (select all, cut, paste, undo, redo), the find chords, turn navigation,
  * the dictation toggle, and the deck chords that move its chrome — fold,
- * move to slot, nudge. With the shell holding the keyboard, in the Text
- * card: typing, undo, and the same deck chords. Every leg asserts the
+ * move to slot, nudge. With the Text card's body holding the keyboard:
+ * typing, undo, and the same deck chords, and no other body holds it
+ * meanwhile. Every leg asserts the
  * effect in the page that should have received it — a composer's text, a
  * find bar's presence, a scroller's offset, the dictation button's face, a
  * pane's slot or fold in the shell's own deck state — never a delivery.
@@ -65,7 +66,8 @@ const TEST_TIMEOUT_MS = 240_000;
 const A = "row05-a";
 const B = "row05-b";
 const T = "row05-text";
-const TEXT_EDITOR = `[data-card-id="${T}"] [data-slot="tug-text-card-editor"] .cm-content`;
+/** In the Text card's own body. */
+const TEXT_EDITOR = '[data-slot="tug-text-card-editor"] .cm-content';
 const FIND_BAR = '[data-slot="session-card-find-bar"]';
 const FIND_INPUT = '[data-testid="session-card-find-input"]';
 const DICTATION = '[data-testid="tug-dictation-button"]';
@@ -206,6 +208,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 5: chords", () => {
         await waitForBody(app, B);
         const a = app.body(A);
         const b = app.body(B);
+        const t = await standUpKind(app, cardKind("text"), T);
 
         // ================= With a body holding the keyboard =================
         await focusBody(app, A);
@@ -356,42 +359,44 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 5: chords", () => {
         await landed(app, A);
         note(`deck chords from A: ${await responders(app)}`);
 
-        // ================= With the shell holding the keyboard =================
-        await app.nativeClickAtElement(TEXT_EDITOR);
-        await app.waitForCondition<boolean>(`document.activeElement !== null && document.activeElement.matches(${JSON.stringify(TEXT_EDITOR)})`, { timeoutMs: SETTLE_MS });
-        const shellHolds = await pollFor(() => app.bodies(), (bs) => bs.every((x) => !x.firstResponder), SETTLE_MS);
-        expect(shellHolds.every((x) => !x.firstResponder), "no body holds the keyboard while the Text card is focused").toBe(true);
+        // ================= With the Text card's body holding the keyboard =================
+        await focusBody(app, T, { composer: false });
+        await t.nativeClickAtElement(TEXT_EDITOR);
+        await t.waitForCondition<boolean>(`document.activeElement !== null && document.activeElement.matches(${JSON.stringify(TEXT_EDITOR)})`, { timeoutMs: SETTLE_MS });
+        const holders = await pollFor(() => app.bodies(), (bs) => bs.every((x) => x.firstResponder === (x.cardId === T)), SETTLE_MS);
+        expect(holders.filter((x) => x.firstResponder).map((x) => x.cardId), "only the Text card's body holds the keyboard").toEqual([T]);
         const aBefore = await a.evalJS<string | null>(composerText);
         await app.nativeType("shell");
-        const shellTyped = await pollFor(() => app.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`), (t) => t.includes("shell"), SETTLE_MS);
-        expect(shellTyped, "typing lands in the Text card").toContain("shell");
+        const editorText = `document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`;
+        const textTyped = await pollFor(() => t.evalJS<string>(editorText), (s) => s.includes("shell"), SETTLE_MS);
+        expect(textTyped, "typing lands in the Text card's body").toContain("shell");
         expect(await a.evalJS<string | null>(composerText), "and not in A's body").toBe(aBefore);
         note(
           `before ⌘Z in the Text card: shell focused card ${await app.getFocusedCardId()}; shell responder ${await app.evalJS<string>("String(window.__tug.getFirstResponderId())")}; ` +
             `undo item ${JSON.stringify(await app.menuItemState("edit.undo"))}; host ${await responders(app)}`,
         );
         await app.nativeKey("z", ["cmd"]);
-        const shellUndone = await pollFor(() => app.evalJS<string>(`document.querySelector(${JSON.stringify(TEXT_EDITOR)})?.textContent ?? ""`), (t) => !t.includes("shell"), SETTLE_MS);
-        expect(shellUndone, "⌘Z undoes the typing in the Text card").not.toContain("shell");
+        const textUndone = await pollFor(() => t.evalJS<string>(editorText), (s) => !s.includes("shell"), SETTLE_MS);
+        expect(textUndone, "⌘Z undoes the typing in the Text card's body").not.toContain("shell");
 
         expect(await slotOf(app, T), "the Text card starts in slot 3").toBe(2);
         await app.nativeKey("1", ["cmd"]);
         const tMoved = await pollFor(() => slotOf(app, T), (s) => s === 0, SETTLE_MS);
-        expect(tMoved, "⌘1 from the shell moves the Text card to slot 1").toBe(0);
-        await Bun.sleep(1_200);
+        expect(tMoved, "⌘1 from the Text card's body moves it to slot 1").toBe(0);
+        await landed(app, T);
         await app.nativeKey("3", ["cmd"]);
         const tBack = await pollFor(() => slotOf(app, T), (s) => s === 2, SETTLE_MS);
         expect(tBack, "⌘3 moves it back").toBe(2);
-        await Bun.sleep(1_200);
+        await landed(app, T);
         await app.nativeKey("y", ["ctrl", "cmd"]);
         const tFolded = await pollFor(() => foldedOf(app, T), (v) => v, SETTLE_MS);
-        expect(tFolded, "⌃⌘Y from the shell folds the Text card").toBe(true);
+        expect(tFolded, "⌃⌘Y from the Text card's body folds it").toBe(true);
         await Bun.sleep(1_200);
         await app.nativeKey("y", ["ctrl", "cmd"]);
         const tUnfolded = await pollFor(() => foldedOf(app, T), (v) => !v, SETTLE_MS);
         expect(tUnfolded, "⌃⌘Y unfolds it").toBe(false);
         const aStill = await bodyOf(app, A);
-        expect(aStill?.visible, "A's body stood visible through the shell's chords").toBe(true);
+        expect(aStill?.visible, "A's body stood visible through the Text card's chords").toBe(true);
         expect(await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(paneOf(A))}) !== null`), "A's pane stands").toBe(true);
       } finally {
         await app.close();

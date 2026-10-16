@@ -268,6 +268,25 @@ private final class WaveProgressView: NSView {
 /// the card under it active, and does not press the button or place the caret
 /// it happens to land on. Every later click is an ordinary one.
 final class ClickThroughWebView: WKWebView {
+    /// For a body's view: whether the shell has named this view's card for
+    /// the keyboard. Nil for the shell's own view, which is never gated.
+    /// Read by the window's `makeFirstResponder`.
+    var keyboardNamed: (() -> Bool)?
+
+    /// Whether the event being dispatched now is a mouse-down inside this
+    /// view: the user's own click, which takes the keyboard wherever it
+    /// lands. A stale event is not one — the location of a click made
+    /// seconds ago says nothing about a view since placed under it.
+    var liveClickInside: Bool {
+        guard let event = NSApp.currentEvent, event.window === window else { return false }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return ProcessInfo.processInfo.systemUptime - event.timestamp < 0.5
+                && bounds.contains(convert(event.locationInWindow, from: nil))
+        default:
+            return false
+        }
+    }
     /// Receives the activating click's location in window coordinates.
     var onActivationClick: ((NSPoint) -> Void)?
 
@@ -1041,6 +1060,22 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// native title bar — not the web view — holds focus; a DOM focus change
     /// dispatched into tugdeck is invisible while the OS keyboard focus sits on
     /// the title bar, so the caller pairs this with the control dispatch.
+    /// The keyboard goes where the shell names it, or where the user
+    /// clicks, and nowhere else. A page's own DOM focus asks the window to
+    /// make its view first responder — WebKit's `makeFirstResponder`, which
+    /// consults no `acceptsFirstResponder` — and it asks without the shell:
+    /// a body told it was the key card a beat ago focused its stop after
+    /// the shell had named another card, and took the keyboard from it
+    /// (row 6's reading: a sidebar shown from the menu). Refusing here,
+    /// before `super` resigns anyone, leaves the keyboard where it was.
+    override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if let view = responder as? ClickThroughWebView, let named = view.keyboardNamed,
+           !named(), !view.liveClickInside {
+            return false
+        }
+        return super.makeFirstResponder(responder)
+    }
+
     func focusWebView() {
         makeFirstResponder(webView)
     }

@@ -400,6 +400,10 @@ final class BodyViewController {
         webView.onActivationClick = { [weak window] location in
             window?.forwardActivationClick(at: location)
         }
+        webView.keyboardNamed = { [weak self, weak webView] in
+            guard let self, let webView, let cardId = self.body(for: webView)?.cardId else { return false }
+            return self.keyboardCardId == cardId
+        }
 
         serials += 1
         let container = BodyContainerView(serial: serials)

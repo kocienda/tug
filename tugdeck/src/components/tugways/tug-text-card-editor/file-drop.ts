@@ -129,6 +129,8 @@ export interface FileDropOptions {
   getAssetBase: () => AssetBaseDescriptor | null;
   /** Report a failure for one named file, in place ([P06]). */
   onError: (name: string, message: string) => void;
+  /** A file's bytes landed at `path` — the strip may stop calling it missing. */
+  onAttached?: (path: string) => void;
 }
 
 /**
@@ -145,6 +147,7 @@ export async function linksForFiles(
   // A paste has no filename; the server mints one, so the timestamp and the
   // write are a single step ([P11]).
   named: boolean,
+  onAttached?: (path: string) => void,
 ): Promise<string[]> {
   const uploaded = await Promise.all(
     files.map(async (file) => ({
@@ -158,6 +161,7 @@ export async function linksForFiles(
       onError(file.name, `Could not attach ${file.name}.`);
       continue;
     }
+    onAttached?.(attachment.path);
     const droppedName = named
       ? file.name
       : // The server named it; the document should say the same thing.
@@ -240,7 +244,7 @@ export function fileDropExtension(options: FileDropOptions): Extension {
         clearDropCaret(view);
 
         void (async () => {
-          const links = await linksForFiles(base, files, options.onError, true);
+          const links = await linksForFiles(base, files, options.onError, true, options.onAttached);
           // The editor may have unmounted while the bytes were in flight.
           if (!view.dom.isConnected) return;
           if (links.length === 0) return;

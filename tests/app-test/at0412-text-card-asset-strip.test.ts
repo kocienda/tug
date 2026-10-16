@@ -321,6 +321,12 @@ describe.skipIf(!SHOULD_RUN)(
       "an unsaved buffer accepts a drop with no precondition and no modal",
       async () => {
         try {
+          // The draft id is minted per run: an untitled buffer's aside is
+          // kept machine-wide (`~/Library/Application Support/Tug/Autosave
+          // Information`), so a fixed id would restore the links a previous
+          // run dropped, into an instance whose draft home never received
+          // their files.
+          const draftId = `A-${Date.now().toString(36)}`;
           const app = await launchTugApp({ testName: "at0412-untitled-drop" });
           try {
             await app.seedDeckState({
@@ -331,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)(
                   // the case that used to raise a modal refusing the drop.
                   content: {
                     path: null,
-                    draftId: "A",
+                    draftId,
                     untitled: true,
                     untitledNumber: 1,
                     anchor: { line: 1, ch: 0 },
@@ -373,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)(
               })()`,
             );
             expect(decodeURIComponent(tileSrc)).toContain(
-              "/draft-docs/A/assets/photo.png",
+              `/draft-docs/${draftId}/assets/photo.png`,
             );
           } finally {
             await app.close();
