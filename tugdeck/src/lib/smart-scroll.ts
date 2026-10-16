@@ -351,6 +351,16 @@ export class SmartScroll {
   // exactly when the transcript is most active.
   private _programmaticWriteSeq = 0;
 
+  // The `scrollTop` the most recent counted write left, read back on the
+  // layout the write itself flushed — or `null` when that write was
+  // animated, whose landing is the browser's. Paired with
+  // `_programmaticWriteSeq`: a consumer that armed a baseline at one
+  // count and finds the count advanced re-bases onto THIS, not onto the
+  // live position, so a user movement after the write still reads as
+  // drift. Unlike `_keptTop`, no `scroll` event ever writes it — an
+  // event carries the user's moves as well as ours.
+  private _lastWriteTop: number | null = null;
+
   // Writes that have moved the scroller since the last `scroll` event
   // was delivered. Incremented alongside `_programmaticWriteSeq`,
   // zeroed in `_handleScroll`.
@@ -612,6 +622,11 @@ export class SmartScroll {
    *  `_programmaticWriteSeq` — it counts writes, not calls. */
   get programmaticWriteSeq(): number { return this._programmaticWriteSeq; }
 
+  /** `scrollTop` as the most recent write counted by
+   *  {@link programmaticWriteSeq} left it, or `null` after an animated
+   *  write. See `_lastWriteTop`. */
+  get lastWriteTop(): number | null { return this._lastWriteTop; }
+
   /**
    * `scrollTop` as of the most recent `scroll` event.
    *
@@ -705,12 +720,14 @@ export class SmartScroll {
     this._writesSinceScrollEvent += 1;
     if (animated) {
       this._keptTop = null;
+      this._lastWriteTop = null;
       this._container.scrollTo({ top, behavior: 'smooth' });
       // scrollend event (or 150ms fallback) will return us to idle.
     } else {
       this._container.scrollTop = top;
       // Read back: the write flushed layout to clamp, so this is clean.
       this._keptTop = this._container.scrollTop;
+      this._lastWriteTop = this._keptTop;
       // Non-animated: target is reached immediately.
       this._exitProgrammaticImmediate();
     }
@@ -763,6 +780,7 @@ export class SmartScroll {
     }
     this._container.scrollTop = Math.max(0, max);
     this._keptTop = Math.max(0, max);
+    this._lastWriteTop = this._keptTop;
     this._programmaticWriteSeq += 1;
     this._writesSinceScrollEvent += 1;
   }
@@ -788,6 +806,7 @@ export class SmartScroll {
     if (this._disposed) return;
     this._lastScrollTop = this._container.scrollTop;
     this._keptTop = this._lastScrollTop;
+    this._lastWriteTop = this._lastScrollTop;
     this._scrollTopSeeded = true;
     this._programmaticWriteSeq += 1;
     this._writesSinceScrollEvent += 1;

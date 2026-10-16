@@ -17,6 +17,8 @@
  * | Test                  | What would break without it                       |
  * |-----------------------|---------------------------------------------------|
  * | embedded file body    | a CM6 match the reveal declares landed off screen |
+ * | embedded file body    | the editor's own scroll write read as a user      |
+ * |                       | scroll, settling the reveal `cancelled`           |
  * | far tool-header match | the active paint lost once a far reveal settles   |
  *
  * "Settles" is the reveal's own terminal event in the find trace; the one
@@ -25,6 +27,11 @@
  *
  * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
  * @covers tugdeck/src/components/tugways/cards/transcript-search-index.ts
+ * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/lib/transcript-find-engine.ts
+ * @covers tugdeck/src/lib/find-session.ts
+ * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
+ * @family at0494-find
  */
 
 import { describe, expect, test } from "bun:test";
@@ -194,6 +201,14 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals a match inside an editor", ()
 })()`);
         note(`editor-match reveal: ${JSON.stringify(view)}`);
         expect(terminal, "the reveal must report a terminal outcome").not.toBeNull();
+        // Nobody touched the scroller, so the reveal owes `landed`. The
+        // embedded editor's own scroll-into-view moves the transcript
+        // scroller; a reveal that reads that write as a user scroll settles
+        // `cancelled:user-scroll` over a match that is plainly in view.
+        expect(
+          `${String(terminal!.outcome)}:${String(terminal!.reason)}`,
+          "the editor-match reveal must settle landed, not cancelled",
+        ).toMatch(/^landed:/);
         expect(view).not.toBeNull();
         expect(
           view!.inView,

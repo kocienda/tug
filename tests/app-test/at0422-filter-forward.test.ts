@@ -236,14 +236,21 @@ function waitForFilterValue(app: App, expected: string): Promise<boolean> {
 async function focusSessionsList(app: App): Promise<void> {
   for (let i = 0; i < 12; i++) {
     if (await app.evalJS<boolean>(KEY_VIEW_IS_LIST)) return;
+    const before = await app.evalJS<string | null>(KEY_VIEW_STOP);
     await app.nativeKey("Tab");
+    // Wait for the Tab to land somewhere — the list, or any stop other than
+    // the one it left — rather than for the list alone, so a stop on the way
+    // costs one key's round trip instead of a timeout.
     try {
-      await app.waitForCondition<boolean>(KEY_VIEW_IS_LIST, { timeoutMs: 1_500 });
-      return;
+      await app.waitForCondition<boolean>(
+        `${KEY_VIEW_IS_LIST} || ${KEY_VIEW_STOP} !== ${JSON.stringify(before)}`,
+        { timeoutMs: 1_500 },
+      );
     } catch {
-      // Not this stop — keep walking.
+      // The ring did not move on this key — keep walking.
     }
   }
+  if (await app.evalJS<boolean>(KEY_VIEW_IS_LIST)) return;
   note(`tab walk stalled; key view is ${await app.evalJS<string | null>(KEY_VIEW_STOP)}`);
   throw new Error("tab walk never reached the sessions list");
 }

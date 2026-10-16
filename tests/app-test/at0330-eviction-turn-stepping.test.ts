@@ -24,6 +24,9 @@
  * @covers tugdeck/src/components/tugways/internal/list-view-window.ts
  * @covers tugdeck/src/components/tugways/internal/list-view-height-index.ts
  * @covers tugdeck/src/lib/session-transcript-data-source.ts
+ * @covers tugdeck/src/components/tugways/tug-list-view.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @family at0330-eviction
  */
 
 import { describe, expect, test } from "bun:test";

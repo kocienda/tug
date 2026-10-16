@@ -231,20 +231,32 @@ async function openTheRoomOnTheJoin(app: App): Promise<void> {
     await app.nativeKey("Escape");
     await settle();
     await app.nativeKey("Return", ["cmd"]);
-    try {
-      await app.waitForCondition<boolean>(
+    // The first check is polled on this file's own clock rather than through
+    // `waitForCondition`, whose timeout the runner multiplies by its job count
+    // (four, even alone): a good attempt has the room up inside a second, a
+    // bad one (the first, on 2026-10-16) never does and the next succeeds at
+    // once, so the old 6 s wait cost 24 s of a 31 s run.
+    const attemptBy = Date.now() + 3_000;
+    let open = false;
+    while (!open && Date.now() < attemptBy) {
+      open = await app.evalJS<boolean>(
         `document.querySelector(${JSON.stringify(SHEET)}) !== null &&
          document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
-        { timeoutMs: 6000 },
       );
-      await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(LANE)}) !== null`,
-        { timeoutMs: 40000 },
-      );
-      return;
-    } catch {
-      note(`at0496 /arc-join did not open the room in join mode (attempt ${attempt})`);
+      if (!open) await settle(100);
     }
+    if (open) {
+      try {
+        await app.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(LANE)}) !== null`,
+          { timeoutMs: 40000 },
+        );
+        return;
+      } catch {
+        // Fall through to the retry.
+      }
+    }
+    note(`at0496 /arc-join did not open the room in join mode (attempt ${attempt})`);
   }
   throw new Error("at0496: /arc-join never opened the room in join mode");
 }
@@ -282,6 +294,8 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
+        const t0 = Date.now();
+        const lap = (label: string): void => note(`at0496 +${((Date.now() - t0) / 1000).toFixed(1)}s ${label}`);
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -297,7 +311,9 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           arc_id: arcId,
           arc_name: ARC,
         });
+        lap("bound");
         await openTheRoomOnTheJoin(app);
+        lap("the room is open on the join");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
@@ -322,6 +338,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           "precondition: the shade is offering this arc",
         ).toBe(true);
 
+        lap("the candidate stands");
         // Scroll the transcript away from its live edge, and leave it there.
         //
         // This is the reader who has been looking back through the session —
@@ -380,6 +397,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           { timeoutMs: 8000 },
         );
 
+        lap("the shade closed on the press");
         // ── 2. The Joining register is in view in the transcript. ──
         //
         // Read here, on the press's own beat, because a join over a two-file

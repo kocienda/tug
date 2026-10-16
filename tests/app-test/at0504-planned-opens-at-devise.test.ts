@@ -1,6 +1,13 @@
 /**
- * at0504-arc-rotation-carries-the-binding.test.ts — **the postmortem, as an
- * asserted property.**
+ * at0504-planned-opens-at-devise.test.ts — a brief with no task list opens
+ * at devise, which is what makes the recorded kind a kind; the other half of
+ * the postmortem below.
+ *
+ * Split from `at0504-arc-rotation-carries-the-binding`, one file per test,
+ * each its own launch: the plain arc's rotation in
+ * `at0504-plain-rotation-carries-the-binding`, and the planned arc here. Both
+ * files seed both arcs, whose documents differ by the one file that decides
+ * the kind.
  *
  * ## What this is
  *
@@ -66,6 +73,7 @@
  * free — but it is one spawn, the same cost `at0476`'s second test already
  * pays, and the arc is stopped as soon as the reading is taken.
  *
+ * @family at0504
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs
@@ -312,158 +320,6 @@ function bindDryRun(
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () => {
-  test(
-    "a plain arc opens at implement, and its rotation carries the binding and the id",
-    async () => {
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
-      const app = await launchTugApp({
-        testName: "at0504-arc-rotation-carries-the-binding",
-        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
-      });
-      const cli = tugtoolPath(CHECKOUT);
-      try {
-        await openCard(app, SID_PLAIN);
-
-        const worktree = arcWorktreePath(projectDir(), PLAIN_ARC);
-        expect(existsSync(worktree), "no seat exists before the wheel runs").toBe(false);
-
-        // The door. Opening the arc binds this card and starts the wheel,
-        // whose first act is the rotation this whole file is about.
-        await shell(app, `${cli} arc run ${PLAIN_ARC}`);
-        const arc = await waitForRotation(PLAIN_ARC);
-        note(`at0504 plain arc: ${JSON.stringify(arc)}`);
-
-        // ── 0. The dispatch made the seat it named ───────────────────────
-        //
-        // Nothing in this fixture created a branch or a worktree for the
-        // plain arc. The implement dispatch makes both before it composes the
-        // `where` line, so by the time the rotation is recorded the worktree
-        // stands and is checked out on the arc's branch — a line naming a
-        // path that was only computed is the promise this asserts against.
-        expect(existsSync(worktree), "the dispatch made the worktree").toBe(true);
-        expect(
-          gitRetry(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim(),
-          "and it is on the arc's branch",
-        ).toBe(`tugarc/${PLAIN_ARC}`);
-
-        // ── 1. The recorded kind decided where to open ───────────────────
-        //
-        // The same brief with no task list beside it opens at *devise* —
-        // which the second test drives. So the opening read these documents
-        // once, and every stage after it reads the record.
-        expect(arc.kind, "the kind is recorded, not derived later").toBe("plain");
-        expect(arc.stages[0]?.stage, "no devise, no review").toBe("implement");
-        const seatedSegment = arc.stages[0]!.session_id;
-        expect(seatedSegment, "a rotation seated a fresh segment").not.toBe(SID_PLAIN);
-
-        // ── 2. The stage was really seated ───────────────────────────────
-        //
-        // The `arc-stage` line above is that fact and is the one asserted: it
-        // names a claude session id nobody knows until claude announces it,
-        // so only a rotation the wheel actually performed can produce it.
-        //
-        // The card's divider is the same fact wearing a face, and it is
-        // deliberately **observed rather than waited on**. Its text is
-        // composed from the announcement's own field, which W5 left spelled
-        // `arc` and sourced from the resolved kind — so what it reads is a
-        // question about presentation, and a test that blocked on a guess at
-        // its wording would spend its whole budget being wrong about
-        // something it is not claiming. (It did: the first version of this
-        // waited for the word "implement" and timed out at four minutes with
-        // every assertion around it already true.)
-        const dividers = await app.evalJS<string>(
-          `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
-            STAGE_DIVIDERS,
-          )})).map((el) => (el.textContent || "").trim()))`,
-        );
-        note(`at0504 stage dividers on the card: ${dividers}`);
-        note("at0504 the stage is seated", (await app.screenshot()).path);
-
-        // ── 3. A stale id lands on the live segment ──────────────────────
-        //
-        // `SID_PLAIN` is the id the card was born on, and the rotation has
-        // moved the line's tip past it. Every process started before the
-        // rotation — the card's own `$` shell above all — is still holding it,
-        // and the incident is what happened when one of them was believed.
-        //
-        // Read **before** the surface below, on purpose: this is the server's
-        // own answer, so a run that fails at the card can still say whether
-        // the ledger was right and only the deck was wrong. That is the
-        // difference between "the binding was lost" and "the binding was not
-        // announced", and they are different bugs.
-        const dry = bindDryRun(PLAIN_ARC, SID_PLAIN);
-        note(`at0504 stale-id resolution: ${JSON.stringify(dry)}`);
-        expect(dry.posted_session_id, "the stale id is what went out").toBe(SID_PLAIN);
-        expect(dry.resolved, "an instance answered").toBe(true);
-        expect(dry.rotated, "and said the posted id had rotated").toBe(true);
-        expect(dry.state, "the segment it resolved to is live").toBe("live");
-        expect(dry.tug_session_id, "and is the one the rotation seated").toBe(
-          seatedSegment,
-        );
-
-        // ── 4. The binding rode the seat, on the card ────────────────────
-        //
-        // The masthead's sigil reads the account-global aggregate's
-        // `bound_session`, which only a live row actually carrying the
-        // binding reaches; the Z2 cell reads the same arc through the card's
-        // own binding store, which is what `bind_arc_ok` writes. The
-        // incident blanked both.
-        //
-        // What the deck thinks the card is seated on is noted first, because
-        // it is the fact that tells the two failure modes apart: a card still
-        // reading the pre-rotation segment never learned about the new one.
-        let facts = await app.evalJS<{ tugSessionId: string; lineId: string }>(
-          `window.__tug.cardLineFacts("A")`,
-        );
-        const seatDeadline = Date.now() + 60_000;
-        while (facts.tugSessionId === SID_PLAIN && Date.now() < seatDeadline) {
-          await new Promise((r) => setTimeout(r, 1_000));
-          facts = await app.evalJS<{ tugSessionId: string; lineId: string }>(
-            `window.__tug.cardLineFacts("A")`,
-          );
-        }
-        note(`at0504 the deck's seat after the rotation: ${JSON.stringify(facts)}`);
-        const seatMoved = facts.tugSessionId === seatedSegment;
-        note(
-          seatMoved
-            ? "at0504 the deck's seat followed the rotation"
-            : "at0504 KNOWN DEFECT — the deck's seat did not follow the rotation; " +
-              "see this file's `DECK_SEAT_FOLLOWS_A_ROTATION`",
-        );
-        expect(seatMoved, DECK_SEAT_NOTE).toBe(DECK_SEAT_FOLLOWS_A_ROTATION);
-        if (!DECK_SEAT_FOLLOWS_A_ROTATION) return;
-
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(MASTHEAD_ARC)}) !== null`,
-          { timeoutMs: 20_000 },
-        );
-        const sigil = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(MASTHEAD_ARC)})?.textContent ?? "").trim()`,
-        );
-        note(`at0504 masthead after the rotation: ${JSON.stringify(sigil)}`);
-        expect(sigil, "the card still names its arc").toContain(PLAIN_ARC);
-
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(Z2_ARC_VALUE)}) !== null`,
-          { timeoutMs: 20_000 },
-        );
-        const placard = await app.evalJS<string>(
-          `(document.querySelector(${JSON.stringify(Z2_ARC_VALUE)})?.textContent ?? "").trim()`,
-        );
-        note(`at0504 Z2 placard after the rotation: ${JSON.stringify(placard)}`);
-        expect(placard.length, "the Z2 placard did not blank").toBeGreaterThan(0);
-
-        // Stop the arc rather than leaving a stage running past the reading.
-        await shell(app, `${cli} arc stop ${PLAIN_ARC}`);
-      } finally {
-        await app.close();
-        rmTempTugbank(tugbankPath);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
   test(
     "a brief with no task list opens at devise, which is what makes the kind a kind",
     async () => {

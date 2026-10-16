@@ -16,11 +16,7 @@
     "kind": "gallery-input"
   },
   {
-    "file": "at0037-deck-wide-restore-consistency.test.ts",
-    "kind": "unknown"
-  },
-  {
-    "file": "at0038-deactivation-inactive-paint.test.ts",
+    "file": "at0038-deactivation-inactive-paint-typed.test.ts",
     "kind": "gallery-input"
   },
   {
@@ -84,7 +80,11 @@
     "kind": "session"
   },
   {
-    "file": "at0209-text-card-live-autosave.test.ts",
+    "file": "at0209-text-card-live-autosave-loop.test.ts",
+    "kind": "text"
+  },
+  {
+    "file": "at0209-text-card-live-autosave-undo.test.ts",
     "kind": "text"
   },
   {
@@ -92,7 +92,11 @@
     "kind": "text"
   },
   {
-    "file": "at0212-text-card-manual-save.test.ts",
+    "file": "at0212-text-card-manual-save-close.test.ts",
+    "kind": "text"
+  },
+  {
+    "file": "at0212-text-card-manual-save-save.test.ts",
     "kind": "text"
   },
   {
@@ -212,7 +216,11 @@
     "kind": "session"
   },
   {
-    "file": "at0303-imposer-space-allocator.test.ts",
+    "file": "at0303-space-allocator-engages.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0303-space-allocator-retunes.test.ts",
     "kind": "layout"
   },
   {
@@ -224,7 +232,11 @@
     "kind": "settings"
   },
   {
-    "file": "at0307-transcript-file-path-links.test.ts",
+    "file": "at0307-transcript-file-path-links-prose.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0307-transcript-file-path-links-surfaces.test.ts",
     "kind": "session"
   },
   {
@@ -472,7 +484,11 @@
     "kind": "session"
   },
   {
-    "file": "at0451-cards-multiselect.test.ts",
+    "file": "at0451-cards-multiselect-escape.test.ts",
+    "kind": "cards"
+  },
+  {
+    "file": "at0451-cards-multiselect-list.test.ts",
     "kind": "cards"
   },
   {
@@ -484,11 +500,23 @@
     "kind": "layout"
   },
   {
-    "file": "at0454-flow-mode.test.ts",
+    "file": "at0454-flow-mode-controls.test.ts",
     "kind": "layout"
   },
   {
-    "file": "at0455-column-split.test.ts",
+    "file": "at0454-flow-mode-reveals.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0454-flow-mode-strip.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0455-column-split-doors.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0455-column-split-tiles.test.ts",
     "kind": "layout"
   },
   {
@@ -496,7 +524,15 @@
     "kind": "text"
   },
   {
-    "file": "at0463-miniature-live.test.ts",
+    "file": "at0463-miniature-live-drag.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0463-miniature-live-flow.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0463-miniature-live-strip.test.ts",
     "kind": "layout"
   },
   {
@@ -512,7 +548,19 @@
     "kind": "dashes"
   },
   {
-    "file": "at0469-layout-places.test.ts",
+    "file": "at0469-places-arrangement.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0469-places-drawing.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0469-places-marks.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0469-places-sidebar-rows.test.ts",
     "kind": "layout"
   },
   {
@@ -540,7 +588,7 @@
     "kind": "unknown"
   },
   {
-    "file": "at0476-arc-interruptions.test.ts",
+    "file": "at0476-arc-stop-resume.test.ts",
     "kind": "session"
   },
   {
@@ -640,11 +688,11 @@
     "kind": "settings"
   },
   {
-    "file": "at0527-jot-keeps-its-chips.test.ts",
+    "file": "at0527-jot-keeps-its-chips-copies-out.test.ts",
     "kind": "gallery-accordion"
   },
   {
-    "file": "at0527-jot-keeps-its-chips.test.ts",
+    "file": "at0527-jot-keeps-its-chips-survives.test.ts",
     "kind": "jots"
   },
   {
@@ -692,8 +740,8 @@
     "kind": "session"
   },
   {
-    "file": "at0558-sheet-visibility.test.ts",
-    "kind": "session"
+    "file": "at0558-sheet-visibility-folded-card.test.ts",
+    "kind": "unknown"
   },
   {
     "file": "at0559-ready-folded-form.test.ts",
@@ -808,7 +856,23 @@
     "kind": "session"
   },
   {
-    "file": "at0602-text-card-disk-sync.test.ts",
+    "file": "at0602-text-card-disk-sync-hidden-tab.test.ts",
+    "kind": "text"
+  },
+  {
+    "file": "at0602-text-card-disk-sync-hidden-workspace.test.ts",
+    "kind": "text"
+  },
+  {
+    "file": "at0602-text-card-disk-sync-merge.test.ts",
+    "kind": "text"
+  },
+  {
+    "file": "at0602-text-card-disk-sync-reconnect.test.ts",
+    "kind": "text"
+  },
+  {
+    "file": "at0602-text-card-disk-sync-reload.test.ts",
     "kind": "text"
   },
   {
@@ -896,12 +960,12 @@
     "kind": "unknown"
   },
   {
-    "file": "at0629-motion-render-cost.test.ts",
+    "file": "at0629-motion-render-cost-offscreen.test.ts",
     "kind": "session"
   },
   {
-    "file": "at0629-motion-render-cost.test.ts",
-    "kind": "unknown"
+    "file": "at0629-motion-render-cost-rest.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0630-arc-boundary-orphan.test.ts",
@@ -922,10 +986,6 @@
   {
     "file": "at0641-hidden-layer-inert.test.ts",
     "kind": "cards"
-  },
-  {
-    "file": "at0643-workspace-switch-cadence.test.ts",
-    "kind": "unknown"
   },
   {
     "file": "at0645-overview-visible-dots-pulse.test.ts",
@@ -1016,12 +1076,20 @@
     "kind": "jots"
   },
   {
-    "file": "at0685-flow-swipe-settles-from-hand.test.ts",
+    "file": "at0685-flow-swipe-catch.test.ts",
     "kind": "layout"
   },
   {
-    "file": "at0689-retarget-ends-crossings.test.ts",
-    "kind": "unknown"
+    "file": "at0685-flow-swipe-quiet.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0685-flow-swipe-release-lift.test.ts",
+    "kind": "layout"
+  },
+  {
+    "file": "at0685-flow-swipe-speed-flick.test.ts",
+    "kind": "layout"
   },
   {
     "file": "at0691-resize-slot-setting.test.ts",
@@ -1048,7 +1116,15 @@
     "kind": "cards"
   },
   {
-    "file": "at0728-overview-window.test.ts",
+    "file": "at0728-overview-window-follow.test.ts",
+    "kind": "overview"
+  },
+  {
+    "file": "at0728-overview-window-read.test.ts",
+    "kind": "overview"
+  },
+  {
+    "file": "at0728-overview-window-relaunch.test.ts",
     "kind": "overview"
   },
   {
@@ -1064,16 +1140,16 @@
     "kind": "session"
   },
   {
-    "file": "at0738-session-body.test.ts",
+    "file": "at0738-body-fallback.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0738-body-reload-quit.test.ts",
     "kind": "session"
   },
   {
     "file": "at0740-body-switch.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "body-grounding/chrome-under-bodies.test.ts",
-    "kind": "text"
   },
   {
     "file": "body-grounding/probe-tap.test.ts",
@@ -1090,14 +1166,6 @@
   {
     "file": "body-grounding/row-04-slide.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "body-grounding/row-05-chords.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "body-grounding/row-07-focus.test.ts",
-    "kind": "text"
   },
   {
     "file": "body-grounding/row-12-composer.test.ts",

@@ -187,6 +187,7 @@ import type { TextSelectionAdapter } from "./text-selection-adapter";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTextCardEditorTheme } from "./tug-text-card-editor/theme";
 import { emptyLineSelection } from "./tug-text-card-editor/empty-line-selection";
+import { findRevealFor } from "./tug-text-card-editor/find-reveal";
 
 // ---------------------------------------------------------------------------
 // Compartments and annotations
@@ -1521,11 +1522,29 @@ export const TugTextCardEditor = React.forwardRef<
         findAnchorRef.current = live.state.selection.main.from;
         return;
       }
-      // The top of the scrollport, snapped to a line boundary: the first
-      // line the reader can see is the first line a search should consider.
-      findAnchorRef.current = live.lineBlockAtHeight(
-        live.scrollDOM.scrollTop * live.scaleY,
-      ).from;
+      // The top of the scrollport, snapped to the start of the visual row
+      // there: the first row the reader can see is the first text a search
+      // should consider. A ROW, not the logical line — a soft-wrapped line
+      // straddling the top edge has its start (and any match there) above
+      // the scrollport, and landing on that is a jump the reader never
+      // asked for (`find-reveal.ts` centres a match with nothing on screen).
+      const port = live.scrollDOM.getBoundingClientRect();
+      if (port.height === 0) {
+        // No box to read rows from (a folded card's editor is out of
+        // layout): the line at the remembered offset is the best answer.
+        findAnchorRef.current = live.lineBlockAtHeight(
+          live.scrollDOM.scrollTop * live.scaleY,
+        ).from;
+        return;
+      }
+      const content = live.contentDOM.getBoundingClientRect();
+      // Imprecise, so it always answers: the nearest position to the point.
+      const pos = live.posAtCoords({ x: content.left + 1, y: port.top + 1 }, false);
+      findAnchorRef.current = live.moveToLineBoundary(
+        EditorSelection.cursor(pos),
+        false,
+        true,
+      ).head;
     },
     [],
   );
@@ -1548,27 +1567,30 @@ export const TugTextCardEditor = React.forwardRef<
     const { from, to } = hit.value;
     // Already on screen? Then select it and leave the page alone. Scrolling
     // a visible match to the vertical centre is motion the user did not ask
-    // for and cannot distinguish from the view losing its place.
+    // for and cannot distinguish from the view losing its place — and a
+    // match on a PARTLY visible line (the clipped top line a dense file
+    // lands on) is visible: it gets the least motion that shows it whole,
+    // never the centre. See `find-reveal.ts`.
     const box = live.scrollDOM.getBoundingClientRect();
     const start = live.coordsAtPos(from, 1);
     const end = live.coordsAtPos(to, -1);
-    const visible =
-      start !== null &&
-      end !== null &&
-      start.top >= box.top &&
-      end.bottom <= box.bottom &&
-      start.left >= box.left &&
-      end.right <= box.right;
+    const reveal = findRevealFor(
+      start !== null && end !== null
+        ? { top: start.top, bottom: end.bottom, left: start.left, right: end.right }
+        : null,
+      box,
+    );
     live.dispatch({
       selection: EditorSelection.single(from, to),
-      ...(visible
+      ...(reveal === "none"
         ? {}
         : {
             effects: EditorView.scrollIntoView(
               EditorSelection.range(from, to),
-              // `x: "nearest"` pans a long unwrapped line to the match; the
-              // vertical centre matches the findNext/findPrevious landing.
-              { y: "center", x: "nearest" },
+              // `x: "nearest"` pans a long unwrapped line to the match; an
+              // off-screen match takes the vertical centre, as the
+              // findNext/findPrevious landing does.
+              { y: reveal, x: "nearest" },
             ),
           }),
       userEvent: "select.search",

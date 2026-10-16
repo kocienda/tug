@@ -37,6 +37,8 @@
  * was green from the step that wrote the machine.
  *
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
+ * @covers tugdeck/src/lib/find-trace.ts
+ * @family at0605-find
  */
 
 import { describe, expect, test } from "bun:test";

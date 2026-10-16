@@ -52,7 +52,6 @@ tugdeck/src/lib/atom-bytes-store.ts arc/dev-atoms.md
 tugdeck/src/lib/atom-mention-marker.ts arc/dev-atoms.md
 tugdeck/src/lib/build-wire-payload.ts arc/dev-atoms.md
 tugdeck/src/lib/card-services-store.ts arc/dev-atoms.md
-tugdeck/src/lib/card-services-store.ts arc/tugplan-session-mid-turn-replay.md
 tugdeck/src/lib/card-session-binding-store.ts arc/tugplan-session-connection-health.md
 tugdeck/src/lib/code-session-store.ts arc/dev-atoms.md
 tugdeck/src/lib/code-session-store.ts arc/tugplan-session-wake.md

@@ -1,7 +1,11 @@
 /**
- * at0503-arc-restart-mid-stage.test.ts — a tugcast restart in the middle of a
- * stage does not lose the arc, and the two shapes that look like a lost one
- * are told apart on the card.
+ * at0503-restart-waits.test.ts — a tugcast restart in the middle of a stage
+ * does not lose the arc: the binding rides the seat and nothing stops.
+ *
+ * Split from `at0503-arc-restart-mid-stage`, one file per case, each its own
+ * pair of launches: the restart that waits here, and the taken card that
+ * stops in `at0503-card-taken` — which is what keeps this file's "nothing
+ * happens" from passing against a machine that decides nothing at all.
  *
  * ## Why this exists
  *
@@ -54,6 +58,7 @@
  * not the gesture for; it is pinned in `arc.rs`'s
  * `a_dead_session_stops_the_arc_whatever_the_documents_say`.
  *
+ * @family at0503
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/session_ledger.rs
@@ -108,8 +113,7 @@ const TAG = "brisk-heron";
  * only way each case's record is its own.
  */
 const ARC_WAITS = "at0503-waits";
-const ARC_TAKEN = "at0503-taken";
-const ARCS = [ARC_WAITS, ARC_TAKEN] as const;
+const ARCS = [ARC_WAITS] as const;
 const MASTHEAD_ARC =
   '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
 
@@ -327,69 +331,6 @@ describe.skipIf(!SHOULD_RUN)("AT0503: an arc across a tugcast restart", () => {
             expect(arc.done).toBe(false);
             expect(arc.stages, "the stage was not rotated again").toBe(1);
             note("at0503 card after the restart", (await app.screenshot()).path);
-          } finally {
-            await app.close();
-          }
-        }
-      } finally {
-        rmTempTugbank(tugbankPath);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a card that came back on a fresh segment is a taking, and the arc says so",
-    async () => {
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
-      const instanceId = `${process.env.TUG_APPTEST_ID_PREFIX ?? "apptest"}-arc-taken-${randomUUID()}`;
-      const env = { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" };
-      try {
-        {
-          const app = await launchTugApp({
-            testName: "at0503-arc-restart-mid-stage-taken-A",
-            instanceId,
-            env,
-          });
-          try {
-            await awaitDeck(app);
-            seedTheLine(app, ARC_TAKEN, "fresh");
-            seedTheArc(ARC_TAKEN);
-          } finally {
-            await app.close();
-          }
-        }
-        {
-          const app = await launchTugApp({
-            testName: "at0503-arc-restart-mid-stage-taken-B",
-            instanceId,
-            env,
-          });
-          try {
-            await app.enableDeckTrace(true);
-            await awaitDeck(app);
-            // The card comes back on a session the wheel never seated. From
-            // the arc's side this is indistinguishable from the user having
-            // pressed `/new` — and it should be, because that is what it is.
-            await app.spawnSessionResume("A", {
-              tugSessionId: FRESH,
-              projectDir: projectDir(),
-            });
-            await app.awaitEngineReady("A", { timeoutMs: 30_000 });
-
-            // The stop is a decision the sweep makes, so it is waited for
-            // rather than settled for: the wait is the assertion.
-            const deadline = Date.now() + 60_000;
-            let arc = arcReport(ARC_TAKEN);
-            while (arc.stopped === null && Date.now() < deadline) {
-              await settle(1_000);
-              arc = arcReport(ARC_TAKEN);
-            }
-            note(`at0503 arc after the taking: ${JSON.stringify(arc)}`);
-            expect(arc.stopped?.[0]).toBe("implement");
-            expect(arc.stopped?.[1]).toBe("card taken");
-            note("at0503 card after the taking", (await app.screenshot()).path);
           } finally {
             await app.close();
           }

@@ -23,6 +23,9 @@
  * @covers tugdeck/src/lib/transcript-find-engine.ts
  * @covers tugdeck/src/lib/find-session.ts
  * @covers tugdeck/src/lib/find-trace.ts
+ * @covers tugdeck/src/components/tugways/transcript-find-highlighter.ts
+ * @covers tugdeck/src/components/tugways/tug-list-view.tsx
+ * @family at0605-find
  */
 
 import { describe, expect, test } from "bun:test";

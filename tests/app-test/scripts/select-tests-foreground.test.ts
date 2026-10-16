@@ -22,7 +22,7 @@ const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
 /** A file that both declares `@foreground` and launches with `foreground: true`. */
 const TAGGED = "at0145-permission-dialog-keyboard.test.ts";
 /** A background file whose name shares the `at0209` prefix with a foreground one. */
-const PREFIX_TWIN = "at0209-text-card-live-autosave.test.ts";
+const PREFIX_TWIN = "at0209-text-card-live-autosave-loop.test.ts";
 
 function run(script: string, args: string[]): { code: number; out: string; err: string } {
     const proc = Bun.spawnSync(["bun", script, ...args], { cwd: APP_TEST_DIR });

@@ -142,6 +142,7 @@ import {
   prependScrollAdjustment,
 } from "./internal/list-view-prepend";
 import { computePageNavigation } from "./internal/list-view-page-navigation";
+import { judgeRevealDrift } from "./internal/list-view-reveal-drift";
 import {
   classifyWidthSettle,
   computeWindow,
@@ -1838,8 +1839,15 @@ interface RangeRevealState {
    * in. Anything else moving the scroller shows up as drift from this,
    * which is the only thing that catches the event-silent native
    * scrollbar — it never raises `isUserScrolling` at all.
+   *
+   * Re-based onto every DECLARED write since (`SmartScroll`'s
+   * `programmaticWriteSeq` / `lastWriteTop`): an embedded editor placing
+   * its own match, or the list's own compensation, moves the scroller
+   * without being the user. See `list-view-reveal-drift.ts`.
    */
   armedTop: number | null;
+  /** `SmartScroll.programmaticWriteSeq` as of `armedTop`. */
+  armedWriteSeq: number;
   /**
    * Whether the target cell has delivered a `ResizeObserver` entry since
    * it mounted. A freshly-mounted row is placed against an ESTIMATED
@@ -5892,6 +5900,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         const live = rangeRevealRef.current;
         if (live !== null && live.index === pending.index) {
           live.armedTop = scrollEl.scrollTop;
+          live.armedWriteSeq = ss.programmaticWriteSeq;
         }
       };
       const targetEl = cellElementMapRef.current.get(pending.index);
@@ -6095,17 +6104,34 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
      * the synchronous post-write read-back, and a `scroll` event does not
      * dispatch until the task ends, so by the time this runs from
      * `onScroll` the scroller already equals `armedTop`.
+     *
+     * Nor can another DECLARED writer's: the embedded editor's own
+     * scroll-into-view (`FileBlock`) and the list's own compensation
+     * writes move the scroller outside this reveal, and the baseline is
+     * re-based onto the position each such write left before drift is
+     * read. Without that, an editor-body match settled
+     * `cancelled:user-scroll` with nobody scrolling.
      */
     const checkRangeRevealCancel = React.useCallback((): boolean => {
       const live = rangeRevealRef.current;
       if (live === null) return false;
       const el = scrollContainerRef.current;
-      const drifted =
-        live.armedTop !== null &&
-        el !== null &&
-        Math.abs(el.scrollTop - live.armedTop) >
-          SCROLL_CORRECTION_SUPERSEDE_DRIFT_PX;
-      if (smartScrollRef.current?.isUserScrolling === true || drifted) {
+      const ss = smartScrollRef.current;
+      const verdict = judgeRevealDrift({
+        // No scroller, no position to drift from.
+        armedTop: el === null ? null : live.armedTop,
+        armedWriteSeq: live.armedWriteSeq,
+        scrollTop: el?.scrollTop ?? 0,
+        writeSeq: ss?.programmaticWriteSeq ?? live.armedWriteSeq,
+        lastWriteTop: ss?.lastWriteTop ?? null,
+        userScrolling: ss?.isUserScrolling === true,
+        thresholdPx: SCROLL_CORRECTION_SUPERSEDE_DRIFT_PX,
+      });
+      if (el !== null) {
+        live.armedTop = verdict.armedTop;
+        live.armedWriteSeq = verdict.armedWriteSeq;
+      }
+      if (verdict.cancel) {
         settleRangeReveal("cancelled", "user-scroll");
         return true;
       }
@@ -6270,6 +6296,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         });
         live.writes += 1;
         live.armedTop = el.scrollTop;
+        live.armedWriteSeq = ss.programmaticWriteSeq;
         placed = true;
       }
     }, [checkRangeRevealCancel, rangeRevealGeometry, settleRangeReveal]);
@@ -6300,6 +6327,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
           startedAt: performance.now(),
           writes: 0,
           armedTop: null,
+          armedWriteSeq: ss.programmaticWriteSeq,
           // A row that is already mounted AND already in the height
           // ledger has been measured; only a row arriving now is placed
           // against an estimate.
@@ -6322,6 +6350,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
         // into the window.
         const estimatedTop = armEstimatedJump(clamped, "nearest", false);
         live.armedTop = scrollContainerRef.current?.scrollTop ?? estimatedTop;
+        live.armedWriteSeq = ss.programmaticWriteSeq;
       },
       [
         advanceRangeReveal,

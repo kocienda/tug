@@ -19,7 +19,7 @@ const APP_TEST_DIR = resolve(dirname(import.meta.dir));
 const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
 
 /** A motion file, tagged by reading what it samples. */
-const MOTION = "at0643-workspace-switch-cadence.test.ts";
+const MOTION = "at0643-workspace-switch-cadence-slice.test.ts";
 /** A file in the settle number range that samples nothing, and carries no tag. */
 const IN_RANGE_PLAIN = "at0709-insert-file-image.test.ts";
 /** A screen-taker. */

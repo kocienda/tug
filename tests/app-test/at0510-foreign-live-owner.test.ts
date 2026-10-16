@@ -1,6 +1,30 @@
 /**
- * at0510-arc-ownership-two-instances.test.ts — two live instances over one
- * checkout, and the one that did not seat the arc never judges it.
+ * at0510-foreign-live-owner.test.ts — two live instances over one checkout,
+ * and the one that did not seat the arc never judges it.
+ *
+ * ## The split
+ *
+ * This file was `at0510-arc-ownership-two-instances`, and carried both arms
+ * in one test: the foreign live owner is never clocked, and then — A closed —
+ * the dead owner's arc is. The second arm is `at0510-dead-owner-clocked`, and
+ * it is what keeps this file's negative falsifiable: the same B, the same
+ * seeded binding and the same lowered stall deadline DO stop the arc there
+ * once the owner the log names is not tmux-live. The gate reads only the
+ * owner line and the owner's tmux server (`arc_ownership::verdict`), so an
+ * owner that never ran and an owner that ran and died are one verdict,
+ * `ForeignDead`, which is why that arm no longer needs A at all.
+ *
+ * **A measured gap in the window below (2026-10-16).** Split out and run
+ * alone, the dead-owner arm's stop landed 59 s after B came up, on B's first
+ * `CLOCK_POLL` tick, with the project writes of `nudgeSweeps` waking nothing:
+ * B never spawns a card, so it never registers the scratch project's
+ * workspace, and its changeset aggregate has nothing to recompute. B's runner
+ * therefore sweeps at its startup (before the binding is seeded) and then a
+ * minute later — so this file's nine-second window most likely holds no
+ * sweep of the bound arc at all, and the original single-file run's window
+ * (which ended long before that first tick) held none either. Making the
+ * negative evidence inside the 20 s budget needs a sweep this file can cause:
+ * a test-mode `CLOCK_POLL`, or a control verb that sweeps now.
  *
  * ## Why this exists
  *
@@ -53,8 +77,8 @@
  * no harness affordance for the shell ledger, and pointing a foreign sqlite
  * at a live per-instance ledger is forbidden by house rule. The arc log is
  * the same event's durable record, it is plain text, and — the part that
- * matters — the same read turning **positive** in the last phase is what
- * proves this test can fail.
+ * matters — the same read turning **positive** in `at0510-dead-owner-clocked`
+ * is what proves this test can fail.
  *
  * ## What [P04]'s visible half is not asserted here
  *
@@ -71,6 +95,7 @@
  * consults no session snapshot), and the card's rendering of an arc row is
  * `at0499`'s.
  *
+ * @family at0510
  * @covers tugrust/crates/tugcast/src/feeds/arc_ownership.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugarc-core/src/arc.rs
@@ -236,7 +261,7 @@ async function nudgeSweeps(rounds: number): Promise<void> {
 
 describe.skipIf(!SHOULD_RUN)("AT0510: an arc is judged only by the instance that seated it", () => {
   test(
-    "a foreign live owner is never clocked, and a dead one is",
+    "a foreign live owner is never clocked",
     async () => {
       const prefix = process.env.TUG_APPTEST_ID_PREFIX ?? "apptest";
       const idA = `${prefix}-own-a-${randomUUID()}`;
@@ -306,29 +331,9 @@ describe.skipIf(!SHOULD_RUN)("AT0510: an arc is judged only by the instance that
           `document.querySelectorAll(${JSON.stringify(ARC_RECEIPT)}).length`,
         );
         expect(receipts, "and no receipt reached B's card").toBe(0);
-
-        // ── A goes away, and the arc becomes B's to clock ─────────────────
-        //
-        // Without this arm the test would pass equally well against a machine
-        // that had simply stopped judging anything at all.
-        await appA.close();
-        appA = null;
-        reapTmux(idA);
-        expect(tmuxLive(idA), "the owner is gone").toBe(false);
-        note("at0510: A is down; the arc is now B's to judge");
-
-        const deadline = Date.now() + 120_000;
-        for (;;) {
-          await nudgeSweeps(4);
-          if (arcStopLines().length > 0) break;
-          if (Date.now() >= deadline) break;
-        }
-        const after = arcReport();
-        note(`at0510 after the owner died: ${JSON.stringify(after)}`);
-        expect(after.stopped, "a dead owner's arc is reachable, or it is stuck forever").toEqual([
-          "implement",
-          "stalled",
-        ]);
+        // The owner is still live at the end of the window, so the silence
+        // above was B's restraint and not a window the owner had already left.
+        expect(tmuxLive(idA), "A is still tmux-live after the window").toBe(true);
       } finally {
         if (appB) await appB.close();
         if (appA) await appA.close();

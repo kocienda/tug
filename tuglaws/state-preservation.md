@@ -331,7 +331,7 @@ To claim instead of falling back, listen for `tug-scroll-preserve-begin` on the 
 - [`tugdeck/src/lib/resize-episode.ts`](../tugdeck/src/lib/resize-episode.ts) — the episode, the generic anchor, the anchor arithmetic as pure functions, and `trackElementAnchor` for claimants that want the element anchor as a fallback.
 - [`tugdeck/src/lib/cm6-scroll-anchor.ts`](../tugdeck/src/lib/cm6-scroll-anchor.ts) — the CodeMirror plugin: publishes `data-tug-scroll-state` for the save path in line coordinates, and claims the episode on the document *position* under the top edge. A line is right for a reload and too coarse for a re-wrap, since soft wrapping makes a long line's block taller.
 - [`tugdeck/src/lib/pdf-layout.ts`](../tugdeck/src/lib/pdf-layout.ts) — `pageAnchorAt` / `scrollTopForPageAnchor`, the page-and-fraction anchor.
-- [`tests/app-test/at0430-resize-scroll-preservation.test.ts`](../tests/app-test/at0430-resize-scroll-preservation.test.ts) — the invariant end to end: every raise site, the follow-bottom case, the generic fallback, the document substrate, the PDF, and the `data-scroll-displacements` guard.
+- [`tests/app-test/at0430-resize-scroll-preservation-transcript.test.ts`](../tests/app-test/at0430-resize-scroll-preservation-transcript.test.ts) and [`tests/app-test/at0430-resize-scroll-preservation-documents.test.ts`](../tests/app-test/at0430-resize-scroll-preservation-documents.test.ts) — the invariant end to end: every raise site, the follow-bottom case and the `data-scroll-displacements` guard on the transcript; the generic fallback, the document substrate and the PDF on the documents.
 
 ---
 
@@ -567,8 +567,8 @@ Each of these pins one transition or one component-roster axis of [A9]. They are
 | [`at0017-savestate-rpc-parity`](../tests/app-test/at0017-savestate-rpc-parity.test.ts) | `saveState` RPC captures the same axes as the will-phase save |
 | [`at0024-prompt-state-roundtrip`](../tests/app-test/at0024-prompt-state-roundtrip.test.ts) | The foundational round-trip matrix, reload + relaunch |
 | [`at0027-layout-state-persistence`](../tests/app-test/at0027-layout-state-persistence.test.ts) | Layout state — accordion expansion, split-pane divider |
-| [`at0037-deck-wide-restore-consistency`](../tests/app-test/at0037-deck-wide-restore-consistency.test.ts) | Multi-card restore preserves the active/inactive invariants |
-| [`at0430-resize-scroll-preservation`](../tests/app-test/at0430-resize-scroll-preservation.test.ts) | A width change never moves what the reader is looking at |
+| [`at0037-deck-wide-restore-reload`](../tests/app-test/at0037-deck-wide-restore-reload.test.ts), [`-relaunch-l1-l2`](../tests/app-test/at0037-deck-wide-restore-relaunch-l1-l2.test.ts), [`-relaunch-l3-l4`](../tests/app-test/at0037-deck-wide-restore-relaunch-l3-l4.test.ts) | Multi-card restore preserves the active/inactive invariants |
+| [`at0430-resize-scroll-preservation-transcript`](../tests/app-test/at0430-resize-scroll-preservation-transcript.test.ts), [`-documents`](../tests/app-test/at0430-resize-scroll-preservation-documents.test.ts) | A width change never moves what the reader is looking at |
 
 The EM-flavored halves of several of these (tab switch, cross-pane move, inactive mount) were retired on 2026-08-11 — they asserted the same orchestrator contract as their FC counterparts, differing only in which component reacquired focus. [`at0032-em-cold-boot-selection`](../tests/app-test/at0032-em-cold-boot-selection.test.ts) is kept as the EM representative, on the restore path where a break would be silent.
 

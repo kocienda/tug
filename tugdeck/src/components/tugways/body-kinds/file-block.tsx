@@ -122,6 +122,8 @@ import { useChromeActionsTarget } from "@/components/tugways/blocks/block-chrome
 import { useOuterScrollport } from "@/components/tugways/internal/outer-scrollport-context";
 import { basename } from "@/lib/display-path";
 import { layoutRectOf } from "@/lib/page-zoom-store";
+import { smartScrollForElement } from "@/lib/smart-scroll";
+import { scrollerForElement } from "@/components/tugways/internal/scroller-context";
 import { attachOuterScrollOnModifierWheel } from "@/components/tugways/internal/use-outer-scroll-on-modifier-wheel";
 import { useSavedRegionScroll } from "@/components/tugways/use-component-state-preservation";
 import { dispatchCommand } from "@/command-dispatch";
@@ -599,9 +601,9 @@ export const FileBlock: React.FC<FileBlockProps> = ({
   //     mode where the variable above accounts for it)
   //
   // The scrollport is mutated directly per [L06] — scroll position is
-  // DOM authority, not React state. The SmartScroll state machine
-  // listens for the resulting `scroll` event and ticks through its
-  // normal phases.
+  // DOM authority, not React state. The write is declared to the
+  // scroller's SmartScroll (`noteExternalWrite`) so neither its intent
+  // rules nor a live find reveal read it as the user's.
   const handleScrollMatchIntoView = React.useCallback(
     (view: EditorView, range: SelectionRange) => {
       const scrollport = outerScrollportRef.current;
@@ -660,7 +662,15 @@ export const FileBlock: React.FC<FileBlockProps> = ({
 
       const max = scrollport.scrollHeight - scrollport.clientHeight;
       const next = Math.max(0, Math.min(max, scrollport.scrollTop + delta));
+      // Cooperative, as `focus-reveal` is: a scroller following its live
+      // edge would re-pin over this write on its next growth tick.
+      scrollerForElement(scrollport)?.disengage("file-match-reveal");
       scrollport.scrollTop = next;
+      // Declare the write. Undeclared, it is indistinguishable from the
+      // event-silent native scrollbar: a find reveal live on this
+      // scroller reads it as the user taking the scroller and settles
+      // `cancelled:user-scroll` over the match this write just placed.
+      smartScrollForElement(scrollport)?.noteExternalWrite();
     },
     [],
   );

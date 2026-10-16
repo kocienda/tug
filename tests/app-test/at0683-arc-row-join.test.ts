@@ -117,15 +117,27 @@ async function openTheShade(app: App): Promise<void> {
     await app.nativeKey("Escape");
     await settle();
     await app.nativeKey("Return", ["cmd"]);
-    try {
-      await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(ROW)}) !== null`,
-        { timeoutMs: 20000 },
-      );
-      return;
-    } catch {
-      note(`at0683 the shade did not show the arc (attempt ${attempt})`);
+    // Polled here, on a clock of this file's own, rather than through
+    // `waitForCondition`, whose timeout the runner multiplies by its job
+    // count (four, even for a file run alone). A good attempt shows the row
+    // inside a second; a bad one (one run in three, 2026-10-16) never does,
+    // and the attempt after it succeeds at once — so an attempt that has not
+    // shown the row in five seconds is retried rather than waited out. The
+    // old 20 s wait spent 80 s of an 85 s run on that one bad attempt.
+    const attemptBy = Date.now() + 5_000;
+    while (Date.now() < attemptBy) {
+      if (await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(ROW)}) !== null`)) return;
+      await settle(100);
     }
+    const seen = await app.evalJS<string>(
+      `JSON.stringify({
+        sheet: document.querySelector(${JSON.stringify(SHEET)}) !== null,
+        lane: document.querySelector(${JSON.stringify(LANE)}) !== null,
+        rows: Array.from(document.querySelectorAll(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"]`)})).map((el) => el.getAttribute("data-arc")),
+        views: Array.from(document.querySelectorAll('${CARD} .session-view-pane')).map((el) => el.getAttribute("data-view")),
+      })`,
+    );
+    note(`at0683 the shade did not show the arc (attempt ${attempt}): ${seen}`);
   }
   throw new Error("at0683: the Changes shade never showed the arc");
 }
@@ -147,6 +159,8 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
       });
       try {
+        const t0 = Date.now();
+        const lap = (label: string): void => note(`at0683 +${((Date.now() - t0) / 1000).toFixed(1)}s ${label}`);
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -161,7 +175,9 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
           arc_id: arcId,
           arc_name: ARC,
         });
+        lap("bound");
         await openTheShade(app);
+        lap("the shade shows the arc");
 
         // ── Join leads the row on a ready arc. ──
         await app.waitForCondition<boolean>(
@@ -179,6 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
            })()`,
         );
         note(`at0683 Join offered: ${JSON.stringify(offered)}`);
+        lap("Join offered");
         expect(offered.lead, "Join is the row's first verb on a ready arc").toBe(true);
         expect(offered.label).toContain(`Join arc ${ARC} onto`);
 
@@ -214,6 +231,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
           `document.querySelector(${JSON.stringify(JOIN)})?.getAttribute("data-refused") === null`,
           { timeoutMs: 30000 },
         );
+        lap("the draft is on the row and Join is admitted");
         const subjectBefore = baseSubject();
 
         // ── Press it. The base gains the squash commit carrying the draft. ──
@@ -224,6 +242,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
           await settle(500);
           subject = baseSubject();
         }
+        lap("the press landed");
         note(`at0683 base subject after the press: ${JSON.stringify(subject)}`);
         expect(subject, "the press landed the arc with its draft").toContain(
           "at0683 join draft",

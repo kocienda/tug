@@ -20,9 +20,13 @@
  *
  * Four claims, in one arc's life:
  *
- *   1. **Folded, the offer raises no shade.** Sampled across a window rather
- *      than read once, because the failure is a reveal that fires and is
- *      superseded — which a single late read would report as silence.
+ *   1. **Folded, the offer raises no shade.** Recorded in-page from before
+ *      the bind through a tail past the offer's commit rather than read once,
+ *      because the failure is a reveal that fires and is superseded — which a
+ *      single late read would report as silence. (It was a 15 s window of
+ *      reads 500 ms apart, starting after the offer had landed; the recorder
+ *      starts before it and misses nothing between reads. Claim 4's 10 s
+ *      window became the same recorder, armed before the close.)
  *   2. **And the door is still a door.** At the fold control's own point, the
  *      topmost thing belonging to the deck is the fold control — nothing of
  *      this card's is over it. That is [F06] stated as the thing the user can
@@ -168,35 +172,55 @@ function shadeUp(app: App): Promise<boolean> {
 }
 
 /**
- * Watch for the shade across a window and answer whether it ever appeared.
- * Sampled rather than read once: a reveal that fires and is superseded is
- * exactly the defect, and a single late read would call it silence.
+ * The tail a watch holds past the moment the reveal would have fired. The
+ * reveal is an effect on the commit that carries the change it answers — the
+ * offer arriving, the room closing — so once that commit is SEEN to have
+ * landed the decision has been taken; the tail is that commit's room, as
+ * at0445 holds its own watch.
  */
-async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (await shadeUp(app)) return true;
-    await settle(500);
-  }
-  return false;
-}
+const REVEAL_TAIL_MS = 2_000;
 
 /**
- * Watch the composer's route across a window and answer whether it ever left
- * Prompt — a second reveal, sampled rather than read once for the same reason
- * {@link shadeAppearsWithin} is.
+ * An in-page recorder, a MutationObserver rather than a poll from outside, so
+ * a reveal that mounts and is superseded between two reads still counts —
+ * which is exactly the defect, and which a sampled window could miss:
+ *
+ *  - `sheetSeen`: whether the shade mounted at any moment while `armSheet`
+ *    was set;
+ *  - `routeLeft`: whether the composer's route left Prompt at any moment
+ *    after it was seen resting there while `armRoute` was set.
  */
-async function routeLeavesPromptWithin(app: App, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    const resting = await app.evalJS<boolean>(
-      `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,
-    );
-    if (!resting) return true;
-    await settle(500);
-  }
-  return false;
+const RECORDER_INSTALL = `(function () {
+  var r = (window.__at0559 = { armSheet: false, sheetSeen: false, armRoute: false, sawPrompt: false, routeLeft: false });
+  r.tick = function () {
+    if (r.armSheet && document.querySelector(${JSON.stringify(SHEET)}) !== null) r.sheetSeen = true;
+    if (r.armRoute) {
+      var prompt = document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]');
+      var resting = prompt !== null && prompt.getAttribute("data-state") === "active";
+      if (resting) r.sawPrompt = true;
+      else if (r.sawPrompt) r.routeLeft = true;
+    }
+  };
+  r.obs = new MutationObserver(r.tick);
+  r.obs.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-state"],
+  });
+  r.tick();
+  return null;
+})()`;
+
+interface Recording {
+  sheetSeen: boolean;
+  routeLeft: boolean;
 }
+
+const readRecording = (app: App): Promise<Recording> =>
+  app.evalJS<Recording>(
+    `(function () { var r = window.__at0559; return { sheetSeen: r.sheetSeen, routeLeft: r.routeLeft }; })()`,
+  );
 
 /** Flip the fold flag through the one command every door reaches ([P02]). */
 async function toggleFolded(app: App, want: boolean): Promise<void> {
@@ -315,6 +339,10 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // is no open moment for a reveal to have been spent in.
         await toggleFolded(app, true);
         expect(await shadeUp(app), "nothing is revealed yet").toBe(false);
+        // The watch for claim 1 starts here, before the bind, so the moment
+        // the offer arrives — the moment a reveal would fire — is inside it.
+        await app.evalJS<null>(RECORDER_INSTALL);
+        await app.evalJS<null>(`(window.__at0559.armSheet = true, window.__at0559.tick(), null)`);
 
         // The real `arc bind` verb: the pilot works from the LEDGER row, so a
         // client-side broadcast would leave the server thinking nobody holds
@@ -358,10 +386,16 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         note("at0559 ARC cell", await arcCellReading(app));
 
         // ── …and raises no room over itself ──────────────────────────────
+        // The dot and the cell are the offer's commit, seen landed; the watch
+        // has run since before the bind and holds a tail past that commit.
+        await settle(REVEAL_TAIL_MS);
+        const foldedWatch = await readRecording(app);
         expect(
-          await shadeAppearsWithin(app, 15000),
+          foldedWatch.sheetSeen || (await shadeUp(app)),
           "a folded card is not a room the shade may mount in",
         ).toBe(false);
+        // The unfold below raises the shade on purpose.
+        await app.evalJS<null>(`(window.__at0559.armSheet = false, null)`);
 
         // The door is still a door: nothing of this card's stands between the
         // reader and the one control the form has ([F06]).
@@ -408,6 +442,9 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // ── Once, and only once ──────────────────────────────────────────
         // Closing costs nothing and summons nothing: the head was spent by
         // the reveal that actually happened, and the decline never spent it.
+        // The route watch is armed before the close, and counts any departure
+        // from Prompt once Prompt has been seen.
+        await app.evalJS<null>(`(window.__at0559.armRoute = true, window.__at0559.tick(), null)`);
         await app.dispatchControlAction("toggle-changes-view");
         await app.waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,
@@ -415,9 +452,15 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         );
         // The ROUTE is what says the room was left, and it is what a second
         // entry would move: a reveal takes the card to Changes, so a card
-        // still resting on Prompt a window later has not been re-entered.
+        // that never left Prompt from the close's commit through its tail has
+        // not been re-entered.
+        await settle(REVEAL_TAIL_MS);
+        const spentWatch = await readRecording(app);
+        const resting = await app.evalJS<boolean>(
+          `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,
+        );
         expect(
-          await routeLeavesPromptWithin(app, 10000),
+          spentWatch.routeLeft || !resting,
           "one head, one reveal — the room does not re-summon itself",
         ).toBe(false);
         note("at0559 spent: the head bought exactly one entry");

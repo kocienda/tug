@@ -576,6 +576,13 @@ fi
 # Streaming interleaves each file's raw output; concurrent streams would be
 # shuffled into nonsense, so asking for them asks for a serial run.
 [ -n "$STREAM" ] && JOBS=1
+# The concurrency is what actually shares the machine: never more files at
+# once than the background queue holds (motion and foreground files run
+# alone, at scale 1, below). Unclamped, a one-file run scaled every timeout
+# by 4 — a wait written to time out after 6 s cost 24 s, and one missed
+# retry in at0683 was 80 of its 85 s (2026-10-16).
+BG_COUNT=${#BG_QUEUE[@]}
+[ "$BG_COUNT" -ge 1 ] && [ "$BG_COUNT" -lt "$JOBS" ] && JOBS=$BG_COUNT
 
 # Timeout budgets are sized for a file that has the machine to itself. Under
 # concurrency the same work takes longer in wall time with nothing wrong, so

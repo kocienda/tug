@@ -353,10 +353,17 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // arc's own wake is a turn ending or a changeset recompute, and a dead
         // child produces neither, so the sweep that decides this is the
         // engine's own clock poll — a minute's granularity, hence the budget.
+        //
+        // The sweep is woken rather than waited for: a write into the watched
+        // project is a changeset recompute, which the runner sweeps on just as
+        // it does on its own minute (at0510 wakes it the same way). The decision
+        // still cannot land before `CHILD_GONE_GRACE` has run from the first
+        // kill, and that grace — not the wake — is this file's floor.
         const deadline = Date.now() + 150_000;
         let arc = arcReport();
-        while (arc.stopped === null && Date.now() < deadline) {
-          await settle(2_000);
+        for (let nudge = 0; arc.stopped === null && Date.now() < deadline; nudge += 1) {
+          writeFileSync(`${projectDir()}/at0505-nudge-${nudge}.txt`, `${Date.now()}\n`);
+          await settle(1_000);
           arc = arcReport();
         }
         note(`at0505 the arc after the kill: ${JSON.stringify(arc)}`);
@@ -383,15 +390,19 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
               )})).map((el) => el.textContent || ""))`,
             ),
           ) as string[];
-        const rowDeadline = Date.now() + 45_000;
-        let seen = await readRows();
-        while (
-          !seen.some((text) => text.indexOf("its session ended") !== -1) &&
-          Date.now() < rowDeadline
-        ) {
-          await settle(2_000);
-          seen = await readRows();
-        }
+        //
+        // Waited on the picker, which is the condition the claim reads: once
+        // the card has unbound there is no transcript for a receipt to enter,
+        // and the rows are read after it. (This used to wait 45 s for the
+        // receipt text the claim says never comes, which spent the whole
+        // window on every green run.)
+        await app
+          .waitForCondition<boolean>(
+            `document.querySelector('[data-card-id="A"] [data-slot="session-card-picker"]') !== null`,
+            { timeoutMs: 30_000 },
+          )
+          .catch(() => undefined);
+        const seen = await readRows();
         // Noted whether or not it landed: a card that did not paint the stop
         // is the postmortem's own screen, and what it *did* paint is the first
         // thing the next reader needs.

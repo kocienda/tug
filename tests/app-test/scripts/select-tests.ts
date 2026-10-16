@@ -77,13 +77,31 @@
  * recorded debt can be paid down but never quietly refinanced. A NEW hub fails the check
  * on the commit that creates it, and a new ACCEPTED_FANOUT key is the deliberate — and
  * visible — way to accept one.
+ *
+ * ## Families
+ *
+ * A file too slow for the 20 s file budget is split along its own tests, and its pieces
+ * still exercise every source the whole file did. Counting them as separate tests would
+ * punish the split twice: the fan-out lint would see one hub path suddenly selected seven
+ * times, and the cut would spend seven of its places on one subject. So the pieces of a
+ * split declare one family —
+ *
+ *      * @family at0330-eviction
+ *
+ * — and every count above is a count of FAMILIES: a file that declares none is a family of
+ * its own. The fan-out lint counts the families naming a path, and the cut runs the first
+ * MAX_SELECTED families in rank order, each with every member that ranked inside it. A
+ * family is a claim about where a file came from, so the lint holds it to its name: every
+ * member's file name starts with `<family>-`, and a family has at least two members.
+ * Narrowing a piece's `@covers` to dodge the count is the thing this exists to make
+ * unnecessary.
  */
 
 import { Glob } from "bun";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { changedSymbols, describeChanged, mentionSet, reachOf, type MapEvidence } from "./changed-symbols";
-import { lostOn, rank, reportLine, type RankInput } from "./rank";
+import { lostOn, rank, reportLine, type Ranked, type RankInput } from "./rank";
 import { historyRows } from "./wedge-cap";
 
 const APP_TEST_DIR = resolve(dirname(import.meta.dir));
@@ -138,16 +156,17 @@ const CORE_TIER = [
     "at0165-activation-first-responder.test.ts", // responder-chain accelerators
     "at0191-turns-end-to-end.test.ts", // canonical turns through the transcript
     "at0201-session-card-activation-click-focus.test.ts", // session card activation focus
-    "at0209-text-card-live-autosave.test.ts", // Text card core loop on real files
+    "at0209-text-card-live-autosave-loop.test.ts", // Text card core loop on real files
     "at0216-shell-exchange.test.ts", // $ shell route end-to-end
     "at0231-sidebar-toggle.test.ts", // sidebar rail toggle + focus + reload
     "at0253-commit-dialog.test.ts", // commit mode open/dismiss
 ];
 
 /**
- * The most test files a derived selection runs: the ranked candidates are cut here. Sized
- * to the core tier (~20 files, a few minutes). A hard limit — there is no flag that raises
- * it, because a limit with an override is not a limit.
+ * The most test families a derived selection runs (a file outside any family is its own):
+ * the ranked candidates are cut here. Sized to the core tier (~20 files, a few minutes). A
+ * hard limit — there is no flag that raises it, because a limit with an override is not a
+ * limit.
  */
 const MAX_SELECTED = 20;
 
@@ -502,6 +521,8 @@ interface TestCoverage {
     foregroundOption: boolean;
     /** Calls an app-lifecycle RPC verb, which takes the screen whatever the launch mode. */
     activatingVerb: boolean;
+    /** Declared by `@family`: the split this file is one piece of, or null. */
+    family: string | null;
 }
 
 /** Repo-relative paths of every app-test file, in run order (smoke first). */
@@ -526,6 +547,7 @@ function testFiles(): string[] {
 const COVERS_LINE = /^\s*\*?\s*@covers\s+(\S+)/;
 const FOREGROUND_LINE = /^\s*\*?\s*@foreground\b/;
 const MOTION_LINE = /^\s*\*?\s*@motion\b/;
+const FAMILY_LINE = /^\s*\*?\s*@family\s+(\S+)/;
 
 /**
  * The launch option the `@foreground` tag declares. Matched anywhere in the file body.
@@ -556,11 +578,14 @@ function readCoverage(file: string): TestCoverage {
     const covers: string[] = [];
     let foreground = false;
     let motion = false;
+    let family: string | null = null;
     for (const line of text.split("\n")) {
         const m = COVERS_LINE.exec(line);
         if (m) covers.push(m[1]);
         if (FOREGROUND_LINE.test(line)) foreground = true;
         if (MOTION_LINE.test(line)) motion = true;
+        const f = FAMILY_LINE.exec(line);
+        if (f) family = f[1];
         // Declarations live in the header docblock; stop at the first import.
         if (/^import\s/.test(line)) break;
     }
@@ -571,6 +596,7 @@ function readCoverage(file: string): TestCoverage {
         motion,
         foregroundOption: FOREGROUND_OPTION.test(text),
         activatingVerb: ACTIVATING_VERB.test(text),
+        family,
     };
 }
 
@@ -1094,9 +1120,35 @@ function representativePath(pattern: string): string {
     return pattern.replace(/\/?\*\*?$/, "/__probe__.ts");
 }
 
-/** How many test files a change to `path` would select. */
+/** What the budget counts a file as: its family, or itself when it declares none. */
+function unitOf(c: TestCoverage): string {
+    return c.family ?? c.file;
+}
+
+/** How many test families a change to `path` would select. */
 function fanOut(path: string): number {
-    return coverage.filter((c) => c.covers.some((q) => matches(q, path))).length;
+    return new Set(coverage.filter((c) => c.covers.some((q) => matches(q, path))).map(unitOf)).size;
+}
+
+/**
+ * Families that do not hold to their name: a member whose file name does not start with
+ * `<family>-`, or a family with a single member, which is a file wearing a family's name.
+ */
+function familyFaults(): string[] {
+    const members = new Map<string, string[]>();
+    for (const c of coverage) {
+        if (c.family === null) continue;
+        members.set(c.family, [...(members.get(c.family) ?? []), c.file]);
+    }
+    const faults: string[] = [];
+    for (const [family, files] of members) {
+        for (const file of files) {
+            const base = file.slice(file.lastIndexOf("/") + 1);
+            if (!base.startsWith(`${family}-`)) faults.push(`${file}  →  @family ${family}, but its name does not start with '${family}-'`);
+        }
+        if (files.length < 2) faults.push(`${files[0]}  →  @family ${family} has one member; a family of one is a file`);
+    }
+    return faults;
 }
 
 /** Whether a `@covers` value claims a whole subtree rather than a named file. */
@@ -1170,6 +1222,7 @@ if (holesOnly) {
 
 if (checkOnly) {
     const missing = coverage.filter((c) => c.covers.length === 0);
+    const families = familyFaults();
     const dangling = coverage.flatMap((c) =>
         c.covers.filter((p) => !resolvesOnDisk(p)).map((p) => ({ file: c.file, pattern: p })),
     );
@@ -1222,12 +1275,12 @@ if (checkOnly) {
 
     if (overBudget.length > 0) {
         process.stderr.write(
-            `[select-tests] ${overBudget.length} path(s) fan out past the ${MAX_SELECTED}-file selection\n` +
+            `[select-tests] ${overBudget.length} path(s) fan out past the ${MAX_SELECTED}-family selection\n` +
                 `               budget — a one-line edit there turns 'app-test-changed' into a sweep:\n`,
         );
         for (const o of overBudget) {
             const was = o.accepted === undefined ? "not accepted" : `accepted at ${o.accepted}`;
-            process.stderr.write(`  ${o.pattern}  →  ${o.count} tests (${was})\n`);
+            process.stderr.write(`  ${o.pattern}  →  ${o.count} families (${was})\n`);
         }
         process.stderr.write(
             `               Narrow the @covers lines that name it, split the module, or — if the\n` +
@@ -1297,6 +1350,13 @@ if (checkOnly) {
         );
     }
 
+    if (families.length > 0) {
+        process.stderr.write(
+            `[select-tests] ${families.length} @family declaration(s) do not hold to their name — a\n` +
+                `               family is counted once, so it must be what its name says it is:\n`,
+        );
+        for (const f of families) process.stderr.write(`  ${f}\n`);
+    }
     if (missing.length > 0) {
         process.stderr.write(
             `[select-tests] ${missing.length} test file(s) declare no @covers — they can never be\n` +
@@ -1313,6 +1373,7 @@ if (checkOnly) {
     }
     if (
         missing.length === 0 &&
+        families.length === 0 &&
         dangling.length === 0 &&
         overBudget.length === 0 &&
         raised.length === 0 &&
@@ -1330,7 +1391,7 @@ if (checkOnly) {
             .slice(0, 2);
         process.stderr.write(
             `[select-tests] ${coverage.length} test files: @covers present, resolving, and\n` +
-                `               within the ${MAX_SELECTED}-file budget. Widest fan-out: ` +
+                `               within the ${MAX_SELECTED}-family budget. Widest fan-out: ` +
                 `${worst.map((w) => `${w.p} (${w.n})`).join(", ")}\n` +
                 `               ${subtreePatterns.length} subtree declaration(s) at their recorded width. ` +
                 `Widest: ${widest.map((w) => `${w.p} (${w.n} sources)`).join(", ")}\n`,
@@ -1360,9 +1421,11 @@ for (const c of coverage) {
     if (because.length > 0) selected.push({ file: c.file, because });
 }
 
-const running = Math.min(selected.length, MAX_SELECTED);
+const units = new Set(selected.map((s) => unitOf(corpusByFile.get(s.file)!))).size;
+const running = Math.min(units, MAX_SELECTED);
 process.stderr.write(
     `[select-tests] ${sources.length} changed source file(s) → ${selected.length} candidate test file(s)` +
+        (units !== selected.length ? ` in ${units} families` : "") +
         (selected.length > 0 ? `, ranked; running ${running} (cap ${MAX_SELECTED})` : "") +
         "\n",
 );
@@ -1401,11 +1464,26 @@ const ranked = rank(
     }),
 );
 const width = Math.max(0, ...ranked.map((r) => r.file.length));
+// The cut counts families: the first MAX_SELECTED distinct families in rank order are in,
+// and every member of one of them runs, wherever it ranked.
+const unitOfFile = (file: string): string => unitOf(corpusByFile.get(file)!);
+const inUnits = new Set<string>();
 for (const r of ranked) {
-    if (r.rank === MAX_SELECTED + 1) {
+    if (inUnits.size === MAX_SELECTED) break;
+    inUnits.add(unitOfFile(r.file));
+}
+const isIn = (r: Ranked): boolean => inUnits.has(unitOfFile(r.file));
+let dividerShown = false;
+// An excluded file lost to the last file that ran above it: a family member ranked below
+// the line still runs, and nothing lost to it.
+let lastIn: Ranked | undefined;
+for (const r of ranked) {
+    if (!isIn(r) && !dividerShown) {
+        dividerShown = true;
         process.stderr.write(`---- cap: ${MAX_SELECTED} — below the line, in rank order ----\n`);
     }
-    const lost = r.rank > MAX_SELECTED ? lostOn(r, ranked[MAX_SELECTED - 1]) : undefined;
+    const lost = !isIn(r) && lastIn !== undefined ? lostOn(r, lastIn) : undefined;
+    if (isIn(r)) lastIn = r;
     process.stderr.write(`${reportLine(r, width, lost)}\n`);
 }
 
@@ -1436,6 +1514,6 @@ if (tripped.length > 0) {
 }
 
 // The cut. Bare mode is what `app-test-changed` runs, so it gets the first MAX_SELECTED
-// in rank order; `--print` shows the whole ranking. Everything below the line was
+// families in rank order; `--print` shows the whole ranking. Everything below the line was
 // already printed above with its rank and the axis it lost on.
-for (const r of printOnly ? ranked : ranked.slice(0, MAX_SELECTED)) process.stdout.write(`${r.file}\n`);
+for (const r of printOnly ? ranked : ranked.filter(isIn)) process.stdout.write(`${r.file}\n`);

@@ -195,22 +195,6 @@ function shadeUp(app: App): Promise<boolean> {
   );
 }
 
-/**
- * Watch for the shade across a window, and answer whether it ever appeared.
- *
- * Sampled rather than checked once at the end: the failure this guards is a
- * reveal that fires and is superseded, which a single late read would report
- * as silence.
- */
-async function shadeAppearsWithin(app: App, ms: number): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if (await shadeUp(app)) return true;
-    await settle(500);
-  }
-  return false;
-}
-
 /** An arc's register word on the Arcs card right now, or null if it has none. */
 function registerWord(app: App, arc: string): Promise<string | null> {
   return app.evalJS<string | null>(
@@ -219,25 +203,6 @@ function registerWord(app: App, arc: string): Promise<string | null> {
     // is not the element that always carries the reading — the row is.
     `document.querySelector(${JSON.stringify(arcRow(arc))})?.getAttribute("data-join-word") ?? null`,
   );
-}
-
-/**
- * Sample an arc's register across a window and answer whether it ever reached
- * a word. Sampled rather than read once, so a value that appears and is
- * superseded still counts as having appeared.
- */
-async function registerEverReaches(
-  app: App,
-  arc: string,
-  word: string,
-  ms: number,
-): Promise<boolean> {
-  const deadline = Date.now() + ms;
-  while (Date.now() < deadline) {
-    if ((await registerWord(app, arc)) === word) return true;
-    await settle(500);
-  }
-  return false;
 }
 
 /** Wait for an arc's Arcs-card register to reach a word — the arc, without a gesture. */
@@ -252,6 +217,54 @@ async function registerReaches(
     { timeoutMs },
   );
 }
+
+/**
+ * An in-page recorder over the whole run, installed once the Arcs card lists
+ * the arcs. A MutationObserver rather than a poll from outside, so a value
+ * that appears and is superseded between two reads still counts:
+ *
+ *  - `quiet`: every register word the unbound arc's row ever wore, so "never
+ *    piloted" is a claim about the whole run rather than about a window
+ *    sampled at its end;
+ *  - `bound`: every word the bound arc's row wore since the last reset, which
+ *    is how the base move's re-reconcile is seen to have run;
+ *  - `sheetSeen`: whether the shade mounted at any moment while `armSheet`
+ *    was set.
+ */
+const RECORDER_INSTALL = `(function () {
+  var r = (window.__at0445 = { armSheet: false, sheetSeen: false, bound: [], quiet: [] });
+  function word(sel) {
+    var el = document.querySelector(sel);
+    return el === null ? null : el.getAttribute("data-join-word");
+  }
+  r.tick = function () {
+    if (r.armSheet && document.querySelector(${JSON.stringify(SHEET)}) !== null) r.sheetSeen = true;
+    var b = word(${JSON.stringify(arcRow(ARC))});
+    if (b !== null && r.bound[r.bound.length - 1] !== b) r.bound.push(b);
+    var q = word(${JSON.stringify(arcRow(QUIET_ARC))});
+    if (q !== null && r.quiet[r.quiet.length - 1] !== q) r.quiet.push(q);
+  };
+  r.obs = new MutationObserver(r.tick);
+  r.obs.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-join-word"],
+  });
+  r.tick();
+  return null;
+})()`;
+
+interface Recording {
+  sheetSeen: boolean;
+  bound: string[];
+  quiet: string[];
+}
+
+const readRecording = (app: App): Promise<Recording> =>
+  app.evalJS<Recording>(
+    `(function () { var r = window.__at0445; return { sheetSeen: r.sheetSeen, bound: r.bound.slice(), quiet: r.quiet.slice() }; })()`,
+  );
 
 /** Whether the Changes segment is wearing the standing-join dot. */
 function offerDot(app: App): Promise<boolean> {
@@ -271,6 +284,8 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: dataRoot },
       });
       try {
+        const t0 = Date.now();
+        const at = (): string => `+${((Date.now() - t0) / 1000).toFixed(1)}s`;
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: sessionCardShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -288,6 +303,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 40000 },
         );
+        await app.evalJS<null>(RECORDER_INSTALL);
 
         // Nothing has been revealed yet, and nothing is worn: the precondition
         // that makes every assertion below about the offer rather than about
@@ -317,7 +333,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           `document.querySelector('${arcRow(ARC)} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
-        note("at0445 bound: the ledger row landed and the arc row saw it");
+        note(`at0445 ${at()} bound: the ledger row landed and the arc row saw it`);
         await registerReaches(app, ARC, "ready", 240000);
 
         // The reveal. No gesture, no mark, no declaration — a reconciled arc
@@ -326,7 +342,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 60000 },
         );
-        note("at0445 revealed: the shade came up on its own");
+        note(`at0445 ${at()} revealed: the shade came up on its own`);
 
         // ── The route, not a glance at it ─────────────────────────────────
         // The card is *on* Changes: join mode is up, so the Z4A toggle reads
@@ -455,7 +471,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           ).exitCode,
           "closing the room records nothing durable anywhere",
         ).not.toBe(0);
-        note("at0445 closed: the shade went down and nothing was written");
+        note(`at0445 ${at()} closed: the shade went down and nothing was written`);
 
         // ── The base moves, and the shade stays down ─────────────────────
         // A full re-run of the arc — not merely a quiet minute. The base sha
@@ -463,19 +479,51 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // new offer id is minted. The card has already shown this arc head's
         // room, and a re-reveal on every base push would be the nagging the
         // old dialog was accused of.
+        //
+        // The watch is the recorder's, armed from the moment the room closed,
+        // and it ends when the re-reconcile is SEEN to have run — the bound
+        // row leaving `ready` and coming back to it — plus a tail for the
+        // reveal effect, which runs on the commit that carries the new offer.
+        // If the row never visibly leaves `ready`, the watch falls back to the
+        // full fifteen seconds this file always held it for.
+        await app.evalJS<null>(
+          `(window.__at0445.armSheet = true, window.__at0445.sheetSeen = false, window.__at0445.bound = [], window.__at0445.tick(), null)`,
+        );
+        const baseMovedAt = Date.now();
         writeFileSync(join(scratch, "base-move.txt"), "at0445 the base moved\n");
         git(scratch, "add", "-A");
         git(scratch, "commit", "-m", "at0445: the base moves under a closed shade");
         await registerReaches(app, ARC, "ready", 240000);
+        const reRan = await app
+          .waitForCondition<boolean>(
+            `(function () {
+              var b = window.__at0445.bound;
+              for (var i = 0; i < b.length; i++) {
+                if (b[i] !== "ready") return b.slice(i).indexOf("ready") >= 0;
+              }
+              return false;
+            })()`,
+            { timeoutMs: 15000 },
+          )
+          .then(() => true)
+          .catch(() => false);
+        if (reRan) {
+          await settle(2000);
+        } else {
+          await settle(Math.max(0, 15000 - (Date.now() - baseMovedAt)));
+        }
+        const quietWatch = await readRecording(app);
+        note(`at0445 base move: re-reconcile seen ${reRan}, bound words ${JSON.stringify(quietWatch.bound)}`);
         expect(
-          await shadeAppearsWithin(app, 15000),
+          quietWatch.sheetSeen || (await shadeUp(app)),
           "a base move under an unchanged arc head re-reconciles in silence",
         ).toBe(false);
+        await app.evalJS<null>(`(window.__at0445.armSheet = false, null)`);
         expect(
           await offerDot(app),
           "and the offer is still worn, because it is still standing",
         ).toBe(true);
-        note("at0445 quiet: the base moved, the arc re-ran, and nothing revealed");
+        note(`at0445 ${at()} quiet: the base moved, the arc re-ran, and nothing revealed`);
 
         // ── A new round, and the shade comes back ────────────────────────
         // The arc head moves. That is work the user has never seen, which is
@@ -495,7 +543,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 90000 },
         );
-        note("at0445 re-revealed: new work summoned the room again");
+        note(`at0445 ${at()} re-revealed: new work summoned the room again`);
         const drafted = await app.evalJS<string>(
           `(document.querySelector(${JSON.stringify(LANDS_AS)})?.textContent || "")`,
         );
@@ -516,8 +564,15 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // otherwise re-qualify every arc in the repository at once. So its
         // register never reaches `ready`, even though its facts are identical
         // to the bound arc's and the base has moved underneath it.
+        //
+        // Read off the recorder, which has watched the quiet row since the
+        // Arcs card first listed it — across the bind, both reconciles of the
+        // bound arc, the base move and the new round — rather than off a
+        // twenty-second window sampled at the end.
+        const whole = await readRecording(app);
+        note(`at0445 the unbound arc's words across the run: ${JSON.stringify(whole.quiet)}`);
         expect(
-          await registerEverReaches(app, QUIET_ARC, "ready", 20000),
+          whole.quiet.includes("ready"),
           "an unbound arc is never piloted, so its arc never runs at all",
         ).toBe(false);
         expect(
@@ -530,7 +585,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           ),
           "and no row in the revealed shade offers to land the arc nobody is working",
         ).toBe(true);
-        note("at0445 unbound: never piloted, and its row says nothing at all");
+        note(`at0445 ${at()} unbound: never piloted, and its row says nothing at all`);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

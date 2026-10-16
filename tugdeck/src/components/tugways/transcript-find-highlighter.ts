@@ -817,11 +817,19 @@ export class TranscriptFindHighlighter {
    * learns to ask again. Returns `false` when there is no active editor
    * view (no embedded match, or the editor is not mounted), so the caller
    * knows no callback is coming.
+   *
+   * `cb` runs in a microtask AFTER the measure pass, never inside its
+   * `read`: the caller's answer is a repaint, and a repaint selects the
+   * editor's match — a CM6 transaction, which CM6 refuses while a measure
+   * is in progress. Called from `read`, that dispatch threw out of `paint`
+   * after it had dropped `activeEditorKey`, so every later rect read came
+   * back null and the reveal ran to its deadline over a match in plain
+   * view (`at0494-find-reveal-editor`, 2026-10-16).
    */
   afterActiveEditorMeasure(cb: () => void): boolean {
     const view = this.activeEditorView();
     if (view === null) return false;
-    view.requestMeasure({ read: () => cb() });
+    view.requestMeasure({ read: () => queueMicrotask(cb) });
     return true;
   }
 

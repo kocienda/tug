@@ -32,6 +32,10 @@
  * @covers tugdeck/src/components/tugways/cards/session-command-block-registry.ts
  * @covers tugdeck/src/components/tugways/cards/session-join-receipt-block.tsx
  * @covers tugdeck/src/components/tugways/cards/session-commit-receipt-block.tsx
+ * @covers tugdeck/src/components/tugways/cards/session-card-transcript.tsx
+ * @covers tugdeck/src/lib/transcript-find-engine.ts
+ * @covers tugdeck/src/lib/find-session.ts
+ * @family at0494-find
  */
 
 import { describe, expect, test } from "bun:test";

@@ -19,27 +19,24 @@
  * stays `null` and the chip loses its `n` entirely. A user 5,500 matches
  * into a file is told only how many there are, not where they are.
  *
- * So, two Text cards in one deck, each with its caret seeded deep in its
- * file, taken in order:
+ * One Text card holds a generated file of 6,000 lines with the probe on
+ * every line (6,000 matches), soft wrap on, every twentieth line long
+ * enough to wrap, and the caret at line 5,500 — past the cap. Taken in
+ * order:
  *
- *  1. **The anchor** (card `B`: 2,000 lines, a match on every fourth, caret
- *     at line 1,200). The query is typed one character at a time, and at no
- *     keystroke may the editor scroll back above where the reader was. A
- *     search that always lands on match 0 flies to the top on the first.
- *     Every new query used to. This leg keeps its own sparse file: on a file
- *     where every line matches, the landing is the scrollport's top line,
- *     and when that line is clipped by a fraction the landing is "not on
- *     screen" and is centred — half a viewport above the reader, which this
- *     leg's 40 px margin reads as a jump (seen 2026-10-16: 215 px).
- *
- * Card `A` holds a generated file of 6,000 lines with the probe on every
- * line (6,000 matches), soft wrap on, every twentieth line long enough to
- * wrap, and the caret at line 5,500 — past the cap:
- *
+ *  1. **The anchor.** The query is typed one character at a time, and at
+ *     no keystroke may the editor scroll back above where the reader was.
+ *     A search that always lands on match 0 flies to the top on the first.
+ *     Every new query used to. The dense file is the hard case: every line
+ *     matches, so the landing is the scrollport's top line, which is
+ *     usually clipped by a fraction of a line. That landing counted as "off
+ *     screen" and was centred — half a viewport above the reader (seen
+ *     2026-10-16: 215 px). A match whose line is partly on screen is now
+ *     revealed by the least motion that shows it whole.
  *  2. **The precondition.** With the full query in, the search has settled
  *     near the caret rather than at the top of the document — the chip's
  *     behaviour past the cap is unobservable otherwise, so this is asserted
- *     first and names itself.
+ *     before the walk and names itself.
  *  3. **The walk past the cap.** Three steps, each over a sampled window:
  *     the selected match's text satisfies the query, its rect is inside the
  *     editor's own scrollport and still, and the chip names a position past
@@ -47,14 +44,14 @@
  *
  * ## Expected state
  *
- * Green. The cap case was the red one — a Text card past the match cap
- * reported an ordinal the capped set could not hold. A walk of forty steps
- * from the top of the file also lived here, green from the start because
- * CM6 reveals its own selection; the steps below run the same per-step
- * checks.
+ * Green. The cap case was red once — a Text card past the match cap
+ * reported an ordinal the capped set could not hold — and the anchor leg
+ * was red on this fixture until the partly-visible landing stopped being
+ * centred.
  *
  * @covers tugdeck/src/components/tugways/cards/text-card-find-bar.tsx
  * @covers tugdeck/src/components/tugways/tug-text-card-editor.tsx
+ * @covers tugdeck/src/components/tugways/tug-text-card-editor/find-reveal.ts
  * @covers tugdeck/src/components/tugways/cards/text-card.tsx
  * @covers tugdeck/src/lib/find-session.ts
  * @covers tugdeck/src/lib/find-trace.ts
@@ -80,37 +77,14 @@ const PROBE = "auriclemark";
 const EXPECTED_MATCHES = LINES;
 const STEPS = 3;
 
-/** Card `B`'s file: a match on every fourth line, the caret mid-file. */
-const ANCHOR_LINES = 2000;
-const ANCHOR_CARET_LINE = 1200;
-const ANCHOR_PROBE = "sorrelmark";
-
 let dir = "";
 let filePath = "";
-let anchorPath = "";
 
-/** The selectors one Text card is read through. */
-function textCard(id: string): {
-  card: string;
-  editor: string;
-  scroller: string;
-  input: string;
-} {
-  const card = `[data-card-id="${id}"]`;
-  return {
-    card,
-    editor: `${card} [data-slot="tug-text-card-editor"] .cm-content`,
-    scroller: `${card} [data-slot="tug-text-card-editor"] .cm-scroller`,
-    input: `${card} [data-slot="text-card-find-bar"] [data-testid="text-card-find-input"] .cm-content`,
-  };
-}
-
-const CAP = textCard("A");
-const ANCHOR = textCard("B");
-
-const CARD = CAP.card;
-const SCROLL_DOM = CAP.scroller;
+const CARD = `[data-card-id="A"]`;
+const EDITOR = `${CARD} [data-slot="tug-text-card-editor"] .cm-content`;
+const SCROLL_DOM = `${CARD} [data-slot="tug-text-card-editor"] .cm-scroller`;
 const BAR = `${CARD} [data-slot="text-card-find-bar"]`;
+const INPUT = `${BAR} [data-testid="text-card-find-input"] .cm-content`;
 const CHIP = `${BAR} [data-slot="find-count"] [data-slot="find-count-value"]`;
 const SELECTED = `${CARD} [data-slot="tug-text-card-editor"] .cm-searchMatch-selected`;
 
@@ -132,12 +106,6 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "at0604-"));
   filePath = join(dir, "walk.txt");
   writeFileSync(filePath, fileBody());
-  anchorPath = join(dir, "anchor.txt");
-  const lines: string[] = [];
-  for (let i = 0; i < ANCHOR_LINES; i += 1) {
-    lines.push(i % 4 === 0 ? `line ${i}: ${ANCHOR_PROBE} here` : `line ${i}: filler`);
-  }
-  writeFileSync(anchorPath, lines.join("\n"));
 });
 
 afterAll(() => {
@@ -146,20 +114,19 @@ afterAll(() => {
 
 function deckShape(): Record<string, unknown> {
   return {
-    cards: [
-      { id: "A", componentId: "text", title: "File", closable: true },
-      { id: "B", componentId: "text", title: "Anchor", closable: true },
+    cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
+    panes: [
+      {
+        id: "p1",
+        position: { x: 30, y: 30 },
+        size: { width: 700, height: 620 },
+        cardIds: ["A"],
+        activeCardId: "A",
+        title: "",
+        acceptsFamilies: ["maker"],
+      },
     ],
-    panes: ["A", "B"].map((id, i) => ({
-      id: `p${i + 1}`,
-      position: { x: 30 + i * 730, y: 30 },
-      size: { width: 700, height: 620 },
-      cardIds: [id],
-      activeCardId: id,
-      title: "",
-      acceptsFamilies: ["maker"],
-    })),
-    activePaneId: "p2",
+    activePaneId: "p1",
     hasFocus: true,
   };
 }
@@ -222,10 +189,10 @@ async function sampleSteps(app: App, ms = 300): Promise<Step[]> {
  * it mounts, so the first offset after the caret's line appears is not yet
  * where the reader is.
  */
-async function settledScrollTop(app: App, scroller: string, still = 6): Promise<number> {
+async function settledScrollTop(app: App, still = 6): Promise<number> {
   await app.evalJS<boolean>(`(function () {
   window.__textFindSettled = null;
-  var sc = document.querySelector(${JSON.stringify(scroller)});
+  var sc = document.querySelector(${JSON.stringify(SCROLL_DOM)});
   var last = -1, same = 0;
   function tick() {
     var top = sc ? Math.round(sc.scrollTop) : -1;
@@ -245,53 +212,44 @@ async function settledScrollTop(app: App, scroller: string, still = 6): Promise<
   return settled.top;
 }
 
-async function readScrollTop(app: App, scroller: string): Promise<number> {
+async function readScrollTop(app: App): Promise<number> {
   return app.evalJS<number>(`(function () {
-  var sc = document.querySelector(${JSON.stringify(scroller)});
+  var sc = document.querySelector(${JSON.stringify(SCROLL_DOM)});
   return sc ? Math.round(sc.scrollTop) : -1;
 })()`);
 }
 
 /**
- * Mount both cards with their carets deep in their files. The caret is
- * SEEDED rather than clicked into place: a large document's `.cm-content`
- * box reaches far outside the WKWebView's visible frame, and a native click
- * at its centre resolves to a coordinate the harness refuses outright.
- * Seeding is also what a card restored from a saved deck does.
+ * Mount the card with its caret deep in its file. The caret is SEEDED
+ * rather than clicked into place: a large document's `.cm-content` box
+ * reaches far outside the WKWebView's visible frame, and a native click at
+ * its centre resolves to a coordinate the harness refuses outright. Seeding
+ * is also what a card restored from a saved deck does.
  *
- * The probe being on screen says nothing about where an editor is — card
- * `A` has it on every line — so the wait is for each restore to have
- * scrolled its caret's line into the scrollport.
+ * The probe being on screen says nothing about where the editor is — it is
+ * on every line — so the wait is for the restore to have scrolled the
+ * caret's line into the scrollport.
  */
-async function mountCards(app: App): Promise<void> {
+async function mountCard(app: App): Promise<void> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({
     state: deckShape(),
     cardStates: {
       A: { content: { path: filePath, anchor: { line: CARET_LINE, ch: 0 }, scrollTop: 0 } },
-      B: {
-        content: { path: anchorPath, anchor: { line: ANCHOR_CARET_LINE, ch: 0 }, scrollTop: 0 },
-      },
     },
-    focusCardId: "B",
+    focusCardId: "A",
   });
-  for (const [sel, line] of [
-    [CAP.editor, CARET_LINE],
-    [ANCHOR.editor, ANCHOR_CARET_LINE],
-  ] as const) {
-    await app.waitForCondition<boolean>(
-      `(function(){
-        var el = document.querySelector(${JSON.stringify(sel)});
-        return el !== null && el.innerText.indexOf("line ${line}: ") !== -1;
-      })()`,
-      { timeoutMs: 40_000 },
-    );
-  }
+  await app.waitForCondition<boolean>(
+    `(function(){
+      var el = document.querySelector(${JSON.stringify(EDITOR)});
+      return el !== null && el.innerText.indexOf("line ${CARET_LINE}: ") !== -1;
+    })()`,
+    { timeoutMs: 40_000 },
+  );
 }
 
-async function openBar(app: App, card: { editor: string; input: string }): Promise<void> {
-  const INPUT = card.input;
-  await app.focusElement(card.editor);
+async function openBar(app: App): Promise<void> {
+  await app.focusElement(EDITOR);
   await app.evalJS<boolean>(
     `(function(){
       var t = document.activeElement || document;
@@ -372,41 +330,35 @@ describe.skipIf(!SHOULD_RUN)("AT0604: the Text card's find from deep in a file",
     async () => {
       const app = await launchTugApp({ testName: "at0604-find-past-cap" });
       try {
-        await mountCards(app);
+        await mountCard(app);
 
-        // ── 1. The anchor: card B, one keystroke at a time ────────────────
-        await app.focusElement(ANCHOR.editor);
-        const anchorPos = await settledScrollTop(app, ANCHOR.scroller);
-        note(`card B anchor scrollTop at line ${ANCHOR_CARET_LINE}: ${anchorPos}`);
-        await openBar(app, ANCHOR);
+        // ── 1. The anchor: one keystroke at a time ────────────────────────
+        await app.focusElement(EDITOR);
+        const anchorPos = await settledScrollTop(app);
+        note(`anchor scrollTop at line ${CARET_LINE}: ${anchorPos}`);
+        await openBar(app);
         const jumps: Array<{ char: number; scrollTop: number }> = [];
-        for (let i = 1; i <= ANCHOR_PROBE.length; i += 1) {
+        for (let i = 1; i <= PROBE.length; i += 1) {
           const mark = await markTrace(app);
-          await app.nativeType(ANCHOR_PROBE[i - 1]);
+          await app.nativeType(PROBE[i - 1]);
           // The engine's own record of this keystroke's search, then the
           // frames CM6 measures and scrolls its selection in.
-          await awaitGesture(app, mark, ANCHOR_PROBE.slice(0, i));
+          await awaitGesture(app, mark, PROBE.slice(0, i), 30_000);
           await waitFrames(app);
-          jumps.push({ char: i, scrollTop: await readScrollTop(app, ANCHOR.scroller) });
+          jumps.push({ char: i, scrollTop: await readScrollTop(app) });
         }
-        note(`card B stepwise scroll offsets: ${JSON.stringify(jumps)}`);
+        note(`stepwise scroll offsets: ${JSON.stringify(jumps)}`);
         // A search that anchors never runs the view BACK above where the
         // user was; one that always lands on match 0 flies to the top on
-        // the first keystroke.
+        // the first keystroke, and one that centres the clipped top line
+        // runs half a viewport up.
         const above = jumps.filter((j) => j.scrollTop < anchorPos - 40);
         expect(
           above.length,
           `the editor jumped above the caret on ${above.length} keystroke(s): ${JSON.stringify(above)} (anchor was ${anchorPos})`,
         ).toBe(0);
 
-        // ── 2. The precondition: card A, the full query ───────────────────
-        // ⌘F goes to the active card, and focusing an editor does not raise
-        // its card; the raise is the deck's own gesture.
-        await app.evalJS<void>(`window.__tug.activateCard("A")`);
-        await openBar(app, CAP);
-        const typed = await markTrace(app);
-        await app.nativeType(PROBE);
-        await awaitGesture(app, typed, PROBE, 30_000);
+        // ── 2. The precondition: the full query is in ─────────────────────
         await app.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(CHIP)})?.textContent || "") !== ""`,
           { timeoutMs: 30_000 },

@@ -17,6 +17,14 @@
  * Text card's ink, which is what the shell's stacking says and what shows
  * the reading can tell the two apart.
  *
+ * The Text card is itself a body (since the every-card-a-body switch), so its
+ * lines are read in its own page, and what stands in front is one body over
+ * another: the host stacks the two views by the deck's order, and the shell
+ * still cuts the Text card's pane chrome at the front body's rect. The Text
+ * card is brought in front the shell's way — the deck's focus action, which
+ * is what a title-bar click ends in — because a click on its lines could land
+ * in the body standing over them.
+ *
  * @foreground
  * @covers tugdeck/src/lib/body-placement.ts
  */
@@ -30,6 +38,8 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
+import { standUpKind } from "./_kind-bodies";
+import { cardKind } from "./_kinds";
 import { classifyFrame, describeFrames, near, parseRgb, type FrameClasses } from "./_frames";
 import { CORNER_INSET_PX, expectAtRest, frameOf, intersect, readStanding, rectOf, type Rect } from "./_motion";
 
@@ -39,7 +49,8 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const A = "cub-a";
 const T = "cub-text";
-const TEXT_EDITOR = `[data-card-id="${T}"] [data-slot="tug-text-card-editor"] .cm-content`;
+/** T's file lines, read in T's own body page. */
+const TEXT_LINES = '[data-slot="tug-text-card-editor"] .cm-content .cm-line';
 /** T's pane, which wears the cut as its inline clip. */
 const PANE_OF_T = `.tug-pane:has([data-card-id="${T}"])`;
 /** The box read at each top corner of the content box, in page px. */
@@ -139,7 +150,9 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: a back card's chrome stays under a
         });
         await spawnStub(app, A, stubDir, 2);
         await waitForBody(app, A);
-        await app.waitForCondition<boolean>(`document.querySelectorAll(${JSON.stringify(`${TEXT_EDITOR} .cm-line`)}).length > 5`, { timeoutMs: 30_000 });
+        const textBody = await standUpKind(app, cardKind("text"), T);
+        const lines = await pollFor(() => textBody.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TEXT_LINES)}).length`), (n) => n > 5, 30_000);
+        expect(lines, "T's body draws its file's lines").toBeGreaterThan(5);
         await focusBody(app, A);
         await Bun.sleep(600);
         const start = await expectAtRest(app, A, "A in front");
@@ -161,8 +174,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: a back card's chrome stays under a
         }
 
         // ---- T in front: the overlap is T's ink ----
-        await app.nativeClickAtElement(`${TEXT_EDITOR} .cm-line`);
-        await pollFor(() => app.getFocusedCardId(), (id) => id === T, 3_000);
+        await focusBody(app, T, { composer: false });
         await Bun.sleep(600);
         const front = await readOverlap(app, "T in front of A", crop, clear, standing);
         expect(await app.evalJS<string>(`document.querySelector(${JSON.stringify(PANE_OF_T)})?.style.clipPath ?? ""`), "T's pane wears no cut in front").toBe("");

@@ -43,6 +43,7 @@
  * @covers tugdeck/src/components/tugways/tug-list-view.tsx
  * @covers tugdeck/src/lib/smart-scroll.ts
  * @covers tugdeck/src/deck-trace.ts
+ * @family at0335-scroll
  */
 
 import { describe, expect, test } from "bun:test";

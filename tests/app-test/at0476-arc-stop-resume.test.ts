@@ -1,6 +1,10 @@
 /**
- * at0476-arc-interruptions.test.ts — an interrupted arc says what happened on
+ * at0476-arc-stop-resume.test.ts — an interrupted arc says what happened on
  * the card the user is watching, and the work is still there to pick back up.
+ *
+ * Split from `at0476-arc-interruptions`, one file per test, each its own
+ * launch: `arc stop` and its Resume here, and the refused second arc in
+ * `at0476-second-arc-refused`.
  *
  * ## Why this exists
  *
@@ -36,6 +40,7 @@
  * table tests for the cancel arm, and `arc_api`'s integration tests over a
  * real ledger for the ending's seated list and its receipt.
  *
+ * @family at0476
  * @covers tugrust/crates/tugcast/src/feeds/arc.rs
  * @covers tugrust/crates/tugcast/src/feeds/arc_runner.rs
  * @covers tugrust/crates/tugcast/src/arc_api.rs
@@ -67,7 +72,6 @@ import {
   rmArcScratchRepo,
   rmScratchSession,
   seedScratchSession,
-  shellAndSettle,
   tugtool,
   tugtoolPath,
   type ArcScratchRepo,
@@ -95,8 +99,6 @@ const ARC_RESUME_OFFER_TITLE = "Resume this arc";
 const RESUME_BUTTON = `${CARD} .arc-receipt-resume [data-slot="tug-push-button"]`;
 
 const ARC_NAME = "at0476-stop";
-const OTHER_ARC = "at0476-other";
-const THIRD_ARC = "at0476-third";
 /** Every arc's brief lives at its own address, so there is nothing to name. */
 const BRIEF_BODY = "# A brief\n\nSome prose the arc opens on.\n";
 
@@ -110,12 +112,8 @@ beforeAll(() => {
   if (!SHOULD_RUN) return;
   scratch = makeArcScratchRepo({ prefix: "at0476", checkout: CHECKOUT });
   createArc(projectDir(), ARC_NAME, "at0476 stop fixture", scratch.cli);
-  createArc(projectDir(), OTHER_ARC, "at0476 second arc", scratch.cli);
-  createArc(projectDir(), THIRD_ARC, "at0476 third arc", scratch.cli);
-  // The arc opens on the arc's own brief, so each one that runs gets one.
-  for (const name of [ARC_NAME, OTHER_ARC]) {
-    writeFileSync(arcBriefPath(projectDir(), name), BRIEF_BODY);
-  }
+  // The arc opens on the arc's own brief.
+  writeFileSync(arcBriefPath(projectDir(), ARC_NAME), BRIEF_BODY);
   fixtureDir = seedScratchSession(projectDir(), SID);
 });
 
@@ -338,17 +336,21 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // so the timeout is the pass and the resolution is the failure. Waiting
         // for the count to stay put would be a condition already true, which
         // resolves at once and waits for nothing at all.
+        //
+        // The window is watched on this file's own clock, sampled every
+        // 100 ms, rather than through `waitForCondition`: the runner multiplies
+        // that timeout by its job count (four, even alone), which made this
+        // six-second window cost twenty-four seconds on every green run.
         const receiptCount = async () => (await shellRowText(app)).length;
         const before = await receiptCount();
-        let grew = true;
-        await app
-          .waitForCondition<boolean>(
+        let grew = false;
+        const quietUntil = Date.now() + 6_000;
+        while (!grew && Date.now() < quietUntil) {
+          grew = await app.evalJS<boolean>(
             `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length > ${before}`,
-            { timeoutMs: 6_000 },
-          )
-          .catch(() => {
-            grew = false;
-          });
+          );
+          if (!grew) await new Promise((r) => setTimeout(r, 100));
+        }
         expect(grew).toBe(false);
 
         const rowsAfterResume = await shellRowText(app);
@@ -398,47 +400,6 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         note("at0476 resume frame", framing);
         expect(frame.layout).toBe("header");
         expect(frame.bottom).toBe(frame.top);
-      } finally {
-        await app.close();
-        rmTempTugbank(tugbankPath);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a second arc on a card already running one is refused by name",
-    async () => {
-      const tugbankPath = mkTempTugbank();
-      seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
-      const app = await launchTugApp({
-        testName: "at0476-arc-interruptions-bind",
-        env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: scratch?.dataRoot ?? "" },
-      });
-      const cli = tugtoolPath(CHECKOUT);
-      try {
-        await openCard(app);
-
-        // One line again, and for the same reason: the refusal is about a
-        // card running a **live** arc, and a tick between the two verbs
-        // would seat a stage or stop the arc, either of which changes the
-        // question being asked.
-        await shellAndSettle(
-          app,
-          `${cli} arc run ${OTHER_ARC} && ${cli} arc bind ${THIRD_ARC}`,
-        );
-
-        // ── The interruption that is refused rather than described ────────
-        //
-        // The message is the whole proof of the binding it protects: the
-        // server names what the card is running back to the person who asked
-        // to displace it.
-        const rows = await shellRowText(app);
-        const refusal = rows[0] ?? "";
-        note("at0476 bind refusal", refusal);
-        expect(refusal).toContain(`card runs ${OTHER_ARC}`);
-        expect(refusal).toContain(THIRD_ARC);
-        note("at0476 card with the refusal", (await app.screenshot()).path);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

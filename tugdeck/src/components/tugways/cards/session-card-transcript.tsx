@@ -3127,6 +3127,11 @@ export const SessionTranscriptHost = forwardRef<
    */
   const startFindReveal = useCallback(
     (match: SegmentedFindMatch, navSeq: number): void => {
+      // The editor poke is asked for once per reveal. Every advance runs
+      // `onRowMounted`, and its repaint selects the editor's match — a CM6
+      // transaction that schedules a measure; asking again from each one
+      // poked the reveal into another advance forever.
+      let editorPokeAsked = false;
       listViewRef.current?.revealRange(match.row, {
         source: "find-reveal",
         onRowMounted: () => {
@@ -3137,10 +3142,10 @@ export const SessionTranscriptHost = forwardRef<
           // reveal its own match. Without it `getRect` below would answer
           // from the PREVIOUS query's range.
           highlighter.paint(buildPaintInput());
-          if (match.segmentKind === "editor") {
+          if (match.segmentKind === "editor" && !editorPokeAsked) {
             // CM6's inner scroll lands on its own measure pass, which the
             // list view cannot observe: poke the reveal when it does.
-            highlighter.afterActiveEditorMeasure(() => {
+            editorPokeAsked = highlighter.afterActiveEditorMeasure(() => {
               listViewRef.current?.pokeReveal();
             });
           }

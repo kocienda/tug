@@ -64,6 +64,8 @@ Running everything is almost never the right move: each file launches its own `T
 
 A `@covers` value is a repo-relative path (a trailing `/` means the whole subtree) or a glob. `just app-test-changed` reads the changed files out of `git status`, resolves them through those declarations, prints which changed file pulled in each test, and runs that set — up to twenty. Prefer **generous** globs — a directory over a single file — so a rename inside the subsystem doesn't silently drop coverage.
 
+A file split to fit the 20 s file budget keeps every `@covers` line on every piece that exercises it, and the pieces declare one family — `* @family at0330-eviction` — which the twenty-place cut and the fan-out lint count once. Every piece's name starts with `<family>-`, and a family has at least two members; `just app-test-covers-check` enforces both.
+
 When the declarations name more than twenty tests, `just app-test-changed` runs the **top twenty** by relevance and prints the rest below the line. The ranking resolves each changed hunk to the function it falls inside and puts first the tests that reach those functions, then the ones declaring more of the changed files, then the ones already red, then the cheapest. Every candidate prints on stderr with its rank and why, in and out alike; `just app-test-select` shows the whole ranking. Twenty is a hard limit — there is no flag to raise it.
 
 #### Reading the reach map
