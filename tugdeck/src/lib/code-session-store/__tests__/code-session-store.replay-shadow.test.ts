@@ -304,3 +304,55 @@ describe("a replay bracket that opens over a live turn", () => {
     expect(snap.replayEverCompleted).toBe(true);
   });
 });
+
+/**
+ * The answer to `request_inflight`: after a reconnect to the same tugcast,
+ * a card whose stores stood asks for the turn as it now stands, and tugcode
+ * answers with a bracket marked `inflight_only` around its snapshot alone.
+ */
+describe("an inflight-only bracket, after a reconnect to the same server", () => {
+  function snapshotOfTheFinishedTurn(conn: TestFrameChannel): void {
+    emit(conn, { type: "replay_started", inflight_only: true, ipc_version: 2 });
+    emit(conn, { type: "add_user_message", content: [], inflightSnapshot: true });
+    emit(conn, { type: "content_block_start", msg_id: LIVE_MSG, block_index: 0, kind: "text" });
+    emit(conn, { type: "assistant_text", status: "streaming", msg_id: LIVE_MSG, block_index: 0, text: "Half of it, and the rest.", is_partial: false, rev: 9, seq: 1 });
+    emit(conn, { type: "turn_complete", seq: 2, msg_id: LIVE_MSG, result: "success" });
+    emit(conn, { type: "replay_complete", count: 0, ipc_version: 2 });
+  }
+
+  it("completes a live turn that finished while the socket was down", () => {
+    const { store, conn } = makeStore();
+    store.send("go on", []);
+    emit(conn, { type: "content_block_start", msg_id: LIVE_MSG, block_index: 0, kind: "text" });
+    emit(conn, { type: "assistant_text", status: "partial", msg_id: LIVE_MSG, block_index: 0, text: "Half of it", is_partial: true, rev: 0, seq: 1 });
+    expect(store.getSnapshot().phase, "the turn is live").not.toBe("idle");
+
+    // The rest of the text and the turn's end went out while the socket was
+    // down; the snapshot is the only record of them.
+    snapshotOfTheFinishedTurn(conn);
+
+    const snap = store.getSnapshot();
+    expect(snap.phase, "the turn that ended in the gap has ended").toBe("idle");
+    expect(snap.transcript.length).toBe(1);
+    const texts = snap.transcript[0]!.messages.flatMap((m) => (m.kind === "assistant_text" ? [m.text] : []));
+    expect(texts, "the text the gap carried is there").toEqual(["Half of it, and the rest."]);
+    expect(snap.lastReplayResult, "the bracket was never entered").toBeNull();
+  });
+
+  it("is set aside whole by a card with no turn in flight", () => {
+    const { store, conn } = makeStore();
+    store.send("go on", []);
+    emit(conn, { type: "assistant_text", status: "complete", msg_id: LIVE_MSG, text: "Done.", is_partial: false, rev: 0, seq: 1 });
+    emit(conn, { type: "turn_complete", seq: 2, msg_id: LIVE_MSG, result: "success" });
+    const before = store.getSnapshot();
+    expect(before.phase).toBe("idle");
+
+    snapshotOfTheFinishedTurn(conn);
+
+    const snap = store.getSnapshot();
+    expect(snap.phase, "an idle card never enters it").toBe("idle");
+    expect(snap.transcript, "nothing in it lands on a settled card").toEqual(before.transcript);
+    expect(snap.lastReplayResult).toBeNull();
+    expect(snap.replayEverCompleted).toBe(before.replayEverCompleted);
+  });
+});

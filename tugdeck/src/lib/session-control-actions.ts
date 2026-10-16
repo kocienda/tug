@@ -36,6 +36,9 @@ import { sessionCitationStore } from "./session-citation-store";
 import { sessionSpawnErrorStore } from "./session-spawn-error-store";
 import { notifySpawnRejected } from "./session-restore";
 import { logSessionLifecycle } from "./session-lifecycle-log";
+import { takePendingReload } from "./reload-reasons";
+import { sendRequestInflight } from "./session-lifecycle";
+import { getConnection } from "./connection-singleton";
 import {
   directoryChangeNotifier,
   settleDirectoryChangeAck,
@@ -269,6 +272,42 @@ export function registerSessionControlActions(filter?: SessionControlFilter): vo
           ? { id: ackArcId, name: ackArcName }
           : undefined,
     });
+    // The binding above built this card's stores and asked them for nothing.
+    // The spawn it answers was sent for a reason, and that reason is what
+    // reads the transcript — once, into the stores just built. An ack this
+    // page sent no spawn for (a body's card, seen by the shell) has none.
+    const reloadReason = takePendingReload(cardId);
+    if (reloadReason === "rebind") {
+      // A same-server reconnect re-asserting a card whose stores stood
+      // through it ([B03]). The binding above matched them, so nothing was
+      // built and nothing is read: the ack is the server holding the session
+      // for this socket again, which is what settles the store out of the
+      // `restoring` its reconnect put it in.
+      //
+      // A turn the card was in the middle of ran on while the socket was
+      // down, and tugcast does not replay what a reconnecting client missed.
+      // So a card that is not settled asks tugcode for the turn as it now
+      // stands ([B05]): the snapshot fills in what streamed in the gap, and
+      // carries the turn's end if the turn finished there.
+      logSessionLifecycle("spawn.rebind_ack", {
+        card_id: cardId,
+        tug_session_id: tugSessionId,
+      });
+      const services = cardServicesStore.getServices(cardId);
+      services?.codeSessionStore.notifyTransportSettled();
+      const phase = services?.codeSessionStore.getSnapshot().phase;
+      const connection = getConnection();
+      if (services && connection && phase !== "idle" && phase !== "errored") {
+        sendRequestInflight(connection, services.tugSessionId);
+      }
+    } else if (reloadReason !== undefined) {
+      cardServicesStore.requestTranscript(cardId, reloadReason);
+    } else {
+      logSessionLifecycle("spawn.ack_without_reason", {
+        card_id: cardId,
+        tug_session_id: tugSessionId,
+      });
+    }
     // A directory change's ack: the binding above is the move. tugcast has
     // already closed the session the card moved away from.
     const movedTo = settleDirectoryChangeAck(cardId, tugSessionId);

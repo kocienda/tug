@@ -1270,12 +1270,12 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
                   // `spawn_session_ok` never arrives: the sheet has
                   // already dismissed with `result: "open"` and the
                   // picker's `shownRef` guard blocks a re-present.
-                  fireRestore(cardId, sessionId, projectDir, connection, display);
+                  fireRestore(cardId, sessionId, projectDir, connection, "restore-open", display);
                 } else {
                   // The `new` arm: a fresh spawn mints its line from the drop
                   // ([P03]). A resume never reaches here — it goes through
                   // `fireRestore`, which offers only a line the deck knows.
-                  fireNewSpawn(cardId, sessionId, projectDir, connection);
+                  fireNewSpawn(cardId, sessionId, projectDir, connection, "restore-open");
                 }
               }, SHEET_EXIT_ANIMATION_MS);
             },
@@ -1303,6 +1303,7 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
                         retryTugSessionId as string,
                         retryProjectDir as string,
                         connection,
+                        "restore-open",
                       );
                     }, SHEET_EXIT_ANIMATION_MS);
                   }
@@ -3771,6 +3772,8 @@ export function SessionCardBody({
         newSessionId,
         binding.projectDir,
         "new",
+        // A `/clear` shows a different session afterwards; building it is an open.
+        "restore-open",
         provisionSpawnTag(lineId),
         lineId,
       );

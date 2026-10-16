@@ -80,12 +80,12 @@ describe("reducer — transport downtime", () => {
     advance(30);
     // Wire drops mid-stream → transport close lands.
     const { state: s2 } = applyAll(s1, [{ type: "transport_close" }]);
-    // Mid-turn close commits a transport_lost TurnEntry; the user
-    // recovers via re-send. So the same in-flight turn DOES NOT
-    // resume — instead we test that the close handler kept downtime
-    // bookkeeping correct for a subsequent recovery.
+    // A mid-turn close holds the turn — the same tugcast may still be
+    // running it ([B05] of the reload-reasons brief) — and keeps the
+    // downtime bookkeeping correct for the recovery.
     expect(s2.transportNonOnlineSince).toBe(now);
-    expect(s2.phase).toBe("errored");
+    expect(s2.phase).not.toBe("errored");
+    expect(s2.pendingTurn).not.toBeNull();
 
     advance(500);
     const { state: s3 } = applyAll(s2, [{ type: "transport_open" }]);
@@ -101,7 +101,7 @@ describe("reducer — transport downtime", () => {
     expect(s4.transportReconnectCount).toBe(1);
   });
 
-  it("a turn that ends while the transport is down commits with turnEndReason transport_lost", () => {
+  it("a held turn that tugcode no longer has commits with turnEndReason transport_lost", () => {
     const { state: s1 } = applyAll(fresh(), [
       { type: "send", text: "hi", atoms: [], content: [{ type: "text" as const, text: "hi" }], turnKey: "k1" },
       {
@@ -116,11 +116,17 @@ describe("reducer — transport downtime", () => {
       },
     ]);
     advance(40);
+    // The wire drops, comes back to the same tugcast, and tugcode — asked
+    // for the turn as it now stands — answers that it has none.
     const { state: s2, effects } = applyAll(s1, [
       { type: "transport_close" },
+      { type: "transport_open" },
+      { type: "transport_settled" },
+      { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
+      { type: "replay_complete", count: 0, ipc_version: 2 } as CodeSessionEvent,
     ]);
     expect(s2.phase).toBe("errored");
-    expect(s2.transportState).toBe("offline");
+    expect(s2.transportState).toBe("online");
     // The in-flight turn was committed with reason: transport_lost.
     const appended = appendedEntries(effects);
     expect(appended.length).toBe(1);
@@ -209,8 +215,13 @@ describe("reducer — a queued send belongs to the user, not the turn", () => {
   });
 
   it("the rest of the dead turn's reset still happens", () => {
+    // The turn dies when the reconnect learns tugcode no longer has it.
     const { state, effects } = applyAll(withTwoQueuedSends(), [
       { type: "transport_close" },
+      { type: "transport_open" },
+      { type: "transport_settled" },
+      { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
+      { type: "replay_complete", count: 0, ipc_version: 2 } as CodeSessionEvent,
     ]);
 
     // The turn that died is still committed and cleaned up — only the
@@ -221,6 +232,7 @@ describe("reducer — a queued send belongs to the user, not the turn", () => {
     expect(state.pendingTurn).toBeNull();
     expect(state.pendingApproval).toBeNull();
     expect(state.pendingQuestion).toBeNull();
+    expect(state.queuedSends.length).toBe(2);
   });
 
   it("a seeded queue drains at the end of replay", () => {
@@ -301,12 +313,23 @@ describe("reducer — transport loss is not a card error", () => {
       { type: "transport_close" },
     ]);
 
-    // Errored phase and an offline transport, but nothing that would
-    // raise the card-locking banner. The "Reconnecting…" bulletin
-    // derives from `transportState` alone.
-    expect(state.phase).toBe("errored");
+    // An offline transport and a held turn, but nothing that would raise
+    // the card-locking banner. The "Reconnecting…" bulletin derives from
+    // `transportState` alone.
+    expect(state.phase).not.toBe("errored");
     expect(state.transportState).toBe("offline");
     expect(state.lastError).toBeNull();
+
+    // Nor when the reconnect finds tugcode no longer has the turn: the
+    // turn ends, and still no error is stamped.
+    const { state: ended } = applyAll(state, [
+      { type: "transport_open" },
+      { type: "transport_settled" },
+      { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
+      { type: "replay_complete", count: 0, ipc_version: 2 } as CodeSessionEvent,
+    ]);
+    expect(ended.phase).toBe("errored");
+    expect(ended.lastError).toBeNull();
   });
 
   it("recovery clears a transport_closed error that arrived from elsewhere", () => {

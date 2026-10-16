@@ -61,6 +61,7 @@ control_actions! {
     ListCardBindings => "list_card_bindings",
     ResolveSessions => "resolve_sessions",
     RequestReplay => "request_replay",
+    RequestInflight => "request_inflight",
 
     // Supervisor: arcs.
     BindArc => "bind_arc",

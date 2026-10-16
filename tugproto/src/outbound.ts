@@ -1493,6 +1493,14 @@ export interface BackgroundTasksChanged {
 export interface ReplayStarted {
   type: "replay_started";
   ipc_version: number;
+  /**
+   * Set on the bracket that answers `request_inflight`: it carries the
+   * mid-turn snapshot alone, for a card that holds every committed turn
+   * already. A card never enters it as a replay; a live card shadows it and
+   * takes from the snapshot what it missed, and an idle card sets all of it
+   * aside.
+   */
+  inflight_only?: true;
 }
 
 /**

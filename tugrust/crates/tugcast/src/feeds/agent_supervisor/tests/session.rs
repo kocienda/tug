@@ -108,6 +108,98 @@ async fn test_request_replay_live_session_forwards_to_input_tx() {
     assert_eq!(parsed["type"], "request_replay");
 }
 
+/// Every line `body` writes to the trace, captured by a subscriber of its own.
+async fn trace_lines<F: std::future::Future<Output = ()>>(body: F) -> Vec<String> {
+    use parking_lot::Mutex as SyncMutex;
+    use std::sync::Arc as StdArc;
+    use tracing_subscriber::fmt::MakeWriter;
+
+    #[derive(Clone)]
+    struct Buffer(StdArc<SyncMutex<Vec<u8>>>);
+    impl std::io::Write for Buffer {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl<'a> MakeWriter<'a> for Buffer {
+        type Writer = Buffer;
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    let sink = Buffer(StdArc::new(SyncMutex::new(Vec::new())));
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(sink.clone())
+        .with_ansi(false)
+        .without_time()
+        .finish();
+    let captured = {
+        let _guard = tracing::subscriber::set_default(subscriber);
+        body.await;
+        String::from_utf8(sink.0.lock().clone()).unwrap()
+    };
+    captured.lines().map(str::to_string).collect()
+}
+
+/// A reload says why: the deck's reason rides the CONTROL frame, and
+/// `request_replay.dispatched` logs it as `reload_reason`, so a reload in
+/// `tugcast.log` can be traced to its cause and one outside the deck's closed
+/// set grepped for. A request that names no reason logs `unspecified`.
+#[tokio::test]
+async fn test_request_replay_dispatched_logs_the_reload_reason() {
+    let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+    let tug_id = TugSessionId::new("sess-reason");
+    let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+    let (input_tx, mut input_rx) = mpsc::channel::<Frame>(4);
+    {
+        let mut entry = entry_arc.lock().await;
+        entry.spawn_state = SpawnState::Live;
+        entry.input_tx = Some(input_tx);
+    }
+
+    let with_reason = serde_json::to_vec(&serde_json::json!({
+        "action": "request_replay",
+        "tug_session_id": "sess-reason",
+        "reason": "server-restart",
+    }))
+    .unwrap();
+    let lines = trace_lines(async {
+        sup.handle_control("request_replay", &with_reason, 10)
+            .await
+            .expect_handled();
+        sup.handle_control("request_replay", &request_replay_payload("sess-reason"), 10)
+            .await
+            .expect_handled();
+    })
+    .await;
+
+    let dispatched: Vec<&String> = lines
+        .iter()
+        .filter(|l| l.contains("request_replay.dispatched"))
+        .collect();
+    assert_eq!(dispatched.len(), 2, "two dispatches logged: {lines:#?}");
+    assert!(
+        dispatched[0].contains("reload_reason=\"server-restart\""),
+        "the deck's reason is logged: {}",
+        dispatched[0],
+    );
+    assert!(
+        dispatched[1].contains("reload_reason=\"unspecified\""),
+        "a request with no reason says so: {}",
+        dispatched[1],
+    );
+
+    // The reason is telemetry only: what tugcode receives is unchanged.
+    let frame = input_rx.try_recv().expect("first request forwarded");
+    let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+    assert!(body.get("reason").is_none(), "tugcode's verb carries no reason: {body}");
+}
+
 /// Idle session: request_replay no-ops. No frame on input_tx (none
 /// exists at Idle anyway), no error, and `handle_control` returns
 /// Ok. The cold-boot startup-replay path will fire when the
@@ -309,6 +401,49 @@ async fn test_request_replay_spawning_empty_queue_just_request_replay() {
     assert!(entry.queue.is_empty());
     let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
     assert_eq!(body["type"], "request_replay");
+}
+
+/// A `request_inflight` that reaches a session still spawning is queued at
+/// the front, ahead of input, rather than dropped: a rebind's resume can be
+/// what respawned the session, and the card holding a turn the old process
+/// took with it waits on the fresh tugcode's answer to end that turn.
+#[tokio::test]
+async fn test_request_inflight_spawning_session_enqueues_at_front_of_queue() {
+    let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+
+    let tug_id = TugSessionId::new("sess-inflight-spawning");
+    let entry_arc = insert_ledger_entry(&sup, &tug_id).await;
+    let user_frame = Frame::new(
+        FeedId::CODE_INPUT,
+        serde_json::to_vec(&serde_json::json!({
+            "tug_session_id": "sess-inflight-spawning",
+            "type": "user_message",
+            "text": "hi",
+        }))
+        .unwrap(),
+    );
+    {
+        let mut entry = entry_arc.lock().await;
+        entry.spawn_state = SpawnState::Spawning;
+        assert_eq!(entry.queue.push(user_frame), QueuePush::Ok);
+    }
+
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "tug_session_id": "sess-inflight-spawning",
+    }))
+    .unwrap();
+    sup.handle_control("request_inflight", &payload, 10)
+        .await
+        .expect_handled();
+
+    let mut entry = entry_arc.lock().await;
+    let first = entry.queue.pop().expect("request_inflight queued");
+    let second = entry.queue.pop().expect("user_message still queued");
+    assert!(entry.queue.is_empty());
+    let first_body: serde_json::Value = serde_json::from_slice(&first.payload).unwrap();
+    assert_eq!(first_body, serde_json::json!({"type": "request_inflight"}));
+    let second_body: serde_json::Value = serde_json::from_slice(&second.payload).unwrap();
+    assert_eq!(second_body["type"], "user_message");
 }
 
 /// Live session: request_replay is forwarded immediately to

@@ -287,6 +287,12 @@ export class StubReplayEngine {
   private nextTurnIndex = 0;
   /** The paced turns, chained so a second turn never interleaves the first. */
   private pacing: Promise<void> = Promise.resolve();
+  /**
+   * What the turn dispatched last has put on the wire so far — the record
+   * {@link requestInflight} describes it from, as production tugcode
+   * describes its turn from `ActiveTurn`.
+   */
+  private turnSent: OutboundMessage[] = [];
 
   constructor(args: {
     transcript: TugcodeTranscript;
@@ -349,18 +355,84 @@ export class StubReplayEngine {
     this.nextTurnIndex++;
     const paceMs = this.transcript.paceMs ?? 0;
     if (paceMs <= 0) {
+      this.turnSent = [];
       for (const output of turn.outputs) {
-        this.emit(output);
+        this.sendTurnOutput(output);
       }
       return true;
     }
     this.pacing = this.pacing.then(async () => {
+      this.turnSent = [];
       for (let i = 0; i < turn.outputs.length; i++) {
         if (i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
-        this.emit(turn.outputs[i]);
+        this.sendTurnOutput(turn.outputs[i]);
       }
     });
     return true;
+  }
+
+  private sendTurnOutput(output: OutboundMessage): void {
+    this.turnSent.push(output);
+    this.emit(output);
+  }
+
+  /**
+   * Answer `request_inflight` as production tugcode does: a bracket marked
+   * `inflight_only` around a snapshot of the turn dispatched last, in flight
+   * or finished. The snapshot is composed the way
+   * `emitInflightTurnFromActiveTurn` composes one — its opener marked
+   * `inflightSnapshot`, each block opened and its text whole as it now
+   * stands, and the turn's end if it has been sent — from what this engine
+   * has emitted, so a card whose socket dropped mid-turn reads what it
+   * missed. Emitted at once, beside a paced turn still streaming.
+   */
+  requestInflight(): void {
+    this.emit({ type: "replay_started", inflight_only: true, ipc_version: IPC_VERSION } as OutboundMessage);
+    if (this.turnSent.length > 0) {
+      this.emit({
+        type: "add_user_message",
+        content: [],
+        inflightSnapshot: true,
+        ipc_version: IPC_VERSION,
+      } as unknown as OutboundMessage);
+      const blocks = new Map<string, { start: ContentBlockStart | null; text: AssistantText | null; whole: string }>();
+      let end: OutboundMessage | null = null;
+      for (const output of this.turnSent) {
+        if (output.type === "content_block_start") {
+          const key = `${output.msg_id}:${output.block_index}`;
+          const block = blocks.get(key) ?? { start: null, text: null, whole: "" };
+          block.start = output;
+          blocks.set(key, block);
+        } else if (output.type === "assistant_text") {
+          const key = `${output.msg_id}:${output.block_index}`;
+          const block = blocks.get(key) ?? { start: null, text: null, whole: "" };
+          block.whole = output.is_partial ? block.whole + output.text : output.text;
+          block.text = output;
+          blocks.set(key, block);
+        } else if (output.type === "turn_complete" || output.type === "turn_cancelled") {
+          end = output;
+        }
+      }
+      for (const block of blocks.values()) {
+        if (block.start !== null) this.emit(block.start);
+        if (block.text !== null) {
+          this.emit({ ...block.text, text: block.whole, is_partial: false, status: "streaming" });
+        }
+      }
+      if (end !== null) this.emit(end);
+    }
+    this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
+  }
+
+  /**
+   * Answer `request_replay`: a stub session keeps no JSONL, so it has nothing
+   * to read back, and says so the way production tugcode does for a session
+   * with nothing to read — an empty bracket. Without it a stub card never
+   * finishes its first read, which a real one always does.
+   */
+  answerReplay(): void {
+    this.emit({ type: "replay_started", ipc_version: IPC_VERSION } as OutboundMessage);
+    this.emit({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION } as OutboundMessage);
   }
 
   /** Resolves when every paced turn dispatched so far has emitted its last output. */

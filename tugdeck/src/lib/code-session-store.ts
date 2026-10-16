@@ -1179,7 +1179,8 @@ export class CodeSessionStore extends Subscribable {
     if (this._disposed) return;
     this.dispatch({ type: "begin_load_previous", target: turns });
     // The N turns immediately older than the current oldest-loaded turn.
-    const frame = encodeRequestReplay(this.tugSessionId, {
+    // `page`: this extends the loaded transcript backward; it is not a reload.
+    const frame = encodeRequestReplay(this.tugSessionId, "page", {
       turnRange: [
         Math.max(0, win.firstLoadedTurnIndex - turns),
         win.firstLoadedTurnIndex,

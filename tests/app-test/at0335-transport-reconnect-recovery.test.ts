@@ -12,13 +12,14 @@
  * It uses `app.connectionClose()`, NOT
  * `driveSession(..., {op: "transportClose"})`. That distinction is the
  * whole point of the test. The `driveSession` op dispatches straight
- * into one card's reducer and never reaches `ConnectionLifecycle`,
- * `cardSessionBindingStore.clearAll()`, or `restoreSessions` — it can
- * show a green result while the recovery path is entirely broken.
- * `connectionClose` closes the real wire without the `intentionalClose`
- * latch, so the whole chain runs: close → `connectionDidClose` →
- * backoff → reconnect → `connectionDidReconnect` → every services bag
- * disposed → restore.
+ * into one card's reducer and never reaches `ConnectionLifecycle` or
+ * `reassertOnReconnect` — it can show a green result while the recovery
+ * path is entirely broken. `connectionClose` closes the real wire without
+ * the `intentionalClose` latch, so the whole chain runs: close →
+ * `connectionDidClose` → backoff → reconnect → `connectionDidReconnect` →
+ * the page re-asserts its cards. The server is the same one, so they are
+ * re-bound rather than rebuilt; a harness-bound card the ledger never
+ * heard of is cleared, as a restart would clear it.
  *
  * What it pins:
  *   - No error banner is raised for a transport close — not while the
@@ -33,10 +34,9 @@
  * What it deliberately does NOT pin, and why:
  *   - **Cards rebinding after the restore.** `bindSession` is a
  *     synthetic harness bind — it writes the client's binding store
- *     directly and leaves no server-side ledger row. After
- *     `clearAll()` the restore pass asks `list_card_bindings`, which
- *     has never heard of these cards, so they correctly fall to the
- *     picker. Asserting a rebind here would require a real
+ *     directly and leaves no server-side ledger row. The restore pass
+ *     asks `list_card_bindings`, which has never heard of these cards,
+ *     so they correctly fall to the picker. Asserting a rebind here would require a real
  *     `spawn_session` per card. Rebinding is covered by the plan's
  *     manual screen-lock run.
  *   - The multi-minute suspension case (the harness cannot throttle

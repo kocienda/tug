@@ -111,7 +111,7 @@ afterEach(() => {
 describe("without the capability", () => {
   test("nothing is handed off and the funnel sends as before", () => {
     _setHostCapabilitiesForTest({ bodyViews: false });
-    fireRestore("s1", "tug-1", "/p", connection);
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
     expect(controlActions).toEqual(["spawn_session"]);
     expect(posted).toEqual([]);
     expect(bodyCardsStore.has("s1")).toBe(false);
@@ -130,7 +130,7 @@ describe("with the capability", () => {
   });
 
   test("a spawn kind's card is handed off once, with its kind and the funnel's intent", () => {
-    fireRestore("s1", "tug-1", "/p", connection);
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
     expect(controlActions).toEqual([]);
     expect(posted).toEqual([
       {
@@ -138,7 +138,7 @@ describe("with the capability", () => {
         body: {
           cardId: "s1",
           componentId: "handoff-spawn",
-          intent: { kind: "resume", tugSessionId: "tug-1", projectDir: "/p" },
+          intent: { kind: "resume", tugSessionId: "tug-1", projectDir: "/p", reason: "launch" },
         },
       },
     ]);
@@ -164,54 +164,68 @@ describe("with the capability", () => {
 
   test("a fresh spawn carries its stashed opening command into the intent", () => {
     stashOpeningCommand("s1", { name: "arc", args: "go" });
-    fireFreshSpawn("s1", "tug-1", "/p", connection);
+    fireFreshSpawn("s1", "tug-1", "/p", connection, "launch");
     expect(controlActions).toEqual([]);
     expect(posted[0]?.body).toEqual({
       cardId: "s1",
       componentId: "handoff-spawn",
-      intent: { kind: "fresh", tugSessionId: "tug-1", projectDir: "/p", openingCommand: { name: "arc", args: "go" } },
+      intent: {
+        kind: "fresh",
+        tugSessionId: "tug-1",
+        projectDir: "/p",
+        reason: "launch",
+        openingCommand: { name: "arc", args: "go" },
+      },
     });
     expect(drainOpeningCommand("s1")).toBeUndefined();
   });
 
   test("a new spawn carries the line and tag the shell minted", () => {
-    fireNewSpawn("s2", "tug-2", "/p", connection, { lineId: "line-2", tag: "odd-kiln" });
+    fireNewSpawn("s2", "tug-2", "/p", connection, "restore-open", { lineId: "line-2", tag: "odd-kiln" });
     expect(controlActions).toEqual([]);
     expect(posted[0]?.body).toEqual({
       cardId: "s2",
       componentId: "handoff-spawn",
-      intent: { kind: "new", tugSessionId: "tug-2", projectDir: "/p", lineId: "line-2", tag: "odd-kiln" },
+      intent: {
+        kind: "new",
+        tugSessionId: "tug-2",
+        projectDir: "/p",
+        reason: "restore-open",
+        lineId: "line-2",
+        tag: "odd-kiln",
+      },
     });
   });
 
   test("a card whose kind is not a body kind is never handed off", () => {
-    fireRestore("g1", "tug-3", "/p", connection);
+    fireRestore("g1", "tug-3", "/p", connection, "launch");
     expect(controlActions).toEqual(["spawn_session"]);
     expect(posted).toEqual([]);
   });
 
   test("a card whose body failed stays in the shell", () => {
     suppressHandOff("s1");
-    fireRestore("s1", "tug-1", "/p", connection);
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
     expect(controlActions).toEqual(["spawn_session"]);
     expect(posted).toEqual([]);
   });
 
   test("the reconnect pass's second fire for a body card posts nothing and sends nothing", () => {
-    fireRestore("s1", "tug-1", "/p", connection);
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
     posted = [];
-    fireRestore("s1", "tug-1", "/p", connection);
-    fireFreshSpawn("s1", "tug-1", "/p", connection);
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
+    fireFreshSpawn("s1", "tug-1", "/p", connection, "launch");
     expect(posted).toEqual([]);
     expect(controlActions).toEqual([]);
   });
 
   test("the intent a card was handed is kept until the card is no longer a body card", () => {
-    fireNewSpawn("s2", "tug-2", "/p", connection, { lineId: "line-2", tag: "odd-kiln" });
+    fireNewSpawn("s2", "tug-2", "/p", connection, "restore-open", { lineId: "line-2", tag: "odd-kiln" });
     expect(bodyIntentOf("s2")).toEqual({
       kind: "new",
       tugSessionId: "tug-2",
       projectDir: "/p",
+      reason: "restore-open",
       lineId: "line-2",
       tag: "odd-kiln",
     });
@@ -222,7 +236,7 @@ describe("with the capability", () => {
   test("a failed card's intent re-runs through the shell's funnel, on the shell's whole connection", () => {
     // The recorded connection has no `setSessions`: a replay that narrowed
     // the shell's subscriptions to one session would throw here.
-    fireNewSpawn("s2", "tug-2", "/p", connection, { lineId: "line-2", tag: "odd-kiln" });
+    fireNewSpawn("s2", "tug-2", "/p", connection, "restore-open", { lineId: "line-2", tag: "odd-kiln" });
     const intent = bodyIntentOf("s2")!;
     suppressHandOff("s2");
     bodyCardsStore.drop("s2");

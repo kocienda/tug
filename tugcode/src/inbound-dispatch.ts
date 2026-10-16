@@ -142,6 +142,13 @@ export const INBOUND_HANDLERS: InboundHandlers = {
     sessionManager?.cancelReplay();
   },
 
+  // Describe the turn as it now stands, and nothing older — a card whose
+  // stores stood through a reconnect to the same tugcast ([B05]). Synchronous:
+  // the snapshot is composed from turn state in one pass.
+  request_inflight: (_msg, { sessionManager }) => {
+    sessionManager?.requestInflight();
+  },
+
   // `/rewind` diff-stat preview ([#step-7-1]). On throw, surface a failed
   // preview ack rather than an unhandled rejection.
   rewind_preview: (msg, { sessionManager, writeLine }) => {

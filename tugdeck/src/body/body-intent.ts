@@ -29,17 +29,32 @@ import {
   stashOpeningCommand,
   type ResumeDisplayMetadata,
 } from "../lib/session-restore";
+import { isReloadReason, type ReloadReason } from "../lib/reload-reasons";
 import { subscribeToListCardBindingsOk } from "../lib/session-ledger-events";
 
 export type BodyIntent =
-  | { kind: "resume"; tugSessionId: string; projectDir: string; display?: ResumeDisplayMetadata }
+  | {
+      kind: "resume";
+      tugSessionId: string;
+      projectDir: string;
+      reason: ReloadReason;
+      display?: ResumeDisplayMetadata;
+    }
   | {
       kind: "fresh";
       tugSessionId: string;
       projectDir: string;
+      reason: ReloadReason;
       openingCommand?: { name: string; args: string };
     }
-  | { kind: "new"; tugSessionId: string; projectDir: string; lineId: string; tag: string }
+  | {
+      kind: "new";
+      tugSessionId: string;
+      projectDir: string;
+      reason: ReloadReason;
+      lineId: string;
+      tag: string;
+    }
   | { kind: "restore" }
   /**
    * A kind with no session, handed off as the deck holds it. `bag` is the
@@ -64,33 +79,44 @@ export function parseBodyIntent(raw: unknown): BodyIntent | null {
         ? { kind: "mount", bag: r.bag as CardStateBag }
         : { kind: "mount" };
     case "resume":
-      if (!str(r.tugSessionId) || !str(r.projectDir)) return null;
+      if (!str(r.tugSessionId) || !str(r.projectDir) || !isReloadReason(r.reason)) return null;
       return {
         kind: "resume",
         tugSessionId: r.tugSessionId,
         projectDir: r.projectDir,
+        reason: r.reason,
         ...(typeof r.display === "object" && r.display !== null
           ? { display: r.display as ResumeDisplayMetadata }
           : {}),
       };
     case "fresh": {
-      if (!str(r.tugSessionId) || !str(r.projectDir)) return null;
+      if (!str(r.tugSessionId) || !str(r.projectDir) || !isReloadReason(r.reason)) return null;
       const opening = r.openingCommand as { name?: unknown; args?: unknown } | undefined;
       return {
         kind: "fresh",
         tugSessionId: r.tugSessionId,
         projectDir: r.projectDir,
+        reason: r.reason,
         ...(opening !== undefined && str(opening.name) && typeof opening.args === "string"
           ? { openingCommand: { name: opening.name, args: opening.args } }
           : {}),
       };
     }
     case "new":
-      if (!str(r.tugSessionId) || !str(r.projectDir) || !str(r.lineId) || !str(r.tag)) return null;
+      if (
+        !str(r.tugSessionId) ||
+        !str(r.projectDir) ||
+        !isReloadReason(r.reason) ||
+        !str(r.lineId) ||
+        !str(r.tag)
+      ) {
+        return null;
+      }
       return {
         kind: "new",
         tugSessionId: r.tugSessionId,
         projectDir: r.projectDir,
+        reason: r.reason,
         lineId: r.lineId,
         tag: r.tag,
       };
@@ -123,16 +149,23 @@ export function replayBodyIntent(
       return;
     case "resume":
       narrow(intent.tugSessionId);
-      fireRestore(cardId, intent.tugSessionId, intent.projectDir, connection, intent.display);
+      fireRestore(
+        cardId,
+        intent.tugSessionId,
+        intent.projectDir,
+        connection,
+        intent.reason,
+        intent.display,
+      );
       return;
     case "fresh":
       narrow(intent.tugSessionId);
       if (intent.openingCommand !== undefined) stashOpeningCommand(cardId, intent.openingCommand);
-      fireFreshSpawn(cardId, intent.tugSessionId, intent.projectDir, connection);
+      fireFreshSpawn(cardId, intent.tugSessionId, intent.projectDir, connection, intent.reason);
       return;
     case "new":
       narrow(intent.tugSessionId);
-      fireNewSpawn(cardId, intent.tugSessionId, intent.projectDir, connection, {
+      fireNewSpawn(cardId, intent.tugSessionId, intent.projectDir, connection, intent.reason, {
         lineId: intent.lineId,
         tag: intent.tag,
       });

@@ -1124,7 +1124,7 @@ export function initActionDispatch(
     // gesture is a card somewhere else on the deck, and the eye has to be
     // told where ([P04]).
     flashCardPane(deckManager, cardId);
-    fireRestore(cardId, sessionId, projectDir, connection);
+    fireRestore(cardId, sessionId, projectDir, connection, "restore-open");
   });
 
   // run-command-in-new-session: open a fresh Session card on the originating
@@ -1187,7 +1187,7 @@ export function initActionDispatch(
     // and a drain that found nothing would open a card that sits empty
     // wearing every sign of being about to do something.
     stashOpeningCommand(cardId, { name, args });
-    fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection);
+    fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection, "restore-open");
   });
 
   // show-card: Show a card by componentId. The Swift app menu sends

@@ -1,11 +1,15 @@
 /**
- * `cardServicesStore._construct` — request_replay dispatch on resume
- * binding (Phase A-R1 / Step R1c, [D12]).
+ * A Session card's transcript is read only for one of a closed set of
+ * reasons, and building its stores is not one of them.
  *
- * Pins the contract: when fresh services are constructed for a binding
- * whose `sessionMode === "resume"`, the store dispatches a
- * `request_replay` CONTROL frame on the connection. Fresh-spawn
- * bindings do not.
+ * Pins the contract: constructing services for a binding sends no
+ * `request_replay`. The transcript is asked for by
+ * `cardServicesStore.requestTranscript`, with a reason from
+ * `RELOAD_REASONS` — launch, restore-open, server-restart — which rides the
+ * frame; the spawn ack makes that call with the reason its spawn was sent
+ * for; and a bag is read at most once. This reverses the earlier rule that
+ * every construct asked for its replay, which is what made any path that
+ * built a card's stores a reload of it.
  *
  * And the directory change's held swap, which rides the same construct: a
  * move's re-bind builds the new bag and asks for its replay, but the card
@@ -19,8 +23,15 @@
  *
  * Tuglaws posture: dispatch happens at the structure-zone seam
  * (cardServicesStore is a non-React store). No new render path,
- * no new React state, no new useEffect. [L01]/[L02]/[L10]/[L22]/[L24]
- * already covered in plan; this test pins the wire-side contribution.
+ * no new React state, no new useEffect.
+ *
+ * @covers tugdeck/src/lib/card-services-store.ts
+ * @covers tugdeck/src/lib/reload-reasons.ts
+ * @covers tugdeck/src/lib/session-restore.ts
+ *
+ * And the reconnect: one to the same tugcast keeps every binding and store and
+ * re-binds the card without reading it ([B03]); one to a restarted tugcast
+ * clears, rebuilds and reads it for `server-restart`.
  */
 
 import { describe, it, expect, afterEach, afterAll, mock } from "bun:test";
@@ -103,6 +114,17 @@ import {
   beginDirectoryChange,
 } from "@/lib/directory-change";
 import { FeedId } from "@/protocol";
+import {
+  RELOAD_REASONS,
+  _resetPendingReloadsForTests,
+  type ReplayRequestReason,
+} from "@/lib/reload-reasons";
+import { sendSpawnSession } from "@/lib/session-lifecycle";
+import { registerSessionControlActions } from "@/lib/session-control-actions";
+import { _resetActionRegistryForTest, getRegistryHandler } from "@/action-registry";
+import { reassertOnReconnect } from "@/lib/session-restore";
+import { publishListCardBindingsOk } from "@/lib/session-ledger-events";
+import { ServerIdentity } from "@/lib/server-identity";
 
 interface FakeCard {
   id: string;
@@ -164,9 +186,10 @@ function bindNew(cardId: string, tugSessionId: string): CardSessionBinding {
 
 function findRequestReplayFrames(): Array<{
   tugSessionId: string;
+  reason: ReplayRequestReason;
 }> {
   const decoder = new TextDecoder();
-  const found: Array<{ tugSessionId: string }> = [];
+  const found: Array<{ tugSessionId: string; reason: ReplayRequestReason }> = [];
   for (const f of sentFrames) {
     if (f.feedId !== FeedId.CONTROL) continue;
     let parsed: unknown;
@@ -183,7 +206,8 @@ function findRequestReplayFrames(): Array<{
       const tugSessionId = String(
         (parsed as { tug_session_id: unknown }).tug_session_id,
       );
-      found.push({ tugSessionId });
+      const reason = (parsed as { reason: ReplayRequestReason }).reason;
+      found.push({ tugSessionId, reason });
     }
   }
   return found;
@@ -196,142 +220,100 @@ afterEach(() => {
   TOUCHED_CARD_IDS.clear();
   sentFrames.length = 0;
   _resetDirectoryChangeForTests();
+  _resetPendingReloadsForTests();
+  _resetActionRegistryForTest();
   cardServicesStore.setHeldSwapLimitForTest(null);
 });
 
-describe("cardServicesStore._construct — request_replay dispatch ([D12])", () => {
-  it("dispatches request_replay for a resume binding when services are constructed", () => {
-    const cardId = "r1c-card-resume";
-    const tugSessionId = "sess-r1c-resume";
 
-    const fakeDeck = createFakeDeck([{ id: cardId, componentId: "session" }]);
-    cardServicesStore.attachDeckManager(
-      fakeDeck as unknown as Parameters<
-        typeof cardServicesStore.attachDeckManager
-      >[0],
-    );
+function attachDeck(cardId: string): void {
+  const fakeDeck = createFakeDeck([{ id: cardId, componentId: "session" }]);
+  cardServicesStore.attachDeckManager(
+    fakeDeck as unknown as Parameters<typeof cardServicesStore.attachDeckManager>[0],
+  );
+}
 
-    bindResume(cardId, tugSessionId);
+/** Land `spawn_session_ok` for `cardId` through the real ack handler. */
+function ack(cardId: string, tugSessionId: string, sessionMode: "new" | "resume"): void {
+  TOUCHED_CARD_IDS.add(cardId);
+  registerSessionControlActions();
+  getRegistryHandler("spawn_session_ok")!({
+    action: "spawn_session_ok",
+    card_id: cardId,
+    tug_session_id: tugSessionId,
+    workspace_key: "/work/r1c-test",
+    project_dir: "/work/r1c-test",
+    session_mode: sessionMode,
+  });
+}
 
-    // Services must be constructed (this drives _construct under the
-    // mocked singletons).
-    const services = cardServicesStore.getServices(cardId);
-    expect(services).not.toBeNull();
-
-    // Exactly one request_replay frame went out, addressed to this
-    // session.
-    const found = findRequestReplayFrames();
-    expect(found).toHaveLength(1);
-    expect(found[0].tugSessionId).toBe(tugSessionId);
+describe("a card reloads only for a named reason", () => {
+  it("the reasons are a closed set of three", () => {
+    // Adding a fourth is a change to this list, made on purpose.
+    expect([...RELOAD_REASONS]).toEqual(["launch", "restore-open", "server-restart"]);
   });
 
-  it("dispatches request_replay for a fresh-spawn (sessionMode=new) binding too — post-Step-5 smoke fix", () => {
-    // Pre-Step-5 the gate was `if (binding.sessionMode === "resume")`,
-    // which skipped fresh-spawn bindings. That assumption holds at
-    // the moment of spawn but rots once the session has had wire
-    // activity. After the first turn lands, any rebind of the same
-    // session needs request_replay so the freshly-mounted
-    // CodeSessionStore rehydrates its transcript. The fix drops the
-    // gate; an empty JSONL during a truly-fresh spawn is a harmless
-    // `replay_complete{jsonl_missing}` flash.
-    const cardId = "r1c-card-new";
-    const tugSessionId = "sess-r1c-new";
-
-    const fakeDeck = createFakeDeck([{ id: cardId, componentId: "session" }]);
-    cardServicesStore.attachDeckManager(
-      fakeDeck as unknown as Parameters<
-        typeof cardServicesStore.attachDeckManager
-      >[0],
-    );
-
-    bindNew(cardId, tugSessionId);
-
-    const services = cardServicesStore.getServices(cardId);
-    expect(services).not.toBeNull();
-
-    // Fires unconditionally now: idempotent at three layers ([D04]
-    // msg_id dedupe + tugcode re-entrancy guard + supervisor's
-    // Live-only forward).
-    const found = findRequestReplayFrames();
-    expect(found).toHaveLength(1);
-    expect(found[0].tugSessionId).toBe(tugSessionId);
-  });
-
-  it("dispatches once per construct — re-binding the same card after dispose runs another dispatch", () => {
-    // Mirrors the HMR-shaped sequence: the deck transitions card out,
-    // then back in (or services get reconstructed for any other
-    // reason). Each fresh `_construct` should issue its own
-    // request_replay because the new CodeSessionStore has no replay
-    // history of its own. The reducer's [D04] msg_id dedupe makes
-    // this idempotent at the transcript layer.
-    const cardId = "r1c-card-rebind";
-    const tugSessionId = "sess-r1c-rebind";
-
-    const fakeDeck = createFakeDeck([{ id: cardId, componentId: "session" }]);
-    cardServicesStore.attachDeckManager(
-      fakeDeck as unknown as Parameters<
-        typeof cardServicesStore.attachDeckManager
-      >[0],
-    );
-
-    // First bind → first dispatch.
-    bindResume(cardId, tugSessionId);
+  it("building a card's stores asks for no transcript", () => {
+    const cardId = "reload-construct";
+    attachDeck(cardId);
+    bindResume(cardId, "sess-reload-construct");
     expect(cardServicesStore.getServices(cardId)).not.toBeNull();
-    expect(findRequestReplayFrames()).toHaveLength(1);
+    expect(findRequestReplayFrames()).toEqual([]);
 
-    // Tear the card out — services are disposed.
-    fakeDeck.setCards([]);
-    expect(cardServicesStore.getServices(cardId)).toBeNull();
-
-    // Re-add and re-bind. The store reconstructs services and runs a
-    // second dispatch.
-    fakeDeck.setCards([{ id: cardId, componentId: "session" }]);
-    bindResume(cardId, tugSessionId);
-    expect(cardServicesStore.getServices(cardId)).not.toBeNull();
-
-    const found = findRequestReplayFrames();
-    expect(found).toHaveLength(2);
-    expect(found[0].tugSessionId).toBe(tugSessionId);
-    expect(found[1].tugSessionId).toBe(tugSessionId);
+    bindNew(cardId, "sess-reload-construct-B");
+    expect(cardServicesStore.getServices(cardId)?.tugSessionId).toBe("sess-reload-construct-B");
+    expect(findRequestReplayFrames()).toEqual([]);
   });
 
-  it("rebuilds the bag when the same card flips to a new session (/resume, /clear)", () => {
-    // The session-change path ([#step-13b3]): a `/clear` fresh-spawn or a
-    // `/resume` to another session overwrites the card's binding with a new
-    // `tugSessionId` (no unbind). `_reconcile` must dispose the old bag and
-    // construct a fresh one — a new CodeSessionStore (empty transcript) plus a
-    // request_replay addressed to the NEW session. Before this fix `_reconcile`
-    // keyed on cardId alone and the old store survived (stale transcript).
-    const cardId = "r1c-card-session-flip";
-    const sessionA = "sess-r1c-A";
-    const sessionB = "sess-r1c-B";
+  for (const reason of RELOAD_REASONS) {
+    it(`a spawn sent for ${reason} reads the transcript once, saying ${reason}`, () => {
+      const cardId = `reload-${reason}`;
+      const tugSessionId = `sess-reload-${reason}`;
+      attachDeck(cardId);
+      sendSpawnSession(fakeConnection, cardId, tugSessionId, "/work/r1c-test", "resume", reason);
+      ack(cardId, tugSessionId, "resume");
 
-    const fakeDeck = createFakeDeck([{ id: cardId, componentId: "session" }]);
-    cardServicesStore.attachDeckManager(
-      fakeDeck as unknown as Parameters<
-        typeof cardServicesStore.attachDeckManager
-      >[0],
-    );
+      expect(cardServicesStore.getServices(cardId)).not.toBeNull();
+      expect(findRequestReplayFrames()).toEqual([{ tugSessionId, reason }]);
+    });
+  }
 
-    bindNew(cardId, sessionA);
+  it("an ack this page sent no spawn for builds stores and reads nothing", () => {
+    const cardId = "reload-no-reason";
+    attachDeck(cardId);
+    ack(cardId, "sess-reload-no-reason", "resume");
+    expect(cardServicesStore.getServices(cardId)).not.toBeNull();
+    expect(findRequestReplayFrames()).toEqual([]);
+  });
+
+  it("a bag is read at most once; a second request for it is declined", () => {
+    const cardId = "reload-once";
+    attachDeck(cardId);
+    bindResume(cardId, "sess-reload-once");
+    expect(cardServicesStore.requestTranscript(cardId, "launch")).toBe(true);
+    expect(cardServicesStore.requestTranscript(cardId, "server-restart")).toBe(false);
+    expect(findRequestReplayFrames()).toEqual([
+      { tugSessionId: "sess-reload-once", reason: "launch" },
+    ]);
+  });
+
+  it("a card flipped to a new session (/clear, /resume) is read for its open", () => {
+    const cardId = "reload-flip";
+    attachDeck(cardId);
+    sendSpawnSession(fakeConnection, cardId, "sess-flip-A", "/work/r1c-test", "new", "restore-open");
+    ack(cardId, "sess-flip-A", "new");
     const first = cardServicesStore.getServices(cardId);
-    expect(first).not.toBeNull();
-    expect(first?.tugSessionId).toBe(sessionA);
-    expect(findRequestReplayFrames()).toHaveLength(1);
 
-    // Flip the SAME card to a new session — the binding changes, the cardId
-    // does not.
-    bindNew(cardId, sessionB);
+    sendSpawnSession(fakeConnection, cardId, "sess-flip-B", "/work/r1c-test", "new", "restore-open");
+    ack(cardId, "sess-flip-B", "new");
     const second = cardServicesStore.getServices(cardId);
-    expect(second).not.toBeNull();
-    // Fresh bag: new session id and a brand-new (empty) store instance.
-    expect(second?.tugSessionId).toBe(sessionB);
-    expect(second?.codeSessionStore).not.toBe(first?.codeSessionStore);
 
-    // A second request_replay went out, addressed to the new session.
-    const found = findRequestReplayFrames();
-    expect(found).toHaveLength(2);
-    expect(found[1].tugSessionId).toBe(sessionB);
+    expect(second?.tugSessionId).toBe("sess-flip-B");
+    expect(second?.codeSessionStore).not.toBe(first?.codeSessionStore);
+    expect(findRequestReplayFrames()).toEqual([
+      { tugSessionId: "sess-flip-A", reason: "restore-open" },
+      { tugSessionId: "sess-flip-B", reason: "restore-open" },
+    ]);
   });
 });
 
@@ -364,8 +346,9 @@ function userMessageFrames(): Array<Record<string, unknown>> {
 
 /**
  * Bind `cardId` to a session, send a `/cd` from it, and land the move's ack:
- * the binding moves to the new session, the way `spawn_session_ok` moves it.
- * Answers the session the move spawned.
+ * the binding moves to the new session through the real `spawn_session_ok`
+ * handler, which reads the new session's transcript. Answers the session the
+ * move spawned.
  */
 function move(cardId: string, from: CardSessionBinding): string {
   const before = framesOn(FeedId.CONTROL).length;
@@ -379,11 +362,15 @@ function move(cardId: string, from: CardSessionBinding): string {
     .slice(before)
     .find((f) => f.action === "spawn_session");
   const moved = String(spawn?.tug_session_id);
-  cardSessionBindingStore.setBinding(cardId, {
-    ...from,
-    tugSessionId: moved,
-    lineId: moved,
-    projectDir: "/work/r1c-moved",
+  registerSessionControlActions();
+  getRegistryHandler("spawn_session_ok")!({
+    action: "spawn_session_ok",
+    card_id: cardId,
+    tug_session_id: moved,
+    workspace_key: from.workspaceKey,
+    project_dir: "/work/r1c-moved",
+    session_mode: from.sessionMode,
+    line_id: moved,
   });
   return moved;
 }
@@ -411,6 +398,199 @@ function attach(cardId: string): void {
   );
 }
 
+/**
+ * A connection that has opened once on server `first` and reconnected to
+ * `second`, sending into `sentFrames` like the fake singleton connection.
+ */
+function reconnectedConnection(first: string, second: string): TugConnection {
+  const serverIdentity = new ServerIdentity();
+  serverIdentity.noteOpen({ server_id: first });
+  serverIdentity.noteOpen({ server_id: second });
+  const encoder = new TextEncoder();
+  return {
+    send: (feedId: number, payload: Uint8Array) => {
+      sentFrames.push({ feedId, payload });
+    },
+    trySend: (feedId: number, payload: Uint8Array) => {
+      sentFrames.push({ feedId, payload });
+      return true;
+    },
+    sendControlFrame: (action: string, params: Record<string, unknown> = {}) => {
+      sentFrames.push({
+        feedId: FeedId.CONTROL,
+        payload: encoder.encode(JSON.stringify({ action, ...params })),
+      });
+    },
+    onFrame: () => () => {},
+    serverIdentity,
+  } as unknown as TugConnection;
+}
+
+function sentActions(): string[] {
+  const decoder = new TextDecoder();
+  const actions: string[] = [];
+  for (const f of sentFrames) {
+    if (f.feedId !== FeedId.CONTROL) continue;
+    try {
+      const parsed = JSON.parse(decoder.decode(f.payload)) as { action?: unknown };
+      if (typeof parsed.action === "string") actions.push(parsed.action);
+    } catch {
+      continue;
+    }
+  }
+  return actions;
+}
+
+function asDeck(deck: ReturnType<typeof createFakeDeck>): Parameters<typeof reassertOnReconnect>[0] {
+  return deck as unknown as Parameters<typeof reassertOnReconnect>[0];
+}
+
+/** Drop the wire and bring it back, so every store's reconnect handler runs. */
+function bounceTheWire(): void {
+  sharedLifecycle.notifyConnectionDidOpen();
+  sharedLifecycle.notifyConnectionDidClose();
+  sharedLifecycle.notifyConnectionDidOpen();
+}
+
+describe("a reconnect re-binds the same server and reloads only a restarted one", () => {
+  /** Deliver a whole (empty) read into `cardId`'s store. */
+  function finishTheRead(cardId: string, tugSessionId: string): void {
+    const store = cardServicesStore.getServices(cardId)!.codeSessionStore;
+    for (const frame of [
+      { type: "replay_started", ipc_version: 2 },
+      { type: "replay_complete", count: 0, ipc_version: 2 },
+    ]) {
+      store._ingestFrameForTest(FeedId.CODE_OUTPUT, { ...frame, tug_session_id: tugSessionId });
+    }
+  }
+
+  /** A card launched and read (unless `read` is false), ready for its wire to drop. */
+  function launched(cardId: string, tugSessionId: string, read = true): {
+    deck: ReturnType<typeof createFakeDeck>;
+    services: CardServices;
+  } {
+    const deck = createFakeDeck([{ id: cardId, componentId: "session" }]);
+    cardServicesStore.attachDeckManager(
+      deck as unknown as Parameters<typeof cardServicesStore.attachDeckManager>[0],
+    );
+    sendSpawnSession(fakeConnection, cardId, tugSessionId, "/work/r1c-test", "resume", "launch");
+    ack(cardId, tugSessionId, "resume");
+    expect(findRequestReplayFrames()).toEqual([{ tugSessionId, reason: "launch" }]);
+    if (read) finishTheRead(cardId, tugSessionId);
+    sentFrames.length = 0;
+    return { deck, services: cardServicesStore.getServices(cardId)! };
+  }
+
+  function answerTheBindingsQuery(cardId: string, tugSessionId: string): void {
+    publishListCardBindingsOk({
+      bindings: [
+        {
+          card_id: cardId,
+          session_id: tugSessionId,
+          project_dir: "/work/r1c-test",
+          turn_count: 4,
+          has_jsonl: true,
+          is_alive: true,
+        },
+      ],
+    } as unknown as Parameters<typeof publishListCardBindingsOk>[0]);
+  }
+
+  it("the same server: no binding cleared, no store disposed, nothing read, the store settles", () => {
+    const cardId = "reconnect-same";
+    const tugSessionId = "sess-reconnect-same";
+    const { deck, services } = launched(cardId, tugSessionId);
+
+    bounceTheWire();
+    expect(services.codeSessionStore.getSnapshot().transportState).toBe("restoring");
+
+    const kind = reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-A"));
+    expect(kind).toBe("same-server");
+    expect(cardSessionBindingStore.getBinding(cardId)?.tugSessionId).toBe(tugSessionId);
+    expect(cardServicesStore.getServices(cardId)).toBe(services);
+
+    answerTheBindingsQuery(cardId, tugSessionId);
+    // The card is re-asserted for the new socket: asked about, and re-spawned.
+    expect(
+      sentActions().filter((a) => a === "list_card_bindings" || a === "spawn_session"),
+    ).toEqual(["list_card_bindings", "spawn_session"]);
+
+    ack(cardId, tugSessionId, "resume");
+    expect(cardServicesStore.getServices(cardId)).toBe(services);
+    expect(findRequestReplayFrames()).toEqual([]);
+    expect(services.codeSessionStore.getSnapshot().transportState).toBe("online");
+    expect(sentActions(), "a settled card has no turn to ask about").not.toContain("request_inflight");
+  });
+
+  it("the same server, a card mid-turn: it asks for the turn as it now stands, and nothing older", () => {
+    const cardId = "reconnect-midturn";
+    const tugSessionId = "sess-reconnect-midturn";
+    const { deck, services } = launched(cardId, tugSessionId);
+    services.codeSessionStore.send("keep going", []);
+    expect(services.codeSessionStore.getSnapshot().phase).not.toBe("idle");
+
+    bounceTheWire();
+    reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-A"));
+    answerTheBindingsQuery(cardId, tugSessionId);
+    sentFrames.length = 0;
+    ack(cardId, tugSessionId, "resume");
+
+    expect(cardServicesStore.getServices(cardId)).toBe(services);
+    expect(findRequestReplayFrames(), "the JSONL is not read").toEqual([]);
+    expect(sentActions().filter((a) => a.startsWith("request_"))).toEqual(["request_inflight"]);
+  });
+
+  it("the same server, a card whose read the drop cut short: rebuilt and read again, for its first reason", () => {
+    const cardId = "reconnect-cut-short";
+    const tugSessionId = "sess-reconnect-cut-short";
+    const { deck, services } = launched(cardId, tugSessionId, false);
+
+    bounceTheWire();
+    reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-A"));
+    answerTheBindingsQuery(cardId, tugSessionId);
+    expect(cardServicesStore.getServices(cardId), "the half-read stores are let go").toBeNull();
+
+    ack(cardId, tugSessionId, "resume");
+    expect(cardServicesStore.getServices(cardId)).not.toBe(services);
+    expect(findRequestReplayFrames()).toEqual([{ tugSessionId, reason: "launch" }]);
+  });
+
+  it("the same server, a card the ledger no longer names: that card alone is cleared", () => {
+    const cardId = "reconnect-unlisted";
+    const { deck } = launched(cardId, "sess-reconnect-unlisted");
+
+    bounceTheWire();
+    reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-A"));
+    expect(cardServicesStore.getServices(cardId)).not.toBeNull();
+
+    publishListCardBindingsOk({ bindings: [] } as unknown as Parameters<
+      typeof publishListCardBindingsOk
+    >[0]);
+    expect(cardSessionBindingStore.getBinding(cardId)).toBeUndefined();
+    expect(cardServicesStore.getServices(cardId)).toBeNull();
+    expect(sentActions()).not.toContain("spawn_session");
+  });
+
+  it("a restarted server: the card is cleared, rebuilt and read for server-restart", () => {
+    const cardId = "reconnect-restart";
+    const tugSessionId = "sess-reconnect-restart";
+    const { deck, services } = launched(cardId, tugSessionId);
+
+    bounceTheWire();
+    const kind = reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-B"));
+    expect(kind).toBe("server-restart");
+    expect(cardSessionBindingStore.getBinding(cardId)).toBeUndefined();
+    expect(cardServicesStore.getServices(cardId)).toBeNull();
+
+    answerTheBindingsQuery(cardId, tugSessionId);
+    ack(cardId, tugSessionId, "resume");
+    const rebuilt = cardServicesStore.getServices(cardId);
+    expect(rebuilt).not.toBeNull();
+    expect(rebuilt).not.toBe(services);
+    expect(findRequestReplayFrames()).toEqual([{ tugSessionId, reason: "server-restart" }]);
+  });
+});
+
 describe("cardServicesStore — a directory change holds the transcript until the new one is ready", () => {
   it("keeps the old bag shown through the re-bind, and swaps once on replay complete", async () => {
     const cardId = "cd-held-replay";
@@ -427,7 +607,7 @@ describe("cardServicesStore — a directory change holds the transcript until th
     // the card still renders the old bag — its transcript does not empty.
     expect(cardSessionBindingStore.getBinding(cardId)?.tugSessionId).toBe(moved);
     expect(cardServicesStore.getServices(cardId)).toBe(shown);
-    expect(findRequestReplayFrames().map((f) => f.tugSessionId)).toContain(moved);
+    expect(findRequestReplayFrames()).toEqual([{ tugSessionId: moved, reason: "restore-open" }]);
     expect(notified).toBe(0);
 
     // The held bag answers for its own session while it waits.

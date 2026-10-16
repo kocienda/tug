@@ -107,6 +107,8 @@ function caseBInterrupt(): CodeSessionState {
  */
 type TerminalRow = {
   event: CodeSessionEvent;
+  /** What follows the event before the terminal has landed, where one is not enough. */
+  then?: ReadonlyArray<CodeSessionEvent>;
   phase?: CodeSessionState["phase"];
 } | null;
 
@@ -125,8 +127,18 @@ const TERMINALS: Record<LastErrorCause, TerminalRow> = {
   },
   transport_closed: {
     // The one terminal that enters errored stamping nothing — a wire blip
-    // heals itself, and the "Reconnecting…" bulletin already says so.
+    // heals itself, and the "Reconnecting…" bulletin already says so. A
+    // close alone holds the turn, since the same tugcast may still be
+    // running it ([B05] of the reload-reasons brief); the terminal is the
+    // reconnect's answer that tugcode has no turn — an in-flight bracket
+    // that closes without a snapshot.
     event: { type: "transport_close" },
+    then: [
+      { type: "transport_open" },
+      { type: "transport_settled" },
+      { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
+      { type: "replay_complete", count: 0, ipc_version: 2 } as CodeSessionEvent,
+    ],
   },
   replay_stalled: {
     event: { type: "tick_replay_silence" },
@@ -151,7 +163,7 @@ function drive(row: NonNullable<TerminalRow>) {
   const base = caseBInterrupt();
   const seeded: CodeSessionState =
     row.phase === undefined ? base : { ...base, phase: row.phase };
-  return applyAll(seeded, [row.event]);
+  return applyAll(seeded, [row.event, ...(row.then ?? [])]);
 }
 
 describe("reducer — every terminal clears the per-interrupt fields", () => {
@@ -219,9 +231,12 @@ describe("reducer — every terminal clears the per-interrupt fields", () => {
     expect(state.lastError?.site).toBe("drain_eof_open_turn");
   });
 
-  it("transport_close keeps its own extra state", () => {
-    const { state } = drive(TERMINALS.transport_closed!);
+  it("transport_close alone takes the wire offline and holds the turn, Stop and all", () => {
+    const { state } = applyAll(caseBInterrupt(), [{ type: "transport_close" }]);
     expect(state.transportState).toBe("offline");
+    expect(state.phase).not.toBe("errored");
+    expect(state.pendingTurn).not.toBeNull();
+    expect(state.interruptInFlight, "the Stop is still the turn's").toBe(true);
   });
 
   it("the replay terminal keeps its own bracket teardown", () => {

@@ -129,6 +129,8 @@ const LIVE_PHASE_ROUTES: ReadonlyArray<{
 const TERMINAL_EVENTS: ReadonlyArray<{
   name: string;
   event: CodeSessionEvent;
+  /** What follows the event before the turn is over, where one is not enough. */
+  then?: ReadonlyArray<CodeSessionEvent>;
 }> = [
   {
     name: "turn_complete(error)",
@@ -145,8 +147,17 @@ const TERMINAL_EVENTS: ReadonlyArray<{
     event: { type: "session_state_errored", detail: "errored" },
   },
   {
-    name: "transport_close",
+    // A close alone holds the turn: the same tugcast may still be running
+    // it ([B05] of the reload-reasons brief). The turn is over when the
+    // reconnect asks tugcode for it and tugcode has none — a bracket that
+    // closes without a snapshot.
+    name: "transport_close, then an in-flight answer with no turn",
     event: { type: "transport_close" },
+    then: [
+      { type: "transport_open" },
+      { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
+      { type: "replay_complete", count: 0, ipc_version: 2 } as CodeSessionEvent,
+    ],
   },
   {
     name: "session_unknown",
@@ -166,7 +177,7 @@ describe("every terminal event lands a live turn on a quiet phase", () => {
 
     for (const terminal of TERMINAL_EVENTS) {
       it(`${route.phase} + ${terminal.name} → quiet`, () => {
-        const after = applyAll(route.reach(), [terminal.event]);
+        const after = applyAll(route.reach(), [terminal.event, ...(terminal.then ?? [])]);
         expect([terminal.name, after.phase, QUIET_PHASES.has(after.phase)]).toEqual(
           [terminal.name, after.phase, true],
         );

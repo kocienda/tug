@@ -68,15 +68,16 @@ describe("sendCloseSession", () => {
 });
 
 describe("sendRequestReplay", () => {
-  test("emits a request_replay CONTROL frame with the given tug_session_id ([D12])", () => {
+  test("emits a request_replay CONTROL frame with the given tug_session_id and reason ([D12])", () => {
     const conn = makeMockConnection();
-    sendRequestReplay(conn as never, "sess-replay-1");
+    sendRequestReplay(conn as never, "sess-replay-1", "restore-open");
     expect(conn.sent.length).toBe(1);
     expect(conn.sent[0].feedId).toBe(FeedId.CONTROL);
     const payload = JSON.parse(new TextDecoder().decode(conn.sent[0].payload));
     expect(payload).toEqual({
       action: "request_replay",
       tug_session_id: "sess-replay-1",
+      reason: "restore-open",
     });
   });
 
@@ -93,7 +94,7 @@ describe("sendRequestReplay", () => {
     });
 
     const conn = makeMockConnection();
-    sendRequestReplay(conn as never, "sess-rr");
+    sendRequestReplay(conn as never, "sess-rr", "launch");
 
     const binding = cardSessionBindingStore.getBinding("card-rr");
     expect(binding).toBeDefined();

@@ -38,7 +38,11 @@ import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { installBodyShell } from "./lib/body-shell";
 import { PointerClaimTracker } from "./lib/pointer-claim";
 import { bodyPlacementDiag } from "./lib/body-placement";
-import { restoreSessions, restoreSpaceSessions } from "./lib/session-restore";
+import {
+  reassertOnReconnect,
+  restoreSessions,
+  restoreSpaceSessions,
+} from "./lib/session-restore";
 import { installDeckSeatingsReporter } from "./lib/deck-seatings-reporter";
 import { attachSessionLedgerStore } from "./lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "./lib/session-state-changes-store";
@@ -52,7 +56,6 @@ import {
 import { attachChangesetVerbStore } from "./lib/changeset-verb-store";
 import { attachChangesetDraftStore } from "./lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "./lib/changeset-join-store";
-import { cardSessionBindingStore } from "./lib/card-session-binding-store";
 import { transportStateStore } from "./lib/transport-state-store";
 import {
   ConnectionLifecycle,
@@ -821,22 +824,22 @@ async function loadTestSurface(
     restoreSpaceSessions(deck, spaceDeck, connection);
   });
 
-  // Reconnect path: every WebSocket recovery from a close re-runs the
-  // restore loop so cards rebind without a page reload after a tugcast
-  // restart. The order — clearAll, then re-restore — is per [D04] in
-  // arc/tugplan-session-connection-health.md: bindings the client
-  // still holds against a now-dead server are worse than no bindings,
-  // because they would route frames the new server is not emitting.
+  // Reconnect path: every WebSocket recovery from a close re-asserts the
+  // page's cards without a page reload, by what the connection found on the
+  // other end ([B03] of the reload-reasons brief). The same tugcast keeps
+  // every binding and store, and each card is re-bound for the new socket
+  // without reading its transcript again. A restarted one gets the old
+  // order — clearAll, then re-restore, per [D04] in
+  // arc/tugplan-session-connection-health.md: bindings the client still
+  // holds against a now-dead server are worse than no bindings, because
+  // they would route frames the new server is not emitting.
   //
   // `connectionDidReconnect` (vs `connectionDidOpen`) is the right event
   // here: it fires only when the wire recovered from a prior close,
   // never on the initial app-boot open. The lifecycle layer maintains
   // the close-then-open gating so this subscriber never has to.
   connectionLifecycle.observeConnectionDidReconnect(() => {
-    cardSessionBindingStore.clearAll();
-    restoreSessions(deck, connection, {
-      reason: "reconnect",
-    });
+    reassertOnReconnect(deck, connection);
   });
 
   // React to live tugbank changes pushed via the DEFAULTS WebSocket feed.

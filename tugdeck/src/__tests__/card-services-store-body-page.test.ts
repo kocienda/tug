@@ -20,7 +20,8 @@
  *
  *   in a body page, `getServices(x)` is `null` for every `x` but the page's
  *   own card, whatever bindings the page mirrors, and exactly one
- *   `request_replay` goes out — the page's own card's.
+ *   `request_replay` goes out — the page's own card's, read by the ack of the
+ *   spawn this page sent for it.
  *
  * Connection, lifecycle and tugbank singletons are wired the way
  * `card-services-store-request-replay.test.ts` wires them.
@@ -85,6 +86,10 @@ import {
   type CardSessionBinding,
 } from "@/lib/card-session-binding-store";
 import { FeedId } from "@/protocol";
+import { sendSpawnSession } from "@/lib/session-lifecycle";
+import { registerSessionControlActions } from "@/lib/session-control-actions";
+import { _resetActionRegistryForTest, getRegistryHandler } from "@/action-registry";
+import { _resetPendingReloadsForTests } from "@/lib/reload-reasons";
 
 const TOUCHED_CARD_IDS = new Set<string>();
 
@@ -98,10 +103,23 @@ function bindingFor(tugSessionId: string): CardSessionBinding {
   };
 }
 
-/** What the shell's spawn ack writes for the page's own card. */
+/**
+ * The page's own card spawning at launch: the spawn this page sends, and the
+ * real `spawn_session_ok` handler binding the card and reading its transcript.
+ */
 function bindOwn(cardId: string, tugSessionId: string): void {
   TOUCHED_CARD_IDS.add(cardId);
-  cardSessionBindingStore.setBinding(cardId, bindingFor(tugSessionId));
+  const binding = bindingFor(tugSessionId);
+  sendSpawnSession(fakeConnection, cardId, tugSessionId, binding.projectDir, "resume", "launch");
+  registerSessionControlActions();
+  getRegistryHandler("spawn_session_ok")!({
+    action: "spawn_session_ok",
+    card_id: cardId,
+    tug_session_id: tugSessionId,
+    workspace_key: binding.workspaceKey,
+    project_dir: binding.projectDir,
+    session_mode: "resume",
+  });
 }
 
 /** What `createCardFactsMirror` writes for a card the shell listed. */
@@ -136,6 +154,8 @@ afterEach(() => {
   for (const id of TOUCHED_CARD_IDS) cardSessionBindingStore.clearBinding(id);
   TOUCHED_CARD_IDS.clear();
   sentFrames.length = 0;
+  _resetPendingReloadsForTests();
+  _resetActionRegistryForTest();
   cardServicesStore.detachBodyForTest();
 });
 

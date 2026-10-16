@@ -28,6 +28,7 @@ export const CONTROL_ACTIONS = [
   "list_card_bindings",
   "resolve_sessions",
   "request_replay",
+  "request_inflight",
 
   // Supervisor: arcs.
   "bind_arc",

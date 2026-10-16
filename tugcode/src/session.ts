@@ -382,6 +382,14 @@ export class SessionManager {
    */
   private activeTurn: ActiveTurn | null = null;
   /**
+   * The turn that ended last, kept after its slot clears so a
+   * `request_inflight` that arrives after the turn ended can still describe
+   * how it ended. A card that lost its socket mid-turn and got it back after
+   * the turn finished missed that end, and this is the record of it. Null
+   * after a turn that died with claude, which has no end to describe.
+   */
+  private lastFinishedTurn: ActiveTurn | null = null;
+  /**
    * Every timer armed on behalf of the live claude process, cleared in one
    * call by {@link killAndCleanup} so a respawn inherits none of them:
    *
@@ -1934,6 +1942,35 @@ export class SessionManager {
   }
 
   /**
+   * Describe the session's turn as it now stands — the `request_inflight`
+   * verb, sent by a card whose stores stood through a reconnect to the same
+   * tugcast ([B05] of the reload-reasons brief). The answer is a bracket
+   * marked `inflight_only` around the snapshot `runReplay` closes with, and
+   * no JSONL: the card holds every committed turn already. The turn in flight
+   * is described if there is one, else the turn that finished last, whose
+   * end the card may have missed while its socket was down.
+   *
+   * Dropped while a replay runs: that bracket carries the same snapshot.
+   */
+  requestInflight(): void {
+    if (this.replay.replayActive) {
+      logSessionLifecycle("tugcode.request_inflight_skipped", {
+        session_id: this.sessionId,
+        reason: "replay_active",
+      });
+      return;
+    }
+    const turn = this.activeTurn ?? this.lastFinishedTurn;
+    logSessionLifecycle("tugcode.request_inflight", {
+      session_id: this.sessionId,
+      turn: this.activeTurn !== null ? "in_flight" : turn !== null ? "finished" : "none",
+    });
+    writeLine({ type: "replay_started", inflight_only: true, ipc_version: IPC_VERSION });
+    if (turn !== null) this.emitInflightTurnFromActiveTurn(turn);
+    writeLine({ type: "replay_complete", count: 0, ipc_version: IPC_VERSION });
+  }
+
+  /**
    * Start a long-lived stdout drain task on the given claude process
    * (Step R1e). The drain reads claude's stdout line-by-line until
    * EOF, parses each line as JSON, and dispatches it via
@@ -2151,6 +2188,7 @@ export class SessionManager {
         // before the turn's slot clears, so a turn that ends within a bin
         // still reports its last decaying sample.
         this.flushActivity(turn);
+        this.lastFinishedTurn = turn;
         this.activeTurn = null;
         if (this.isInWake) {
           this.isInWake = false;
@@ -3458,6 +3496,12 @@ export class SessionManager {
     // bin's work (including a turn that ends within a bin via EOF/interrupt)
     // still reports.
     this.flushActivity(turn);
+    // A turn that ended here is the one a `request_inflight` describes next,
+    // if its snapshot has an end to carry (an interrupt's `turn_cancelled`, a
+    // result). One that died with claude has none, so nothing is kept: the
+    // turn before it would describe a different turn's end, and a card
+    // holding this one would take that end as its own.
+    this.lastFinishedTurn = turn.interrupted || turn.gotResult ? turn : null;
     // Turn ownership is drain-bounded: clear the slot now the turn is
     // finished. `handleUserMessage` no longer clears it — it no longer
     // owns the turn lifecycle.

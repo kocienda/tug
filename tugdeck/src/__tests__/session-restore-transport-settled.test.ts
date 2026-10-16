@@ -178,7 +178,7 @@ describe("session-restore — transport_settled on binding arrival (Step 5)", ()
     // clears the entry before the timer would fire.
     sessionRestoreRegistry._register(
       cardId,
-      { tugSessionId, projectDir },
+      { tugSessionId, projectDir, reason: "launch" },
       () => {},
     );
     expect(sessionRestoreRegistry.has(cardId)).toBe(true);
@@ -219,7 +219,7 @@ describe("session-restore — transport_settled on binding arrival (Step 5)", ()
     // and flips back to `online`.
     sessionRestoreRegistry._register(
       cardId,
-      { tugSessionId, projectDir },
+      { tugSessionId, projectDir, reason: "launch" },
       () => {},
     );
     cardSessionBindingStore.setBinding(cardId, {

@@ -596,6 +596,10 @@ fn host_os_version() -> String {
 /// ([P06], Spec S03). Additive and back-compatible: older clients ignore it.
 /// It also tells the connection its own `client_id` and echoes the page
 /// identity the hello stated, so a page can see what tugcast took it for.
+///
+/// And it names this tugcast process: `server_id` is minted once per process
+/// start ([`server_id`]), so a page that reconnects can tell the server it
+/// left from a restarted one by comparing the id it held with the one it gets.
 fn build_handshake_response(client_id: u64, identity: &PageIdentity) -> serde_json::Value {
     serde_json::json!({
         "protocol": PROTOCOL_NAME,
@@ -604,7 +608,18 @@ fn build_handshake_response(client_id: u64, identity: &PageIdentity) -> serde_js
         "host": { "os": "macos", "version": host_os_version() },
         "client_id": client_id,
         "page": identity,
+        "server_id": server_id(),
     })
+}
+
+/// This tugcast process's identity on the wire: a fresh UUID minted the first
+/// time it is read and the same for every connection after, until the process
+/// exits. It is a fact about the process, not about any session, so it rides
+/// the connection-level handshake rather than a session frame.
+pub(crate) fn server_id() -> &'static str {
+    static SERVER_ID: std::sync::LazyLock<String> =
+        std::sync::LazyLock::new(|| uuid::Uuid::new_v4().to_string());
+    &SERVER_ID
 }
 
 /// Perform the protocol handshake at WebSocket connection open.
@@ -2181,6 +2196,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn handshake_response_names_the_process_with_one_server_id() {
+        // Every connection to this process hears the same id: a page that
+        // reconnects and hears it again is talking to the server it left.
+        let first = build_handshake_response(1, &PageIdentity::tool());
+        let second = build_handshake_response(2, &PageIdentity::tool());
+        let id = first["server_id"].as_str().expect("server_id is a string");
+        assert!(uuid::Uuid::parse_str(id).is_ok(), "server_id is a uuid: {id}");
+        assert_eq!(second["server_id"], first["server_id"]);
+        assert_eq!(id, server_id());
+    }
+
     // ---- ReplayBuffer ----
 
     #[test]
@@ -2728,6 +2755,48 @@ mod tests {
         assert_eq!(frame.feed_id, FeedId::CODE_INPUT);
         let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
         assert_eq!(body["type"], "request_replay");
+    }
+
+    /// `request_inflight` rides the same ingress as `request_replay` and
+    /// reaches the live tugcode as `{"type":"request_inflight"}` alone — no
+    /// window, no lineage, nothing the JSONL path reads. A session that is
+    /// not live is not asked.
+    #[tokio::test]
+    async fn test_request_inflight_reaches_a_live_tugcode_through_router() {
+        let (sup, mut register_rx) = test_minimal_supervisor();
+        tokio::spawn(async move { while register_rx.recv().await.is_some() {} });
+
+        let tug_id = TugSessionId::new("sess-inflight-router");
+        let workspace_key = WorkspaceKey::from_test_str(env!("CARGO_MANIFEST_DIR"));
+        let project_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut input_rx =
+            install_live_session_for_tests(&sup, &tug_id, workspace_key, project_dir).await;
+
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "action": "request_inflight",
+            "tug_session_id": "sess-inflight-router",
+        }))
+        .unwrap();
+        let outcome = intercept_session_control(Some(&sup), "request_inflight", &payload, 1).await;
+        assert!(
+            matches!(outcome, ControlIntercept::Handled),
+            "request_inflight must route to the supervisor, got {outcome:?}",
+        );
+        let frame = input_rx
+            .try_recv()
+            .expect("request_inflight reached input_tx");
+        assert_eq!(frame.feed_id, FeedId::CODE_INPUT);
+        let body: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+        assert_eq!(body, serde_json::json!({"type": "request_inflight"}));
+
+        let unknown = serde_json::to_vec(&serde_json::json!({
+            "action": "request_inflight",
+            "tug_session_id": "sess-not-in-the-ledger",
+        }))
+        .unwrap();
+        let outcome = intercept_session_control(Some(&sup), "request_inflight", &unknown, 1).await;
+        assert!(matches!(outcome, ControlIntercept::Handled));
+        assert!(input_rx.try_recv().is_err(), "a session that is not live is not asked");
     }
 
     #[tokio::test]

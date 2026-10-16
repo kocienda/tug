@@ -3286,6 +3286,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
           kind: "resume",
           tugSessionId: opts.tugSessionId,
           projectDir: opts.projectDir,
+          reason: "restore-open",
         }))
       ) {
         return;
@@ -3300,6 +3301,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         opts.tugSessionId,
         opts.projectDir,
         "resume",
+        "restore-open",
       );
     },
 
@@ -3317,7 +3319,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // A fresh spawn births a line, and tugcast refuses a `new` spawn that
       // names none — so the line and its tag are provisioned exactly as the
       // picker's New provisions them.
-      fireNewSpawn(cardId, opts.tugSessionId, opts.projectDir, connection);
+      fireNewSpawn(cardId, opts.tugSessionId, opts.projectDir, connection, "restore-open");
     },
 
     /**
@@ -3832,7 +3834,19 @@ export function attachBodyTestSurface(bridge: ViewSurfaceStore): void {
   if (typeof window === "undefined" || window.__tugTestMode !== true) return;
   // The Overview's store is the page's own: a body holding the Overview is
   // fed and read here, as the shell's document was.
-  window.__tug = { version: SURFACE_VERSION, ...createViewSurfaceMethods(bridge), ...overviewSurfaceMethods() };
+  window.__tug = {
+    version: SURFACE_VERSION,
+    ...createViewSurfaceMethods(bridge),
+    ...overviewSurfaceMethods(),
+    // A body owns its own WebSocket, so the shell's drop never reaches it:
+    // this is the body's, for a reconnect a body card goes through alone.
+    connectionClose(): boolean {
+      const connection = getConnection();
+      if (!connection) return false;
+      connection._forceCloseForTest();
+      return true;
+    },
+  };
   if (readDeckTraceEnabled()) {
     deckTrace.enable(true);
   }

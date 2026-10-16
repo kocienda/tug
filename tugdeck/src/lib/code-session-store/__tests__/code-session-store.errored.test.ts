@@ -117,7 +117,7 @@ describe("CodeSessionStore — SESSION_STATE errored trigger (Step 8)", () => {
 });
 
 describe("CodeSessionStore — transport close trigger", () => {
-  it("routes connectionDidClose into the errored phase during an active turn", () => {
+  it("routes connectionDidClose to offline during an active turn, and holds the turn", () => {
     const conn = new TestFrameChannel();
     const lifecycle = new ConnectionLifecycle();
     const store = constructStore(conn, lifecycle);
@@ -128,7 +128,10 @@ describe("CodeSessionStore — transport close trigger", () => {
     lifecycle.notifyConnectionDidClose();
 
     const snap = store.getSnapshot();
-    expect(snap.phase).toBe("errored");
+    // The turn is held, not ended: the same tugcast may still be running
+    // it, and the reconnect asks ([B05] of the reload-reasons brief). This
+    // reverses [D06]'s close-ends-the-turn rule.
+    expect(snap.phase).toBe("submitting");
     expect(snap.transportState).toBe("offline");
     expect(snap.canSubmit).toBe(false);
     // No `lastError`: the offline transportState and its "Reconnecting…"

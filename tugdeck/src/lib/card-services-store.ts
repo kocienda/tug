@@ -78,6 +78,7 @@ import { logSessionLifecycle } from "./session-lifecycle-log";
 import { runOpeningCommand } from "./opening-command-runner";
 import { isDirectoryChangeRebind } from "./directory-change";
 import { bodyCardsStore } from "./body-cards-store";
+import { forgetPendingReload, type ReloadReason } from "./reload-reasons";
 
 export interface CardServices {
   /**
@@ -233,6 +234,19 @@ class CardServicesStore {
   private readonly _heldSwaps = new Map<string, HeldSwap>();
   /** {@link HELD_SWAP_LIMIT_MS}, shortened by tests that exercise the limit. */
   private _heldSwapLimitMs = HELD_SWAP_LIMIT_MS;
+  /**
+   * Each bag's transcript window, in turns, sized at construction from the
+   * saved anchor; read when the bag's transcript is requested.
+   */
+  private readonly _restoreWindows = new WeakMap<CardServices, number>();
+  /**
+   * The bags whose transcript has been requested. A bag is read from disk at
+   * most once: the request is what fills it, and a second one into a store
+   * that already holds its transcript is the casual reload this store exists
+   * to refuse. Each is kept with the reason it was read for, so a read the
+   * wire cut short can be made again for the same one.
+   */
+  private readonly _transcriptRequested = new WeakMap<CardServices, ReloadReason>();
   private readonly _listeners = createSubscribable();
   private _bindingUnsub: (() => void) | null = null;
   private _deckUnsub: (() => void) | null = null;
@@ -361,9 +375,10 @@ class CardServicesStore {
 
     // Construct for new bindings; rebuild when the same card flips to a
     // different session. The session-change branch is what makes a `/resume`
-    // to another session and a `/clear` fresh-spawn swap in a fresh store
-    // (and a fresh `request_replay`) — without it, `_reconcile` keyed on
-    // cardId alone would keep the old session's transcript on a rebind.
+    // to another session and a `/clear` fresh-spawn swap in a fresh store —
+    // without it, `_reconcile` keyed on cardId alone would keep the old
+    // session's transcript on a rebind. Construction asks for no transcript;
+    // the spawn ack that wrote the binding does, through `requestTranscript`.
     for (const [cardId, binding] of bindings) {
       if (!this._servesCard(cardId)) continue;
       const existing = this._services.get(cardId);
@@ -784,49 +799,23 @@ class CardServicesStore {
       tug_session_id: binding.tugSessionId,
     });
 
-    // Recovery dispatch ([D12], Phase A-R1 / Step R1c, broadened by
-    // mid-turn-replay [Step 5](arc/tugplan-session-mid-turn-replay.md#step-5)).
-    // Whenever fresh services are constructed for a binding, ask the
-    // supervisor to forward a `request_replay` verb to the live tugcode
-    // subprocess. The verb tells tugcode to re-run `runReplay` so the
-    // freshly-mounted `CodeSessionStore` rehydrates its transcript.
-    //
-    // Idempotent at three layers per [D04] msg_id dedupe + tugcode's
-    // re-entrancy guard + supervisor's Live-only forward. For a fresh
-    // new-spawn binding whose JSONL doesn't exist yet, the translator
-    // emits `replay_started → replay_complete{kind: "jsonl_missing"}`
-    // and the reducer flashes through `replaying` back to `idle` —
-    // harmless. For ANY binding whose session has had wire activity
-    // (the post-Step-5 smoke test scenario: open new card, type
-    // "hello", get response, `Maker > Reload`), the JSONL has
-    // content and the replay rehydrates the transcript.
-    //
-    // The previous gate (`if (binding.sessionMode === "resume")`)
-    // assumed "mode=new ⇒ no content to replay." That holds at the
-    // moment of spawn but rots the moment a turn lands. After the
-    // first turn, the JSONL has content, and any rebind of the same
-    // session needs a replay regardless of the original spawn mode.
-    // Dropping the gate makes the front end ask for replay
-    // unconditionally and lets the backend decide what to send.
-    //
-    // The dispatch runs AFTER `codeSessionStore` is constructed, so the
-    // store is already subscribed to CODE_OUTPUT before the supervisor
-    // starts streaming reply frames — no race between subscription and
-    // first inbound `replay_started`.
+    // No transcript is asked for here. Building a card's stores and reading
+    // its transcript are two acts, and the second has a reason the builder
+    // does not know: `requestTranscript` is called with it by the spawn ack
+    // that wrote this binding. A path that builds stores for any other cause
+    // gets stores and no `request_replay`.
     //
     // Cold-boot preflight beat: only resume-mode bindings face a
     // 5–10s tugcode-boot wait, so only they open the preflight
     // banner. New-mode bindings have nothing to restore from a prior
-    // session and do not flash the banner; the request_replay still
-    // fires (and lands on an empty JSONL) for the post-content rebind
-    // case described above.
+    // session and do not flash the banner.
     if (binding.sessionMode === "resume") {
       codeSessionStore.notifyResumeBindingLanded();
     }
     // Hand back anything the previous store for this card was holding
-    // when it was disposed. Seeded before `request_replay` so the queue
-    // is already in place when the replay terminates — that terminal is
-    // where it drains.
+    // when it was disposed. Seeded at construction, before the transcript
+    // is requested, so the queue is already in place when the replay
+    // terminates — that terminal is where it drains.
     const stranded = drainQueuedSends(cardId);
     if (stranded !== undefined) {
       codeSessionStore.seedQueuedSends(stranded);
@@ -844,16 +833,7 @@ class CardServicesStore {
         runOpeningCommand(cardId, opening, codeSessionStore, sessionMetadataStore),
       );
     }
-    // Bound the cold-resume load by recency: replay only the most recent N
-    // committed turns (the canonical unit). A long session loads its relevant
-    // tail fast; older turns page in on demand. tugcode reports the loaded
-    // slice (oldest turn/message index, totals, hasOlder) on
-    // `replay_complete`.
-    sendRequestReplay(connection, binding.tugSessionId, {
-      lastTurns: restoreWindowTurns,
-    });
-
-    return {
+    const services: CardServices = {
       tugSessionId: binding.tugSessionId,
       codeSessionStore,
       editorStore,
@@ -876,7 +856,63 @@ class CardServicesStore {
       pendingContextStore,
       fileCompletionProvider,
     };
+    this._restoreWindows.set(services, restoreWindowTurns);
+    return services;
   }
+
+  /**
+   * Ask for `cardId`'s transcript, for `reason` — the one way a Session
+   * card's transcript is read from disk.
+   *
+   * Called by the `spawn_session_ok` that bound the card, with the reason the
+   * spawn was sent for. Reaches the bag built for the binding's session: the
+   * shown one, or a directory change's held bag. A bag is read at most once;
+   * a second request for it is declined and logged, because the store already
+   * holds what the replay would send. A card this page has no bag for — a
+   * body's card in the shell, a binding with no connection — is logged and
+   * left alone.
+   *
+   * The request bounds the load by recency: only the most recent N committed
+   * turns (the canonical unit), or deeper to reach a saved anchor. tugcode
+   * reports the loaded slice on `replay_complete`, and older turns page in on
+   * demand.
+   */
+  requestTranscript = (cardId: string, reason: ReloadReason): boolean => {
+    this._ensureInitialized();
+    const binding = cardSessionBindingStore.getBinding(cardId);
+    const held = this._heldSwaps.get(cardId)?.services;
+    const shown = this._services.get(cardId);
+    const services =
+      binding === undefined
+        ? undefined
+        : held?.tugSessionId === binding.tugSessionId
+          ? held
+          : shown?.tugSessionId === binding.tugSessionId
+            ? shown
+            : undefined;
+    const connection = getConnection();
+    if (services === undefined || connection === null) {
+      logSessionLifecycle("request_replay.no_services", {
+        card_id: cardId,
+        tug_session_id: binding?.tugSessionId ?? null,
+        reason,
+      });
+      return false;
+    }
+    if (this._transcriptRequested.has(services)) {
+      logSessionLifecycle("request_replay.declined", {
+        card_id: cardId,
+        tug_session_id: services.tugSessionId,
+        reason,
+      });
+      return false;
+    }
+    this._transcriptRequested.set(services, reason);
+    sendRequestReplay(connection, services.tugSessionId, reason, {
+      lastTurns: this._restoreWindows.get(services) ?? DEFAULT_REPLAY_WINDOW_TURNS,
+    });
+    return true;
+  };
 
   private _dispose(cardId: string): void {
     const services = this._services.get(cardId);
@@ -973,6 +1009,16 @@ class CardServicesStore {
   };
 
   /**
+   * The reason `cardId`'s shown bag was read for, or undefined when it has
+   * not been read. A same-server reconnect re-reads a bag whose read the
+   * drop cut short, for this reason ([B03]).
+   */
+  transcriptReason = (cardId: string): ReloadReason | undefined => {
+    const services = this._services.get(cardId);
+    return services === undefined ? undefined : this._transcriptRequested.get(services);
+  };
+
+  /**
    * Find a card's services by its bound `tug_session_id` — used to route a
    * session-scoped CONTROL response (e.g. `list_shell_exchanges_ok`) back to
    * the owning card's stores. Returns null if no live card holds that session.
@@ -1039,6 +1085,7 @@ class CardServicesStore {
     clearOpeningCommand(cardId);
     // Nothing to restore for a card that is going away ([L27]).
     cancelRestoreRetry(cardId);
+    forgetPendingReload(cardId);
     const binding = cardSessionBindingStore.getBinding(cardId);
     if (!binding) return;
     const conn = getConnection();
@@ -1080,6 +1127,7 @@ class CardServicesStore {
     clearQueuedSends(cardId);
     clearOpeningCommand(cardId);
     cancelRestoreRetry(cardId);
+    forgetPendingReload(cardId);
     const conn = getConnection();
     // No connection means no wire frame to send, and no binding to clear
     // either — this card never had one.

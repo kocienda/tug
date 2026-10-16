@@ -61,7 +61,7 @@ import { attachChangesetVerbStore } from "../lib/changeset-verb-store";
 import { attachChangesetDraftStore } from "../lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "../lib/changeset-join-store";
 import { applyHostToolsOfferResultPayload, applyHostToolsResultPayload } from "../lib/host-tools-store";
-import { restoreSessions } from "../lib/session-restore";
+import { reassertOnReconnect } from "../lib/session-restore";
 import { interruptLiveSessions, type TerminationVerdict } from "../teardown";
 import {
   putCardState,
@@ -652,13 +652,13 @@ async function bindBody(bind: BodyBind): Promise<void> {
 
   replayBodyIntent(intent, cardId, connection, bridge);
 
-  // After a tugcast restart this page re-asserts its card exactly as the
-  // shell re-asserts its own: a spare that took its card takes it again, and
-  // the card restores from the ledger.
+  // After a reconnect this page re-asserts its card exactly as the shell
+  // re-asserts its own: a spare that took its card takes it again, and the
+  // card is re-bound (the same tugcast) or restored from the ledger (a
+  // restarted one).
   connectionLifecycle.observeConnectionDidReconnect(() => {
     if (isSpare) connection.sendControlFrame("page_bind", { card_id: cardId });
-    cardSessionBindingStore.clearAll();
-    restoreSessions(bridge, connection, { reason: "reconnect" });
+    reassertOnReconnect(bridge, connection);
   });
 
   window.tugdeck = {

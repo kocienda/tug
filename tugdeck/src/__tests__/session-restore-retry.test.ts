@@ -172,7 +172,7 @@ function installSessionStateSubscriber(): void {
 
 /** Drive a restore to its timeout, which is what schedules attempt 1. */
 function restoreThenTimeOut(): void {
-  fireRestore(CARD, SESSION, PROJECT, fakeConnection);
+  fireRestore(CARD, SESSION, PROJECT, fakeConnection, "launch");
   advance(RESTORE_TIMEOUT_MS);
 }
 
@@ -276,7 +276,7 @@ describe("session-restore — automatic retry", () => {
     // third attempt. Retrying only turns a fast, legible message into
     // three slow ones.
     installSessionStateSubscriber();
-    fireRestore(CARD, SESSION, PROJECT, fakeConnection);
+    fireRestore(CARD, SESSION, PROJECT, fakeConnection, "launch");
 
     deliverSessionErrored("session_live_in_terminal");
 
@@ -293,7 +293,7 @@ describe("session-restore — automatic retry", () => {
 
   it("an unclassified rejection is treated as possibly transient and retried", () => {
     installSessionStateSubscriber();
-    fireRestore(CARD, SESSION, PROJECT, fakeConnection);
+    fireRestore(CARD, SESSION, PROJECT, fakeConnection, "launch");
 
     deliverSessionErrored("ledger_busy");
 

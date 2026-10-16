@@ -161,6 +161,8 @@ export function beginDirectoryChange(args: {
     newTugSessionId,
     args.targetDir,
     "new",
+    // The card shows the moved session afterwards; building it is an open.
+    "restore-open",
     provisionSpawnTag(lineId),
     lineId,
     args.binding.tugSessionId,

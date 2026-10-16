@@ -73,6 +73,67 @@ function newManagerWithTurn(turn: ActiveTurn): SessionManager {
   return manager;
 }
 
+describe("request_inflight — the turn as it now stands, and nothing older", () => {
+  function streamingTurn(): ActiveTurn {
+    const turn = new ActiveTurn(0, []);
+    turn.currentMessageId = "msg_live";
+    turn.messageBlocks.set("msg_live", [{ index: 0, kind: "text", text: "Half of the answer" }]);
+    return turn;
+  }
+
+  test("a turn in flight: a bracket marked inflight_only around its snapshot, and no end", async () => {
+    const manager = newManagerWithTurn(streamingTurn());
+    const { emitted } = await captureStdout(() => manager.requestInflight());
+
+    expect(emitted[0]).toMatchObject({ type: "replay_started", inflight_only: true });
+    expect(emitted[emitted.length - 1]).toMatchObject({ type: "replay_complete", count: 0 });
+    expect(emitted.find((m) => m.type === "add_user_message")).toMatchObject({ inflightSnapshot: true });
+    const text = emitted.find((m): m is AssistantText => m.type === "assistant_text");
+    expect(text).toMatchObject({ msg_id: "msg_live", text: "Half of the answer", is_partial: false });
+    expect(emitted.some((m) => m.type === "turn_complete")).toBe(false);
+  });
+
+  test("a turn that finished while the card was away: its snapshot carries the end", async () => {
+    const manager = newManagerWithTurn(streamingTurn());
+    const finished = (manager as unknown as { activeTurn: ActiveTurn }).activeTurn;
+    finished.gotResult = true;
+    (manager as unknown as { activeTurn: ActiveTurn | null }).activeTurn = null;
+    (manager as unknown as { lastFinishedTurn: ActiveTurn | null }).lastFinishedTurn = finished;
+
+    const { emitted } = await captureStdout(() => manager.requestInflight());
+
+    expect(emitted[0]).toMatchObject({ type: "replay_started", inflight_only: true });
+    expect(emitted.find((m) => m.type === "turn_complete")).toMatchObject({ msg_id: "msg_live", result: "success" });
+    expect(emitted[emitted.length - 1]).toMatchObject({ type: "replay_complete" });
+  });
+
+  test("a turn that died with claude: an empty bracket, never the turn before it", async () => {
+    // The card holds the turn that died. Describing the one that finished
+    // before it would hand that card another turn's end as its own.
+    const earlier = new ActiveTurn(0, []);
+    earlier.currentMessageId = "msg_earlier";
+    earlier.messageBlocks.set("msg_earlier", [{ index: 0, kind: "text", text: "Done" }]);
+    earlier.gotResult = true;
+    const dying = new ActiveTurn(1, []);
+    dying.currentMessageId = "msg_dying";
+    dying.messageBlocks.set("msg_dying", [{ index: 0, kind: "text", text: "Half of" }]);
+    const manager = newManagerWithTurn(dying);
+    (manager as unknown as { lastFinishedTurn: ActiveTurn | null }).lastFinishedTurn = earlier;
+    await captureStdout(() =>
+      (manager as unknown as { signalEofToActiveTurn(): void }).signalEofToActiveTurn(),
+    );
+
+    const { emitted } = await captureStdout(() => manager.requestInflight());
+    expect(emitted.map((m) => m.type)).toEqual(["replay_started", "replay_complete"]);
+  });
+
+  test("no turn yet: an empty bracket", async () => {
+    const manager = new SessionManager("/tmp/inflight-none-" + Date.now(), crypto.randomUUID());
+    const { emitted } = await captureStdout(() => manager.requestInflight());
+    expect(emitted.map((m) => m.type)).toEqual(["replay_started", "replay_complete"]);
+  });
+});
+
 describe("emitInflightTurnFromActiveTurn — per-Message replay-the-stream", () => {
   test("multi-block turn: snapshot emits content_block_start + terminal frame per block, in arrival order", async () => {
     // A turn that streamed: text(0) → tool_use(1) → tool_result → text(2).

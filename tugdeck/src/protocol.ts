@@ -15,6 +15,7 @@
 
 import type { InboundMessage, ReplayWindow } from "@tugproto/inbound";
 import type { ControlAction } from "@tugproto/control";
+import type { ReplayRequestReason } from "./lib/reload-reasons";
 
 /** Feed identifiers for different data streams (open u8 namespace) */
 export const FeedId = {
@@ -807,11 +808,10 @@ export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): 
  *      `turn_complete` events fold into the same `TurnEntry` rather than
  *      duplicating transcript.
  *
- * Used by `cardServicesStore._construct` whenever a fresh
- * `CodeSessionStore` is built for an existing resume binding (HMR,
- * Maker > Reload, future card mounts). The fresh store has no
- * replay history of its own; this verb tells the supervisor "send me
- * the JSONL again so I can rehydrate."
+ * Sent by `cardServicesStore.requestTranscript` once per services bag, for
+ * one of the closed set of reload reasons, and by the transcript's
+ * load-previous with `page`. `reason` rides the frame so tugcast's
+ * `request_replay.dispatched` says why the JSONL is being read.
  *
  * The optional `window` bounds the replay by recency — the default
  * cold-resume load sends `{ lastTurns: DEFAULT_REPLAY_WINDOW_TURNS }`
@@ -821,12 +821,26 @@ export function encodeSetSessionPrivate(sessionId: string, isPrivate: boolean): 
  */
 export function encodeRequestReplay(
   tugSessionId: string,
+  reason: ReplayRequestReason,
   window?: ReplayWindow,
 ): Frame {
   return controlFrame("request_replay", {
     tug_session_id: tugSessionId,
+    reason,
     ...(window !== undefined ? { window } : {}),
   });
+}
+
+/**
+ * Build a `request_inflight` CONTROL frame: ask the session's live tugcode
+ * for its turn as it now stands, and nothing older ([B05] of the
+ * reload-reasons brief). The answer is a bracket marked `inflight_only`
+ * around tugcode's mid-turn snapshot — no JSONL is read. Sent for a card
+ * whose stores stood through a reconnect to the same tugcast while its turn
+ * ran on, because tugcast does not backfill a client that reconnects.
+ */
+export function encodeRequestInflight(tugSessionId: string): Frame {
+  return controlFrame("request_inflight", { tug_session_id: tugSessionId });
 }
 
 /**

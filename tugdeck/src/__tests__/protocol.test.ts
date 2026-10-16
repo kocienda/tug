@@ -296,20 +296,21 @@ describe("session CONTROL frame builders", () => {
     });
   });
 
-  test("encodeRequestReplay produces a CONTROL frame with tug_session_id only ([D12])", async () => {
+  test("encodeRequestReplay produces a CONTROL frame with tug_session_id and its reason ([D12])", async () => {
     // request_replay is addressed by tug-side session id alone; no
     // card_id (the verb is dispatch-side bookkeeping) and no
     // project_dir (supervisor knows the workspace from the ledger).
     const { encodeRequestReplay } = await import(
       "../protocol"
     );
-    const frame = encodeRequestReplay("sess-r1");
+    const frame = encodeRequestReplay("sess-r1", "launch");
     expect(frame.feedId).toBe(FeedId.CONTROL);
     expect(frame.flags).toBe(FrameFlags.DATA);
     const payload = parsePayload(frame);
     expect(payload).toEqual({
       action: "request_replay",
       tug_session_id: "sess-r1",
+      reason: "launch",
     });
   });
 });

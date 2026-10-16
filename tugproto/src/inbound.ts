@@ -342,6 +342,19 @@ export interface CancelReplay {
 }
 
 /**
+ * Ask tugcode for the present state of the session's turn, and nothing older
+ * — the request a card sends after a reconnect to the same tugcast, whose
+ * stores stood through the drop while the turn ran on ([B05] of the
+ * reload-reasons brief). tugcode answers with a bracket marked
+ * `inflight_only` that carries the snapshot `runReplay` would close with: the
+ * in-flight turn if one is running, else the turn that finished last, whose
+ * end the card may have missed. No JSONL is read.
+ */
+export interface RequestInflight {
+  type: "request_inflight";
+}
+
+/**
  * `/rewind` diff-stat preview ([#step-7-1]). `promptUuid` is claude's
  * user-prompt-record uuid — the rewind anchor, not the session-card `msgId`.
  */
@@ -408,6 +421,7 @@ export type InboundMessage =
   | StopAllWork
   | RequestReplay
   | CancelReplay
+  | RequestInflight
   | RewindPreview
   | SessionRewind
   | SkillsInventoryQuery
@@ -436,6 +450,7 @@ export const INBOUND_VERBS = [
   "stop_all_work",
   "request_replay",
   "cancel_replay",
+  "request_inflight",
   "rewind_preview",
   "session_rewind",
   "skills_inventory_query",

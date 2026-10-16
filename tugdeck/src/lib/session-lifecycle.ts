@@ -25,12 +25,18 @@
 import type { TugConnection } from "../connection";
 import {
   encodeCloseSession,
+  encodeRequestInflight,
   encodeRequestReplay,
   encodeSpawnSession,
   type SpawnSessionMode,
 } from "../protocol";
 import type { ReplayWindow } from "@tugproto/inbound";
 import { cardSessionBindingStore } from "./card-session-binding-store";
+import {
+  notePendingReload,
+  type ReplayRequestReason,
+  type SpawnReason,
+} from "./reload-reasons";
 import { logSessionLifecycle } from "./session-lifecycle-log";
 import { mintTag } from "./session-tag";
 import { sessionLineStore } from "./session-line-store";
@@ -147,13 +153,20 @@ export function provisionSpawnTag(
  * canonical `workspace_key` (macOS firmlink handling). Callers send
  * the frame here and wait for the binding to appear via
  * `cardSessionBindingStore.subscribe`.
+ *
+ * `reason` is why the card is being given this session, and so why its
+ * transcript will be read once the ack binds it ([B01] of the reload-reasons
+ * brief): it is recorded here and taken by the `spawn_session_ok` handler,
+ * which makes the one transcript request the new stores get. A `rebind` is
+ * the one spawn that reads nothing: the card's stores stand ([B03]).
  */
 export function sendSpawnSession(
   connection: TugConnection,
   cardId: string,
   tugSessionId: string,
   projectDir: string,
-  sessionMode: SpawnSessionMode = "new",
+  sessionMode: SpawnSessionMode,
+  reason: SpawnReason,
   tag?: string,
   lineId?: string,
   relocateFrom?: string,
@@ -178,7 +191,9 @@ export function sendSpawnSession(
     tag: tag ?? "",
     line_id: lineId ?? "",
     relocate_from: relocateFrom ?? "",
+    reason,
   });
+  notePendingReload(cardId, reason);
   connection.send(frame.feedId, frame.payload);
 }
 
@@ -240,10 +255,9 @@ export function sendCloseSessionKeepingBinding(
  * subscribed to CODE_OUTPUT before this helper returns, so no race
  * against the inbound replay frames.
  *
- * Used by `cardServicesStore._construct` for resume bindings (HMR,
- * Maker > Reload, future card mounts that find their session
- * already Live on the supervisor). Fresh-spawn bindings don't need
- * this — there's no JSONL to replay until claude writes its first turn.
+ * Used by `cardServicesStore.requestTranscript`, which is the one place a
+ * card's transcript is asked for, and only with a {@link ReloadReason}.
+ * `reason` rides the frame and both logs, so every reload says why.
  *
  * Bindings, the binding store, and React state are unchanged; this
  * helper is pure wire emission.
@@ -251,11 +265,24 @@ export function sendCloseSessionKeepingBinding(
 export function sendRequestReplay(
   connection: TugConnection,
   tugSessionId: string,
+  reason: ReplayRequestReason,
   window?: ReplayWindow,
 ): void {
   logSessionLifecycle("request_replay.dispatch", {
     tug_session_id: tugSessionId,
+    reason,
   });
-  const frame = encodeRequestReplay(tugSessionId, window);
+  const frame = encodeRequestReplay(tugSessionId, reason, window);
+  connection.send(frame.feedId, frame.payload);
+}
+
+/**
+ * Ask a session's tugcode for its turn as it now stands — what a card whose
+ * stores stood through a reconnect to the same tugcast missed while its
+ * socket was down ([B05]). Not a reload: nothing committed is read.
+ */
+export function sendRequestInflight(connection: TugConnection, tugSessionId: string): void {
+  logSessionLifecycle("request_inflight.dispatch", { tug_session_id: tugSessionId });
+  const frame = encodeRequestInflight(tugSessionId);
   connection.send(frame.feedId, frame.payload);
 }

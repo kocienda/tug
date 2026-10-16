@@ -753,6 +753,24 @@ export interface CodeSessionState {
    */
   replayShadowSnapshot: boolean;
   /**
+   * True for a shadow that takes nothing: an `inflight_only` bracket (the
+   * answer to `request_inflight`, after a reconnect to the same tugcast)
+   * that reached a card with no live turn. The card holds every committed
+   * turn already and has no cycle the snapshot could complete, so the whole
+   * bracket is set aside, its snapshot included. Cleared with the shadow.
+   * Internal-only.
+   */
+  replayShadowInert: boolean;
+  /**
+   * True for a shadow raised by an `inflight_only` bracket over a live turn.
+   * Its close settles the turn the card held through a reconnect: a
+   * snapshot that reached it has continued or completed the turn, and a
+   * bracket that closes with no snapshot is tugcode saying it has no turn,
+   * so the held one is ended as `transport_lost`. Cleared with the shadow.
+   * Internal-only.
+   */
+  replayShadowInflight: boolean;
+  /**
    * Replay-clock derived flags. Exposed through the snapshot identically-
    * named (`replayPreflightActive`, `replaySoftBudgetElapsed`,
    * `replayTimeoutDwellActive`); see `types.ts` for semantics. Driven
@@ -1378,6 +1396,8 @@ export function createInitialState(
     replayPrependActive: false,
     replayShadowActive: false,
     replayShadowSnapshot: false,
+    replayShadowInert: false,
+    replayShadowInflight: false,
     replayPreflightActive: false,
     replaySoftBudgetElapsed: false,
     replayTimeoutDwellActive: false,
@@ -5682,32 +5702,64 @@ function handleTransportClose(
   // coming, and the reconnect's own resume replays from a settled phase.
   const shadow = liftReplayShadow(state);
   const shadowCleared =
-    shadow.state === state ? {} : { replayShadowActive: false, replayShadowSnapshot: false };
+    shadow.state === state
+      ? {}
+      : {
+          replayShadowActive: false,
+          replayShadowSnapshot: false,
+          replayShadowInert: false,
+          replayShadowInflight: false,
+        };
   const cancelShadowEffect = shadow.effects;
 
-  // Transport close from `idle` no longer drops silently — per [D06]
-  // the offline transportState gates submit even for cards that had
-  // nothing in flight. Phase stays `idle` (there is nothing to error
-  // on); `lastError` is left untouched for the same reason.
-  if (state.phase === "idle") {
+  // A close marks the wire offline and ends nothing. Per [D06] the offline
+  // transportState gates submit for every card, and `lastError` is left
+  // untouched: a wire blip is not breakage.
+  //
+  // A turn in flight is HELD, not ended — the reversal of [D06]'s rule that
+  // a close killed the turn ([B05] of the reload-reasons brief). The rule
+  // was right while every reconnect rebuilt the card, but a reconnect to the
+  // same tugcast keeps the card's stores, and tugcode ran the turn on
+  // through the drop. The reconnect decides the turn's fate: the same server
+  // is asked for the turn as it now stands (`request_inflight`) and its
+  // snapshot continues or completes it, or says there is no turn and the
+  // card ends it as `transport_lost` (`endTurnAsTransportLost`); a restarted
+  // server takes the card's stores with it.
+  //
+  // A replay window is not a turn, and is not held: its `replay_complete`
+  // will never come on the dead wire, so the card leaves `replaying` for
+  // `errored` as it always has, and the reconnect reads it again.
+  const offline = {
+    transportState: "offline" as const,
+    ...preflightCleared,
+    ...caseAEchoesCleared,
+    ...transportClock,
+    ...shadowCleared,
+  };
+  if (state.phase === "replaying") {
+    const ended = endTurnAsTransportLost(state);
     return {
-      state: {
-        ...state,
-        transportState: "offline",
-        ...preflightCleared,
-        ...caseAEchoesCleared,
-        ...transportClock,
-        ...shadowCleared,
-      },
-      effects: [...cancelPreflightEffect, ...cancelShadowEffect],
+      state: { ...ended.state, ...offline },
+      effects: [...ended.effects, ...cancelPreflightEffect, ...cancelShadowEffect],
     };
   }
+  return {
+    state: { ...state, ...offline },
+    effects: [...cancelPreflightEffect, ...cancelShadowEffect],
+  };
+}
 
-  // Non-idle close with an in-flight turn: the turn is dead — the
-  // wire will not deliver its `turn_complete`. Commit a TurnEntry
-  // with `turnEndReason: "transport_lost"` so the transcript records
-  // what happened (and the chrome can show the failure mode) instead
-  // of leaving an orphaned in-flight cell behind.
+/**
+ * End a held turn as `transport_lost`: tugcode, asked after a reconnect to
+ * the same tugcast for the turn as it now stands, answered that it has
+ * none — the process the turn ran in is gone. Commits a TurnEntry with
+ * `turnEndReason: "transport_lost"` so the transcript records what
+ * happened (and the chrome can show the failure mode) instead of leaving
+ * an orphaned in-flight cell behind, and moves the card to `errored`.
+ */
+function endTurnAsTransportLost(
+  state: CodeSessionState,
+): { state: CodeSessionState; effects: Effect[] } {
   const endedAt = Date.now();
   const transportLostCommit: Effect[] = [];
   let perTurnReset: Partial<CodeSessionState> = {};
@@ -5776,16 +5828,9 @@ function handleTransportClose(
       ...state,
       ...perTurnReset,
       ...erroredSlice,
-      transportState: "offline",
-      ...preflightCleared,
-      ...caseAEchoesCleared,
-      ...transportClock,
-      ...shadowCleared,
     },
     effects: [
       ...erroredEffects,
-      ...cancelPreflightEffect,
-      ...cancelShadowEffect,
       ...transportLostCommit,
     ],
   };
@@ -6021,22 +6066,38 @@ function handleSessionNotOwned(
  * the live handlers, which wiped the cycle ([F02], 2026-10-16). A
  * `replay_started` inside an open bracket (`replaying`) is still a
  * supervisor fault and is dropped as before.
+ *
+ * A bracket marked `inflight_only` answers `request_inflight`: tugcode's
+ * snapshot of the turn as it now stands, for a card that holds every
+ * committed turn already ([B05] of the reload-reasons brief). It is never
+ * entered — entering a replay window rebuilds the transcript from what the
+ * bracket carries, and this one carries a single turn. A live card shadows
+ * it as above; an idle or errored card, whose turn ended before the bracket
+ * arrived, shadows it inert and keeps nothing from it.
  */
 function handleReplayStarted(
   state: CodeSessionState,
-  _event: ReplayStartedEvent,
+  event: ReplayStartedEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   if (state.phase === "replaying") {
     devLog.warn("code-session-store", `replay_started in unexpected phase ${state.phase}; dropping`);
     return { state, effects: [] };
   }
-  if (state.phase !== "idle" && state.phase !== "errored") {
+  const settled = state.phase === "idle" || state.phase === "errored";
+  if (!settled || event.inflight_only === true) {
     devLog.warn(
       "code-session-store",
-      `replay_started in live phase ${state.phase}; shadowing the bracket`,
+      settled
+        ? `inflight-only replay_started in settled phase ${state.phase}; setting it aside`
+        : `replay_started in live phase ${state.phase}; shadowing the bracket`,
     );
     return {
-      state: { ...state, replayShadowActive: true },
+      state: {
+        ...state,
+        replayShadowActive: true,
+        replayShadowInert: settled,
+        replayShadowInflight: event.inflight_only === true && !settled,
+      },
       effects: [
         {
           kind: "schedule_timer",
@@ -6095,13 +6156,23 @@ function handleReplayStarted(
  * dropped so the normal idle / errored state isn't perturbed. A close
  * under a shadow lifts it and records nothing: the bracket was never
  * entered, so it has no outcome, no window and no banner.
+ *
+ * One close under a shadow does more: an `inflight_only` bracket over a
+ * held turn that closes without a snapshot. tugcode, asked for the turn as
+ * it now stands, had none — the process it ran in is gone — so the turn the
+ * card held through the reconnect is ended as `transport_lost`.
  */
 function handleReplayComplete(
   state: CodeSessionState,
   event: ReplayCompleteEvent,
 ): { state: CodeSessionState; effects: Effect[] } {
   if (state.replayShadowActive) {
-    return liftReplayShadow(state);
+    const ownerless =
+      state.replayShadowInflight && !state.replayShadowSnapshot && state.pendingTurn !== null;
+    const lifted = liftReplayShadow(state);
+    if (!ownerless) return lifted;
+    const ended = endTurnAsTransportLost(lifted.state);
+    return { state: ended.state, effects: [...lifted.effects, ...ended.effects] };
   }
   if (state.phase !== "replaying") {
     devLog.warn("code-session-store", `replay_complete in unexpected phase ${state.phase}; dropping`);
@@ -7175,7 +7246,13 @@ function liftReplayShadow(
     return { state, effects: [] };
   }
   return {
-    state: { ...state, replayShadowActive: false, replayShadowSnapshot: false },
+    state: {
+      ...state,
+      replayShadowActive: false,
+      replayShadowSnapshot: false,
+      replayShadowInert: false,
+      replayShadowInflight: false,
+    },
     effects: [{ kind: "cancel_timer", name: "replay_shadow" }],
   };
 }
@@ -8055,7 +8132,7 @@ export function reduce(
   // snapshot's opener on, what the live cycle lacks is let through.
   if (state.replayShadowActive && SHADOWED_FRAME_TYPES.has(event.type)) {
     if (event.type === "add_user_message" && event.inflightSnapshot === true) {
-      return { state: { ...state, replayShadowSnapshot: true }, effects: [] };
+      return { state: { ...state, replayShadowSnapshot: !state.replayShadowInert }, effects: [] };
     }
     if (!state.replayShadowSnapshot || !snapshotFrameIsNews(state, event)) {
       return { state, effects: [] };

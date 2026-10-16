@@ -38,6 +38,7 @@ import type { ConnectionLifecycle } from "./lib/connection-lifecycle";
 import { hostInfoStore, parseHandshakeHost } from "./lib/host-info-store";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import { logSessionLifecycle } from "./lib/session-lifecycle-log";
+import { ServerIdentity } from "./lib/server-identity";
 import { installDevLogSink } from "./lib/dev-log-port";
 import { InProcessIngestChannel, WorkerIngestChannel, type IngestChannel } from "./lib/ingest/ingest-channel";
 import { UNHELD_KINDS } from "./lib/ingest/ingest-host";
@@ -315,6 +316,14 @@ export class TugConnection {
   // cache key → bytes.
   private lastPayloadByType: Map<number, Map<string, Uint8Array>> = new Map();
   private disconnectStateCallbacks: Array<DisconnectStateCallback> = [];
+
+  /**
+   * The tugcast this connection is talking to, from each handshake's
+   * `server_id`, and whether the latest reconnect found the same one. Fed on
+   * every open before the lifecycle fires, so a `connectionDidReconnect`
+   * handler reads the classification of its own reconnect.
+   */
+  readonly serverIdentity = new ServerIdentity();
 
   /**
    * Whether the socket is OPEN, mirrored from the host's `wire-state`
@@ -606,6 +615,9 @@ export class TugConnection {
         if (patch.payload.handshake !== undefined) {
           hostInfoStore.publish(parseHandshakeHost(patch.payload.handshake));
         }
+        // Before the lifecycle's events: the reconnect handler decides on
+        // what this records.
+        this.serverIdentity.noteOpen(patch.payload.handshake);
         const connected: DisconnectState = { ...this.lastDisconnect, disconnected: false, reconnecting: false };
         this.lastDisconnect = connected;
         this.notifyDisconnectState(connected);

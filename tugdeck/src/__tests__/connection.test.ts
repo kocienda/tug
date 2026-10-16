@@ -39,6 +39,8 @@ if (typeof (globalThis as { window?: unknown }).window === "undefined") {
 }
 
 import { TugConnection } from "@/connection";
+import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
+import { classifyReconnect, type ReconnectKind } from "@/lib/server-identity";
 import { encodeFrame, FeedId, FrameFlags } from "@/protocol";
 
 // ---------------------------------------------------------------------------
@@ -281,6 +283,22 @@ function completeHandshake(conn: TugConnection): FakeWebSocket {
   return ws;
 }
 
+/** The same, with a handshake response naming `serverId`. */
+function completeHandshakeFrom(conn: TugConnection, serverId: string | null): FakeWebSocket {
+  conn.connect();
+  const ws = FakeWebSocket.last;
+  if (ws === null) throw new Error("WebSocket was not constructed");
+  ws.fireOpen();
+  ws.fireMessage(
+    JSON.stringify({
+      protocol: "tugcast",
+      version: 1,
+      ...(serverId !== null ? { server_id: serverId } : {}),
+    }),
+  );
+  return ws;
+}
+
 /** A binary HEARTBEAT frame, encoded the same way the real server would. */
 function heartbeatFrame(): ArrayBuffer {
   return encodeFrame({
@@ -464,6 +482,56 @@ function sessionStateFrame(payload: object): ArrayBuffer {
     payload: bytes,
   });
 }
+
+describe("classifyReconnect", () => {
+  it("is the same server only when both ids are known and equal", () => {
+    expect(classifyReconnect("a", "a")).toBe("same-server");
+    expect(classifyReconnect("a", "b")).toBe("server-restart");
+    // An id the page cannot read is taken as a restart: that path is right
+    // after a restart, and only costly after a dropped socket.
+    expect(classifyReconnect(null, "a")).toBe("server-restart");
+    expect(classifyReconnect("a", null)).toBe("server-restart");
+    expect(classifyReconnect(null, null)).toBe("server-restart");
+  });
+});
+
+describe("TugConnection — the server's identity across reconnects", () => {
+  beforeEach(() => {
+    installFakes();
+  });
+
+  afterEach(() => {
+    uninstallFakes();
+  });
+
+  it("classifies each reconnect by the handshake's server_id, before the reconnect handler runs", () => {
+    const conn = new TugConnection("ws://test.invalid/");
+    const lifecycle = new ConnectionLifecycle();
+    conn.setLifecycle(lifecycle);
+    const seen: Array<ReconnectKind | null> = [];
+    lifecycle.observeConnectionDidReconnect(() => {
+      seen.push(conn.serverIdentity.lastReconnect());
+    });
+
+    // The first connect classifies nothing; it is not a reconnect.
+    let ws = completeHandshakeFrom(conn, "server-a");
+    expect(conn.serverIdentity.serverId()).toBe("server-a");
+    expect(conn.serverIdentity.lastReconnect()).toBeNull();
+
+    // The socket drops and the same tugcast answers.
+    ws.fireClose(1006, "abnormal");
+    ws = completeHandshakeFrom(conn, "server-a");
+    // A different tugcast answers: it restarted.
+    ws.fireClose(1006, "abnormal");
+    ws = completeHandshakeFrom(conn, "server-b");
+    // A server that names no id is taken as a restart.
+    ws.fireClose(1006, "abnormal");
+    completeHandshakeFrom(conn, null);
+
+    expect(seen).toEqual(["same-server", "server-restart", "server-restart"]);
+    expect(conn.serverIdentity.serverId()).toBeNull();
+  });
+});
 
 describe("TugConnection — lastPayload cleared on close", () => {
   beforeEach(() => {

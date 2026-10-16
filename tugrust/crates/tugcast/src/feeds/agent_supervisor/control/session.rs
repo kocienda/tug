@@ -45,6 +45,21 @@ fn parse_request_replay_window(payload: &[u8]) -> Option<serde_json::Value> {
         .filter(|w| !w.is_null())
 }
 
+/// Extract why the deck asked for this replay: one of its closed set of
+/// reload reasons (`launch`, `restore-open`, `server-restart`), or `page`
+/// for a load of older turns. Logged on every `request_replay.*` event as
+/// `reload_reason`, so a reload in `tugcast.log` says why it happened and one
+/// outside the set can be grepped for. A request that names none logs
+/// `unspecified` rather than being refused: the reason is telemetry, and the
+/// replay is the deck's to ask for.
+fn parse_request_replay_reason(payload: &[u8]) -> String {
+    serde_json::from_slice::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|v| v.get("reason").and_then(|r| r.as_str()).map(str::to_owned))
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| "unspecified".to_owned())
+}
+
 impl AgentSupervisor {
     /// The session lifecycle family's share of
     /// [`AgentSupervisor::handle_control`]: the same arms, the same replies,
@@ -139,7 +154,20 @@ impl AgentSupervisor {
                     }
                 };
                 let window = parse_request_replay_window(payload);
-                self.do_request_replay(&tug_session_id, window).await;
+                let reload_reason = parse_request_replay_reason(payload);
+                self.do_request_replay(&tug_session_id, window, &reload_reason)
+                    .await;
+                Ok(())
+            }
+            ControlAction::RequestInflight => {
+                let tug_session_id = match parse_tug_session_id_payload(payload) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        warn!(action = action.as_str(), error = %e, "handle_control: rejected request_inflight");
+                        return ControlOutcome::Error(e);
+                    }
+                };
+                self.do_request_inflight(&tug_session_id).await;
                 Ok(())
             }
             _ => return ControlOutcome::PassThrough,
@@ -782,10 +810,14 @@ impl AgentSupervisor {
     /// from the same Spawning window — the natural ordering since
     /// the verb is "rehydrate the freshly-mounted store" and the
     /// store should be rehydrated before user-facing work begins.
+    ///
+    /// `reload_reason` is why the deck asked ([`parse_request_replay_reason`]);
+    /// it rides every log line this request writes and nothing else.
     async fn do_request_replay(
         &self,
         tug_session_id: &TugSessionId,
         window: Option<serde_json::Value>,
+        reload_reason: &str,
     ) {
         let entry_arc = {
             let ledger = self.ledger.lock().await;
@@ -797,6 +829,7 @@ impl AgentSupervisor {
                         event = "request_replay.skipped",
                         tug_session_id = %tug_session_id,
                         reason = "unknown",
+                        reload_reason,
                     );
                     return;
                 }
@@ -911,6 +944,7 @@ impl AgentSupervisor {
                             event = "request_replay.skipped",
                             tug_session_id = %tug_session_id,
                             reason = "spawning_queue_overflow",
+                            reload_reason,
                         );
                         return;
                     }
@@ -919,6 +953,7 @@ impl AgentSupervisor {
                         event = "request_replay.queued",
                         tug_session_id = %tug_session_id,
                         reason = "spawning_window",
+                        reload_reason,
                     );
                     return;
                 }
@@ -935,6 +970,7 @@ impl AgentSupervisor {
                         event = "request_replay.skipped",
                         tug_session_id = %tug_session_id,
                         reason = reason,
+                        reload_reason,
                     );
                     return;
                 }
@@ -955,6 +991,7 @@ impl AgentSupervisor {
                 event = "request_replay.skipped",
                 tug_session_id = %tug_session_id,
                 reason = "no_input_tx",
+                reload_reason,
             );
             return;
         };
@@ -970,6 +1007,76 @@ impl AgentSupervisor {
         tracing::info!(
             target: "dev::session-lifecycle",
             event = "request_replay.dispatched",
+            tug_session_id = %tug_session_id,
+            reload_reason,
+        );
+    }
+
+    /// Handle a `request_inflight` CONTROL action: forward
+    /// `{"type":"request_inflight"}` to the session's live tugcode, which
+    /// answers with the turn as it now stands and nothing older. A card sends
+    /// it after a reconnect to this same process, when its stores stood
+    /// through the drop and its turn ran on without it. tugcast keeps no
+    /// record of what a dropped client missed — its ring replays only to a
+    /// client that lagged, never to one that subscribes — so the turn's
+    /// owner is asked to describe it.
+    ///
+    /// A live session is asked at once. One still spawning is asked as soon as
+    /// it is up, ahead of anything queued behind it, the way `request_replay`
+    /// is: the rebind's own resume can be what respawned it, and the turn the
+    /// card holds died with the process it replaced, so the fresh tugcode's
+    /// empty answer is what lets the card end that turn. One that is not
+    /// running at all has nothing to describe.
+    async fn do_request_inflight(&self, tug_session_id: &TugSessionId) {
+        let entry_arc = {
+            let ledger = self.ledger.lock().await;
+            ledger.get(tug_session_id).cloned()
+        };
+        let frame = Frame::new(FeedId::CODE_INPUT, b"{\"type\":\"request_inflight\"}".to_vec());
+        let tx = match entry_arc {
+            None => None,
+            Some(entry_arc) => {
+                let mut entry = entry_arc.lock().await;
+                match entry.spawn_state {
+                    SpawnState::Live => entry.input_tx.clone(),
+                    SpawnState::Spawning => {
+                        let event = if entry.queue.push_front(frame) == QueuePush::Overflow {
+                            "request_inflight.skipped"
+                        } else {
+                            "request_inflight.queued"
+                        };
+                        tracing::info!(
+                            target: "dev::session-lifecycle",
+                            event,
+                            tug_session_id = %tug_session_id,
+                            reason = "spawning_window",
+                        );
+                        return;
+                    }
+                    _ => None,
+                }
+            }
+        };
+        let Some(tx) = tx else {
+            tracing::info!(
+                target: "dev::session-lifecycle",
+                event = "request_inflight.skipped",
+                tug_session_id = %tug_session_id,
+                reason = "not_live",
+            );
+            return;
+        };
+        if let Err(e) = tx.send(frame).await {
+            warn!(
+                tug_session_id = %tug_session_id,
+                error = %e,
+                "request_inflight: send to input_tx failed",
+            );
+            return;
+        }
+        tracing::info!(
+            target: "dev::session-lifecycle",
+            event = "request_inflight.dispatched",
             tug_session_id = %tug_session_id,
         );
     }

@@ -101,10 +101,12 @@
  * workspaces must not spawn ten sets of tugcode at launch. A parked
  * workspace's cards are restored by {@link restoreSpaceSessions} at the moment
  * it is activated, reading `spaceBindingsLedgerStore` so the expectation is
- * registered before the cards mount. Reconnect clears every binding and
- * re-runs this pass for the active deck; the parked workspaces had their
- * bindings cleared too, so each re-restores at its next activation, which is
- * the same path a first activation takes.
+ * registered before the cards mount. A reconnect to a RESTARTED tugcast clears
+ * every binding and re-runs this pass for the active deck; the parked
+ * workspaces had their bindings cleared too, so each re-restores at its next
+ * activation, which is the same path a first activation takes. A reconnect to
+ * the SAME tugcast clears nothing: {@link reassertOnReconnect} re-binds every
+ * card whose stores stood through the drop ([B03]).
  *
  * @module lib/session-restore
  */
@@ -119,6 +121,8 @@ import {
   sendSpawnSession,
 } from "./session-lifecycle";
 import { logSessionLifecycle } from "./session-lifecycle-log";
+import { forgetPendingReload, type ReloadReason } from "./reload-reasons";
+import type { ReconnectKind } from "./server-identity";
 import { Subscribable } from "./subscribable";
 import { cardSessionBindingStore } from "./card-session-binding-store";
 import { cardServicesStore } from "./card-services-store";
@@ -211,6 +215,8 @@ const RESTORE_PASS_SETTLE_TIMEOUT_MS = 5_000;
 export interface RestoreExpectation {
   readonly tugSessionId: string;
   readonly projectDir: string;
+  /** Why the spawn was sent, so a retry of it reloads for the same reason. */
+  readonly reason: ReloadReason;
 }
 
 /**
@@ -395,6 +401,8 @@ interface RestoreRetryContext {
   readonly projectDir: string;
   readonly connection: TugConnection;
   readonly mode: "resume" | "new";
+  /** The reason the attempt being retried was made, which a retry keeps. */
+  readonly reason: ReloadReason;
   readonly display?: ResumeDisplayMetadata;
   /** Run when the budget is spent — the card's honest terminal state. */
   readonly onExhausted: () => void;
@@ -514,12 +522,12 @@ function fireRestoreRetry(ctx: RestoreRetryContext): void {
       // `is_alive` is not consulted here — a live row returned above.
       const resumable = row.has_jsonl === true || row.turn_count > 0;
       if (resumable) {
-        fireRestore(cardId, row.session_id, row.project_dir, connection, {
+        fireRestore(cardId, row.session_id, row.project_dir, connection, ctx.reason, {
           title: null,
           turnCount: row.turn_count,
         });
       } else {
-        fireFreshSpawn(cardId, row.session_id, row.project_dir, connection);
+        fireFreshSpawn(cardId, row.session_id, row.project_dir, connection, ctx.reason);
       }
       return;
     }
@@ -531,10 +539,11 @@ function fireRestoreRetry(ctx: RestoreRetryContext): void {
         ctx.tugSessionId,
         ctx.projectDir,
         connection,
+        ctx.reason,
         ctx.display,
       );
     } else {
-      fireFreshSpawn(cardId, ctx.tugSessionId, ctx.projectDir, connection);
+      fireFreshSpawn(cardId, ctx.tugSessionId, ctx.projectDir, connection, ctx.reason);
     }
   });
 
@@ -546,8 +555,16 @@ function fireRestoreRetry(ctx: RestoreRetryContext): void {
 // ---------------------------------------------------------------------------
 
 let _subscriptionsInstalled = false;
+/**
+ * The connections whose SESSION_STATE this module listens to. A page has one,
+ * but the listener belongs to the connection rather than to the process: one
+ * installed on whichever connection asked first would never hear another's
+ * rejection.
+ */
+const _sessionStateConnections = new WeakSet<TugConnection>();
 
 function installRegistrySubscriptions(connection: TugConnection): void {
+  installSessionStateSubscription(connection);
   if (_subscriptionsInstalled) return;
   _subscriptionsInstalled = true;
 
@@ -580,6 +597,11 @@ function installRegistrySubscriptions(connection: TugConnection): void {
       }
     }
   });
+}
+
+function installSessionStateSubscription(connection: TugConnection): void {
+  if (_sessionStateConnections.has(connection)) return;
+  _sessionStateConnections.add(connection);
 
   // When tugcast reports an errored SESSION_STATE for a restoring
   // session, the restore failed.
@@ -624,6 +646,7 @@ function installRegistrySubscriptions(connection: TugConnection): void {
         projectDir: expectation.projectDir,
         connection,
         mode: "resume",
+        reason: expectation.reason,
         onExhausted: toPicker,
       });
       break;
@@ -684,9 +707,10 @@ function parseSessionStateFrame(payload: Uint8Array): SessionStateMessage | null
 /**
  * Reason a `restoreSessions` call is happening. Surfaced on the
  * `restore.fired_resume_spawns` lifecycle log so traces distinguish the
- * one-time startup pass from reconnect-driven re-asserts.
+ * one-time startup pass from reconnect-driven re-asserts, and carried onto
+ * every spawn the pass sends, so each card it restores reloads for it.
  */
-export type RestoreReason = "startup" | "reconnect";
+export type RestoreReason = ReloadReason;
 
 export interface RestoreOptions {
   readonly reason?: RestoreReason;
@@ -697,6 +721,19 @@ export interface RestoreOptions {
    * answer for, so the round trip asks about those and nothing else.
    */
   readonly cardIds?: ReadonlySet<string>;
+  /**
+   * A same-server reconnect's pass ([B03]). A card whose stores still stand
+   * for the ledger row's session is re-bound — a `rebind` spawn that reads
+   * nothing — instead of restored; the pass also covers every card this page
+   * holds stores for, a parked workspace's included, since none of them is
+   * held for the new socket until it asks. (A body page mirrors the shell's
+   * bindings and holds stores for its own card alone, so it re-binds only
+   * that one.) A card with no stores restores as before, for the
+   * reason its own restore in flight was sent with, else `reason`; so does
+   * one whose read the drop cut short, rebuilt and read again for the reason
+   * its first read was made.
+   */
+  readonly rebind?: boolean;
 }
 
 /**
@@ -721,14 +758,20 @@ export function restoreSessions(
 ): void {
   installRegistrySubscriptions(connection);
 
+  const rebind = opts?.rebind === true;
   const sessionCardIds =
     opts?.cardIds ??
-    new Set(
-      deck
+    new Set([
+      ...deck
         .getSnapshot()
         .cards.filter((c) => c.componentId === SESSION_COMPONENT_ID)
         .map((c) => c.id),
-    );
+      ...(rebind
+        ? [...cardSessionBindingStore.getSnapshot().keys()].filter(
+            (id) => cardServicesStore.getServices(id) !== null,
+          )
+        : []),
+    ]);
   if (sessionCardIds.size === 0) {
     // No dev cards to restore — the pass is trivially settled.
     restorePassGate._settle();
@@ -754,12 +797,13 @@ export function restoreSessions(
   // Subscribe once for the matching response, then drop the
   // subscription. The bus is process-global, so we filter by the
   // deck's dev cards here.
-  const reason = opts?.reason ?? "startup";
+  const reason = opts?.reason ?? "launch";
   const unsubscribe = subscribeToListCardBindingsOk(({ bindings }) => {
     unsubscribe();
     clearTimeout(passSettleTimeout);
     let resumedCount = 0;
     let freshCount = 0;
+    let rebindCount = 0;
     // Track which cards we've already fired for. Multiple ledger rows
     // can map to the same card_id (sequential sessions on that card);
     // the wire orders rows newest-first by `last_used_at`, so the
@@ -770,6 +814,22 @@ export function restoreSessions(
       if (!sessionCardIds.has(binding.card_id)) continue;
       if (fired.has(binding.card_id)) continue;
       fired.add(binding.card_id);
+      let cardReason = rebind
+        ? (sessionRestoreRegistry.get(binding.card_id)?.reason ?? reason)
+        : reason;
+      if (rebind && holdsStoresFor(binding.card_id, binding.session_id)) {
+        const services = cardServicesStore.getServices(binding.card_id)!;
+        if (services.codeSessionStore.getSnapshot().replayEverCompleted) {
+          fireRebind(binding.card_id, binding.session_id, binding.project_dir, connection);
+          rebindCount += 1;
+          continue;
+        }
+        // The drop cut the card's read short: its stores hold part of a
+        // transcript and will not be sent the rest. They are rebuilt and read
+        // again, for the reason the first read was made.
+        cardReason = cardServicesStore.transcriptReason(binding.card_id) ?? cardReason;
+        cardSessionBindingStore.clearBinding(binding.card_id);
+      }
       // Resume when ANY of: (a) an on-disk JSONL transcript exists
       // (`has_jsonl` — the exact file a `mode=resume` spawn targets),
       // (b) the ledger recorded live turns (`turn_count > 0`), or (c) the
@@ -800,6 +860,7 @@ export function restoreSessions(
           binding.session_id,
           binding.project_dir,
           connection,
+          cardReason,
           { title: null, turnCount: binding.turn_count },
         );
         resumedCount += 1;
@@ -820,16 +881,31 @@ export function restoreSessions(
           binding.session_id,
           binding.project_dir,
           connection,
+          cardReason,
         );
         freshCount += 1;
       }
     }
-    if (resumedCount > 0 || freshCount > 0) {
+    // A card this page holds that the ledger no longer names has nothing to
+    // re-bind to. It goes the way a restart takes every card: its binding is
+    // cleared, its stores with it, and it falls to the picker.
+    let unlistedCount = 0;
+    if (rebind) {
+      for (const cardId of sessionCardIds) {
+        if (fired.has(cardId) || cardSessionBindingStore.getBinding(cardId) === undefined) continue;
+        if (cardServicesStore.getServices(cardId) === null) continue;
+        cardSessionBindingStore.clearBinding(cardId);
+        unlistedCount += 1;
+      }
+    }
+    if (resumedCount > 0 || freshCount > 0 || rebindCount > 0 || unlistedCount > 0) {
       logSessionLifecycle("restore.fired_resume_spawns", {
         card_count: sessionCardIds.size,
         restore_count: resumedCount,
         fresh_spawn_count: freshCount,
-        reason,
+        rebind_count: rebindCount,
+        unlisted_count: unlistedCount,
+        reason: rebind ? "same-server" : reason,
       });
     }
     // The startup restore pass has resolved: every card with a ledger
@@ -897,13 +973,13 @@ export function restoreSpaceSessions(
     // eventually disagree, and the disagreement would be a card crash-looping
     // on a `--session-id` collision.
     if (row.has_jsonl === true || row.turn_count > 0 || row.is_alive === true) {
-      fireRestore(cardId, row.session_id, row.project_dir, connection, {
+      fireRestore(cardId, row.session_id, row.project_dir, connection, "restore-open", {
         title: null,
         turnCount: row.turn_count,
       });
       resumedCount += 1;
     } else {
-      fireFreshSpawn(cardId, row.session_id, row.project_dir, connection);
+      fireFreshSpawn(cardId, row.session_id, row.project_dir, connection, "restore-open");
       freshCount += 1;
     }
   }
@@ -928,10 +1004,72 @@ export function restoreSpaceSessions(
   // already settled and idempotent.
   if (unanswered.size > 0) {
     restoreSessions(deck, connection, {
-      reason: "startup",
+      reason: "restore-open",
       cardIds: unanswered,
     });
   }
+}
+
+/**
+ * Answer a reconnect, as the shell and every body page do, by what it found
+ * ([B03], [B04]). The connection classified it before the lifecycle fired the
+ * event this runs from.
+ *
+ * - `same-server` — the bindings and stores the page holds are still good.
+ *   Nothing is cleared or disposed; every card is re-asserted for the new
+ *   socket, and a card whose stores stood is re-bound rather than reloaded.
+ *   Each such store is in `restoring` from its own reconnect handler and
+ *   settles on its rebind ack.
+ * - `server-restart` — bindings held against a dead server would route frames
+ *   the new one never sends, so they are cleared, every store with them, and
+ *   the cards restore for that reason.
+ *
+ * Returns the kind it acted on.
+ */
+export function reassertOnReconnect(
+  deck: Pick<DeckManager, "getSnapshot">,
+  connection: TugConnection,
+): ReconnectKind {
+  const kind = connection.serverIdentity.lastReconnect() ?? "server-restart";
+  if (kind === "same-server") {
+    restoreSessions(deck, connection, { reason: "launch", rebind: true });
+  } else {
+    cardSessionBindingStore.clearAll();
+    restoreSessions(deck, connection, { reason: "server-restart" });
+  }
+  return kind;
+}
+
+/**
+ * Whether this page holds stores for `cardId` built for `sessionId` — the
+ * card's address or its seat — so a same-server reconnect can keep them.
+ */
+function holdsStoresFor(cardId: string, sessionId: string): boolean {
+  const binding = cardSessionBindingStore.getBinding(cardId);
+  if (binding === undefined) return false;
+  if (binding.tugSessionId !== sessionId && binding.seatedSessionId !== sessionId) {
+    return false;
+  }
+  return cardServicesStore.getServices(cardId) !== null;
+}
+
+/**
+ * Re-assert a card whose stores stood through a same-server reconnect: a
+ * `spawn_session(mode=resume)` the server answers by re-holding the session for
+ * this socket ([B03]). Sent as a `rebind`, so the ack settles the store and
+ * reads nothing. No restore hold is registered: the card is bound and shows its
+ * transcript throughout, and a refusal or a lost ack leaves it as a dropped
+ * socket would, for the next reconnect to answer.
+ */
+function fireRebind(
+  cardId: string,
+  tugSessionId: string,
+  projectDir: string,
+  connection: TugConnection,
+): void {
+  const lineId = resumeSpawnLine(tugSessionId);
+  const tag = provisionSpawnTag(lineId ?? tugSessionId);
+  sendSpawnSession(connection, cardId, tugSessionId, projectDir, "resume", "rebind", tag, lineId);
 }
 
 function isCardBinding(value: unknown): value is CardBinding {
@@ -982,6 +1120,7 @@ export function fireFreshSpawn(
   tugSessionId: string,
   projectDir: string,
   connection: TugConnection,
+  reason: ReloadReason,
 ): void {
   // A card that becomes a body spawns there, its opening command with it.
   if (
@@ -991,6 +1130,7 @@ export function fireFreshSpawn(
         kind: "fresh",
         tugSessionId,
         projectDir,
+        reason,
         ...(openingCommand !== undefined ? { openingCommand } : {}),
       };
     })
@@ -1013,12 +1153,13 @@ export function fireFreshSpawn(
     tugSessionId,
     projectDir,
     "new",
+    reason,
     tag,
     lineId,
   );
   sessionRestoreRegistry._register(
     cardId,
-    { tugSessionId, projectDir },
+    { tugSessionId, projectDir, reason },
     () => {
       // Timeout backstop: no `spawn_session_ok`, no rejection. Drop
       // the hold and retry — the ledger row is preserved server-side,
@@ -1038,6 +1179,7 @@ export function fireFreshSpawn(
         projectDir,
         connection,
         mode: "new",
+        reason,
         onExhausted: () => {},
       });
     },
@@ -1056,6 +1198,7 @@ export function fireNewSpawn(
   tugSessionId: string,
   projectDir: string,
   connection: TugConnection,
+  reason: ReloadReason,
   provisioned?: { lineId: string; tag: string },
 ): void {
   // A card that becomes a body spawns there, on the line minted here.
@@ -1066,6 +1209,7 @@ export function fireNewSpawn(
         kind: "new",
         tugSessionId,
         projectDir,
+        reason,
         lineId,
         tag: provisionSpawnTag(lineId, provisioned?.tag),
       };
@@ -1080,6 +1224,7 @@ export function fireNewSpawn(
     tugSessionId,
     projectDir,
     "new",
+    reason,
     provisionSpawnTag(lineId, provisioned?.tag),
     lineId,
   );
@@ -1095,6 +1240,7 @@ export function fireRestore(
   tugSessionId: string,
   projectDir: string,
   connection: TugConnection,
+  reason: ReloadReason,
   display?: ResumeDisplayMetadata,
 ): void {
   // A card that becomes a body resumes there.
@@ -1103,6 +1249,7 @@ export function fireRestore(
       kind: "resume",
       tugSessionId,
       projectDir,
+      reason,
       ...(display !== undefined ? { display } : {}),
     }))
   ) {
@@ -1137,12 +1284,13 @@ export function fireRestore(
     tugSessionId,
     projectDir,
     "resume",
+    reason,
     tag,
     lineId,
   );
   sessionRestoreRegistry._register(
     cardId,
-    { tugSessionId, projectDir },
+    { tugSessionId, projectDir, reason },
     () => {
       // Timeout: no ack, no error. Retry rather than dropping the card
       // — the picker is where this ends only once the budget is spent.
@@ -1160,6 +1308,7 @@ export function fireRestore(
         projectDir,
         connection,
         mode: "resume",
+        reason,
         ...(display !== undefined ? { display } : {}),
         onExhausted: () => {
           pickerNoticeStore.set(cardId, {
@@ -1215,6 +1364,8 @@ export function cancelSessionRestore(cardId: string): void {
  */
 export function notifySpawnRejected(cardId: string): void {
   sessionRestoreRegistry._clear(cardId);
+  // Refused: no ack will come to take the reason it was sent for.
+  forgetPendingReload(cardId);
   // An outright `spawn_session_error` (e.g. the project directory is
   // gone) is a fact about the world, not a race — retrying it would
   // just re-ask a question already answered.

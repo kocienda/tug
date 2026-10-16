@@ -15,6 +15,7 @@ import {
   STUB_TRANSCRIPT_DIR_ENV,
   TRANSCRIPT_SCHEMA_VERSION,
   stubTranscriptForSession,
+  type TranscriptOutboundMessage,
   type TugcodeTranscript,
 } from "../stub-replay.ts";
 import type { OutboundMessage } from "../types.ts";
@@ -314,6 +315,71 @@ describe("paced turns", () => {
     expect(engine.dispatchTurn()).toBe(false);
     await engine.paced;
     expect(captured).toEqual(["assistant_text", "turn_complete", "error"]);
+  });
+});
+
+describe("request_inflight", () => {
+  const out = (o: Record<string, unknown>) => ({ ipc_version: 2, ...o }) as unknown as TranscriptOutboundMessage;
+  const streamed = [
+    out({ type: "content_block_start", msg_id: "m", block_index: 0, kind: "text" }),
+    out({ type: "assistant_text", msg_id: "m", block_index: 0, seq: 0, rev: 0, text: "Half ", is_partial: true, status: "partial" }),
+    out({ type: "assistant_text", msg_id: "m", block_index: 0, seq: 0, rev: 1, text: "of it", is_partial: true, status: "partial" }),
+    out({ type: "turn_complete", msg_id: "m", seq: 1, result: "success" }),
+  ];
+
+  test("mid-turn: the text so far, whole, in a bracket marked inflight_only, and no end", () => {
+    const captured: OutboundMessage[] = [];
+    // A turn whose end has not been sent yet: everything before it, unpaced.
+    const sofar = streamed.slice(0, 3);
+    const engine = new StubReplayEngine({
+      transcript: { schemaVersion: TRANSCRIPT_SCHEMA_VERSION, tugcodeVersion: "stub", turns: [{ index: 0, outputs: sofar }] },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    captured.length = 0;
+    engine.requestInflight();
+    expect(captured.map((m) => m.type)).toEqual([
+      "replay_started",
+      "add_user_message",
+      "content_block_start",
+      "assistant_text",
+      "replay_complete",
+    ]);
+    expect(captured[0]).toMatchObject({ inflight_only: true });
+    expect(captured[3]).toMatchObject({ text: "Half of it", is_partial: false });
+  });
+
+  test("after the turn ended: the snapshot carries its end", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: {
+        schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+        tugcodeVersion: "stub",
+        turns: [{ index: 0, outputs: streamed }],
+      },
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.dispatchTurn();
+    captured.length = 0;
+    engine.requestInflight();
+    expect(captured.map((m) => m.type)).toContain("turn_complete");
+    expect(captured[captured.length - 1].type).toBe("replay_complete");
+  });
+});
+
+describe("request_replay", () => {
+  test("a stub session answers the read with an empty bracket", () => {
+    const captured: OutboundMessage[] = [];
+    const engine = new StubReplayEngine({
+      transcript: makeMinimalTranscript(),
+      sessionId: "sess-1",
+      emit: (m) => captured.push(m),
+    });
+    engine.answerReplay();
+    expect(captured.map((m) => m.type)).toEqual(["replay_started", "replay_complete"]);
+    expect(captured[1]).toMatchObject({ count: 0 });
   });
 });
 

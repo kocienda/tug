@@ -160,7 +160,7 @@ export function useResumeSheet({
       }
       const connection = getConnection();
       if (!connection) return { kind: "disconnected", tag };
-      fireRestore(cardId, sessionId, projectDir, connection);
+      fireRestore(cardId, sessionId, projectDir, connection, "restore-open");
       return null;
     },
     [cardId, projectDir, sessionLedger],
@@ -231,7 +231,7 @@ function ResumeSheetBody({
         const sessionId = row.row.session_id;
         onClose("resume");
         window.setTimeout(() => {
-          fireRestore(cardId, sessionId, projectDir, connection);
+          fireRestore(cardId, sessionId, projectDir, connection, "restore-open");
         }, SHEET_EXIT_ANIMATION_MS);
       } else if (row.kind === "session-new") {
         const sessionId = crypto.randomUUID();
@@ -245,6 +245,7 @@ function ResumeSheetBody({
             sessionId,
             projectDir,
             "new",
+            "restore-open",
             tag,
             lineId,
           );

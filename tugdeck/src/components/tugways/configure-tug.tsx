@@ -735,7 +735,7 @@ export function ConfigureTug(): ReactElement {
       spawns ? { opening: "bound" } : undefined,
     );
     if (cardId !== null && connection !== null && spawns) {
-      fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection);
+      fireFreshSpawn(cardId, crypto.randomUUID(), projectDir, connection, "restore-open");
     }
     setOpenedFirstSession(true);
   };
