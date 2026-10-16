@@ -1156,10 +1156,6 @@
     "kind": "session"
   },
   {
-    "file": "body-grounding/row-20-drag-hole.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "harness-smoke/smoke-em.test.ts",
     "kind": "unknown"
   },

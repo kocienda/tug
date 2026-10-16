@@ -11,9 +11,12 @@
  *
  * Two body Session cards with a Text card between them, three-up, the first
  * one active so it stands in front: the tree reads the shell and then the
- * bodies left to right. Giving the third card the keyboard brings its pane
- * forward and leaves the order where it was, so the order is the deck's and
- * not the stacking's.
+ * bodies left to right — the Text card is a body too, so it is read between
+ * them. The canvas renders panes in pane-id order, which here is not the
+ * deck's (`r29-text` sorts after `r29-b`), so the order read is the one the
+ * shell posts, not the document's. Giving the third card the keyboard
+ * brings its pane forward and leaves the order where it was, so the order is
+ * the deck's and not the stacking's.
  *
  * Every other kind that is a body is read the same way, standing to the
  * right of a body Session card and the Text card — a rail on its edge.
@@ -98,7 +101,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
           await waitForBody(app, A);
           await standUpKind(app, kind, K);
           await focusBody(app, A, { composer: false });
-          const expected = ["shell", A, K];
+          const expected = ["shell", A, T, K];
           const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);
           note(`A in front: order ${JSON.stringify(first)}`);
           expect(first, "the shell, then the bodies left to right").toEqual(expected);
@@ -138,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
         await waitForBody(app, A);
         await waitForBody(app, B);
         await focusBody(app, A, { composer: false });
-        const expected = ["shell", A, B];
+        const expected = ["shell", A, T, B];
 
         const bodies = await app.bodies();
         const first = await pollFor(() => app.accessibilityOrder(), (o) => JSON.stringify(o) === JSON.stringify(expected), SETTLE_MS);

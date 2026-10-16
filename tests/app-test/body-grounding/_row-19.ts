@@ -1,5 +1,6 @@
 /**
- * row-19-streams.test.ts — a body streams through the shell's settle.
+ * _row-19.ts — what the pieces of row 19 share: a body streams through the
+ * shell's settle.
  *
  * The bar's nineteenth row. The settle's motion gate is the shell's: its
  * engine closes it when the beats launch and opens it after the land, and
@@ -20,21 +21,32 @@
  * it is offered. Every body applied at least one batch between the close and
  * the open, and none of its batches was parked.
  *
- * @foreground
- * @covers tugdeck/src/body/body-main.ts
- * @covers tugdeck/src/connection.ts
+ * One launch per gesture: `row-19-streams-flow-out`, `-flow-back` (which
+ * makes the way out as its unmeasured set-up, before the bodies stream) and
+ * `-stack`.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { carryLeg, standUp, type Rect, type Standing } from "./_motion";
+import { carryLeg, setUpGesture, standUp, type Rect, type Standing } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-19-streams";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 360_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How a piece launches, stated in the piece itself: every row-19 launch
+ * takes the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
+
+const action = (id: string, payload: Record<string, unknown>): string =>
+  `window.__tug.dispatchControlAction(${JSON.stringify(id)}, ${JSON.stringify(payload)})`;
 
 /** A turn this long streams for minutes, past every gesture the row drives. */
 const STREAM_MESSAGES = 40;
@@ -171,75 +183,63 @@ async function expectStillStreaming(app: App, bodies: readonly string[]): Promis
   }
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 19: a body streams through the shell's settle", () => {
-  test(
-    "three streaming bodies keep applying batches through a flow slide out and back",
-    async () => {
-      const stubDir = stubDirectory();
-      const bodies = ["r19-a", "r19-b", "r19-c"];
-      const app = await launchTugApp({
-        testName: `${TEST_NAME}-flow`,
-        foreground: true,
-        bodies: true,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: flowDeck(bodies), focusCardId: bodies[0] });
-        await bindStubs(app, bodies, stubDir);
-        await focusBody(app, bodies[0], { composer: false });
-        await Bun.sleep(400);
-        const stood = await standUp(app, bodies[0]);
-        await startStreaming(app, bodies);
-        await streamLeg(app, bodies[0], bodies, bodies, "go to slot 2", `window.__tug.dispatchControlAction("go-to-slot", { value: 2 })`, stood);
-        await streamLeg(app, bodies[0], bodies, bodies, "go to slot 1", `window.__tug.dispatchControlAction("go-to-slot", { value: 1 })`, stood);
-        await expectStillStreaming(app, bodies);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
+/**
+ * Three streaming bodies through one leg of the flow slide: out to slot 2,
+ * or back to slot 1 with the way out made first, before they stream.
+ */
+export async function streamFlow(launch: Launch, leg: "out" | "back"): Promise<void> {
+  const stubDir = stubDirectory();
+  const bodies = ["r19-a", "r19-b", "r19-c"];
+  const app = await launchTugApp({
+    testName: `${TEST_NAME}-flow-${leg}`,
+    foreground: launch.foreground,
+    bodies: true,
+    env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+  });
+  try {
+    await app.seedDeckState({ state: flowDeck(bodies), focusCardId: bodies[0] });
+    await bindStubs(app, bodies, stubDir);
+    await focusBody(app, bodies[0], { composer: false });
+    await Bun.sleep(400);
+    const stood = await standUp(app, bodies[0]);
+    if (leg === "back") await setUpGesture(app, bodies[0], "go to slot 2", (a) => a.evalJS<null>(`(${action("go-to-slot", { value: 2 })}, null)`));
+    await startStreaming(app, bodies);
+    if (leg === "out") await streamLeg(app, bodies[0], bodies, bodies, "go to slot 2", action("go-to-slot", { value: 2 }), stood);
+    else await streamLeg(app, bodies[0], bodies, bodies, "go to slot 1", action("go-to-slot", { value: 1 }), stood);
+    await expectStillStreaming(app, bodies);
+  } finally {
+    await app.close();
+  }
+}
 
-  test(
-    "two streaming bodies keep applying batches through a cross-column stack move",
-    async () => {
-      const stubDir = stubDirectory();
-      const bodies = ["r19-s", "r19-m"];
-      const mover = bodies[1];
-      const app = await launchTugApp({
-        testName: `${TEST_NAME}-stack`,
-        foreground: true,
-        bodies: true,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: twoUpDeck(bodies), focusCardId: mover });
-        await bindStubs(app, bodies, stubDir);
-        // Slot 0 stacks, so the mover crosses into it as one move beat.
-        await app.evalJS<null>(`(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "stack" }), null)`);
-        await pollFor(
-          () => app.evalJS<boolean>(`document.querySelector("[data-deck-canvas-background]")?.hasAttribute("data-imposer-settling") ?? false`),
-          (v) => !v,
-          SETTLE_MS,
-        );
-        await focusBody(app, mover, { composer: false });
-        await Bun.sleep(400);
-        const stood = await standUp(app, mover);
-        await startStreaming(app, bodies);
-        await streamLeg(
-          app,
-          mover,
-          [mover],
-          bodies,
-          "stack move",
-          `window.__tug.dispatchControlAction("assign-slot", { cardId: ${JSON.stringify(mover)}, slot: 0 })`,
-          stood,
-        );
-        await expectStillStreaming(app, bodies);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+/** Two streaming bodies through a cross-column stack move. */
+export async function streamStack(launch: Launch): Promise<void> {
+  const stubDir = stubDirectory();
+  const bodies = ["r19-s", "r19-m"];
+  const mover = bodies[1];
+  const app = await launchTugApp({
+    testName: `${TEST_NAME}-stack`,
+    foreground: launch.foreground,
+    bodies: true,
+    env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+  });
+  try {
+    await app.seedDeckState({ state: twoUpDeck(bodies), focusCardId: mover });
+    await bindStubs(app, bodies, stubDir);
+    // Slot 0 stacks, so the mover crosses into it as one move beat.
+    await app.evalJS<null>(`(${action("set-column-mode", { slot: 0, mode: "stack" })}, null)`);
+    await pollFor(
+      () => app.evalJS<boolean>(`document.querySelector("[data-deck-canvas-background]")?.hasAttribute("data-imposer-settling") ?? false`),
+      (v) => !v,
+      SETTLE_MS,
+    );
+    await focusBody(app, mover, { composer: false });
+    await Bun.sleep(400);
+    const stood = await standUp(app, mover);
+    await startStreaming(app, bodies);
+    await streamLeg(app, mover, [mover], bodies, "stack move", action("assign-slot", { cardId: mover, slot: 0 }), stood);
+    await expectStillStreaming(app, bodies);
+  } finally {
+    await app.close();
+  }
+}

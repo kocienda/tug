@@ -455,8 +455,20 @@ function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts |
 }
 
 /**
+ * `bodies` in the order a reader takes the deck: left to right, then top to
+ * bottom within a column. The host reads the posted order as the window's
+ * VoiceOver order, after the shell's own view; the placeholders' document
+ * order is the canvas's pane-id order, which says nothing about where a
+ * pane stands.
+ */
+export function inReadingOrder(bodies: readonly BodyPlacement[]): BodyPlacement[] {
+  return [...bodies].sort((a, b) => a.x - b.x || a.y - b.y);
+}
+
+/**
  * Read every body placeholder under `root` once, and decide each one's
- * visibility from the deck.
+ * visibility from the deck. The bodies are posted in reading order
+ * (`inReadingOrder`).
  */
 export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, exact?: Map<string, Rect>): PlaceBodies {
   const bodies: BodyPlacement[] = [];
@@ -482,7 +494,7 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, exa
       z: Number.isFinite(z) ? z : 0,
     });
   }
-  return { radius, bodies };
+  return { radius, bodies: inReadingOrder(bodies) };
 }
 
 /**

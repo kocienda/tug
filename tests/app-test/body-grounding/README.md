@@ -46,29 +46,36 @@ proves itself in its own kind check rather than by running every row again;
 `_kinds.ts` names the representatives, and `TUG_BODY_KINDS` runs a row
 against any kinds named.
 
+No file runs past 20 s, so a row that needs more than one launch is split
+one launch per file: `_row-NN.ts` holds the row's helpers and runners, and
+each piece is a `row-NN-<name>-<piece>.test.ts` carrying `@family
+row-NN-<name>`. A piece that reads the way back makes the way out first as
+its unmeasured set-up (`_motion.ts`'s `setUpGesture`). The table names a
+split row by its pieces' glob.
+
 | File | Row | Session | Overview |
 |---|---|---|---|
 | `probe-tap.test.ts` | The path itself: one character through the activated tap lands in a body's composer; one menu item performed takes effect in the body. | ✓ | — |
-| `row-01-arrival.test.ts` | ⌘N: a new card arrives with nothing of the canvas, grid or an older pane showing through the hole at any frame, cold and warm. | ✓ | ✓ |
-| `row-02-drag.test.ts` | A card drags as one piece: masthead, frame and content together under the pointer, landing together. | ✓ | ✓ |
+| `row-01-arrival-*.test.ts` (warm, cold, kinds) | ⌘N: a new card arrives with nothing of the canvas, grid or an older pane showing through the hole at any frame, cold and warm. | ✓ | ✓ |
+| `row-02-drag-*.test.ts` (session, kinds) | A card drags as one piece: masthead, frame and content together under the pointer, landing together. | ✓ | ✓ |
 | `row-03-departure.test.ts` | A card departs as one piece, and the hole closes with it. | ✓ | ✓ |
 | `row-04-slide.test.ts` | A slide (flow, Go to slot, bullseye, sidebar show/hide, fit) moves each card as one piece: a slide that only moves the card is carried by the host; one that changes its size keeps the interim, hide at the beat's start and show at the land. | ✓ | ✓ |
-| `row-05-chords.test.ts` | Every chord in the keyboard files works from a body and from the shell. | ✓ | ✓ |
-| `row-06-menus.test.ts` | Every Swift menu command works with a body first responder, including the ones validating against the first responder's undo manager. | ✓ | ✓ |
+| `row-05-chords-*.test.ts` (edit, turns, deck, text, overview) | Every chord in the keyboard files works from a body and from the shell. | ✓ | ✓ |
+| `row-06-menus-*.test.ts` (each menu part, Session and kinds; the two `-shows`) | Every Swift menu command works with a body first responder, including the ones validating against the first responder's undo manager. | ✓ | ✓ |
 | `row-07-focus.test.ts` | Activating a card makes its body first responder; typing goes there and nowhere else; the shell's surfaces take and return focus; closing the key card hands focus on. | ✓ | ✓ |
 | `row-08-sheets.test.ts` | The Changes shade, the history view and the find bar open, list, scroll and close from a body. | ✓ | n/a: no sheet |
-| `row-09-fold.test.ts` | Fold hides the body; the unfold shows it with no peek. | ✓ | n/a: a rail does not fold: `setPaneFolded` refuses one |
-| `row-10-workspace.test.ts` | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. | ✓ | ✓ |
+| `row-09-fold-*.test.ts` (fold, unfold) | Fold hides the body; the unfold shows it with no peek. | ✓ | n/a: a rail does not fold: `setPaneFolded` refuses one |
+| `row-10-workspace-*.test.ts` (session and kinds, home and away) | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. | ✓ | ✓ |
 | `row-11-lifecycle.test.ts` | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. A dirty Text body asks in its own page before its pane closes and before a Cards body's workspace delete, and Cancel keeps both. | ✓ | ✓ |
-| `row-12-composer.test.ts` | Z2, the composer, paste of text and images, and the picker-to-body handoff. | ✓ | ✓ |
+| `row-12-composer-*.test.ts` (session-send, session-panel, kinds, no-switch) | Z2, the composer, paste of text and images, and the picker-to-body handoff. | ✓ | ✓ |
 | `row-13-arc-tracking.test.ts` | An arc bound to a body's session reads in that body's Z2, on the shell's masthead and in the Arcs body, which follows the Session card focused before it and offers Bind to its session. The stores a body attaches are enumerated by `tugdeck/src/body/__tests__/body-stores.test.ts`. | ✓ | n/a: the Overview has none of it |
-| `row-14-beats-move.test.ts` | A gesture that only moves body cards (the flow slide out and back, a cross-column stack move) carries each body with its chrome on the host: the lid stays lifted, the content box never shows the floor, the presented container tracks the placeholder, the render server advances it every tick, and it lands on the placeholder to the pixel. | ✓ | ✓ |
-| `row-15-skew.test.ts` | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: noted at an offset of 0 (the median sets the shipped offset), and within two frames of travel at the shipped offset, at rest and with three bodies streaming. | ✓ | n/a: Session-only by construction |
-| `row-16-back-pane-cut.test.ts` | A body carried across a Text card behind it: the back pane's cut moves with the body on the plan's clock, so no frame in motion shows the Text card's ink inside the body; the shell's gap rows over the motion are noted. | ✓ | n/a: Session-only by construction |
-| `row-17-crossing.test.ts` | Bullseye, a column split and a new card beside the body card (⌘N's action) carry it with its chrome, to a new size where the box changes: `crossingReady` within a display period of the first moving beat, the content box and its bottom strip never the floor, the transcript pinned to its bottom before and after, and the container's top corners square. | ✓ | ✓ |
-| `row-19-streams.test.ts` | A body streams through the shell's settle: every body applies a batch between the motion gate's close and open, and none is parked, across a flow slide and a cross-column stack move. | ✓ | n/a: Session-only by construction |
-| `row-20-drag-hole.test.ts` | A body card dragged across a Text card, the drag cancelled, or the card carried there by a settle, leaves no hole in the Text card at rest: every pane's cut is the landed deck's. | ✓ | ✓ |
-| `row-21-edges.test.ts` | A body card's side edges are the pane's border and nothing else, read beside a Text card's at zoom 0.8, 0.9 and 1.0, with each card key. | ✓ | ✓ |
+| `row-14-beats-move-*.test.ts` (kinds and flow, out and back; stack) | A gesture that only moves body cards (the flow slide out and back, a cross-column stack move) carries each body with its chrome on the host: the lid stays lifted, the content box never shows the floor, the presented container tracks the placeholder, the render server advances it every tick, and it lands on the placeholder to the pixel. | ✓ | ✓ |
+| `row-15-skew-*.test.ts` (offset-zero, shipped, streaming) | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: noted at an offset of 0 (the median sets the shipped offset), and within two frames of travel at the shipped offset, at rest and with three bodies streaming. | ✓ | n/a: Session-only by construction |
+| `row-16-back-pane-cut-*.test.ts` (bare, overview) | A body carried across a Text card behind it: the back pane's cut moves with the body on the plan's clock, so no frame in motion shows the Text card's ink inside the body; the shell's gap rows over the motion are noted. | ✓ | n/a: Session-only by construction |
+| `row-17-crossing-*.test.ts` (bullseye, sidebars and kinds-resize each way; new-card; split) | Bullseye, a column split and a new card beside the body card (⌘N's action) carry it with its chrome, to a new size where the box changes: `crossingReady` within a display period of the first moving beat, the content box and its bottom strip never the floor, the transcript pinned to its bottom before and after, and the container's top corners square. | ✓ | ✓ |
+| `row-19-streams-*.test.ts` (flow-out, flow-back, stack) | A body streams through the shell's settle: every body applies a batch between the motion gate's close and open, and none is parked, across a flow slide and a cross-column stack move. | ✓ | n/a: Session-only by construction |
+| `row-20-drag-hole-*.test.ts` (session-drag, session-crossing, kinds) | A body card dragged across a Text card, the drag cancelled, or the card carried there by a settle, leaves no hole in the Text card at rest: every pane's cut is the landed deck's. | ✓ | ✓ |
+| `row-21-edges-*.test.ts` (session, kinds) | A body card's side edges are the pane's border and nothing else, read beside a Text card's at zoom 0.8, 0.9 and 1.0, with each card key. | ✓ | ✓ |
 | `row-22-compaction-cover.test.ts` | A body's Compacting cover rests on the rest line above Z2, as the in-document card's does, not at the top of the transcript. | ✓ | n/a: Session-only by construction |
 | `row-23-tab-edge.test.ts` | A body card's walk runs off its edge into the shell and comes back, by Tab and ⇧Tab and by the View menu's Next and Previous Keyboard Focus, with the body holding the keyboard at every step. | ✓ | ✓ |
 | `row-24-focus-through-motion.test.ts` | The key body keeps the keyboard through a settle that carries it on the host, and what is typed during the motion lands in it. | ✓ | n/a: Session-only by construction |

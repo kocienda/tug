@@ -1,6 +1,6 @@
 /**
- * row-09-fold.test.ts — a fold hides the body and the unfold shows it, with
- * no peek either way.
+ * _row-09.ts — what the pieces of row 9 share: a fold hides the body and the
+ * unfold shows it, with no peek either way.
  *
  * The bar's ninth row ([B02] row 9). A body session card stands in a pane
  * and is folded and unfolded through the session tap (⌃⌘Y, [B04]). The
@@ -15,18 +15,18 @@
  * its chrome has arrived.
  *
  * Read by the window's composite and the shell's own record together
- * (`_motion.ts`), as row 4 reads a slide.
+ * (`_motion.ts`).
  *
  * Every other kind that is a body is folded and unfolded the same way, the
  * chord read by whichever card holds the keyboard.
  *
- * @foreground
- * @covers tugdeck/src/lib/body-placement.ts
- * @covers tugdeck/src/lib/card-fold.ts
- * @covers tugapp/Sources/BodyViewController.swift
+ * One launch per leg: `row-09-fold-fold` reads the fold, `row-09-fold-unfold`
+ * folds as its unmeasured set-up and reads the unfold. A rail does not fold,
+ * so of the default kinds only the Session card runs; another content kind
+ * runs when `TUG_BODY_KINDS` names it.
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,10 +34,10 @@ import { join } from "node:path";
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { focusBody, foldedOf, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { focusBody, foldedOf, pollFor, responders, spawnStub, waitForBody } from "./_bodies";
 import { floorMeasure } from "./_frames";
 import { kindDeck, standUpKind } from "./_kind-bodies";
-import { kindsUnderTest, sessionUnderTest } from "./_kinds";
+import type { CardKind } from "./_kinds";
 import {
   BURST_INTERVAL_MS,
   armSampler,
@@ -55,12 +55,23 @@ import {
 } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-09-fold";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 240_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How a piece launches, stated in the piece itself: every row-9 launch takes
+ * the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
 
 const A = "row09-a";
 /** The burst over one gesture: its beats and its land. */
-const BURST_MS = 3_000;
+const BURST_MS = 1_500;
+
+/** Which gesture a piece reads: the fold, or the unfold after an unmeasured fold. */
+export type Leg = "fold" | "unfold";
 /** How long the fold may take to be seen moving and to come to rest. */
 const SETTLE_MS = 6_000;
 
@@ -134,67 +145,63 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
   expect(verdict.offenders.length, `${label}: on every frame where the chrome moves the content box is the lid`).toBe(0);
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 9: fold", () => {
-  for (const kind of kindsUnderTest(9)) {
-    if (kind.componentId === "session") continue;
-    test(
-      `${kind.componentId}: the fold hides the body at its commit and the unfold shows it only at the land, with no peek`,
-      async () => {
-        const card = `row09-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
-        try {
-          await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row09-seed"] }), focusCardId: card });
-          await standUpKind(app, kind, card);
-          await app.dispatchControlAction("focus-session-card", { cardId: card });
-          await Bun.sleep(400);
-          const start = await expectAtRest(app, card, "at the start");
-          const standing = await readStanding(app, card, start, floorMeasure(kind.rail));
-          const frame = (await rectOf(app, frameOf(card)))!;
-          const crop = { x: 0, y: Math.max(0, Math.floor(frame.y) - 8), width: standing.contentWidth, height: Math.ceil(frame.height) + 16 };
-          const keep = join(tmpdir(), `tug-row09-${kind.componentId}-${Date.now()}`);
-          mkdirSync(keep, { recursive: true });
-          await foldLeg(app, card, "fold", true, standing, crop, keep);
-          await Bun.sleep(600);
-          await foldLeg(app, card, "unfold", false, standing, crop, keep);
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
-    );
+/**
+ * Read `leg` on one card already at rest with the keyboard. The unfold
+ * folds first, unmeasured, and the crop is the open frame's either way.
+ */
+async function readLeg(app: App, card: string, leg: Leg, standing: Standing, keep: string): Promise<void> {
+  const frame = (await rectOf(app, frameOf(card)))!;
+  const crop = { x: 0, y: Math.max(0, Math.floor(frame.y) - 8), width: standing.contentWidth, height: Math.ceil(frame.height) + 16 };
+  mkdirSync(keep, { recursive: true });
+  note(`crop ${JSON.stringify(crop)} at scale ${standing.scale}; frames kept at ${keep}`);
+  if (leg === "fold") {
+    await foldLeg(app, card, "fold", true, standing, crop, keep);
+    return;
   }
+  await armSampler(app, card);
+  await app.nativeKey("y", ["ctrl", "cmd"]);
+  await cameToRest(app, card, true);
+  await Bun.sleep(600);
+  note(`fold (set-up) landed; before the unfold: focused card ${await app.getFocusedCardId()}; host ${await responders(app)}`);
+  await foldLeg(app, card, "unfold", false, standing, crop, keep);
+}
 
-  test.skipIf(!sessionUnderTest(9))(
-    "the fold hides the body at its commit and the unfold shows it only at the land, with no peek",
-    async () => {
-      const stubDir = stubDirectory();
-      const app = await launchTugApp({
-        testName: TEST_NAME,
-        foreground: true,
-        bodies: true,
-        env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
-      });
-      try {
-        await app.seedDeckState({ state: deck(), focusCardId: A });
-        await spawnStub(app, A, stubDir, 2);
-        await waitForBody(app, A);
-        await focusBody(app, A);
-        await Bun.sleep(400);
-        const start = await expectAtRest(app, A, "at the start");
-        const standing = await readStanding(app, A, start);
-        const frame = (await rectOf(app, frameOf(A)))!;
-        const crop = { x: 0, y: Math.max(0, Math.floor(frame.y) - 8), width: standing.contentWidth, height: Math.ceil(frame.height) + 16 };
-        const keep = join(tmpdir(), `tug-row09-${Date.now()}`);
-        mkdirSync(keep, { recursive: true });
-        note(`crop ${JSON.stringify(crop)} at scale ${standing.scale}; frames kept at ${keep}`);
+/** Every other kind: a card of `kind` folded or unfolded by the chord it reads. */
+export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
+  const card = `row09-${kind.componentId}`;
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, foreground: launch.foreground, bodies: true });
+  try {
+    await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row09-seed"] }), focusCardId: card });
+    await standUpKind(app, kind, card);
+    await app.dispatchControlAction("focus-session-card", { cardId: card });
+    await Bun.sleep(400);
+    const start = await expectAtRest(app, card, "at the start");
+    const standing = await readStanding(app, card, start, floorMeasure(kind.rail));
+    await readLeg(app, card, leg, standing, join(tmpdir(), `tug-row09-${leg}-${kind.componentId}-${Date.now()}`));
+  } finally {
+    await app.close();
+  }
+}
 
-        await foldLeg(app, A, "fold", true, standing, crop, keep);
-        await Bun.sleep(600);
-        await foldLeg(app, A, "unfold", false, standing, crop, keep);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+/** The Session card, bound to a stub session, folded or unfolded. */
+export async function foldSession(launch: Launch, leg: Leg): Promise<void> {
+  const stubDir = stubDirectory();
+  const app = await launchTugApp({
+    testName: `${TEST_NAME}-${leg}`,
+    foreground: launch.foreground,
+    bodies: true,
+    env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
+  });
+  try {
+    await app.seedDeckState({ state: deck(), focusCardId: A });
+    await spawnStub(app, A, stubDir, 2);
+    await waitForBody(app, A);
+    await focusBody(app, A);
+    await Bun.sleep(400);
+    const start = await expectAtRest(app, A, "at the start");
+    const standing = await readStanding(app, A, start);
+    await readLeg(app, A, leg, standing, join(tmpdir(), `tug-row09-${leg}-${Date.now()}`));
+  } finally {
+    await app.close();
+  }
+}

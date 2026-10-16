@@ -209,53 +209,53 @@ export async function sessionComposer(launch: Launch, part: "send" | "panel"): P
     const a = app.body(A);
 
     if (part === "send") {
-    // ---- Z2 stands in the body ----
-    const cellsAtStart = await a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(STATUS_CELLS)}).length`);
-    note(`Z2 at the start: status bar ${await a.evalJS<boolean>(`document.querySelector(${JSON.stringify(STATUS_BAR)}) !== null`)}, ${cellsAtStart} cells; phase ${JSON.stringify(await a.evalJS<string | null>(`document.querySelector(${JSON.stringify(PHASE_CELL)})?.textContent ?? null`))}`);
-    expect(await a.evalJS<boolean>(`document.querySelector(${JSON.stringify(STATUS_BAR)}) !== null`), "the body shows Z2's status bar").toBe(true);
-    expect(cellsAtStart, "Z2 has its telemetry cells in the body").toBeGreaterThan(0);
+      // ---- Z2 stands in the body ----
+      const cellsAtStart = await a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(STATUS_CELLS)}).length`);
+      note(`Z2 at the start: status bar ${await a.evalJS<boolean>(`document.querySelector(${JSON.stringify(STATUS_BAR)}) !== null`)}, ${cellsAtStart} cells; phase ${JSON.stringify(await a.evalJS<string | null>(`document.querySelector(${JSON.stringify(PHASE_CELL)})?.textContent ?? null`))}`);
+      expect(await a.evalJS<boolean>(`document.querySelector(${JSON.stringify(STATUS_BAR)}) !== null`), "the body shows Z2's status bar").toBe(true);
+      expect(cellsAtStart, "Z2 has its telemetry cells in the body").toBeGreaterThan(0);
 
-    // ---- The composer sends a prompt and the next turn plays ----
-    const entriesBefore = await a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`);
-    await app.nativeType("row12 prompt");
-    expect(await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("row12 prompt") === true, SETTLE_MS), "typing lands in the body's composer").toContain("row12 prompt");
-    // Return writes a line in the composer; ⇧Return is the send.
-    await pollFor(() => a.evalJS<string | null>(`document.querySelector('[data-slot="tug-prompt-entry"]')?.getAttribute("data-can-submit") ?? null`), (v) => v === "true", SETTLE_MS);
-    await app.nativeKey("Return", ["shift"]);
-    const left = await pollFor(() => a.evalJS<string | null>(promptPhase), (p) => p !== "idle", SETTLE_MS);
-    note(`after ⇧Return: phase ${JSON.stringify(left)}, Z2 phase cell ${JSON.stringify(await a.evalJS<string | null>(`document.querySelector(${JSON.stringify(PHASE_CELL)})?.textContent ?? null`))}, composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
-    expect(left, "⇧Return sends the prompt: the entry's phase leaves idle").not.toBe("idle");
-    const back = await pollFor(() => a.evalJS<string | null>(promptPhase), (p) => p === "idle", TURN_MS);
-    expect(back, "the turn runs out and the entry is idle again").toBe("idle");
-    const entriesAfter = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`), (n) => n > entriesBefore, SETTLE_MS);
-    const perTurn = await pollFor(() => a.evalJS<string>(`document.querySelector(${JSON.stringify(PER_TURN_DURATION)})?.textContent ?? ""`), (t) => t.trim() !== "", SETTLE_MS);
-    note(`after the turn: transcript entries ${entriesBefore} → ${entriesAfter}; Z2 per-turn duration ${JSON.stringify(perTurn)}; composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
-    expect(entriesAfter, "the stub's next turn arrived in the body's transcript").toBeGreaterThan(entriesBefore);
-    expect(await pollFor(() => a.evalJS<boolean>(composerIsEmpty), (v) => v, SETTLE_MS), "the send cleared the composer").toBe(true);
-    // Z2's surfaces open in the body: the time cell's popover, closed by Escape.
-    await a.nativeClickAtElement(Z2_TIME_CELL);
-    const z2Open = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) !== null`), (v) => v, SETTLE_MS);
-    expect(z2Open, "a click on Z2's time cell opens its surface in the body").toBe(true);
-    await app.nativeKey("Escape");
-    const z2Closed = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) === null`), (v) => v, SETTLE_MS);
-    expect(z2Closed, "Escape closes Z2's surface").toBe(true);
-    await a.nativeClickAtElement(PROMPT_INPUT);
+      // ---- The composer sends a prompt and the next turn plays ----
+      const entriesBefore = await a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`);
+      await app.nativeType("row12 prompt");
+      expect(await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes("row12 prompt") === true, SETTLE_MS), "typing lands in the body's composer").toContain("row12 prompt");
+      // Return writes a line in the composer; ⇧Return is the send.
+      await pollFor(() => a.evalJS<string | null>(`document.querySelector('[data-slot="tug-prompt-entry"]')?.getAttribute("data-can-submit") ?? null`), (v) => v === "true", SETTLE_MS);
+      await app.nativeKey("Return", ["shift"]);
+      const left = await pollFor(() => a.evalJS<string | null>(promptPhase), (p) => p !== "idle", SETTLE_MS);
+      note(`after ⇧Return: phase ${JSON.stringify(left)}, Z2 phase cell ${JSON.stringify(await a.evalJS<string | null>(`document.querySelector(${JSON.stringify(PHASE_CELL)})?.textContent ?? null`))}, composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
+      expect(left, "⇧Return sends the prompt: the entry's phase leaves idle").not.toBe("idle");
+      const back = await pollFor(() => a.evalJS<string | null>(promptPhase), (p) => p === "idle", TURN_MS);
+      expect(back, "the turn runs out and the entry is idle again").toBe("idle");
+      const entriesAfter = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(TRANSCRIPT_ENTRY)}).length`), (n) => n > entriesBefore, SETTLE_MS);
+      const perTurn = await pollFor(() => a.evalJS<string>(`document.querySelector(${JSON.stringify(PER_TURN_DURATION)})?.textContent ?? ""`), (t) => t.trim() !== "", SETTLE_MS);
+      note(`after the turn: transcript entries ${entriesBefore} → ${entriesAfter}; Z2 per-turn duration ${JSON.stringify(perTurn)}; composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
+      expect(entriesAfter, "the stub's next turn arrived in the body's transcript").toBeGreaterThan(entriesBefore);
+      expect(await pollFor(() => a.evalJS<boolean>(composerIsEmpty), (v) => v, SETTLE_MS), "the send cleared the composer").toBe(true);
+      // Z2's surfaces open in the body: the time cell's popover, closed by Escape.
+      await a.nativeClickAtElement(Z2_TIME_CELL);
+      const z2Open = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) !== null`), (v) => v, SETTLE_MS);
+      expect(z2Open, "a click on Z2's time cell opens its surface in the body").toBe(true);
+      await app.nativeKey("Escape");
+      const z2Closed = await pollFor(() => a.evalJS<boolean>(`document.querySelector(${JSON.stringify(Z2_SURFACE)}) === null`), (v) => v, SETTLE_MS);
+      expect(z2Closed, "Escape closes Z2's surface").toBe(true);
+      await a.nativeClickAtElement(PROMPT_INPUT);
 
-    // ---- Paste: text, then an image, through the real pasteboard ----
-    await expectKeyboardInBody(app, A, "before the paste");
-    pasteboardText(PASTED_TEXT);
-    await app.nativeKey("v", ["cmd"]);
-    const pastedText = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(PASTED_TEXT) === true, SETTLE_MS);
-    expect(pastedText, "⌘V pastes the pasteboard's text into the body's composer").toContain(PASTED_TEXT);
-    await clearComposer(app, A);
-    pasteboardImage(pngPath);
-    await app.nativeKey("v", ["cmd"]);
-    const tiles = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
-    note(`after the image paste: ${tiles} attachment tile(s); composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
-    expect(tiles, "⌘V pastes the pasteboard's image as an attachment in the body's composer").toBeGreaterThan(0);
-    await clearComposer(app, A);
-    await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n === 0, SETTLE_MS);
-    return;
+      // ---- Paste: text, then an image, through the real pasteboard ----
+      await expectKeyboardInBody(app, A, "before the paste");
+      pasteboardText(PASTED_TEXT);
+      await app.nativeKey("v", ["cmd"]);
+      const pastedText = await pollFor(() => a.evalJS<string | null>(composerText), (t) => t?.includes(PASTED_TEXT) === true, SETTLE_MS);
+      expect(pastedText, "⌘V pastes the pasteboard's text into the body's composer").toContain(PASTED_TEXT);
+      await clearComposer(app, A);
+      pasteboardImage(pngPath);
+      await app.nativeKey("v", ["cmd"]);
+      const tiles = await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n > 0, SETTLE_MS);
+      note(`after the image paste: ${tiles} attachment tile(s); composer ${JSON.stringify(await a.evalJS<string | null>(composerText))}`);
+      expect(tiles, "⌘V pastes the pasteboard's image as an attachment in the body's composer").toBeGreaterThan(0);
+      await clearComposer(app, A);
+      await pollFor(() => a.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ATTACHMENT_TILE)}).length`), (n) => n === 0, SETTLE_MS);
+      return;
     }
 
     // ---- The picker handoff: ⇧⌘I from the body, the host's panel, the path back to the body ----

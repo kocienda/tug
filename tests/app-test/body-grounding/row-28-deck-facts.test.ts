@@ -10,16 +10,18 @@
  * tugbank at boot and never again; it is now a fact the body follows, and the
  * body persists nothing it is sent.
  *
- * One body Session card beside a Text card, which the shell draws:
+ * One body card. Every card kind is a body now, so the shell holds the
+ * keyboard only when its own surface is clicked: an empty spot on the deck
+ * canvas, after which no body is the window's first responder.
  *
  * - **The modality.** `focusRingModality` written to tugbank by the CLI, under
  *   the app's instance id, while the app runs reaches the shell through the
  *   DEFAULTS push, and the body's focus
  *   engine follows it, to `pointer` and back.
- * - **The latch, shell key.** With the Text card holding the keyboard, Shift
+ * - **The latch, shell key.** With the shell holding the keyboard, Shift
  *   held through the session tap lands `data-mods="shift"` on the shell's
  *   root and on the body's, and its release clears both.
- * - **The latch, a hand-off while held.** Shift held in the Text card, the
+ * - **The latch, a hand-off while held.** Shift held in the shell, the
  *   keyboard given to the body, Shift released there: no root is left
  *   wearing `shift`.
  * - **The latch, body key.** With the body holding the keyboard, Shift held
@@ -33,15 +35,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 import { launchTugApp, note, type App, type BodyApp } from "../_harness";
 import { withModifiersHeld } from "../_harness/client";
 import { mkTempTugbank, seedTugbankForLaunch } from "../_harness/tugbank-helpers";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
-import { SETTLE_MS, bodyOf, focusBody, pollFor, spawnStub, waitForBody } from "./_bodies";
+import { SETTLE_MS, focusBody, pollFor, spawnStub, waitForBody } from "./_bodies";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import { kindsUnderTest } from "./_kinds";
 
@@ -50,8 +49,6 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const A = "r28-a";
-const T = "r28-text";
-const TEXT_EDITOR = `[data-card-id="${T}"] [data-slot="tug-text-card-editor"] .cm-content`;
 const mods = `document.documentElement.getAttribute("data-mods")`;
 const ringFollowsPointer = "window.__tug.ringFollowsPointer()";
 
@@ -72,10 +69,7 @@ function writeModality(app: App, tugbankPath: string, value: "keyboard" | "point
 
 function deck(): Record<string, unknown> {
   return {
-    cards: [
-      { id: A, componentId: "session", title: "A", closable: true },
-      { id: T, componentId: "text", title: "Text", closable: true },
-    ],
+    cards: [{ id: A, componentId: "session", title: "A", closable: true }],
     panes: [
       {
         id: `${A}-pane`,
@@ -86,31 +80,26 @@ function deck(): Record<string, unknown> {
         title: "",
         acceptsFamilies: ["maker"],
       },
-      {
-        id: `${T}-pane`,
-        position: { x: 720, y: 40 },
-        size: { width: 480, height: 600 },
-        cardIds: [T],
-        activeCardId: T,
-        title: "",
-        acceptsFamilies: ["standard"],
-      },
     ],
     activePaneId: `${A}-pane`,
     hasFocus: true,
   };
 }
 
-/** `deck` with the Text card standing in the band's next slot. */
-function withText(deck: Record<string, unknown>): Record<string, unknown> {
-  const panes = deck.panes as Array<Record<string, unknown>>;
-  const slot = panes.filter((p) => typeof p.slot === "number").length;
-  return {
-    ...deck,
-    cards: [...(deck.cards as unknown[]), { id: T, componentId: "text", title: "Text", closable: true }],
-    panes: [...panes, { id: `${T}-pane`, position: { x: 40, y: 40 }, size: { width: 480, height: 600 }, cardIds: [T], activeCardId: T, title: "", acceptsFamilies: ["standard"], slot }],
-  };
-}
+/**
+ * A point on the deck canvas no pane stands over, in the shell's
+ * coordinates: a click there is the shell's own, and takes the keyboard
+ * from every body.
+ */
+const EMPTY_CANVAS = `(function () {
+  for (var y = window.innerHeight - 40; y > 40; y -= 40) {
+    for (var x = 40; x < window.innerWidth - 40; x += 40) {
+      var el = document.elementFromPoint(x, y);
+      if (el !== null && el.closest(".tug-pane") === null && el.closest("[data-deck-canvas-background]") !== null) return { x: x, y: y };
+    }
+  }
+  return null;
+})()`;
 
 /** Both pages' `data-mods`, polled until `done` or the settle runs out. */
 async function modsOf(app: App, a: BodyApp, done: (shell: string | null, body: string | null) => boolean): Promise<{ shell: string | null; body: string | null }> {
@@ -130,9 +119,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
       const stubDir = stubDirectory();
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
-      const textDir = mkdtempSync(join(tmpdir(), "tug-row28-text-"));
-      const textFile = join(textDir, "notes.txt");
-      writeFileSync(textFile, "one\ntwo\nthree\n");
       const app = await launchTugApp({
         testName: kind.componentId === "session" ? TEST_NAME : `${TEST_NAME}-${kind.componentId}`,
         foreground: true,
@@ -141,8 +127,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
       });
       try {
         await app.seedDeckState({
-          state: session ? deck() : withText(kindDeck(kind, card, { sessions: ["r28-seed"] })),
-          cardStates: { [T]: { content: { path: textFile, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
+          state: session ? deck() : kindDeck(kind, card, { sessions: ["r28-seed"] }),
           focusCardId: card,
         });
         if (session) {
@@ -173,9 +158,11 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
         expect(back, "and back, both").toEqual({ shell: false, body: false });
 
         // ---- The latch with the shell holding the keyboard ----
-        await app.nativeClickAtElement(TEXT_EDITOR);
-        const shellKey = await pollFor(() => bodyOf(app, card), (b) => b?.firstResponder === false, SETTLE_MS);
-        expect(shellKey?.firstResponder, "the Text card's click gives the shell the keyboard").toBe(false);
+        const empty = await app.evalJS<{ x: number; y: number } | null>(EMPTY_CANVAS);
+        expect(empty, "the deck canvas has a spot no pane stands over").not.toBeNull();
+        await app.nativeClick(empty!);
+        const holders = await pollFor(() => app.bodies(), (bs) => bs.every((b) => !b.firstResponder), SETTLE_MS);
+        expect(holders.filter((b) => b.firstResponder).map((b) => b.cardId), "a click on the empty canvas gives the shell the keyboard").toEqual([]);
         let held: { shell: string | null; body: string | null } = { shell: null, body: null };
         await withModifiersHeld(app, ["shift"], async () => {
           held = await modsOf(app, a, (s, b) => s === "shift" && b === "shift");

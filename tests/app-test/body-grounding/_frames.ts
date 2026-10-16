@@ -20,12 +20,35 @@
 
 import type { App } from "../_harness";
 import type { CaptureBurstFrame } from "../_harness/client";
-import { decodePngFile } from "../_harness/png";
+import { decodePngFile, type DecodedPng } from "../_harness/png";
 
 export interface Rgb {
   r: number;
   g: number;
   b: number;
+}
+
+/**
+ * The last two frames decoded. A judge reads one frame several ways in a
+ * row — the placeholder's rect, the whole crop, an edge on each of two rows
+ * — and a full-window decode is ~36 ms, so each read decoding afresh was
+ * most of a leg's cost. A frame's file never changes once captured. Least
+ * recently used goes first, so a standing frame every frame is compared
+ * against (`framesDiffer`) stays while the frames under judgement pass.
+ */
+const recent = new Map<string, DecodedPng>();
+
+function decoded(path: string): DecodedPng {
+  const hit = recent.get(path);
+  if (hit !== undefined) {
+    recent.delete(path);
+    recent.set(path, hit);
+    return hit;
+  }
+  const png = decodePngFile(path);
+  recent.set(path, png);
+  if (recent.size > 2) recent.delete(recent.keys().next().value!);
+  return png;
 }
 
 /** `rgb(r, g, b)`, `rgba(r, g, b, a)` or `#rrggbb` → channels. */
@@ -104,7 +127,7 @@ export const floorMeasure = (rail: boolean): FloorMeasure => (rail ? FLOOR_BY_CA
 
 /** The frame's commonest colour. */
 export function fillOf(frame: CaptureBurstFrame): Rgb {
-  const png = decodePngFile(frame.path);
+  const png = decoded(frame.path);
   const counts = new Map<number, number>();
   for (let y = 0; y < png.height; y += 2) {
     for (let x = 0; x < png.width; x += 2) {
@@ -149,7 +172,7 @@ export function classifyFrame(
   tolerance = 8,
   region?: FrameRegion,
 ): FrameClasses {
-  const png = decodePngFile(frame.path);
+  const png = decoded(frame.path);
   const bareIsCanvas = near(palette.bare, palette.canvas, tolerance);
   const x0 = Math.max(0, Math.floor(region?.x ?? 0));
   const y0 = Math.max(0, Math.floor(region?.y ?? 0));
@@ -192,7 +215,7 @@ export function classifyFrame(
  * body on a content row, each read by its own colour.
  */
 export function leftEdgeOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, tolerance: number, minRun = 16): number | null {
-  const png = decodePngFile(frame.path);
+  const png = decoded(frame.path);
   const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
   let run = 0;
   for (let x = 0; x < png.width; x++) {
@@ -218,7 +241,7 @@ export function leftEdgeOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, 
  * composite's: `nearX` only chooses whose.
  */
 export function edgeNearOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, tolerance: number, nearX: number, minRun = 16): number | null {
-  const png = decodePngFile(frame.path);
+  const png = decoded(frame.path);
   const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
   let run = 0;
   let best: number | null = null;
@@ -246,8 +269,8 @@ export function edgeNearOnRow(frame: CaptureBurstFrame, y: number, colour: Rgb, 
  * shell's own record can be a frame or two ahead of the window server.
  */
 export function framesDiffer(a: CaptureBurstFrame, b: CaptureBurstFrame, tolerance = 8, minShare = 0.002): boolean {
-  const p = decodePngFile(a.path);
-  const q = decodePngFile(b.path);
+  const p = decoded(a.path);
+  const q = decoded(b.path);
   if (p.width !== q.width || p.height !== q.height) return true;
   let differing = 0;
   let sampled = 0;
@@ -269,7 +292,7 @@ export function framesDiffer(a: CaptureBurstFrame, b: CaptureBurstFrame, toleran
 
 /** The commonest colour along row `y` of the frame between `x0` and `x1` (device px). */
 export function fillOnRow(frame: CaptureBurstFrame, y: number, x0: number, x1: number): Rgb {
-  const png = decodePngFile(frame.path);
+  const png = decoded(frame.path);
   const row = Math.min(png.height - 1, Math.max(0, Math.round(y)));
   const counts = new Map<number, number>();
   for (let x = Math.max(0, Math.floor(x0)); x < Math.min(png.width, Math.ceil(x1)); x++) {

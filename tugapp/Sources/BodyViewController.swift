@@ -595,8 +595,8 @@ final class BodyViewController {
         refreshAccessibilityOrder()
     }
 
-    /// The showing bodies in the shell's pane order, which the window reads
-    /// after the shell's own view.
+    /// The showing bodies in the order the shell posts them — the deck's
+    /// reading order — which the window reads after the shell's own view.
     var bodiesInDeckOrder: [Body] {
         bodies
             .filter { $0.visible && $0.state == .ready && $0.painted }

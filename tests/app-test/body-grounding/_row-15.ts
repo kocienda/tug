@@ -1,6 +1,7 @@
 /**
- * row-15-skew.test.ts — the skew between a carried body and its chrome, as
- * the composite shows it, at an offset of 0 and at the offset that ships.
+ * _row-15.ts — what the pieces of row 15 share: the skew between a carried
+ * body and its chrome, as the composite shows it, at an offset of 0 and at
+ * the offset that ships.
  *
  * The bar's fifteenth row. A carried body and its chrome start on one
  * number (`shellWallMs(T)` on the shell, the plan's `startWallMs` moved onto
@@ -31,12 +32,11 @@
  * shipped leg also notes whether the program's escalation trigger is met:
  * the two edges more than one display period of travel apart.
  *
- * @foreground
- * @covers tugapp/Sources/BodyBeats.swift
- * @covers tugdeck/src/lib/body-beat-plan.ts
+ * One launch per leg: `row-15-skew-offset-zero` (leg A),
+ * `row-15-skew-shipped` (leg B) and `row-15-skew-streaming` (leg C).
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstFrame, CaptureBurstReading } from "../_harness/client";
@@ -62,8 +62,16 @@ import {
 } from "./_motion";
 
 const TEST_NAME = "body-grounding-row-15-skew";
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 480_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
+
+/**
+ * How a piece launches, stated in the piece itself: every row-15 launch
+ * takes the screen, and `@foreground` is read off the file that says so.
+ */
+export interface Launch {
+  foreground: boolean;
+}
 
 const BURST_MS = 2_000;
 /** The burst's own floor: one capture per display period at 60 Hz. */
@@ -262,13 +270,13 @@ async function readSlide(app: App, card: string, label: string, js: string, crop
  * One launch: the slide out and back, read at whatever offset the host
  * runs. With `streaming`, all three bodies are mid-turn through both slides.
  */
-async function runLeg(leg: string, env: Record<string, string>, streaming = false): Promise<{ readings: SkewReading[]; offset: number; periodMs: number }> {
+async function runLeg(launch: Launch, leg: string, env: Record<string, string>, streaming = false): Promise<{ readings: SkewReading[]; offset: number; periodMs: number }> {
   const stubDir = stubDirectory();
   const bodies = ["r15-a", "r15-b", "r15-c"];
   const card = bodies[0];
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${leg}`,
-    foreground: true,
+    foreground: launch.foreground,
     bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, ...env },
   });
@@ -312,31 +320,28 @@ async function runLeg(leg: string, env: Record<string, string>, streaming = fals
   }
 }
 
-describe.skipIf(!SHOULD_RUN)("body-grounding row 15: the carried body's skew against its chrome", () => {
-  test(
-    "the skew at an offset of 0, and within two frames of travel at the offset that ships, at rest and streaming",
-    async () => {
-      const a = await runLeg("leg A (offset 0)", { TUG_BODY_BEAT_OFFSET_PERIODS: "0" });
-      const aPeriods = a.readings.flatMap((r) => r.leadPeriods);
-      const aPx = a.readings.flatMap((r) => r.leadPx);
-      note(`leg A at ${a.offset} periods, ${a.periodMs.toFixed(3)} ms period: lead in periods ${describe1(aPeriods, "periods")}; in px ${describe1(aPx, "px")}`);
-      note(`leg A's median lead, the offset to ship: ${median(aPeriods).toFixed(2)} periods`);
-      expect(a.offset, "leg A runs at an offset of 0").toBe(0);
+/** Leg A: the skew at an offset of 0, whose median is the offset to ship. */
+export async function offsetZero(launch: Launch): Promise<void> {
+  const a = await runLeg(launch, "leg A (offset 0)", { TUG_BODY_BEAT_OFFSET_PERIODS: "0" });
+  const aPeriods = a.readings.flatMap((r) => r.leadPeriods);
+  const aPx = a.readings.flatMap((r) => r.leadPx);
+  note(`leg A at ${a.offset} periods, ${a.periodMs.toFixed(3)} ms period: lead in periods ${describe1(aPeriods, "periods")}; in px ${describe1(aPx, "px")}`);
+  note(`leg A's median lead, the offset to ship: ${median(aPeriods).toFixed(2)} periods`);
+  expect(a.offset, "leg A runs at an offset of 0").toBe(0);
+}
 
-      for (const [name, streaming] of [["leg B (shipped)", false], ["leg C (shipped, three streams)", true]] as const) {
-        const b = await runLeg(name, {}, streaming);
-        const bPeriods = b.readings.flatMap((r) => r.leadPeriods);
-        note(`${name} at ${b.offset} periods, ${b.periodMs.toFixed(3)} ms period: lead in periods ${describe1(bPeriods, "periods")}; in px ${describe1(b.readings.flatMap((r) => r.leadPx), "px")}`);
-        const worstTravel = Math.max(...b.readings.map((r) => r.worstPeriodsOfTravel));
-        note(`${name}: the edges stand at most ${worstTravel.toFixed(2)} periods of travel apart; the escalation trigger (over one) is ${worstTravel > 1 ? "MET" : "not met"}`);
-        for (const [i, r] of b.readings.entries()) {
-          const worst = r.leadPx.reduce((m, v) => (Math.abs(v) > Math.abs(m) ? v : m), 0);
-          const bar = 2 * r.fastestStep + 2;
-          note(`${name} slide ${i + 1}: worst |lead| ${Math.abs(worst).toFixed(1)} px against a bar of ${bar.toFixed(1)} px (two frames of the slide's fastest step ${r.fastestStep.toFixed(1)} px, plus 2)`);
-          expect(Math.abs(worst), `${name} slide ${i + 1}: the body stands within two frames of travel of its chrome on every frame in motion`).toBeLessThanOrEqual(bar);
-        }
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
+/** Legs B and C: within two frames of travel at the offset that ships, at rest or with three bodies streaming. */
+export async function shipped(launch: Launch, streaming: boolean): Promise<void> {
+  const name = streaming ? "leg C (shipped, three streams)" : "leg B (shipped)";
+  const b = await runLeg(launch, name, {}, streaming);
+  const bPeriods = b.readings.flatMap((r) => r.leadPeriods);
+  note(`${name} at ${b.offset} periods, ${b.periodMs.toFixed(3)} ms period: lead in periods ${describe1(bPeriods, "periods")}; in px ${describe1(b.readings.flatMap((r) => r.leadPx), "px")}`);
+  const worstTravel = Math.max(...b.readings.map((r) => r.worstPeriodsOfTravel));
+  note(`${name}: the edges stand at most ${worstTravel.toFixed(2)} periods of travel apart; the escalation trigger (over one) is ${worstTravel > 1 ? "MET" : "not met"}`);
+  for (const [i, r] of b.readings.entries()) {
+    const worst = r.leadPx.reduce((m, v) => (Math.abs(v) > Math.abs(m) ? v : m), 0);
+    const bar = 2 * r.fastestStep + 2;
+    note(`${name} slide ${i + 1}: worst |lead| ${Math.abs(worst).toFixed(1)} px against a bar of ${bar.toFixed(1)} px (two frames of the slide's fastest step ${r.fastestStep.toFixed(1)} px, plus 2)`);
+    expect(Math.abs(worst), `${name} slide ${i + 1}: the body stands within two frames of travel of its chrome on every frame in motion`).toBeLessThanOrEqual(bar);
+  }
+}

@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bodyHoles,
   bodyVisible,
+  inReadingOrder,
   mirrorInsets,
   paneClipPath,
   paneHoles,
@@ -41,6 +42,15 @@ describe("bodyVisible", () => {
       expect(bodyVisible({ ...SHOWN, ...over })).toBe(visible);
     });
   }
+});
+
+describe("the order bodies are posted in", () => {
+  test("is the deck's reading order, left to right and then down a column, whatever order they came in", () => {
+    const at = (cardId: string, x: number, y: number) => ({ cardId, x, y, width: 300, height: 200, visible: true, z: 0 });
+    // Pane-id order — the canvas's — is a, b, text; the deck stands a, text, b.
+    const posted = inReadingOrder([at("a", 0, 40), at("b", 640, 40), at("text", 320, 40), at("under-a", 0, 260)]);
+    expect(posted.map((b) => b.cardId)).toEqual(["a", "under-a", "text", "b"]);
+  });
 });
 
 describe("the holes bodies cut", () => {

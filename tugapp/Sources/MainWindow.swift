@@ -1333,7 +1333,8 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
 
     /// VoiceOver's order for the window: the shell's view, which holds the
     /// deck's chrome and every card it draws itself, then each showing body
-    /// in its pane's place in the shell's document. A body cannot be read
+    /// in the deck's reading order, left to right and down a column, as the
+    /// shell posts them. A body cannot be read
     /// between two of the shell's own cards: the shell is one element.
     func setAccessibilityOrder(bodies: [WKWebView]) {
         (containerView as? DeckContainerView)?.accessibilityOrder = [webView as Any] + bodies.map { $0 as Any }
