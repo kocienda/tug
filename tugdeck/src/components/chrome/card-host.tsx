@@ -1326,6 +1326,29 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
             continue;
           }
 
+          // A list view with NO meta — a raw pixel saved while its
+          // anchor attribute was absent — is ONE-SHOT for a third
+          // reason: the retry can never converge, and the attempt
+          // wedges the page. The saved `pos.y` names a height the
+          // list had at save time; re-measured at today's width the
+          // list is shorter, so the write clamps to the bottom and
+          // the tolerance gate below fails forever. Each retry then
+          // disengages follow-bottom (one `style` write), lands at
+          // the bottom, and SmartScroll re-engages it there (another
+          // `style` write) — a mutation the observer below delivers
+          // in the same microtask checkpoint, which calls `apply`
+          // again, synchronously, with no task boundary to let a
+          // frame, a timer or a keystroke in. That was the release
+          // deck pinned at 100% behind the restore gate on 2026-10-16.
+          // A list view lands itself (`list-view-reveal.ts`); hand it
+          // the pixel once and let its own clamp be the landing.
+          if (el.matches('[data-slot="tug-list-view"]')) {
+            pending[key] = pos;
+            hasPending = true;
+            settledElByKey.set(key, el);
+            continue;
+          }
+
           // If the element already sits within tolerance of the
           // saved position, mark THIS element settled and stop
           // fighting any subsequent user scroll on it. Covers
@@ -1350,7 +1373,25 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
     apply();
     const cardRoot = findCardRoot(hostContentEl, cardId);
     if (!cardRoot) return;
-    const observer = new MutationObserver(apply);
+    // The retry rides a frame, never the observer's own microtask. A
+    // mutation observer delivers in the microtask checkpoint of the
+    // task that mutated, and a retry that mutates the subtree it
+    // watches (`applyRegionScrolls` → a listener's `style` write)
+    // re-queues itself into the SAME checkpoint: the loop runs
+    // synchronously, forcing a layout per iteration, and the page
+    // never reaches the next task. Coalescing onto
+    // `requestAnimationFrame` gives every retry a horizon the event
+    // loop can interrupt — a region that never converges costs one
+    // layout per frame, not the thread ([L33]).
+    let retryFrame: number | null = null;
+    const scheduleApply = (): void => {
+      if (retryFrame !== null) return;
+      retryFrame = requestAnimationFrame(() => {
+        retryFrame = null;
+        apply();
+      });
+    };
+    const observer = new MutationObserver(scheduleApply);
     observer.observe(cardRoot, {
       childList: true,
       subtree: true,
@@ -1361,7 +1402,13 @@ function CardHostImpl({ cardId, hostStackId, componentId, isActive = true }: Car
       attributes: true,
       attributeFilter: ["style"],
     });
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (retryFrame !== null) {
+        cancelAnimationFrame(retryFrame);
+        retryFrame = null;
+      }
+    };
     // `callbacksVersion` joins the dep set so this effect re-fires on
     // a content-factory remount (the no-op-pair → real-callbacks
     // transition that `registerStatePreservationCallbacks` watches
