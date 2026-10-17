@@ -112,7 +112,8 @@ import {
 } from "../../blocks/block-notice";
 import { TugProgressIndicator } from "../../tug-progress-indicator";
 import { useRunProgress, useSettledRun } from "../../blocks/run-progress-context";
-import { formatRunProgressLine } from "@/lib/run-progress-store";
+import { formatRunProgressLine, type RunProgress } from "@/lib/run-progress-store";
+import { useLiveTick } from "@/lib/live-tick";
 import { TugRunPanel, TugRunStrip, isRunPanelReport } from "../../tug-run-panel";
 import type { ToolResultSummary } from "../../blocks/tool-result-summary";
 import type { ToolBlockProps } from "../../blocks/types";
@@ -282,6 +283,21 @@ export function tryParseBashDiff(
 }
 
 /**
+ * A running run panel on the shared 1 Hz {@link useLiveTick}: the running
+ * phase's time and the "to go" projection are elapsed readings, and a panel
+ * that only re-rendered on a report left them frozen between reports. Mounted
+ * only while a panel runs, so a settled block and the one-line band pay no tick.
+ */
+function LiveRunPanel({ run }: { run: RunProgress }): React.ReactElement {
+  const now = useLiveTick();
+  return (
+    <div data-slot="bash-run-panel" className="bash-run-panel">
+      <TugRunPanel run={run} state="running" nowMs={now} />
+    </div>
+  );
+}
+
+/**
  * The running command's latest progress report, as one line on the notice
  * band's surface. It leads with a ring filled to `done / total` when the
  * report carries a total, and with the `progress` tone's spinner when it
@@ -292,15 +308,7 @@ export function tryParseBashDiff(
  */
 export const BashLiveBand: React.FC<{ toolUseId: string }> = ({ toolUseId }) => {
   const progress = useRunProgress(toolUseId);
-  if (isRunPanelReport(progress)) {
-    // Re-rendered by every report and every engine heartbeat (about once a
-    // second), which is the clock the lanes' elapsed reads against.
-    return (
-      <div data-slot="bash-run-panel" className="bash-run-panel">
-        <TugRunPanel run={progress} state="running" nowMs={Date.now()} />
-      </div>
-    );
-  }
+  if (isRunPanelReport(progress)) return <LiveRunPanel run={progress} />;
   if (progress?.text === undefined) return null;
   const ring =
     progress.total !== undefined ? (

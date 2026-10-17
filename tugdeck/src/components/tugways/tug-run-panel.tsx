@@ -13,10 +13,9 @@
  *   2. **Track** — a cell per unit in run order, coloured as it lands, up to
  *      {@link CELLS_UP_TO}; a density band past that, or whenever the report
  *      carries only some of its units, with each red as a mark.
- *   3. **In flight** — a lane per running unit: its elapsed against its
- *      recorded median, the wedge cap at the gauge's end. A run counting
- *      phases shows every phase as a compact step row, its time on the right; a run counting tests
- *      shows the test it is on.
+ *   3. **In flight** — a lane per running unit, its name in full. A run
+ *      counting phases shows every phase as a compact step row, its time on
+ *      the right; a run counting tests shows the test it is on.
  *   4. **Reds, always open** — each failed or wedged unit, its first
  *      failure, and what the record said of it before this run.
  *   5. **Folds**, collapsed: what passed, the wall-time chart (one bar per
@@ -30,7 +29,7 @@
  * Laws: [L06] appearance via CSS and data attributes — status is
  *       `data-status`, a bar's length an inline width; [L16] every color
  *       rule declares its surface; [L19] `.tsx`/`.css` pair, `data-slot`;
- *       [L20] composes the gauge, step row, meta run and accordion,
+ *       [L20] composes the step row, meta run and accordion,
  *       and owns `--tugx-run-*`.
  *
  * @module components/tugways/tug-run-panel
@@ -54,7 +53,6 @@ import {
 import type { RunProgress, RunUnit, RunUnitStatus } from "@/lib/run-progress-store";
 
 import { TugAccordion, TugAccordionItem } from "./tug-accordion";
-import { TugLinearGauge } from "./tug-linear-gauge";
 import { TugMetaRun } from "./tug-meta-run";
 import { TugProgressIndicator } from "./tug-progress-indicator";
 import { TugStepFraction } from "./tug-step-fraction";
@@ -92,9 +90,6 @@ const STEP_STATUS: Record<RunUnitStatus, TugStepRowStatus> = {
   wedged: "error",
   skipped: "pending",
 };
-
-/** The floor the app-test recipe puts under every wedge cap, in seconds. */
-const WEDGE_FLOOR_SECS = 120;
 
 // ---------------------------------------------------------------------------
 // Pieces
@@ -189,34 +184,17 @@ export function TugRunTrack({
   );
 }
 
-/** One job slot: the unit it runs now, elapsed of median, the cap at the end. */
+/**
+ * One job slot: the unit it runs now, by name. No gauge and no elapsed
+ * readout: the panel renders on a report rather than on a clock, so a bar or
+ * a seconds count would stand frozen between reports, and a gauge that comes
+ * and goes with each lane made the rows hop and cut the names short.
+ */
 function Lane({ lane }: { lane: RunLane }) {
-  const { unit, elapsedSecs } = lane;
-  const median = unit.median;
-  const secs = Math.round(elapsedSecs);
-  const cap = median !== undefined ? Math.max(WEDGE_FLOOR_SECS, median * 3) : WEDGE_FLOOR_SECS;
   return (
-    <div
-      className="tug-run-panel-lane"
-      data-slot="tug-run-panel-lane"
-      data-over={median !== undefined && secs > median ? "" : undefined}
-    >
+    <div className="tug-run-panel-lane" data-slot="tug-run-panel-lane">
       <TugProgressIndicator variant="pulsing-dot" size={10} state="running" role="action" aria-label="running" />
-      <span className="tug-run-panel-name">{unit.name}</span>
-      <div
-        className="tug-run-panel-lane-gauge"
-        title={median !== undefined ? `wedge cap ${formatSecs(cap)}: 3× the recorded median, floored at 2m` : undefined}
-      >
-        <TugLinearGauge
-          value={Math.min(secs, cap)}
-          min={0}
-          max={cap}
-          thresholds={median !== undefined ? { caution: median, danger: median * 2 } : undefined}
-          density="compact"
-          formatValue={() => (median !== undefined ? `${secs}s of ~${median}s` : `${secs}s`)}
-        />
-        <span className="tug-run-panel-lane-cap">cap {formatSecs(cap)}</span>
-      </div>
+      <span className="tug-run-panel-name">{lane.unit.name}</span>
     </div>
   );
 }

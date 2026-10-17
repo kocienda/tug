@@ -193,6 +193,15 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
         expect(await count(app, `${RUN_PANEL} .tug-run-panel-cell`), "a cell per file").toBe(4);
         expect(await count(app, `${RUN_PANEL} .tug-run-panel-cell[data-status="fail"]`)).toBe(1);
         expect(await count(app, `${RUN_PANEL} [data-slot="tug-run-panel-lane"]`), "one file in flight").toBe(1);
+        // The projection is an elapsed reading: with no new report it still
+        // counts down, because the running panel reads the shared 1 Hz tick.
+        const PROJECTION = `${RUN_PANEL} .tug-run-panel-projection`;
+        const projected = await text(app, PROJECTION);
+        expect(projected, "a projection from the recorded medians").toContain("to go");
+        await app.waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(PROJECTION)}) || { textContent: "" }).textContent !== ${JSON.stringify(projected)}`,
+          { timeoutMs: 5_000 },
+        );
         expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-fraction"]`)).toContain("files");
         expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("composer clears after send");
         expect(await count(app, `${RUN_BLOCK} [data-slot="bash-live-band"]`), "no one-line band beside it").toBe(0);
