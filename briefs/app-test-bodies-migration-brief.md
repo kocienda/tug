@@ -2,7 +2,7 @@
 
 # The app-test bodies migration: the cut corpus runs on bodies
 
-**Purpose:** Every card kind is a body, and the user has ruled that bodies become the only mode, but 492 of the corpus's 539 files still launch with bodies off and test a card host the product is leaving behind. This brief records where the cut corpus stands and decides how the rest of it comes onto bodies, batch by batch, until the harness default can flip.
+**Purpose:** Every card kind is a body, and the user has ruled that bodies become the only mode, but 492 of the corpus's 539 files still launch with bodies off and test a card host the product is leaving behind. This brief records where the cut corpus stands, decides how the rest of it comes onto bodies batch by batch, and cuts Tug over to bodies only: no shipping switch, no in-document card host, no harness option.
 
 ---
 
@@ -81,6 +81,14 @@ The uncommitted remainder was saved as patches in `.tug/arcs/every-card-a-body/`
 
 **[F08] The core tier is 13 files after the cut**, three of them `harness-smoke` and one `body-grounding/row-07-focus`. Only `row-07-focus` launches with bodies on. **(verified: `bun scripts/select-tests.ts --core`)**
 
+**[F09] The product branches on bodies in a known set of places.**
+- **Host.** `BodyGeometry.bodyViewsEnabled` decides once, at window creation (`MainWindow.swift`), and `BodyViewController.swift` guards on it. `HostCapabilitiesScript` tells the shell `bodyViews` before its first script.
+- **Shell.** `hostCapabilitiesStore.get().bodyViews` is read by `lib/body-handoff.ts`, whose `isBodyKind` is the capability AND the registration's `body === true`. It is also read by `body-placement.ts`, `body-shell.ts`, `pointer-claim.ts`, `settle-engine.ts` and `session-card-registration.tsx`.
+- **The setting.** The Layout card's Bodies row (`layout-card.tsx`, `BODY_VIEWS_DOMAIN`/`BODY_VIEWS_KEY`) writes `dev.tugapp.deck`/`bodies`.
+- **The other half.** Where `isBodyKind` answers false, the card mounts in the shell's document through `card-host.tsx`. That is the in-document card host, the path bodies-off keeps alive.
+
+**(verified: `git grep` for `bodyViews`/`bodyViewsEnabled`; which code is reachable only from the false branch is not enumerated)**
+
 ---
 
 ## Decisions {#decisions}
@@ -113,21 +121,22 @@ The uncommitted remainder was saved as patches in `.tug/arcs/every-card-a-body/`
 
 **[B07] No file goes over 20 s on bodies.** This is the cut brief's [B02]. A body costs more to stand up than a shell subtree, so a migrated file that crosses the line is split along its own `test(` blocks into an `@family`, made cheaper, or put on a removal list for the user. It is never carried over budget.
 
-**[B08] The harness default flips last, in one change, when no file is left un-opted and the allow list is empty.**
-- **The flip.** `launchTugApp` launches with bodies unless told otherwise.
-- **The opt-ins.** The flip commit removes the `bodies: true` lines, since a dead option reads as a choice.
+**[B08] The harness flips last among the test changes, in one change, when no file is left un-opted and the allow list is empty.**
+- **The flip.** Every launch has bodies. The `bodies` option on `launchTugApp` and `TUG_BODY_VIEWS` are deleted, not defaulted: under [B09] there is no other mode to ask for.
+- **The opt-ins.** The flip commit removes every `bodies: true` line.
 - **The final run.** The flip touches the harness, so the core tier runs on it once.
+
+**[B09] Tug cuts over to bodies only, in this arc (the user, 2026-10-16: "We really need to cut over to bodies only. Let's do so here. The only way is forward!").** Bodies stop being a mode:
+- **No switch.** The tugbank `dev.tugapp.deck`/`bodies` setting, the Layout card's Bodies row, `BodyGeometry.bodyViewsEnabled` and `HostCapabilitiesScript`'s `bodyViews` are removed. A value left in a user's tugbank is ignored; with no installs in the wild there is no migration to write.
+- **No in-document card host.** Every branch on `bodyViews` ([F09]) takes its bodies arm unconditionally. Code reachable only from the other arm — the in-document mount through `card-host.tsx`, and whatever serves only it — is deleted, along with the unit tests that exercise only that arm.
+- **The order.** The cut-over lands after [B08]. Until every file is on bodies, an un-migrated file is the guard for the path still under it, and removing the path first would turn the whole remainder red at once, the shape [F05] retracted.
+- **A shell-only kind.** If a kind turns out not to be a body after all, it is made one in this arc rather than kept on the in-document host, since the host is what this decision deletes.
+- **The check.** The cut-over touches the host and `tugdeck/src/main.tsx`'s startup, so the core tier runs on it once.
 
 ---
 
 ## Open Questions {#open-questions}
 
-- **Does this arc also flip the shipping default and remove the bodies-off path?** The user ruled bodies-off is going away ([F04]), but not when or where. The arc could:
-  - stop at the harness flip ([B08]);
-  - also turn the tugbank `bodies` default on for shipping;
-  - also delete the in-document card host, and with it the `bodies` option on `launchTugApp`.
-
-  Each step widens the arc. The user's call settles it, and the answer decides whether [B08] keeps a `bodies: false` escape hatch.
 - **Do the five gaps `7864c3910` named still hold on main?** Answered by [B05]'s reproduction. Any that hold are product work this arc owns under [B03].
 
 ---
@@ -150,4 +159,5 @@ The uncommitted remainder was saved as patches in `.tug/arcs/every-card-a-body/`
 2. **Make the shell's card verbs answer for bodies ([B04]),** then run the core tier on bodies once.
 3. **The kind batches ([B01], [B02], [B03]).** A small kind first (`settings`, `jots`) proves the batch's shape. After that, the order is the arc's call. `session`, at 77 pairs, is several batches on its own, and `unknown`'s 17 pairs need a kind named before they can be batched.
 4. **The no-reach files ([B06]),** batched with the kind they seat.
-5. **The flip ([B08]),** with whatever the open question settles about the shipping default.
+5. **The harness flip ([B08]),** deleting the `bodies` option.
+6. **The cut-over ([B09]):** the switch and the in-document card host removed from host and shell, and the core tier run once.
