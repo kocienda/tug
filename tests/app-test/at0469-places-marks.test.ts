@@ -88,7 +88,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${PLACES}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -136,7 +136,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         // read as a distinction, and the distinction was about membership,
         // which is not what a mark is for. Read as computed opacity across the
         // whole set — a declared value would prove only that the rule exists.
-        const weights = await app.evalJS<number[]>(
+        const weights = await app.body("L").evalJS<number[]>(
           `Array.prototype.map.call(
             document.querySelectorAll('${TOGGLES} [data-testid^="layout-card-place-"]'),
             function (el) { return Number(getComputedStyle(el).opacity); }
@@ -176,7 +176,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         // card — and every per-place question on the drawing. What this pins
         // is not tidiness but a height: a section whose row count tracked the
         // deck made everything below it jump as cards moved.
-        const rows = await app.evalJS<string[]>(
+        const rows = await app.body("L").evalJS<string[]>(
           `Array.prototype.map.call(
             document.querySelectorAll('[data-testid="layout-card-section"] [data-slot="tug-choice-group"]'),
             function (el) { return el.getAttribute("data-testid"); }
@@ -242,7 +242,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${mark("col-0")}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -290,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
 
         // Every mark is a real target, not a speck on a picture. Sixteen
         // pixels square is the floor a press can actually find at this scale.
-        const targets = await app.evalJS<Record<string, [number, number]>>(
+        const targets = await app.body("L").evalJS<Record<string, [number, number]>>(
           `(function () {
             var out = {};
             var nodes = document.querySelectorAll('${TOGGLES} [data-testid^="layout-card-place-"]');
@@ -331,7 +331,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${mark("col-0")}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -348,7 +348,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         await hover(app, mark("col-0"));
         await wait(300);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("L").evalJS<boolean>(
             `document.querySelector('[data-testid="layout-card-plan"]').hasAttribute("data-previewing")`,
           ),
           "hovering a mark does not swap the plan out from under the reader",
@@ -370,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         // its mark and the stored arrangement goes back to stack — which is the
         // gesture the membership-gated column row denied outright, because it
         // refused to exist for a slot standing one card deep.
-        await app.click(mark("col-1"));
+        await app.body("L").click(mark("col-1"));
         await wait(AFTER_LAND_MS);
         const afterFix = await readMarks(app);
         expect(
@@ -387,7 +387,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           `document.querySelectorAll('.tug-pane[data-column-split]').length`,
         );
         expect(before, "nothing is split to begin with").toBe(0);
-        await app.click(mark("col-0"));
+        await app.body("L").click(mark("col-0"));
         await wait(AFTER_LAND_MS);
         const after = await app.evalJS<number>(
           `document.querySelectorAll('.tug-pane[data-column-split]').length`,

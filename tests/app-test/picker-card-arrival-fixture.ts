@@ -11,10 +11,17 @@
  * `seedArrivalPickerSessions` / `removeArrivalPickerSessions`, so its
  * Sessions list stands at its cap.
  *
+ * Two pages are read. The deck — pane frames, the imposer's beat marks, the
+ * departing targets, the held numbers and the deck trace — is the shell's. The
+ * picker is the arriving Session card's own sheet, in that card's body: the
+ * fixture's decks hold no other Session card, so `kindBody(app, "session")` is
+ * the picker's page.
+ *
  * @module tests/app-test/picker-card-arrival-fixture
  */
 
-import { note, type App } from "./_harness";
+import { note, type App, type BodyApp } from "./_harness";
+import { cardPage, kindBody } from "./_harness/card-reach";
 import {
   pickerPanelNaturalHeight,
   pointPickerAt,
@@ -217,8 +224,21 @@ export interface Sample {
  * Opacity is read twice on purpose. The COMPUTED value is what the reader sees
  * and is what claim 1 is about; the INLINE value is where the hold actually
  * lives, and claim 5's residue check is about that one.
+ *
+ * The sampler runs in the shell, where the frames are. `gesturePage` is the
+ * page the gesture is evaluated in: the shell for a deck action, the Session
+ * card's body for a press on its picker (`cancelPicker`).
+ *
+ * `picker` and `rows` are read in the shell's document on each frame, but the
+ * picker is in the arriving card's body, which does not exist when the
+ * sampler is armed and keeps its own frame clock; those two fields are not
+ * yet moved (see the bodies-migration report).
  */
-export async function census(app: App, gesture: string): Promise<Sample[]> {
+export async function census(
+  app: App,
+  gesture: string,
+  gesturePage: App | BodyApp = app,
+): Promise<Sample[]> {
   await app.evalJS<null>(
     `(function () {
       window.__at0571 = [];
@@ -268,7 +288,7 @@ export async function census(app: App, gesture: string): Promise<Sample[]> {
       return null;
     })()`,
   );
-  await app.evalJS<null>(`(${gesture}, null)`);
+  await gesturePage.evalJS<null>(`(${gesture}, null)`);
   await wait(CENSUS_MS + 300);
   return app.evalJS<Sample[]>(`window.__at0571`);
 }
@@ -373,6 +393,22 @@ export function worstHeightStep(samples: Sample[]): { pane: string; step: number
   return worst;
 }
 
+/**
+ * Whether a picker is up in any page: the shell's document, or the body of
+ * any Session card the host holds ready. A card that closed takes its body,
+ * and so its picker, with it.
+ */
+export async function pickerUp(app: App): Promise<boolean> {
+  const script = `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`;
+  // card-dom: shell — the shell half of "any page"; the bodies follow.
+  if (await app.evalJS<boolean>(script)) return true;
+  for (const b of await app.bodies()) {
+    if (b.cardId === null || b.componentId !== "session" || b.state !== "ready") continue;
+    if (await app.body(b.cardId).evalJS<boolean>(script)) return true;
+  }
+  return false;
+}
+
 /** The canvas's marks and the residue every frame carries, at rest. */
 export async function atRest(app: App): Promise<{
   settling: boolean;
@@ -381,7 +417,12 @@ export async function atRest(app: App): Promise<{
   ghosts: number;
   picker: boolean;
 }> {
-  return app.evalJS(
+  const deck = await app.evalJS<{
+    settling: boolean;
+    beat: string | null;
+    inlineOpacities: string[];
+    ghosts: number;
+  }>(
     `(function () {
       var canvas = document.querySelector("[data-imposer-settling]");
       var withBeat = document.querySelector("[data-imposer-beat]");
@@ -395,10 +436,10 @@ export async function atRest(app: App): Promise<{
         beat: withBeat === null ? null : withBeat.getAttribute("data-imposer-beat"),
         inlineOpacities: inline,
         ghosts: document.querySelectorAll(${JSON.stringify(DEPARTING)}).length,
-        picker: document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null,
       };
     })()`,
   );
+  return { ...deck, picker: await pickerUp(app) };
 }
 
 export interface Rect {
@@ -454,24 +495,39 @@ export async function arrivedPaneId(app: App): Promise<string | null> {
  * which the clip's `overflow: hidden` would cut without touching
  * `scrollHeight`. A card that took the room has to hold the picker whole, and
  * this is the half of that claim the roomy case can make.
+ *
+ * The frame is the shell's and the panel is in the card's own page, so the
+ * two edges are compared in screen coordinates, each mapped from its own page.
  */
 export async function panelFit(
   app: App,
   paneId: string,
 ): Promise<{ overflow: number; bottomSlack: number } | null> {
-  return app.evalJS<{ overflow: number; bottomSlack: number } | null>(
+  const paneSel = `.tug-pane[data-pane-id="${paneId}"]`;
+  const cardId = await app.evalJS<string | null>(
     `(function () {
-      var pane = document.querySelector('.tug-pane[data-pane-id="' + ${JSON.stringify(paneId)} + '"]');
-      if (pane === null) return null;
-      var el = pane.querySelector(${JSON.stringify(SHEET_PANEL)});
-      if (el === null) return null;
-      return {
-        overflow: el.scrollHeight - el.clientHeight,
-        bottomSlack:
-          pane.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom,
-      };
+      if (document.querySelector(${JSON.stringify(paneSel)}) === null) return null;
+      var pane = window.tugdeck.diag.getDeckState().panes.find(function (p) {
+        return p.id === ${JSON.stringify(paneId)};
+      });
+      return pane === undefined ? null : pane.activeCardId;
     })()`,
   );
+  if (cardId === null) return null;
+  const page = await cardPage(app, cardId);
+  const overflow = await page.evalJS<number | null>(
+    `(function () {
+      var el = document.querySelector(${JSON.stringify(SHEET_PANEL)});
+      return el === null ? null : el.scrollHeight - el.clientHeight;
+    })()`,
+  );
+  if (overflow === null) return null;
+  const frame = await app.getElementScreenBounds(paneSel);
+  const panel = await page.getElementScreenBounds(SHEET_PANEL);
+  return {
+    overflow,
+    bottomSlack: frame.y + frame.height - (panel.y + panel.height),
+  };
 }
 
 /** The weights `slot`'s column holds, or `null` when it holds none. */
@@ -518,9 +574,9 @@ export async function heldFor(app: App, paneId: string): Promise<number> {
  */
 export async function measureAtListCap(app: App, label: string): Promise<void> {
   if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
-  await pointPickerAt(app, fixture);
+  await pointPickerAt(kindBody(app, "session"), fixture);
   await wait(AFTER_LAND_MS);
-  const natural = await pickerPanelNaturalHeight(app);
+  const natural = await pickerPanelNaturalHeight(kindBody(app, "session"));
   note(label, `panel natural ${natural ?? -1}px with the list at its cap`);
 }
 

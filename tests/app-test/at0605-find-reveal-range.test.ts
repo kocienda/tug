@@ -42,7 +42,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type BodyApp } from "./_harness";
 import {
   SCROLLER,
   seedProseTurns,
@@ -89,12 +89,12 @@ function replyText(n: number): string {
  * outcomes and this drains one.
  */
 async function nextRevealOutcome(
-  app: App,
+  body: BodyApp,
   timeoutMs = 12_000,
 ): Promise<string> {
   const started = Date.now();
   for (;;) {
-    const got = await app.evalJS<string | null>(
+    const got = await body.evalJS<string | null>(
       `window.__tug.takeListRevealOutcome()`,
     );
     if (got !== null) return got;
@@ -107,10 +107,10 @@ async function nextRevealOutcome(
 
 /** The row's top edge against the scroller's band, after the reveal. */
 async function rowBand(
-  app: App,
+  body: BodyApp,
   index: number,
 ): Promise<{ top: number; bandTop: number; bandBottom: number } | null> {
-  return app.evalJS<{ top: number; bandTop: number; bandBottom: number } | null>(
+  return body.evalJS<{ top: number; bandTop: number; bandBottom: number } | null>(
     `(function () {
   var sc = document.querySelector('${SEL.card} ${SCROLLER}');
   var cell = document.querySelector('${SEL.card} [data-tug-list-cell-index="${index}"]');
@@ -123,8 +123,8 @@ async function rowBand(
 }
 
 /** Record the scroller's offset every frame for `ms`, and read it back. */
-async function sampleOffsets(app: App, scroller: string, ms = 300): Promise<number[]> {
-  await app.evalJS<boolean>(`(function () {
+async function sampleOffsets(body: BodyApp, scroller: string, ms = 300): Promise<number[]> {
+  await body.evalJS<boolean>(`(function () {
   window.__revealOffsets = [];
   window.__revealOffsetsDone = false;
   var el = document.querySelector('${scroller}');
@@ -137,10 +137,10 @@ async function sampleOffsets(app: App, scroller: string, ms = 300): Promise<numb
   requestAnimationFrame(tick);
   return true;
 })()`);
-  await app.waitForCondition<boolean>(`window.__revealOffsetsDone === true`, {
+  await body.waitForCondition<boolean>(`window.__revealOffsetsDone === true`, {
     timeoutMs: ms + 5000,
   });
-  return app.evalJS<number[]>(`(window.__revealOffsets || [])`);
+  return body.evalJS<number[]>(`(window.__revealOffsets || [])`);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0605e: revealRange lands, supersedes, and stands down", () => {
@@ -151,26 +151,29 @@ describe.skipIf(!SHOULD_RUN)("AT0605e: revealRange lands, supersedes, and stands
       try {
         await standUpSession(app, "A", SID, sessionDeckShape(["A"]));
         await seedProseTurns(app, "A", SID, TURNS, replyText);
-        await app.waitForCondition<boolean>(
+        // The Session card is a body: its transcript, and the list-view
+        // probes that drive it, are in its own page.
+        const body = app.body("A");
+        await body.waitForCondition<boolean>(
           `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 4`,
           { timeoutMs: 60_000 },
         );
         const scroller = `${SEL.card} ${SCROLLER}`;
-        await app.evalJS<number>(`(function () {
+        await body.evalJS<number>(`(function () {
   var el = document.querySelector('${scroller}');
   el.scrollTop = 0;
   return el.scrollTop;
 })()`);
-        await waitFrames(app);
+        await waitFrames(body);
 
         // ---- A far row lands, in band ----
-        await app.evalJS<boolean>(
+        await body.evalJS<boolean>(
           `(window.__tug.startListReveal(${JSON.stringify(scroller)}, ${FAR_ROW}), true)`,
         );
-        const landed = await nextRevealOutcome(app);
+        const landed = await nextRevealOutcome(body);
         note(`far-row reveal outcome: ${landed}`);
         expect(landed, "a far row must land, not expire").toBe("landed");
-        const band = await rowBand(app, FAR_ROW);
+        const band = await rowBand(body, FAR_ROW);
         note(`far-row band: ${JSON.stringify(band)}`);
         expect(band, "the revealed row must be mounted at the end").not.toBeNull();
         expect(
@@ -181,15 +184,15 @@ describe.skipIf(!SHOULD_RUN)("AT0605e: revealRange lands, supersedes, and stands
         // ---- A second reveal supersedes the first ----
         // Both calls in ONE evalJS, so the second starts while the first is
         // still waiting for its row to mount.
-        await app.evalJS<boolean>(
+        await body.evalJS<boolean>(
           `(function () {
   window.__tug.startListReveal(${JSON.stringify(scroller)}, ${OVERTAKEN_ROW});
   window.__tug.startListReveal(${JSON.stringify(scroller)}, ${OVERTAKING_ROW});
   return true;
 })()`,
         );
-        const first = await nextRevealOutcome(app);
-        const second = await nextRevealOutcome(app);
+        const first = await nextRevealOutcome(body);
+        const second = await nextRevealOutcome(body);
         note(`supersede outcomes: ${JSON.stringify([first, second])}`);
         expect(
           first,
@@ -201,26 +204,26 @@ describe.skipIf(!SHOULD_RUN)("AT0605e: revealRange lands, supersedes, and stands
         // A raw `scrollTop` write, which is attribution-identical to the
         // event-silent native scrollbar: `isUserScrolling` never goes true
         // for it, so only the drift read-back can catch it.
-        await app.evalJS<boolean>(`(function () {
+        await body.evalJS<boolean>(`(function () {
   var el = document.querySelector('${scroller}');
   el.scrollTop = 0;
   return true;
 })()`);
-        await waitFrames(app);
-        const grabbed = await app.evalJS<number>(`(function () {
+        await waitFrames(body);
+        const grabbed = await body.evalJS<number>(`(function () {
   window.__tug.startListReveal(${JSON.stringify(scroller)}, ${CANCELLED_ROW});
   var el = document.querySelector('${scroller}');
   el.scrollTop = el.scrollTop + 900;
   return el.scrollTop;
 })()`);
         note(`scroll offset after the hand grab: ${grabbed}`);
-        const cancelled = await nextRevealOutcome(app);
+        const cancelled = await nextRevealOutcome(body);
         note(`hand-scroll reveal outcome: ${cancelled}`);
         expect(
           cancelled,
           "a reveal must stand down when the user takes the scroller",
         ).toBe("cancelled");
-        const offsets = await sampleOffsets(app, scroller);
+        const offsets = await sampleOffsets(body, scroller);
         note(`offsets after the hand grab: ${JSON.stringify([...new Set(offsets.map(Math.round))])}`);
         expect(
           offsets.length,
@@ -235,10 +238,10 @@ describe.skipIf(!SHOULD_RUN)("AT0605e: revealRange lands, supersedes, and stands
         ).toBe(0);
 
         // ---- An out-of-range index clamps ----
-        await app.evalJS<boolean>(
+        await body.evalJS<boolean>(
           `(window.__tug.startListReveal(${JSON.stringify(scroller)}, 99999), true)`,
         );
-        const clamped = await nextRevealOutcome(app);
+        const clamped = await nextRevealOutcome(body);
         note(`clamped reveal outcome: ${clamped}`);
         expect(
           clamped,

@@ -71,7 +71,7 @@ describe.skipIf(!SHOULD_RUN)("at0269 — gesture classification", () => {
   test(
     "bare canvas deselects; a deck gesture that merely misses every pane does not",
     async () => {
-      const app = await launchTugApp({
+      const app = await launchTugApp({ bodies: false,
         testName: "at0269-gesture-classification",
       });
       try {

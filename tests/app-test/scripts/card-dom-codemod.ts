@@ -29,7 +29,8 @@ usage: bun scripts/card-dom-codemod.ts [--kind <componentId>] [--into <name>] [-
 
   --kind <id>   only entries whose card is of this kind
   --into <name> move a reach that names no card onto the body handle <name> (a card the file opens, not seeds)
-  --into-kind   move a reach that names no card, of a known kind, onto kindBody(<receiver>, "<kind>") and import it
+  --into-kind   move a reach that names no card, of a known kind, onto kindBody(<receiver>, "<kind>") and import it;
+                one that tests for absence is left manual: kindBody waits for the card, and a closed one never comes
   --write       write the rewritten files (default: print and change nothing)
   <file>...     app-test files, relative to tests/app-test (default: the whole corpus)
   --help        this text
@@ -52,6 +53,16 @@ function withKindBodyImport(file: string, src: string): string {
   if (last === undefined) return `import { kindBody } from "${specifier}";\n\n${src}`;
   const at = (last.index ?? 0) + last[0].length;
   return `${src.slice(0, at)}\nimport { kindBody } from "${specifier}";${src.slice(at)}`;
+}
+
+/**
+ * Whether the reach asks that something is not there. Under `--into-kind`
+ * that may be the card itself, closed — which `kindBody` waits for and never
+ * finds — so a hand reads it: absence inside a standing card moves onto the
+ * body, and a closed card is read from the deck.
+ */
+function testsAbsence(e: CensusEntry): boolean {
+  return /===\s*null|!==\s*null\s*\)\s*===\s*false|length\s*===\s*0|^\s*`!\s*document\./.test(e.args);
 }
 
 function main(argv: string[]): number {
@@ -80,11 +91,15 @@ function main(argv: string[]): number {
     const entries = censusOfSource(file, src, vocab, fileContext(APP_TEST_DIR, file, src)).filter((e) => kind === null || e.kind === kind);
     if (entries.length === 0) continue;
     const handle = intoKind
-      ? (e: CensusEntry): string | null => (e.kind === "unknown" || e.cardIds.length > 0 ? null : `kindBody(${e.receiver}, ${JSON.stringify(e.kind)})`)
+      ? (e: CensusEntry): string | null =>
+          e.kind === "unknown" || e.cardIds.length > 0 || testsAbsence(e) ? null : `kindBody(${e.receiver}, ${JSON.stringify(e.kind)})`
       : into;
     const result = rewriteSource(src, entries, handle);
     for (const e of result.rewritten) console.log(`rewrite  ${file}:${e.line}  ${e.cardIdSource === null ? (typeof handle === "function" ? handle(e) : handle) : `${e.receiver}.body(${e.cardIdSource})`}.${e.method}`);
-    for (const { entry, reason } of result.manual) console.log(`manual   ${file}:${entry.line}  ${entry.receiver}.${entry.method} [${entry.kind}] — ${reason}`);
+    for (const { entry, reason } of result.manual) {
+      const why = intoKind && reason === "no single card" && entry.kind !== "unknown" && testsAbsence(entry) ? "tests for absence" : reason;
+      console.log(`manual   ${file}:${entry.line}  ${entry.receiver}.${entry.method} [${entry.kind}] — ${why}`);
+    }
     rewrote += result.rewritten.length;
     manual += result.manual.length;
     if (write && result.rewritten.length > 0) writeFileSync(path, withKindBodyImport(file, result.source));

@@ -190,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
 
         // ---- The population, counted inside the bench card. --------------
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length === ${BENCH_COUNT}`,
           { timeoutMs: 30_000 },
         );
@@ -287,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // own counter: a driver that silently no-ops is caught there, hard,
         // rather than inferred from two numbers a millisecond clock cannot
         // tell apart.
-        const streamedPopulation = await app.evalJS<number>(
+        const streamedPopulation = await app.body("B").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length`,
         );
         const streaming = await app.evalJS<{ streaming: boolean }>(
@@ -373,7 +373,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         const longRunningInBench = await app.evalJS<number>(
           `window.__tugMotion.list({ within: ${JSON.stringify(BENCH)} }).longRunning`,
         );
-        const paused = await app.evalJS<number>(
+        const paused = await app.body("B").evalJS<number>(
           `window.__tugMotion.pause(${JSON.stringify(BENCH_LOOPS)}).paused`,
         );
         const pausedStates = await app.evalJS<string[]>(
@@ -383,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
            ))`,
         );
         const pausedCost = await cost(app, "__at0629paused", 60);
-        const resumed = await app.evalJS<number>(
+        const resumed = await app.body("B").evalJS<number>(
           `window.__tugMotion.resume(${JSON.stringify(BENCH_LOOPS)}).resumed`,
         );
         note("at0629 pause leg", {

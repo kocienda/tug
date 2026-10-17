@@ -42,7 +42,8 @@ import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -147,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
       const app = await launchTugApp({ testName: "at0366-overview-copy" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -163,12 +164,12 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
           refs: [],
         };
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
           ),
         ).toBe(true);
 
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function(){
             var strong = document.querySelector(${JSON.stringify(`${BODY} strong`)});
             var code = document.querySelector(${JSON.stringify(`${BODY} code`)});
@@ -177,24 +178,25 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
           { timeoutMs: 10_000 },
         );
 
-        expect(await app.evalJS<boolean>(INSTALL_CLIPBOARD_CAPTURE)).toBe(true);
+        // The copy runs in the Overview's body, so its clipboard is captured there.
+        expect(await kindBody(app, "overview").evalJS<boolean>(INSTALL_CLIPBOARD_CAPTURE)).toBe(true);
 
         // ---- the construct alone: bold keeps its markers ----
-        expect(await app.evalJS<string>(selectExactNodeScript("imposer"))).toBe(
+        expect(await kindBody(app, "overview").evalJS<string>(selectExactNodeScript("imposer"))).toBe(
           "imposer",
         );
-        const bold = await copyAndRead(app);
+        const bold = await copyAndRead(kindBody(app, "overview"));
         note("copied bold", JSON.stringify(bold));
         expect(bold.plain).toBe("**imposer**");
 
         // ---- the whole block: both constructs, and the html flavor ----
-        const rendered = await app.evalJS<string>(SELECT_WHOLE_BLOCK);
+        const rendered = await kindBody(app, "overview").evalJS<string>(SELECT_WHOLE_BLOCK);
         expect(rendered).toContain("imposer");
         // The reader's text carries neither construct's syntax.
         expect(rendered).not.toContain("**");
         expect(rendered).not.toContain("`");
 
-        const whole = await copyAndRead(app);
+        const whole = await copyAndRead(kindBody(app, "overview"));
         note("copied block", JSON.stringify(whole));
         // …but the clipboard's plain flavor is the markdown source.
         expect(whole.plain).toContain("**imposer**");
@@ -217,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
       const app = await launchTugApp({ testName: "at0366-overview-copy-commit" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -233,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
           project_dir: REPO_ROOT,
         };
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
           ),
         ).toBe(true);
@@ -242,14 +244,14 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
         // in this row is a `TugCommitAtom`, and the slot is the one selector
         // every surface's copy of the mark answers to.
         const REF = `${CARD} .overview-post-refs [data-slot="tug-commit-atom"]`;
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REF)}) !== null`,
           { timeoutMs: 10_000 },
         );
 
         // What the row SHOWS. The word is in the label because an atom has no
         // sentence around it to supply one.
-        const shown = await app.evalJS<string>(
+        const shown = await kindBody(app, "overview").evalJS<string>(
           `(document.querySelector(${JSON.stringify(REF)}).textContent || "").trim()`,
         );
         note("commit atom label", shown);
@@ -264,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
         // refs row IS the plain flavor, and asserting it here pins the
         // convergence without also dragging in the cell menu, which is the
         // *prose* row's gesture and is covered by the test above.
-        const selected = await app.evalJS<string>(
+        const selected = await kindBody(app, "overview").evalJS<string>(
           `(function(){
             var row = document.querySelector(${JSON.stringify(`${CARD} .overview-post-refs`)});
             if (row === null) return "__NO_ROW__";
@@ -284,35 +286,39 @@ describe.skipIf(!SHOULD_RUN)("at0366 — the Overview copies markdown", () => {
   );
 });
 
-/** Right-click ▸ Copy over the current selection, then the flavors written. */
+/**
+ * Right-click ▸ Copy over the current selection, then the flavors written —
+ * all in the Overview's body, which holds the selection, opens the menu in
+ * its own overlay root, and carries the clipboard capture.
+ */
 async function copyAndRead(
-  app: Awaited<ReturnType<typeof launchTugApp>>,
+  page: BodyApp,
 ): Promise<{ plain: string; html: string | null }> {
-  await app.evalJS<unknown>(`(window.__copied = [], window.__copiedHtml = [], true)`);
+  await page.evalJS<unknown>(`(window.__copied = [], window.__copiedHtml = [], true)`);
   // A menu left open from a previous copy would swallow the next
   // right-click — `elementFromPoint` would answer with the overlay rather
   // than the prose under it.
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `document.querySelector('[data-slot="tug-editor-context-menu"]') === null`,
     { timeoutMs: 5_000 },
   );
   note(
     "selection before copy",
-    await app.evalJS<string>(`String(window.getSelection())`),
+    await page.evalJS<string>(`String(window.getSelection())`),
   );
-  expect(await app.evalJS<string>(OPEN_MENU_OVER_SELECTION)).toBe("ok");
-  await app.waitForCondition<boolean>(
+  expect(await page.evalJS<string>(OPEN_MENU_OVER_SELECTION)).toBe("ok");
+  await page.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(COPY_ITEM)}) !== null`,
     { timeoutMs: 5_000 },
   );
   // The item activates on mousedown (so the browser never shifts focus and
   // the selection stays live) — a real click is what delivers it.
-  await app.nativeClickAtElement(COPY_ITEM);
-  await app.waitForCondition<boolean>(
+  await page.nativeClickAtElement(COPY_ITEM);
+  await page.waitForCondition<boolean>(
     `Array.isArray(window.__copied) && window.__copied.length > 0`,
     { timeoutMs: 5_000 },
   );
-  return app.evalJS<{ plain: string; html: string | null }>(
+  return page.evalJS<{ plain: string; html: string | null }>(
     `(function(){
       return {
         plain: window.__copied[window.__copied.length - 1],

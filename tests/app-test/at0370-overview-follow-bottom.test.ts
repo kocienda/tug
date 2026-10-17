@@ -40,6 +40,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -115,12 +116,12 @@ function holdsWithNewest(n: number): string {
 }
 
 async function edge(app: App): Promise<Edge> {
-  return app.evalJS<Edge>(EDGE_JS);
+  return kindBody(app, "overview").evalJS<Edge>(EDGE_JS);
 }
 
 /** The column's visible height — what a resize moves. */
 async function viewport(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return kindBody(app, "overview").evalJS<number>(
     `Math.round(document.querySelector(${JSON.stringify(TRANSCRIPT)}).clientHeight)`,
   );
 }
@@ -159,7 +160,7 @@ const COMPOSER_AT_CAP_JS = `(function () {
  */
 async function fillComposer(app: App): Promise<void> {
   for (let i = 0; i < COMPOSER_MAX_ROWS; i++) await app.nativeKey("Enter");
-  await app.waitForCondition<boolean>(COMPOSER_AT_CAP_JS, {
+  await kindBody(app, "overview").waitForCondition<boolean>(COMPOSER_AT_CAP_JS, {
     timeoutMs: 10_000,
   });
 }
@@ -172,7 +173,7 @@ async function fillComposer(app: App): Promise<void> {
  */
 async function clearComposer(app: App): Promise<void> {
   for (let i = 0; i < COMPOSER_MAX_ROWS; i++) await app.nativeKey("Backspace");
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `${COMPOSER_ROWS_JS} === ${COMPOSER_MIN_ROWS}`,
     { timeoutMs: 10_000 },
   );
@@ -187,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
       });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -195,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // The button is MOUNTED from the start ([L26]) — hidden by CSS, not
         // by a condition, so the show / hide is never a reconciliation.
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(JUMP)}) !== null`,
           ),
           "the jump button is mounted before it is ever needed",
@@ -204,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         for (let id = 20; id <= 31; id++) {
           expect(await publish(app, wirePost(id))).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           holdsWithNewest(12),
           { timeoutMs: 10_000 },
         );
@@ -222,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // of the SCROLL RANGE, not of `scrollHeight` — a fraction of the
         // latter can exceed the range and clamp straight back to the bottom,
         // which would leave this test asserting nothing at all.
-        await app.evalJS<unknown>(
+        await kindBody(app, "overview").evalJS<unknown>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * 0.3);
@@ -230,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
             return true;
           })()`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}).getAttribute("data-visible") === "true"`,
           { timeoutMs: 5_000 },
         );
@@ -242,14 +243,14 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // them down. This is the half a naive "always scroll to the newest"
         // gets wrong, and the reader loses their place every time a session
         // finishes a turn.
-        const heightBefore = await app.evalJS<number>(
+        const heightBefore = await kindBody(app, "overview").evalJS<number>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}).scrollHeight`,
         );
         expect(await publish(app, wirePost(32))).toBe(true);
         // Held, and landed: the column grew by the post, below the reader.
         // (The store's count, not the mounted cells' — the column is
         // windowed, and the post arrived out of view.)
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(window.__tug.overviewPosts() || []).length === 13 &&
             document.querySelector(${JSON.stringify(TRANSCRIPT)}).scrollHeight > ${heightBefore}`,
           { timeoutMs: 10_000 },
@@ -267,8 +268,8 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // ── 4. The click: back to the edge, and following again. Clicked
         // where it actually paints — a control that is visible but not
         // clickable is the bug this catches.
-        await app.nativeClickAtElement(JUMP);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").nativeClickAtElement(JUMP);
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
@@ -286,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // ── 5. And following is genuinely re-engaged: the next post keeps
         // the edge rather than being left below the fold.
         expect(await publish(app, wirePost(33))).toBe(true);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           holdsWithNewest(14),
           { timeoutMs: 10_000 },
         );
@@ -311,8 +312,8 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // the real field, and it moves exactly the geometry a rail animation
         // moves: the transcript's track is what the composer takes its rows
         // from. Eight rows of it, then two.
-        await app.nativeClickAtElement(`${COMPOSER} .cm-content`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").nativeClickAtElement(`${COMPOSER} .cm-content`);
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.activeElement !== null
             && document.activeElement.closest(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 8_000 },
@@ -348,7 +349,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // resize, so the browser has nothing to clamp and fires no scroll
         // event. What re-engages follow-bottom here can only be the resize.
         await fillComposer(app);
-        await app.evalJS<unknown>(
+        await kindBody(app, "overview").evalJS<unknown>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             el.scrollTop = el.scrollHeight - el.clientHeight - ${growth + 12};
@@ -356,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
             return true;
           })()`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}).getAttribute("data-visible") === "true"`,
           { timeoutMs: 5_000 },
         );
@@ -364,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         note("parked just above the edge", JSON.stringify(parked));
 
         await clearComposer(app);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}).getAttribute("data-visible") === "false"`,
           { timeoutMs: 5_000 },
         );
@@ -389,7 +390,7 @@ describe.skipIf(!SHOULD_RUN)("at0370 — the Overview's live edge", () => {
         // Withdrawing the button is the visible half; the invisible half is
         // that following is genuinely on again.
         expect(await publish(app, wirePost(34))).toBe(true);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           holdsWithNewest(15),
           { timeoutMs: 10_000 },
         );

@@ -105,12 +105,12 @@ const ANCHOR_ROW_EXPR = `(function () {
 })()`;
 
 async function parkAt(app: App, fraction: number): Promise<void> {
-  await app.evalJS<number>(`(function () {
+  await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLL}');
   el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * ${fraction});
   return el.scrollTop;
 })()`);
-  await waitFrames(app);
+  await waitFrames(app.body("A"));
 }
 
 // Kept local: every file's `standUp` launches into its own deck and transcript,
@@ -126,7 +126,7 @@ async function standUp(testName: string): Promise<App> {
   await app.bindSession("A", { tugSessionId: SID });
   await app.awaitEngineReady("A", { timeoutMs: 20_000 });
   await seedProseTurns(app, "A", SID, TURNS, replyText);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 4`,
     { timeoutMs: 30_000 },
   );
@@ -144,13 +144,13 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals its active match", () => {
         await parkAt(app, 1);
 
         await openFindBar(app);
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
         await app.nativeType(PROBE);
-        const terminal = await awaitGestureReveal(app, mark, PROBE);
+        const terminal = await awaitGestureReveal(app.body("A"),mark, PROBE);
         note(`live-edge reveal terminal: ${JSON.stringify(terminal)}`);
 
         const reveal = await readReveal(app);
-        const shape = await app.evalJS<Record<string, unknown>>(`(function () {
+        const shape = await app.body("A").evalJS<Record<string, unknown>>(`(function () {
   var el = document.querySelector('${SCROLL}');
   return {
     cells: document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length,
@@ -181,26 +181,26 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals its active match", () => {
         // ── Mid-transcript, one keystroke at a time ───────────────────────
         // ⌘F toggles the bar shut, which ends the search; reopening captures
         // a fresh anchor from wherever the reader now is.
-        await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await chord(app.body("A"), "KeyF", "f", { meta: true });
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SEL.findInput)}) === null`,
           { timeoutMs: 8000 },
         );
         await parkAt(app, 0.6);
         // Read BEFORE the bar opens — the same moment, and the same rule,
         // the card captures its anchor by.
-        const anchorRow = await app.evalJS<number>(ANCHOR_ROW_EXPR);
+        const anchorRow = await app.body("A").evalJS<number>(ANCHOR_ROW_EXPR);
         note(`anchor row at ⌘F: ${anchorRow}`);
         expect(anchorRow, "the reader must be parked somewhere real").toBeGreaterThan(2);
 
         await openFindBar(app);
         const landings: Array<{ char: number; row: number; chip: string; inView: boolean }> = [];
         for (let i = 1; i <= PROBE.length; i += 1) {
-          const keyMark = await markTrace(app);
+          const keyMark = await markTrace(app.body("A"));
           await app.nativeType(PROBE[i - 1]);
           // The engine debounces search-on-type; the wait is for this
           // keystroke's own gesture and the reveal that answers it.
-          await awaitGestureReveal(app, keyMark, PROBE.slice(0, i));
+          await awaitGestureReveal(app.body("A"),keyMark, PROBE.slice(0, i));
           const r = await readReveal(app);
           const c = await readChip(app);
           if (r !== null) landings.push({ char: i, row: r.row, chip: c, inView: r.inView });
@@ -255,9 +255,9 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every find gesture shows its match", () =>
         // active match when the query is extended. Revealing on a changed
         // identity alone therefore does nothing for the second gesture.
         const prefix = PROBE.slice(0, PROBE.length - 1);
-        const firstMark = await markTrace(app);
+        const firstMark = await markTrace(app.body("A"));
         await app.nativeType(prefix);
-        await awaitGestureReveal(app, firstMark, prefix);
+        await awaitGestureReveal(app.body("A"),firstMark, prefix);
         const first = await readReveal(app);
         expect(first?.inView, "the first gesture reveals").toBe(true);
 
@@ -272,9 +272,9 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every find gesture shows its match", () =>
         note(`after scrolling away: ${JSON.stringify(away)}`);
 
         // …and types the last character. Same match, new gesture.
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
         await app.nativeType(PROBE.slice(PROBE.length - 1));
-        const terminal = await awaitGestureReveal(app, mark, PROBE);
+        const terminal = await awaitGestureReveal(app.body("A"),mark, PROBE);
         note(`extended-query reveal terminal: ${JSON.stringify(terminal)}`);
 
         const reveal = await readReveal(app);

@@ -101,6 +101,7 @@ import { join, resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -230,7 +231,7 @@ function observerPost(body: string, id: number): string {
 const OPEN_BUBBLES =
   'document.querySelectorAll(\'[data-slot="tug-tooltip"]:not([data-state="closed"])\').length';
 
-/** Whether any open Text card is showing `needle`. */
+/** Whether the Text card is showing `needle`; run in that card's body. */
 const textCardShowsJS = (needle: string) => `(function(){
   return Array.from(document.querySelectorAll(${JSON.stringify(TEXT_CARD)}))
     .some(function(el){ return (el.textContent || "").indexOf(${JSON.stringify(needle)}) !== -1; });
@@ -370,7 +371,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // 3. A primary click opens what the run names.
           await app.click(LINE_REF);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "text").waitForCondition<boolean>(
             textCardShowsJS("the-narration-target-body"),
             { timeoutMs: 20_000 },
           );

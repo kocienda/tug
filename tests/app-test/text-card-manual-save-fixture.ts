@@ -51,6 +51,9 @@ export async function seedTextCard(
   filePath: string,
   mode: "manual" | "automatic" = "manual",
 ): Promise<void> {
+  // The shell's cache only: a body Text card reads its own tugbank snapshot,
+  // so a body card's automatic mode is seeded into the launch's tugbank
+  // (`mkSeededTugbank([AUTOMATIC_SAVE_MODE])`), as at0212-…-save does.
   if (mode === "automatic") {
     await app.evalJS<null>(
       `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,

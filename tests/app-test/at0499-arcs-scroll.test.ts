@@ -53,6 +53,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -130,12 +131,12 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(ROWS)}).length === ${ARC_COUNT}`,
           { timeoutMs: 30000 },
         );
 
-        const geometry = await app.evalJS<{
+        const geometry = await kindBody(app, "dashes").evalJS<{
           overflowY: string;
           listScrollHeight: number;
           listClientHeight: number;
@@ -183,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)("AT0499: the Arcs card scrolls its own rows", () =>
         // Scrolled to the end, the last arc sits inside the list's viewport —
         // the whole point of the scroller, and the thing a person could not do
         // before it existed.
-        const reachable = await app.evalJS<{
+        const reachable = await kindBody(app, "dashes").evalJS<{
           rowTop: number;
           rowBottom: number;
           viewTop: number;

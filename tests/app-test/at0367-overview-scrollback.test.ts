@@ -31,6 +31,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -83,7 +84,7 @@ const GEOMETRY_JS = `(function () {
 })()`;
 
 async function geometry(app: App): Promise<Geometry> {
-  return app.evalJS<Geometry>(GEOMETRY_JS);
+  return kindBody(app, "overview").evalJS<Geometry>(GEOMETRY_JS);
 }
 
 describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
@@ -93,11 +94,11 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
       const app = await launchTugApp({ testName: "at0367-overview-scrollback" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -111,7 +112,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
             ),
           ).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           // Held, and rendered: the column follows its newest post, so post
           // 31 is mounted once the commit that holds all twelve has landed.
           `(window.__tug.overviewPosts() || []).length === 12 &&
@@ -123,7 +124,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
         // Put the reader partway up the column. Not at the very top: the
         // scroll-top trigger would fire a real `loadOlder`, and this test
         // delivers the page itself.
-        await app.evalJS<unknown>(
+        await kindBody(app, "overview").evalJS<unknown>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             el.scrollTop = Math.round(el.scrollHeight * 0.4);
@@ -154,7 +155,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
           ),
         ).toBe(true);
 
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           // The store holds the page, and the commit that mounted it (and
           // compensated the scroll for it) has landed.
           `(window.__tug.overviewPosts() || []).length === 16 &&

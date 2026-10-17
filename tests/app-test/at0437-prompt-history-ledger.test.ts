@@ -55,7 +55,7 @@ const CARET_IN_EDITOR = `(function(){
 })()`;
 
 function pressKey(app: App, key: string, opts: { meta?: boolean; shift?: boolean } = {}): Promise<null> {
-  return app.evalJS<null>(
+  return app.body("A").evalJS<null>(
     `(function(){
       var el = document.activeElement || document.body;
       el.dispatchEvent(new KeyboardEvent("keydown", {
@@ -72,7 +72,7 @@ function pressKey(app: App, key: string, opts: { meta?: boolean; shift?: boolean
 
 /** The composer's document, read off CM6's rendered lines. */
 function docText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `Array.from(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} .cm-line`)}))
       .map(function(l){ return l.textContent || ""; })
       .join("\\n")`,
@@ -94,8 +94,8 @@ async function openCard(app: App): Promise<void> {
   );
   await app.bindSession("A");
   await app.awaitEngineReady("A", { timeoutMs: 15_000 });
-  await app.nativeClickAtElement(EDITOR_CONTENT);
-  await app.waitForCondition<boolean>(CARET_IN_EDITOR, { timeoutMs: 8000 });
+  await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
+  await app.body("A").waitForCondition<boolean>(CARET_IN_EDITOR, { timeoutMs: 8000 });
 }
 
 /** The session id the harness default binding uses for card A. */
@@ -149,13 +149,13 @@ describe.skipIf(!SHOULD_RUN)("at0437 — the prompt corpus survives relaunch, un
 
         for (const prompt of PROMPTS) {
           await first.nativeType(prompt);
-          await first.waitForCondition<boolean>(
+          await first.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent.indexOf(${JSON.stringify(prompt)}) !== -1`,
             { timeoutMs: 8000 },
           );
           // Return inserts a newline in this composer; Shift-Return submits.
           await pressKey(first, "Enter", { shift: true });
-          await first.waitForCondition<boolean>(
+          await first.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent.indexOf(${JSON.stringify(prompt)}) === -1`,
             { timeoutMs: 15_000 },
           );
@@ -185,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)("at0437 — the prompt corpus survives relaunch, un
         // window has to have paged in from the ledger for this to land, so it
         // also pins that the first page is fetched on composer mount.
         const newest = PROMPTS[PROMPTS.length - 1];
-        await second.waitForCondition<boolean>(
+        await second.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.activeElement || document.body;
             el.dispatchEvent(new KeyboardEvent("keydown", {

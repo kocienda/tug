@@ -94,7 +94,7 @@ const SESSION_DECK_STATE = {
  * differently.
  */
 function lineText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `(function(){
       var line = document.querySelector(${JSON.stringify(LINE_SELECTOR)});
       if (line === null) return "";
@@ -117,7 +117,7 @@ function lineText(app: App): Promise<string> {
 
 /** Every chip's label, in document order. */
 function chipLabels(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("A").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(ATOM_IMG_SELECTOR)}))
       .map(function(img){ return img.getAttribute("data-atom-label") || ""; })`,
   );
@@ -139,7 +139,7 @@ function chipLabels(app: App): Promise<string[]> {
  */
 async function dropPngAt(app: App, needle: string | null): Promise<void> {
   const chipsBefore = (await chipLabels(app)).length;
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     `(function(){
       window.__at0623Dropped = false;
       var host = document.querySelector(${JSON.stringify(EDITOR_HOST_SELECTOR)});
@@ -208,7 +208,7 @@ async function dropPngAt(app: App, needle: string | null): Promise<void> {
   await app.waitForCondition<boolean>(`window.__at0623Dropped === true`, {
     timeoutMs: 10_000,
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(ATOM_IMG_SELECTOR)}).length === ${chipsBefore + 1}`,
     { timeoutMs: 10_000 },
   );
@@ -217,7 +217,7 @@ async function dropPngAt(app: App, needle: string | null): Promise<void> {
 /** Type `text` at the caret and wait for the line to carry it. */
 async function typeAtCaret(app: App, text: string): Promise<void> {
   await app.nativeType(text);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var line = document.querySelector(${JSON.stringify(LINE_SELECTOR)});
       if (line === null) return false;
@@ -249,11 +249,11 @@ describe.skipIf(!SHOULD_RUN)("at0623: smart insert pads a dropped atom", () => {
           });
           await new Promise<void>((r) => setTimeout(r, 1500));
           await app.bindSession("A");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          await app.nativeClickAtElement(EDITOR_CONTENT_SELECTOR);
+          await app.body("A").nativeClickAtElement(EDITOR_CONTENT_SELECTOR);
 
           // --- Into air: the rule adds nothing it does not have to. -----
           await typeAtCaret(app, "note: ");

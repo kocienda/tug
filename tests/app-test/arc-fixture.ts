@@ -54,6 +54,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import type { App } from "./_harness";
+import { cardPage } from "./_harness/card-reach";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 /** How many times a git-touching verb retries through a held `index.lock`. */
@@ -1252,11 +1253,14 @@ export async function shellAndSettle(
 ): Promise<void> {
   const prompt = `[data-card-id="${cardId}"] [data-slot="tug-text-editor"] .cm-content`;
   const rows = `[data-card-id="${cardId}"] [data-slot="session-transcript-shell-row"]`;
-  await app.nativeClickAtElement(prompt);
+  // The prompt and the transcript are the card's: in its body when it has
+  // one. The typing and the chord go to the key window, as a user's would.
+  const page = await cardPage(app, cardId);
+  await page.nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `(function(){
        var rows = document.querySelectorAll(${JSON.stringify(rows)});
        if (rows.length !== ${expectedIndex + 1}) return false;

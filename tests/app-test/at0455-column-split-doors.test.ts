@@ -85,7 +85,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.dispatchControlAction("toggle-layout");
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-kind"]') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -98,7 +98,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // itself); what this file still owns is that the door reaches the
         // COLUMN command and that the geometry follows.
         expect(
-          await markedSlots(app),
+          await markedSlots(app.body("L")),
           "a mark for every slot the kind defines, the empty slot 2 included",
         ).toEqual([0, 1, 2]);
 
@@ -107,8 +107,8 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // One mark rather than two segments: it carries the arrangement NOT in
         // force, so pressing it is always "make it the other thing" and the
         // test presses the same element to go each way.
-        expect(await placeOffers(app, "col-0")).toBe("split");
-        await app.click(placeMark("col-0"));
+        expect(await placeOffers(app.body("L"), "col-0")).toBe("split");
+        await app.body("L").click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
         expect(
           await splitFrameCount(app),
@@ -124,10 +124,10 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         // the one gesture the feature exists for would be the one that cuts.
         await app.evalJS<null>(`(window.__tug.armCutDetector(), null)`);
         // Split now, so the mark offers stack; press it, then press it back.
-        expect(await placeOffers(app, "col-0")).toBe("stack");
-        await app.click(placeMark("col-0"));
+        expect(await placeOffers(app.body("L"), "col-0")).toBe("stack");
+        await app.body("L").click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
-        await app.click(placeMark("col-0"));
+        await app.body("L").click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
         await app.evalJS<null>(`(window.__tug.disarmCutDetector(), null)`);
         const cuts = await app.evalJS<{ paneId: string; kind: string; dx: number; dy: number }[]>(
@@ -224,10 +224,10 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
         );
         await wait(AFTER_LAND_MS);
         expect(
-          await markedSlots(app),
+          await markedSlots(app.body("L")),
           "every slot is still marked — slot 0 lost a card, not its place",
         ).toEqual([0, 1, 2]);
-        const survivor = await app.evalJS<string | null>(
+        const survivor = await app.body("L").evalJS<string | null>(
           `(function () {
             var el = document.querySelector('[data-testid="layout-card-toggles"] .layout-places-mark[data-place="col-0"]');
             return el === null ? null : el.getAttribute("data-mode");
@@ -259,8 +259,8 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the doors", () => {
           "the lone member of a split slot wears its band letter, not a count",
         ).toBe("split:A");
         // And the way back is a press, on the mark that was unreachable before.
-        expect(await placeOffers(app, "col-0")).toBe("stack");
-        await app.click(placeMark("col-0"));
+        expect(await placeOffers(app.body("L"), "col-0")).toBe("stack");
+        await app.body("L").click(placeMark("col-0"));
         await wait(AFTER_LAND_MS);
         expect(
           (await columnsRecord(app))["0"]?.mode ?? "stack",

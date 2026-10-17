@@ -9,7 +9,7 @@
  * `at0469-places-drawing` to keep each under the 20 s budget.
  */
 
-import { type App } from "./_harness";
+import { type App, type BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
@@ -25,6 +25,12 @@ export const PLACES = '[data-testid="layout-card-places"]';
 /** The toggle row under the strip — where every slot's mark stands. */
 export const TOGGLES = '[data-testid="layout-card-toggles"]';
 export const mark = (key: string): string => `[data-testid="layout-card-place-${key}"]`;
+
+/** The Layout card's own page — the deck seats it as `L` — where every
+ *  section reach below runs. */
+function layoutPage(app: App): BodyApp {
+  return app.body("L");
+}
 
 export interface Rect {
   top: number;
@@ -110,7 +116,7 @@ export function deckShape() {
  * asking the section to answer a pointer and expecting it not to.
  */
 export async function hover(app: App, selector: string): Promise<void> {
-  await app.evalJS<null>(
+  await layoutPage(app).evalJS<null>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(selector)});
       if (el === null) throw new Error("nothing at " + ${JSON.stringify(selector)});
@@ -124,7 +130,7 @@ export async function hover(app: App, selector: string): Promise<void> {
  *  sidebar ladder is actually navigated by (at0277 and at0455 use the same one). */
 export async function tabUntilKbd(app: App, selector: string): Promise<void> {
   const reached = (): Promise<boolean> =>
-    app.evalJS<boolean>(
+    layoutPage(app).evalJS<boolean>(
       `document.querySelector(${JSON.stringify(`${selector}[data-key-view-kbd]`)}) !== null`,
     );
   for (let i = 0; i < 24; i += 1) {
@@ -148,7 +154,7 @@ export async function tabUntilKbd(app: App, selector: string): Promise<void> {
 export async function cursorOnto(app: App, row: string, value: string): Promise<void> {
   const target = `[data-testid="${row}"] [data-key-cursor][data-choice-value="${value}"]`;
   const there = (): Promise<boolean> =>
-    app.evalJS<boolean>(
+    layoutPage(app).evalJS<boolean>(
       `document.querySelector(${JSON.stringify(target)}) !== null`,
     );
   await app.dispatchControlAction("toggle-layout");
@@ -180,7 +186,7 @@ export async function cursorOffTheRows(app: App): Promise<void> {
  * different question, read by its own test below.
  */
 export function readMarks(app: App): Promise<Record<string, MarkFacts>> {
-  return app.evalJS<Record<string, MarkFacts>>(
+  return layoutPage(app).evalJS<Record<string, MarkFacts>>(
     `(function () {
       var out = {};
       var nodes = document.querySelectorAll('${TOGGLES} .layout-places-mark[data-place]');
@@ -201,7 +207,7 @@ export function readMarks(app: App): Promise<Record<string, MarkFacts>> {
 
 /** The drawn block for a slot, in the committed drawing. */
 export function blockRect(app: App, slot: number): Promise<Rect | null> {
-  return app.evalJS<Rect | null>(
+  return layoutPage(app).evalJS<Rect | null>(
     `(function () {
       var layer = document.querySelector('.layouts-plan-layer[data-plan-layer="committed"]');
       if (layer === null) return null;

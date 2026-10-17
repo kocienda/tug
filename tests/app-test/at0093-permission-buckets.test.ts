@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)(
           // events (~200ms, at0045/at0048 idiom); the focus-stealing
           // press-and-hold popover is disabled at launch
           // (`-ApplePressAndHoldEnabled NO`). The real open path is at0090.
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/permissions");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape");

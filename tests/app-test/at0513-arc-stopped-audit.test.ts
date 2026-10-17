@@ -41,6 +41,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -150,9 +151,9 @@ interface RowReading {
   text: string;
 }
 
-/** The row, read whole from one beat: strip, note, facts, register. */
+/** The row, read whole from one beat: strip, note, facts, register — in the Arcs card's body. */
 const readRow = (app: App): Promise<RowReading> =>
-  app.evalJS<RowReading>(
+  kindBody(app, "dashes").evalJS<RowReading>(
     `(() => {
        const row = document.querySelector(${JSON.stringify(ROW)});
        const track = row.querySelector('[data-slot="tug-arc-track"]');
@@ -202,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: a stopped audit on the Arcs card", () => {
         // The row, with the stop folded into it: `data-stopped` on the strip
         // is the last fact the feed derives from the record, so a row that
         // has it has everything else this file reads.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROW} [data-slot="tug-arc-track"][data-stopped="true"]`)}) !== null`,
           { timeoutMs: 30000 },
         );

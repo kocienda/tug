@@ -247,14 +247,14 @@ describe.skipIf(!SHOULD_RUN)(
             exitCode: 0,
             startedAtMs: 1_700_000_000_000,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RECEIPT_PILL)}) !== null`,
             { timeoutMs: 20_000 },
           );
 
           // ---- A. The mount carries the identity. -------------------------
           const identity = JSON.parse(
-            await app.evalJS<string>(
+            await app.body("S").evalJS<string>(
               `JSON.stringify((function(){
                 var el = document.querySelector(${JSON.stringify(RECEIPT_PILL)});
                 if (el === null) return { found: false };
@@ -291,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)(
           // number in a diagnostics line is how the next person to open the
           // literal-ink question finds out what the door does today.
           setPasteboard(SENTINEL);
-          await app.evalJS<null>(`(function(){
+          await app.body("S").evalJS<null>(`(function(){
             var el = document.querySelector(${JSON.stringify(RECEIPT_HEADER)});
             el.scrollIntoView({ block: "center" });
             var range = document.createRange();
@@ -317,13 +317,13 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- C. And the menu offers the same object. --------------------
           setPasteboard(SENTINEL);
-          await app.nativeRightClickAtElement(RECEIPT_PILL);
+          await app.body("S").nativeRightClickAtElement(RECEIPT_PILL);
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
             { timeoutMs: 5_000 },
           );
           const labels = JSON.parse(
-            await app.evalJS<string>(
+            await app.body("S").evalJS<string>(
               `JSON.stringify(Array.prototype.map.call(
                  document.querySelectorAll('[data-item-action]'),
                  function (el) { return (el.textContent || "").trim(); }))`,
@@ -357,25 +357,25 @@ describe.skipIf(!SHOULD_RUN)(
           // Tug.app: everything the paste needs is on the pasteboard and none
           // of it is in the event, because WebKit hides a private type from the
           // DOM event.
-          await app.focusElement(PROMPT_INPUT);
-          await app.evalJS<null>(`(function(){
+          await app.body("S").focusElement(PROMPT_INPUT);
+          await app.body("S").evalJS<null>(`(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             cm.dispatchEvent(new ClipboardEvent("paste", {
               bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
             }));
             return null;
           })()`);
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(PROMPT_INPUT)} + ' img:not(.cm-widgetBuffer)').length === 1`,
             { timeoutMs: 8_000 },
           );
           const chips = JSON.parse(
-            await app.evalJS<string>(chipsJS(PROMPT_INPUT)),
+            await app.body("S").evalJS<string>(chipsJS(PROMPT_INPUT)),
           ) as string[];
           note("at0528 composer chips", chips.join(" / "));
           expect(chips).toEqual([`commit:${HEAD_SHA}`]);
           // A pill, not the eight characters it draws.
-          expect(await app.evalJS<string>(flatTextJS(PROMPT_INPUT))).not.toContain(
+          expect(await app.body("S").evalJS<string>(flatTextJS(PROMPT_INPUT))).not.toContain(
             LABEL,
           );
         } catch (err) {

@@ -142,7 +142,7 @@ async function typeAndMeasure(
     gaps: await app.evalJS<Stats>(`window.__at0293Read("gap")`),
     latency: await app.evalJS<Stats>(`window.__at0293Read("lat")`),
     keys: await app.evalJS<number>(`window.__at0293.keys`),
-    text: await app.evalJS<number>(
+    text: await app.body("A").evalJS<number>(
       `(document.querySelector('${PROMPT}')?.textContent ?? "").length`,
     ),
   };
@@ -184,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)("at0293: typing latency", () => {
         ).toBeGreaterThanOrEqual(20);
 
         await app.evalJS<void>(INSTALL_PROBE);
-        await app.nativeClickAtElement(PROMPT);
+        await app.body("A").nativeClickAtElement(PROMPT);
         await new Promise((r) => setTimeout(r, 800));
 
         let run = await typeAndMeasure(app);

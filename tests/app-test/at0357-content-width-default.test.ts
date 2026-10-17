@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS(
             `window.__tug.dispatchControlAction("show-keyboard-shortcuts", {})`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelector('[data-testid="settings-card"]') !== null
              && document.querySelector('[data-testid="keyboard-card"]') !== null`,
             { timeoutMs: 8_000 },

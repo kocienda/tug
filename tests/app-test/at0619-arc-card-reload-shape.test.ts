@@ -69,6 +69,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 /**
  * Two gates, meaning different things. `TUGAPP_APP_TEST` is every app-test's;
@@ -171,7 +172,7 @@ afterAll(() => {
 
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -313,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("AT0619: the arc card's reload shape", () => {
         // makes the seat before it composes the `where` line, so by the time
         // the rotation is recorded the arc is a real one and the row it draws
         // is the one that carries the join's own word.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 60_000 },
         );
@@ -365,7 +366,7 @@ describe.skipIf(!SHOULD_RUN)("AT0619: the arc card's reload shape", () => {
         // The rail the reload closed. The Arcs card is a fresh deck's away,
         // so assertion C's row has to be opened again before it can be read.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 60_000 },
         );
@@ -413,7 +414,7 @@ describe.skipIf(!SHOULD_RUN)("AT0619: the arc card's reload shape", () => {
           await new Promise((r) => setTimeout(r, 2_000));
         }
 
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(ROW_TRACK)})?.getAttribute("data-phase") ?? "") === "join"`,
           { timeoutMs: 120_000 },
         ).catch(async (error: unknown) => {
@@ -421,7 +422,7 @@ describe.skipIf(!SHOULD_RUN)("AT0619: the arc card's reload shape", () => {
           // two words it stuck on rather than only that it never changed.
           note(
             "at0619 the row when the join never came",
-            await app.evalJS<string>(
+            await kindBody(app, "dashes").evalJS<string>(
               `JSON.stringify((function(){
                  var row = document.querySelector(${JSON.stringify(ROW)});
                  var track = document.querySelector(${JSON.stringify(ROW_TRACK)});
@@ -435,7 +436,7 @@ describe.skipIf(!SHOULD_RUN)("AT0619: the arc card's reload shape", () => {
           );
           throw error;
         });
-        const phase = await app.evalJS<string | null>(
+        const phase = await kindBody(app, "dashes").evalJS<string | null>(
           `document.querySelector(${JSON.stringify(ROW_TRACK)})?.getAttribute("data-phase") ?? null`,
         );
         note(`at0619 the arc track's phase: ${JSON.stringify(phase)}`);
@@ -447,7 +448,7 @@ describe.skipIf(!SHOULD_RUN)("AT0619: the arc card's reload shape", () => {
         // incident's sentence was written: `working` is "<arc> is still
         // working — the join waits for it to finish", said over an arc that
         // had finished, because the gate was asked about a segment.
-        const word = await app.evalJS<string | null>(
+        const word = await kindBody(app, "dashes").evalJS<string | null>(
           `document.querySelector(${JSON.stringify(ROW)})?.getAttribute("data-join-word") ?? null`,
         );
         note(`at0619 the join register's word: ${JSON.stringify(word)}`);

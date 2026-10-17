@@ -42,6 +42,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { TUGCODE_TRANSCRIPT_SCHEMA_VERSION, type App, type TugcodeTranscript } from "./_harness";
+import { cardPage } from "./_harness/card-reach";
+import { enforcedTimeout } from "./_harness/rpc";
 import { onTestRunEnd } from "./_harness/test-cleanup";
 
 /** The variable tugcode reads (`STUB_TRANSCRIPT_DIR_ENV` in `stub-replay.ts`). */
@@ -237,10 +239,12 @@ export async function bindStreamingStubs(
     writeFileSync(join(stubDir, `${tugSessionId}.json`), transcript);
     await app.spawnSessionNew(cardId, { tugSessionId, projectDir });
     await withState(app, cardId, `binding ${cardId} to stub session ${tugSessionId}`, () =>
-      app.waitForCondition<boolean>(
+      waitInCard(
+        app,
+        cardId,
         `document.querySelector('[data-card-id="${cardId}"] [data-testid="session-card-transcript"]') !== null && ` +
           `document.querySelector('[data-card-id="${cardId}"] .session-card-picker-form') === null`,
-        { timeoutMs: BOUND_MS },
+        BOUND_MS,
       ),
     );
     cards.push({ cardId, tugSessionId });
@@ -259,14 +263,41 @@ export async function startStreams(app: App, cards: readonly StubCard[]): Promis
   }
   for (const { cardId } of cards) {
     await withState(app, cardId, `waiting for ${cardId} to stream`, () =>
-      app.waitForCondition<boolean>(
+      waitInCard(
+        app,
+        cardId,
         `(function(){
           var entry = document.querySelector('[data-card-id="${cardId}"] [data-slot="tug-prompt-entry"]');
           return entry !== null && entry.getAttribute("data-phase") === "streaming";
         })()`,
-        { timeoutMs: STREAMING_MS },
+        STREAMING_MS,
       ),
     );
+  }
+}
+
+/**
+ * Wait until `script` holds in the page that holds `cardId` — its body, or
+ * the shell for a card that is not one. The page is resolved again at every
+ * poll: a session card's body comes at its spawn, so right after
+ * `spawnSessionNew` the card may still be the shell's or its body not yet
+ * answering. Throws when `script` has not held by `timeoutMs` (scaled as
+ * `waitForCondition`'s is).
+ */
+async function waitInCard(app: App, cardId: string, script: string, timeoutMs: number): Promise<void> {
+  const budget = enforcedTimeout(timeoutMs);
+  const deadline = Date.now() + budget;
+  let last: unknown = null;
+  for (;;) {
+    try {
+      if (await (await cardPage(app, cardId)).evalJS<boolean>(script)) return;
+    } catch (error) {
+      last = error;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`condition not met in card ${cardId} within ${budget} ms${last === null ? "" : ` (last error: ${String(last)})`}`);
+    }
+    await Bun.sleep(100);
   }
 }
 
@@ -278,7 +309,7 @@ async function withState(app: App, cardId: string, what: string, wait: () => Pro
   try {
     await wait();
   } catch (error) {
-    const state = await app
+    const state = await (await cardPage(app, cardId))
       .evalJS<unknown>(
         `(function(){
           var card = '[data-card-id="${cardId}"]';

@@ -153,7 +153,7 @@ async function enterCommitMode(app: App): Promise<void> {
   const up = `document.querySelector(${JSON.stringify(SHEET)}) !== null &&
               document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
-    await app.nativeClickAtElement(PROMPT_INPUT);
+    await app.body("A").nativeClickAtElement(PROMPT_INPUT);
     // Whatever a missed attempt left in the composer goes first, so the second
     // try types `/commit` rather than `/commit/commit`.
     await app.nativeKey("a", ["cmd"]);
@@ -165,7 +165,7 @@ async function enterCommitMode(app: App): Promise<void> {
     await settle(600);
     await app.nativeKey("Return", ["cmd"]);
     try {
-      await app.waitForCondition<boolean>(up, { timeoutMs: 12_000 });
+      await app.body("A").waitForCondition<boolean>(up, { timeoutMs: 12_000 });
       return;
     } catch {
       note(`at0628 the commit-mode raise did not land (attempt ${attempt})`);
@@ -190,13 +190,13 @@ async function assertSpeaksInTheShadeOnly(
   words: readonly string[],
 ): Promise<void> {
   expect(
-    await app.evalJS<boolean>(
+    await app.body("A").evalJS<boolean>(
       `document.querySelector(${JSON.stringify(SHEET)})?.hasAttribute("data-tug-sheet-presented") === true`,
     ),
     `${gesture}: the shade is the presented sheet`,
   ).toBe(true);
 
-  const band = await app.evalJS<string[]>(BAND_TEXTS);
+  const band = await app.body("A").evalJS<string[]>(BAND_TEXTS);
   const corner = await app.evalJS<string[]>(CORNER_TEXTS);
   note(`at0628 after ${gesture} — band: ${JSON.stringify(band)}`);
   note(`at0628 after ${gesture} — corner lane: ${JSON.stringify(corner)}`);
@@ -246,12 +246,12 @@ describe.skipIf(!SHOULD_RUN)("AT0628: no shade gesture reaches the corner lane",
         // for the reason under test — an empty message — rather than for an
         // empty changeset. Z5's gate counts what this card's entry carries, and
         // the base's own uncommitted edit arrives unattributed.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CLAIM_ALL)}) !== null`,
           { timeoutMs: 40_000 },
         );
-        await app.nativeClickAtElement(CLAIM_ALL);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(CLAIM_ALL);
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              const b = document.querySelector(${JSON.stringify(COMMIT_BUTTON)});
              return b !== null && !b.hasAttribute("data-land-blocked");
@@ -262,8 +262,8 @@ describe.skipIf(!SHOULD_RUN)("AT0628: no shade gesture reaches the corner lane",
         // The message is empty, so the land button is dimmed — and it refuses out
         // loud anyway, which is the behaviour at0435 pinned. A dimmed button that
         // went numb was the original dead press.
-        await app.nativeClickAtElement(COMMIT_BUTTON);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(COMMIT_BUTTON);
+        await app.body("A").waitForCondition<boolean>(
           `${BAND_TEXTS}.some(function(t){ return t.indexOf("Write a commit message") !== -1; })`,
           { timeoutMs: 20_000 },
         );
@@ -278,25 +278,25 @@ describe.skipIf(!SHOULD_RUN)("AT0628: no shade gesture reaches the corner lane",
         // ⌃⌘C then raises the shade with no landing mode standing and the band's
         // only possible tenant is the verb below.
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 20_000 },
         );
         await settle(1_000);
         await app.nativeKey("c", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 40_000 },
         );
         await settle(1_500);
 
-        await pressArcRowMenuItem(app, ROW, "request-discard-arc");
-        await app.waitForCondition<boolean>(
+        await pressArcRowMenuItem(app.body("A"), ROW, "request-discard-arc");
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.nativeClickAtElement(CONFIRM);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(CONFIRM);
+        await app.body("A").waitForCondition<boolean>(
           `${BAND_TEXTS}.some(function(t){ return t.indexOf("Discard failed") !== -1; })`,
           { timeoutMs: 60_000 },
         );

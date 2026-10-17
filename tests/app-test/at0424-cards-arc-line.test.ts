@@ -74,6 +74,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -133,17 +134,17 @@ afterAll(() => {
 });
 
 const arcRunsOnSessionRow = (app: App): Promise<number> =>
-  app.evalJS<number>(
+  kindBody(app, "cards").evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(SESSION_ROW_ARC)}).length`,
   );
 
 const listCellCount = (app: App): Promise<number> =>
-  app.evalJS<number>(
+  kindBody(app, "cards").evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(LIST_CELLS)}).length`,
   );
 
 const count = (app: App, selector: string): Promise<number> =>
-  app.evalJS<number>(
+  kindBody(app, "cards").evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 
@@ -169,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await app.dispatchControlAction("toggle-cards");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
@@ -178,12 +179,12 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
 
         // ── Bind, for real ────────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
         );
 
-        const cluster = await app.evalJS<{
+        const cluster = await kindBody(app, "cards").evalJS<{
           insideSessionRow: boolean;
           onTitleLine: boolean;
           stage: string | null;
@@ -241,12 +242,12 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
           `${tugtoolPath(CHECKOUT)} arc step ${ARC_NAME} start 1 --through 2`,
           1,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRACTION)}) !== null`,
           { timeoutMs: 30000 },
         );
 
-        const stepped = await app.evalJS<{
+        const stepped = await kindBody(app, "cards").evalJS<{
           fraction: string;
           phase: string | null;
           monitorDots: number;
@@ -283,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
 
         // ── Unbind, for real ──────────────────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 2);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PROGRESS)}).length === 0`,
           { timeoutMs: 30000 },
         );
@@ -316,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await app.dispatchControlAction("toggle-cards");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
@@ -325,12 +326,12 @@ describe.skipIf(!SHOULD_RUN)("AT0424: arc progress on the session's row", () => 
         // Binding needs no branch: the owner key is a git config entry, so a
         // card can hold an arc from the first line of its brief.
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${BRIEF_ONLY}`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
         );
 
-        const documentsOnly = await app.evalJS<{
+        const documentsOnly = await kindBody(app, "cards").evalJS<{
           phase: string | null;
           fractions: number;
           arcRuns: number;

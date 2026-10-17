@@ -46,7 +46,7 @@ const TUG_PROMPT_ENTRY_DEFAULT_ROUTE = "❯";
 
 describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
   test("saveState() after seed-and-mount preserves seeded bag.content", async () => {
-    const app = await launchTugApp({
+    const app = await launchTugApp({ bodies: false,
     // Foreground: drives a real app resign / hide / become-active cycle,
     // which only happens to an app that is actually active (pid-mode default
     // never activates).

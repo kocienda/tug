@@ -103,7 +103,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the flow window"
           "and the channel carries it as a fraction of the band",
         ).toBeCloseTo(offset / band, 2);
 
-        const windowSlide = await app.evalJS<number>(
+        const windowSlide = await app.body("L").evalJS<number>(
           `(function () {
             var win = document.querySelector(
               ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-window"

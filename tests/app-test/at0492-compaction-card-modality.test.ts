@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Open the run through the real submit path — the composer, not a
           // store poke, because the sheet's exclusivity is declared at the
           // `showSheet` call the command handler makes.
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/compact");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape"); // dismiss the completion popup

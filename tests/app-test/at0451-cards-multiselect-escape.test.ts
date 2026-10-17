@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)(
             "Escape clears a set none of whose rows are showing",
           ).toEqual([]);
           expect(
-            await app.evalJS<boolean>(
+            await app.body("L").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
             "and spends the press there — the keyboard stays in the Cards card",
@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)(
           const clickedField = await clickFilterField(app);
           expect(clickedField, "found the Cards filter field").toBe(true);
           await app.nativeType("Card");
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(FILTER_INPUT)})?.value === "Card"`,
             { timeoutMs: 4_000 },
           );
@@ -199,7 +199,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the click names a card and fronts it",
           ).toEqual(["A"]);
           expect(
-            await app.evalJS<boolean>(
+            await app.body("L").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
             "and takes the keyboard out of the Cards card with it",

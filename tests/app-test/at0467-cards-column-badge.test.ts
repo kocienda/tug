@@ -132,7 +132,7 @@ interface RowBadge {
 
 /** Every Cards Sessions row, with whatever column badge it carries. */
 async function rowBadges(app: App): Promise<RowBadge[]> {
-  return app.evalJS<RowBadge[]>(
+  return app.body("L").evalJS<RowBadge[]>(
     `Array.prototype.slice.call(
       document.querySelectorAll('.cards-list .cards-row[data-session-id]')
     ).map(function (row) {
@@ -166,7 +166,7 @@ async function rowBadges(app: App): Promise<RowBadge[]> {
  * session id to find it by.
  */
 async function contentRowBadge(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("L").evalJS<string>(
     `(function () {
        var row = Array.prototype.slice
          .call(document.querySelectorAll('.cards-list .cards-oneline'))
@@ -197,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
             projectDir: "/tmp/at0467",
           });
         }
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll('.cards-list .cards-row[data-session-id]').length === ${SESSION_CARDS.length}`,
           { timeoutMs: 20_000 },
         );
@@ -253,7 +253,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
         // survived only as long as the picker was a direct child of the
         // headline). Both are measured here, in rects, because both were
         // invisible to every claim this file made about what the rows SAY.
-        const geometry = await app.evalJS<{
+        const geometry = await app.body("L").evalJS<{
           gaps: number[];
           trailingSlack: number[];
         }>(
@@ -324,6 +324,7 @@ describe.skipIf(!SHOULD_RUN)("at0467 — the Cards row's column badge", () => {
         ).toBe("stack:1");
 
         // ── Split: the same two rows become an address. ──
+        // card-dom: shell
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("set-column-mode", { slot: 0, mode: "split" }), null)`,
         );

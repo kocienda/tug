@@ -96,7 +96,8 @@ import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { enforcedTimeout, launchTugApp, note, type App } from "./_harness";
+import { kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -135,8 +136,9 @@ const HEAD_SUBJECT = execSync("git log -1 --format=%s HEAD", { cwd: REPO_ROOT })
   .toString()
   .trim();
 
+/** Into the Overview store the card renders from — its body's. */
 async function publish(app: App, post: WirePost): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return kindBody(app, "overview").evalJS<boolean>(
     `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
   );
 }
@@ -196,17 +198,14 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
       try {
         // ── 1. The chord opens the rail. ──────────────────────────────────
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
 
         // And puts it away again — a toggle, not an open.
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CARD)}) === null`,
-          { timeoutMs: 10_000 },
-        );
+        await waitForNoBodyOfKind(app, "overview", { timeoutMs: 10_000 });
 
         // The chord this card used to answer to is now nobody's, and driving
         // it has to leave the rail shut. Asserting that directly would race
@@ -221,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
 
         // Back up for the rest of the test.
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -238,36 +237,59 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // the mode is ON (`kbfEngaged`), the paint is DOWN, and the caret is
         // in the composer. A ring here alongside the caret is the pre-(B)
         // coexistence bug; paint up with no caret means the seed never landed.
-        await app.waitForCondition<boolean>(
-          `window.__tug.kbfEngaged() === true &&
-           !document.documentElement.hasAttribute("data-kbf") &&
-           (function () {
+        // The mode and its paint are the shell's deck; the composer and the
+        // caret are in the Overview's body. All three halves are polled
+        // together, so the claim stays one simultaneous state.
+        const ARRIVAL_SHELL_JS = `window.__tug.kbfEngaged() === true &&
+           !document.documentElement.hasAttribute("data-kbf")`;
+        const ARRIVAL_BODY_JS = `(function () {
              var field = document.querySelector(${JSON.stringify(`${CARD} [data-testid="overview-composer-field"]`)});
              return field !== null && document.activeElement !== null &&
                field.contains(document.activeElement);
-           })()`,
-          { timeoutMs: 10_000 },
+           })()`;
+        {
+          const budget = enforcedTimeout(10_000);
+          const deadline = Date.now() + budget;
+          while (
+            !((await app.evalJS<boolean>(ARRIVAL_SHELL_JS)) &&
+              (await kindBody(app, "overview").evalJS<boolean>(ARRIVAL_BODY_JS)))
+          ) {
+            if (Date.now() >= deadline) {
+              throw new Error(`the rail's arrival (KBF on, paint down, caret in the composer) did not settle within ${budget} ms`);
+            }
+            await Bun.sleep(50);
+          }
+        }
+        const arrivalShell = await app.evalJS<{ engaged: boolean | null; kbf: boolean }>(
+          `({
+            engaged: window.__tug.kbfEngaged(),
+            kbf: document.documentElement.hasAttribute("data-kbf"),
+          })`,
+        );
+        const arrivalBody = await kindBody(app, "overview").evalJS<{ ringed: string | null; active: string | null }>(
+          `(function () {
+            var ringed = document.querySelector(${JSON.stringify(`${CARD} [data-key-view-kbd]`)});
+            var active = document.activeElement;
+            return {
+              ringed: ringed === null ? null : (ringed.getAttribute("data-testid") || ringed.tagName),
+              active: active === null ? null : (active.getAttribute("data-slot") || active.tagName),
+            };
+          })()`,
         );
         note(
           "arrival",
-          await app.evalJS<string>(
-            `(function () {
-              var ringed = document.querySelector(${JSON.stringify(`${CARD} [data-key-view-kbd]`)});
-              var active = document.activeElement;
-              return JSON.stringify({
-                engaged: window.__tug.kbfEngaged(),
-                kbf: document.documentElement.hasAttribute("data-kbf"),
-                ringed: ringed === null ? null : (ringed.getAttribute("data-testid") || ringed.tagName),
-                active: active === null ? null : (active.getAttribute("data-slot") || active.tagName),
-              });
-            })()`,
-          ),
+          JSON.stringify({
+            engaged: arrivalShell.engaged,
+            kbf: arrivalShell.kbf,
+            ringed: arrivalBody.ringed,
+            active: arrivalBody.active,
+          }),
         );
 
         // ── 2. Posts render as their authors wrote them. ──────────────────
         // The transcript is the surface the folds land on; wait for it to
         // mount before feeding the store anything.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${CARD} .overview-transcript`)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -335,12 +357,12 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         expect(await publish(app, commitPost)).toBe(true);
         expect(await publish(app, arcRefPost)).toBe(true);
 
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(POST)}).length >= 4`,
           { timeoutMs: 10_000 },
         );
 
-        const rows = await app.evalJS<Row[]>(ROWS_JS);
+        const rows = await kindBody(app, "overview").evalJS<Row[]>(ROWS_JS);
         note("rendered rows", JSON.stringify(rows));
 
         expect(rows.length, "one row per published post").toBe(4);
@@ -449,7 +471,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // text is back under it — so waiting on the path alone and then
         // reading the text in a second round trip catches an empty wrapper
         // about half the time.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(INLINE_FILE)});
             if (el === null) return false;
@@ -460,7 +482,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           })()`,
           { timeoutMs: 20_000 },
         );
-        const inlineFile = await app.evalJS<{
+        const inlineFile = await kindBody(app, "overview").evalJS<{
           text: string;
           path: string | null;
         } | null>(
@@ -484,11 +506,11 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // also describes it — the hover carries the subject and the file
         // count, because eight characters of hex name nothing on their own.
         const INLINE_COMMIT = `${POST} .overview-post-body [data-tugx-wrapped][data-tug-annotation="commit-sha"]`;
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INLINE_COMMIT)}) !== null`,
           { timeoutMs: 25_000 },
         );
-        const inlineCommits = await app.evalJS<
+        const inlineCommits = await kindBody(app, "overview").evalJS<
           {
             text: string;
             sha: string | null;
@@ -534,7 +556,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // Hover it and read the tip: the commit's own subject, its shape, and
         // the whole hash — read off this checkout's real HEAD, so a wrong
         // commit fails loudly.
-        await app.evalJS<null>(
+        await kindBody(app, "overview").evalJS<null>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(INLINE_COMMIT)});
             var anchor = el === null ? null : el.firstElementChild;
@@ -545,11 +567,11 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           })()`,
         );
         const TIP = '[data-slot="tug-tooltip"][data-variant="entity"]';
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TIP)}) !== null`,
           { timeoutMs: 8000 },
         );
-        const tip = await app.evalJS<string>(
+        const tip = await kindBody(app, "overview").evalJS<string>(
           `(function () {
             var bubble = document.querySelector(${JSON.stringify(TIP)});
             if (bubble === null) return "";
@@ -572,7 +594,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
 
         // The trailing chip — the ref the prose never named — is stamped the
         // same way, so its click and menu are the registry's too.
-        const fileChip = await app.evalJS<{
+        const fileChip = await kindBody(app, "overview").evalJS<{
           title: string | null;
           annotation: string | null;
           path: string | null;
@@ -592,7 +614,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // of what the post rests on, not debris after the footer. Asserted
         // as DOM order within the controls slot, which is what the reading
         // order follows (the slot stacks; see `overview-card.css`).
-        const stripOrder = await app.evalJS<{
+        const stripOrder = await kindBody(app, "overview").evalJS<{
           strip: number;
           z1b: number;
         } | null>(
@@ -653,7 +675,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
               return (el.textContent || "").indexOf("for context") !== -1;
             }) || null;
         })()`;
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = ${MD_BODY};
             if (el === null) return false;
@@ -663,7 +685,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           })()`,
           { timeoutMs: 25_000 },
         );
-        const markdown = await app.evalJS<{
+        const markdown = await kindBody(app, "overview").evalJS<{
           text: string;
           code: string | null;
           codePath: string | null;
@@ -706,7 +728,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // together; the row count is the claim. A row is not `1lh`: the
         // baseline-aligned `.cm-line::before` ghost leaves leading under the
         // line box, which is why a floor stated in `1lh` grew a line early.
-        const openingRows = await app.evalJS<number>(
+        const openingRows = await kindBody(app, "overview").evalJS<number>(
           `(function () {
             var field = document.querySelector(${JSON.stringify(FIELD)});
             var scroller = field.querySelector(".cm-scroller");
@@ -722,8 +744,8 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         expect(openingRows, "the empty composer opens three lines tall").toBe(3);
 
         const question = "which sessions touched the imposer";
-        await app.nativeClickAtElement(`${FIELD} .cm-content`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").nativeClickAtElement(`${FIELD} .cm-content`);
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.activeElement !== null
             && document.activeElement.closest(${JSON.stringify(FIELD)}) !== null`,
           { timeoutMs: 8_000 },
@@ -736,21 +758,21 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         const fieldHeight = `document.querySelector(${JSON.stringify(
           `${FIELD} .cm-scroller`,
         )}).getBoundingClientRect().height`;
-        const openHeight = await app.evalJS<number>(fieldHeight);
+        const openHeight = await kindBody(app, "overview").evalJS<number>(fieldHeight);
         for (let line = 2; line <= 3; line += 1) {
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(`${FIELD} .cm-line`)}).length === ${line}`,
             { timeoutMs: 8_000 },
           );
         }
-        const threeLineHeight = await app.evalJS<number>(fieldHeight);
+        const threeLineHeight = await kindBody(app, "overview").evalJS<number>(fieldHeight);
         await app.nativeKey("Return");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(`${FIELD} .cm-line`)}).length === 4`,
           { timeoutMs: 8_000 },
         );
-        const fourLineHeight = await app.evalJS<number>(fieldHeight);
+        const fourLineHeight = await kindBody(app, "overview").evalJS<number>(fieldHeight);
         note(
           "composer growth",
           JSON.stringify({ openHeight, threeLineHeight, fourLineHeight }),
@@ -767,13 +789,13 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // Back to empty for the round trip — one Backspace per line break.
         for (let line = 3; line >= 1; line -= 1) {
           await app.nativeKey("Backspace");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(`${FIELD} .cm-line`)}).length === ${line}`,
             { timeoutMs: 8_000 },
           );
         }
         await app.nativeType(question);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var content = document.querySelector(${JSON.stringify(`${FIELD} .cm-content`)});
             return content !== null && (content.textContent || "").indexOf("imposer") !== -1;
@@ -787,7 +809,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // while the promise is conditional. Asserted as the declaration plus
         // the style it resolves to, since the ring is painted from a knob the
         // attribute sets, not from the attribute itself.
-        const chordRing = await app.evalJS<{
+        const chordRing = await kindBody(app, "overview").evalJS<{
           chord: string | null;
           style: string;
         } | null>(
@@ -820,7 +842,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // The question echoes back as a user post — the Operator persists and
         // broadcasts it before running anything, so this is the first proof
         // the frame reached the server.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
             .some(function (el) { return el.getAttribute("data-author") === "user"; })`,
           { timeoutMs: 20_000 },
@@ -829,7 +851,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // Then the answer. Under the app-test gate the pool answers nothing, so
         // what arrives is the transient "couldn't answer" post — which still
         // proves the round trip, and clears the pending row on its way.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
             .filter(function (el) { return !el.hasAttribute("data-pending"); })
             .some(function (el) {
@@ -843,7 +865,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           { timeoutMs: 30_000 },
         );
 
-        const after = await app.evalJS<Row[]>(ROWS_JS);
+        const after = await kindBody(app, "overview").evalJS<Row[]>(ROWS_JS);
         note("rows after the round trip", JSON.stringify(after));
 
         const userRow = after.find((r) => r.author === "user");
@@ -851,7 +873,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         expect(userRow!.body).toBe(question);
 
         // The pending placeholder is gone: the answer resolved the wait.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PENDING)}) === null`,
           { timeoutMs: 10_000 },
         );
@@ -859,7 +881,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // And the composer is live again — one question at a time means
         // *while* one is outstanding, not ever after.
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `(function () {
               var field = document.querySelector(${JSON.stringify(FIELD)});
               return field !== null && field.querySelector(".cm-content") !== null;
@@ -893,16 +915,16 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           document.querySelectorAll(${JSON.stringify(`${MENU} .tug-completion-menu-item`)}),
         ).map(function (el) { return (el.textContent || "").trim(); })`;
         const NAMED_FILE = "CLAUDE.md";
-        await app.nativeClickAtElement(FIELD);
+        await kindBody(app, "overview").nativeClickAtElement(FIELD);
         await app.nativeType("@CLAUDE");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var items = ${ITEMS_JS};
             return items.length > 0 && items[0] === ${JSON.stringify(NAMED_FILE)};
           })()`,
           { timeoutMs: 15_000 },
         );
-        note("@ completion items", JSON.stringify(await app.evalJS<string[]>(ITEMS_JS)));
+        note("@ completion items", JSON.stringify(await kindBody(app, "overview").evalJS<string[]>(ITEMS_JS)));
         // Accepted with a modifier-free Return, which the typeahead keymap
         // claims — the keyboard gesture a person actually makes, and the one
         // that needs nothing from the portalled popup's geometry.
@@ -910,7 +932,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
 
         // The atom is in the document — a real placed atom, the same one a
         // drop makes, not text that looks like a path.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var field = document.querySelector(${JSON.stringify(FIELD)});
             if (field === null) return false;
@@ -921,7 +943,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         note(
           "the placed atom",
           JSON.stringify(
-            await app.evalJS<unknown>(
+            await kindBody(app, "overview").evalJS<unknown>(
               `(function () {
                 var field = document.querySelector(${JSON.stringify(FIELD)});
                 if (field === null) return null;
@@ -941,7 +963,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // annotator marks it because the words name it) or as a trailing ref
         // chip when they do not. Both are the ref arriving; which one shows is
         // the card's existing `unmentionedRefs` rule, not this step's claim.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
             .filter(function (el) { return el.getAttribute("data-author") === "user"; })
             .some(function (el) {
@@ -949,7 +971,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
             })`,
           { timeoutMs: 20_000 },
         );
-        const pointed = await app.evalJS<{ body: string; atoms: string[] } | null>(
+        const pointed = await kindBody(app, "overview").evalJS<{ body: string; atoms: string[] } | null>(
           `(function () {
             var rows = Array.from(document.querySelectorAll(${JSON.stringify(POST)}))
               .filter(function (el) { return el.getAttribute("data-author") === "user"; });
@@ -982,7 +1004,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
       const app = await launchTugApp({ testName: "at0365-overview-attachments" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIELD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -991,7 +1013,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // host, the substrate downsamples it, stages the bytes, and drops an
         // `image-1` chip at the caret. Nothing is stubbed — the same code the
         // Session composer runs.
-        await app.evalJS<void>(
+        await kindBody(app, "overview").evalJS<void>(
           `(function () {
             window.__at0365Dropped = false;
             var host = document.querySelector(${JSON.stringify(FIELD)});
@@ -1020,7 +1042,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
             }, "image/png");
           })()`,
         );
-        await app.waitForCondition<boolean>(`window.__at0365Dropped === true`, {
+        await kindBody(app, "overview").waitForCondition<boolean>(`window.__at0365Dropped === true`, {
           timeoutMs: 8_000,
         });
 
@@ -1030,7 +1052,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // is asserted is its own DOM — a tile with pixels in it, its `image-1`
         // caption, and the ✕ that only a compose-phase tile carries.
         const COMPOSE_STRIP = '[data-testid="overview-composer-attachment-strip"]';
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
               `${COMPOSE_STRIP} .tug-attachment-preview__thumb-img`,
@@ -1039,7 +1061,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           })()`,
           { timeoutMs: 20_000 },
         );
-        const composeTile = await app.evalJS<{
+        const composeTile = await kindBody(app, "overview").evalJS<{
           tiles: number;
           caption: string;
           deletable: boolean;
@@ -1067,7 +1089,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // own root, which is what a card gets. Reading BOTH is the point: a
         // number alone would pass just as happily if the option stopped
         // arriving and every surface silently went small.
-        const density = await app.evalJS<{
+        const density = await kindBody(app, "overview").evalJS<{
           stamped: string | null;
           tileHeight: number;
           comfortable: number;
@@ -1111,7 +1133,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // A question that is only a picture is a question, so the send button
         // is live with an empty field — the emptiness bridge counts images.
         expect(
-          await app.evalJS<string | null>(
+          await kindBody(app, "overview").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(
               '[data-testid="overview-composer"]',
             )}).getAttribute("data-empty")`,
@@ -1119,14 +1141,14 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           "an attached image is not an empty composer",
         ).toBe("false");
 
-        await app.nativeClickAtElement(SEND);
+        await kindBody(app, "overview").nativeClickAtElement(SEND);
 
         // ── The transcript half. The bytes went up with the question, tugcast
         // rested them beside the ledger, and the post that came back names
         // where. The strip reads them through `/api/fs/blob` — so a tile with
         // real pixels here proves the whole path: wire → operator → disk →
         // ledger row → post → blob route → the same preview component.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
               '[data-testid="overview-post-attachments"] .tug-attachment-preview__thumb-img',
@@ -1135,7 +1157,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           })()`,
           { timeoutMs: 30_000 },
         );
-        const postStrip = await app.evalJS<{
+        const postStrip = await kindBody(app, "overview").evalJS<{
           author: string | null;
           tiles: number;
           deletable: boolean;
@@ -1169,10 +1191,10 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // A tile opens the full-resolution sheet, the way it does on a
         // Session transcript — the strip owns that gesture, so what this
         // proves is that the Overview's rail can host the sheet it opens.
-        await app.nativeClickAtElement(
+        await kindBody(app, "overview").nativeClickAtElement(
           '[data-testid="overview-post-attachments"] .tug-attachment-preview__tile',
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(
               '[data-slot="tug-attachment-preview-sheet__image"]',
@@ -1183,7 +1205,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         );
         note(
           "preview sheet",
-          await app.evalJS<string>(
+          await kindBody(app, "overview").evalJS<string>(
             `(function () {
               var img = document.querySelector(
                 '[data-slot="tug-attachment-preview-sheet__image"]',
@@ -1200,7 +1222,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // tier is capped well short of the card, so there is real margin on
         // both sides. Measured against the card's own frame, because "narrow"
         // is only meaningful relative to what it opened inside.
-        const sheetFit = await app.evalJS<{
+        const sheetFit = await kindBody(app, "overview").evalJS<{
           density: string | null;
           inlineMax: string;
           sheet: number;
@@ -1262,7 +1284,7 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
         // most of what a footer this wide holds, so the tier is stamped on
         // each of them — asserted as the size class the button family writes,
         // which is the same thing the CSS keys its metrics on.
-        const chromeSizes = await app.evalJS<string[]>(
+        const chromeSizes = await kindBody(app, "overview").evalJS<string[]>(
           `Array.from(
             document.querySelectorAll(
               '[data-slot="tug-attachment-preview-sheet"] button',
@@ -1285,14 +1307,14 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
           expect(size, "every control is at the rail's scale").toBe("sm");
         }
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector('[data-slot="tug-attachment-preview-sheet"]') === null`,
           { timeoutMs: 10_000 },
         );
 
         // And the composer let go of it: the strip is gone, so the next
         // question starts empty rather than re-sending the last picture.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSE_STRIP)}) === null`,
           { timeoutMs: 10_000 },
         );

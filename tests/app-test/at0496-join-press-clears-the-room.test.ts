@@ -220,7 +220,7 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
 async function openTheRoomOnTheJoin(app: App): Promise<void> {
   const deadline = Date.now() + 90_000;
   for (let attempt = 1; Date.now() < deadline; attempt += 1) {
-    await app.nativeClickAtElement(EDITOR);
+    await app.body("A").nativeClickAtElement(EDITOR);
     await settle();
     await app.nativeKey("a", ["cmd"]);
     await app.nativeKey("Delete");
@@ -239,7 +239,7 @@ async function openTheRoomOnTheJoin(app: App): Promise<void> {
     const attemptBy = Date.now() + 3_000;
     let open = false;
     while (!open && Date.now() < attemptBy) {
-      open = await app.evalJS<boolean>(
+      open = await app.body("A").evalJS<boolean>(
         `document.querySelector(${JSON.stringify(SHEET)}) !== null &&
          document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
       );
@@ -247,7 +247,7 @@ async function openTheRoomOnTheJoin(app: App): Promise<void> {
     }
     if (open) {
       try {
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANE)}) !== null`,
           { timeoutMs: 40000 },
         );
@@ -321,12 +321,12 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
 
         // Entering join mode resolves the arc; the candidate standing is that
         // resolution anchoring, and it is what the gate reads.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
           { timeoutMs: 180000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           ),
           "precondition: the Changes shade is up",
@@ -347,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         // or not the press moves anybody. An upward scroll outside the
         // at-bottom band disengages follow-bottom ([D93]), so nothing pulls
         // the view back on its own.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(() => {
              const s = document.querySelector(${JSON.stringify(TRANSCRIPT)});
              if (s !== null) s.scrollTop = 0;
@@ -356,7 +356,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         );
         await settle(500);
         const parked = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(() => {
                const s = document.querySelector(${JSON.stringify(TRANSCRIPT)});
                if (s === null) return JSON.stringify({ found: false });
@@ -379,12 +379,12 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           "precondition: the reader is parked away from the live edge",
         ).toBe(true);
 
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
         await app.nativeType("at0496: land this arc");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 5000 },
         );
@@ -392,7 +392,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         await app.nativeKey("Return", ["cmd"]);
 
         // ── 1. The shade closes. ──
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 8000 },
         );
@@ -406,11 +406,11 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         // word-pinned selector would miss a row that was never absent. What is
         // asserted is the ROW — the narration standing where the reader was
         // handed to — and its word is noted rather than pinned.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
-        const seen = JSON.parse(await app.evalJS<string>(inViewProbe(PROGRESS_ROW))) as {
+        const seen = JSON.parse(await app.body("A").evalJS<string>(inViewProbe(PROGRESS_ROW))) as {
           found: boolean;
           inView?: boolean;
           word?: string | null;

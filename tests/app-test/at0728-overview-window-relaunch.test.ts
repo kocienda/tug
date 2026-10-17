@@ -76,6 +76,7 @@ import {
   scrollToTop,
   wirePost,
 } from "./overview-window-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across a relaunch", () => {
   test(
@@ -94,7 +95,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across
 })()`;
       /** The post under the scrollport top and its top edge's offset from it. */
       const readTopPost = (app: App): Promise<{ n: number; offset: number }> =>
-        app.evalJS(`(function () {
+        kindBody(app, "overview").evalJS(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var top = el.getBoundingClientRect().top;
@@ -107,12 +108,13 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across
       const publishAll = async (app: App): Promise<void> => {
         for (let id = 0; id < POST_COUNT; id++) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        // The Overview store the posts went into is the card's body's.
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(window.__tug.overviewPosts() || []).length === ${POST_COUNT}`,
           { timeoutMs: 30_000 },
         );
@@ -130,20 +132,20 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across
             persistInTestMode: true,
           });
           await app.nativeKey("o", ["cmd", "ctrl"]);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
             { timeoutMs: 10_000 },
           );
           await publishAll(app);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `!document.querySelector(${JSON.stringify(TRANSCRIPT)}).hasAttribute("data-window-stale")`,
             { timeoutMs: 30_000 },
           );
-          const col = await column(app);
-          await scrollToTop(app, Math.round((col.scrollHeight - col.clientHeight) * 0.5));
+          const col = await column(kindBody(app, "overview"));
+          await scrollToTop(kindBody(app, "overview"),Math.round((col.scrollHeight - col.clientHeight) * 0.5));
           await new Promise((r) => setTimeout(r, 500));
           phaseA = await readTopPost(app);
-          cardId = await app.evalJS<string>(cardIdJs);
+          cardId = await kindBody(app, "overview").evalJS<string>(cardIdJs);
           expect(cardId).not.toBe("");
           deckState = await app.evalJS<unknown>(`window.tugdeck.diag.getDeckState()`);
           await app.quitGracefully();
@@ -173,33 +175,38 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across
               cardStates: { [cardId]: bag as Record<string, unknown> },
               focusCardId: cardId,
             });
-            await app.waitForCondition<boolean>(
+            await kindBody(app, "overview").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
               { timeoutMs: 15_000 },
             );
-            await app.evalJS<boolean>(`(function () {
+            await kindBody(app, "overview").evalJS<boolean>(`(function () {
   document.querySelector(${JSON.stringify(TRANSCRIPT)}).style.display = "none";
   return true;
 })()`);
             note(
               "relaunch: live bag heights before the posts arrive",
               String(
-                await app.evalJS<number>(`(function () {
-  window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
+                await (async () => {
+                  await app.evalJS<boolean>(
+                    `(window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState(), true)`,
+                  );
+                  // The live bag is the card's own, in its body.
+                  return kindBody(app, "overview").evalJS<number>(`(function () {
   var bag = window.__tug.getCardStateBag(${JSON.stringify(cardId)});
   var c = (bag && bag.components) || {};
   var k = Object.keys(c).filter(function (x) { return /overview-heights$/.test(x); })[0];
   return k === undefined || !c[k] ? -1 : (c[k].entries || []).length;
-})()`),
+})()`);
+                })(),
               ),
             );
             await publishAll(app);
-            const atReveal = await app.evalJS<{ stale: string | null }>(`(function () {
+            const atReveal = await kindBody(app, "overview").evalJS<{ stale: string | null }>(`(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   el.style.display = "";
   return { stale: el.getAttribute("data-window-stale") };
 })()`);
-            const firstSample = await app.evalJS<{ stale: string | null }>(
+            const firstSample = await kindBody(app, "overview").evalJS<{ stale: string | null }>(
               `({ stale: document.querySelector(${JSON.stringify(TRANSCRIPT)}).getAttribute("data-window-stale") })`,
             );
             note(
@@ -212,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across
 
             // The restore is CardHost's raw `scrollTop` replay, retried on
             // subtree mutation; against exact heights it lands on the post.
-            await app.waitForCondition<boolean>(
+            await kindBody(app, "overview").waitForCondition<boolean>(
               `(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   return el.hasAttribute("data-window-peak") && el.scrollTop > 0;
@@ -220,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: across
               { timeoutMs: 15_000 },
             );
             await new Promise((r) => setTimeout(r, 1500));
-            const peak = await app.evalJS<number>(
+            const peak = await kindBody(app, "overview").evalJS<number>(
               `Number(document.querySelector(${JSON.stringify(TRANSCRIPT)}).getAttribute("data-window-peak") || "-1")`,
             );
             const phaseB = await readTopPost(app);

@@ -263,7 +263,7 @@ function threeSpaceBlob(): Record<string, unknown> {
  * kept because a throw somewhere OTHER than a render still takes them.
  */
 async function armRecorder(app: App): Promise<void> {
-  await app.evalJS<boolean>(
+  await app.body("CA").evalJS<boolean>(
     `(function () {
        window.__at0590 = [];
        var push = function (kind, message, stack) {
@@ -334,7 +334,7 @@ async function armRecorder(app: App): Promise<void> {
  * emptied again before the gesture.
  */
 async function proveRecorder(app: App): Promise<string[]> {
-  await app.evalJS<boolean>(
+  await app.body("CA").evalJS<boolean>(
     `(function () {
        console.error("[ErrorBoundary]", new Error("at0590 instrument check"));
        var el = document.createElement("div");
@@ -351,7 +351,7 @@ async function proveRecorder(app: App): Promise<string[]> {
   // The banner channel is a MutationObserver, so its record is delivered on a
   // later task than the append. Read across that boundary, not inside it.
   await settle(200);
-  return app.evalJS<string[]>(
+  return app.body("CA").evalJS<string[]>(
     `(function () {
        var el = document.getElementById("at0590-instrument-check");
        if (el !== null) el.remove();
@@ -370,7 +370,7 @@ async function proveRecorder(app: App): Promise<string[]> {
  * is most likely to point past the end of.
  */
 function typeFilter(app: App, text: string): Promise<null> {
-  return app.evalJS<null>(
+  return app.body("CA").evalJS<null>(
     `(function(){
        var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
        if (el === null) throw new Error("cards filter input not found");
@@ -386,7 +386,7 @@ function typeFilter(app: App, text: string): Promise<null> {
 
 /** Open the `···` menu on a workspace's header and press Delete. */
 async function pressDelete(app: App, spaceId: string): Promise<void> {
-  await app.nativeClickAtElement(`${headerFor(spaceId)} ${VERBS_BUTTON}`);
+  await app.body("CA").nativeClickAtElement(`${headerFor(spaceId)} ${VERBS_BUTTON}`);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(DELETE_ITEM)}) !== null`,
     { timeoutMs: 8_000 },
@@ -418,14 +418,14 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("CA").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 3`,
             { timeoutMs: 20_000 },
           );
           const before = await app.evalJS<SpacesProbe>(
             `window.tugdeck.diag.getSpaces()`,
           );
-          const mounted = await app.evalJS<string[]>(MOUNTED_LAYERS);
+          const mounted = await app.body("CA").evalJS<string[]>(MOUNTED_LAYERS);
           note(`at0590 mounted before: ${JSON.stringify(mounted)}`);
           expect(
             before.activeSpaceId,
@@ -447,17 +447,17 @@ describe.skipIf(!SHOULD_RUN)(
           await settle();
 
           // ---- The list is FILTERED at the moment of the delete. ----------
-          const rowsBefore = await app.evalJS<number>(
+          const rowsBefore = await app.body("CA").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length`,
           );
           await typeFilter(app, FILTER_TERM);
-          await app.waitForCondition<boolean>(
+          await app.body("CA").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length < ${rowsBefore}`,
             { timeoutMs: 10_000 },
           );
           note(
             `at0590 filtered to ${JSON.stringify(FILTER_TERM)}: ` +
-              `${rowsBefore} rows -> ${await app.evalJS<number>(
+              `${rowsBefore} rows -> ${await app.body("CA").evalJS<number>(
                 `document.querySelectorAll(${JSON.stringify(ROWS)}).length`,
               )}`,
           );

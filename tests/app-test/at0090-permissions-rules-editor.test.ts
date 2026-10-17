@@ -121,7 +121,7 @@ describe.skipIf(!SHOULD_RUN)(
           // press-and-hold popover that used to steal mid-type focus is disabled
           // at launch (`-ApplePressAndHoldEnabled NO`), so a single nativeType
           // lands cleanly.
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/permissions");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape");

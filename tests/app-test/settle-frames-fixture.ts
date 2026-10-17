@@ -777,7 +777,7 @@ export async function launch(
   );
   const app = await launchTugApp({
     testName,
-    bodies: opts.bodies === true,
+    bodies: opts.bodies !== false,
     env: { ...opts.env, TUGBANK_PATH: tugbankPath },
     skipAccessibilityPreflight: true,
     persistInTestMode: true,
@@ -798,7 +798,7 @@ export async function launch(
     size: opts.transcripts ?? "slice",
     whaleCards: opts.whaleCards ?? DEFAULT_WHALE_CARDS,
     label: testName,
-    bodies: opts.bodies === true,
+    bodies: opts.bodies !== false,
   });
   // The seeded copies under `~/.claude/projects/` remove themselves when the
   // test run ends (each seeder registers with `onTestRunEnd`).

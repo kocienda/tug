@@ -41,6 +41,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -128,9 +129,12 @@ function blob() {
   };
 }
 
-// Every visited workspace stays mounted, so the rows are scoped to the layer
-// on screen; the menu is portaled outside every layer and is not.
-const SHOWN = "[data-space-layer][data-space-shown] ";
+// Every visited workspace stays mounted, one Workspaces card each, and each
+// card is its own body; the layer wrapper is the shell's. So the scope "the
+// layer on screen" is the page, not a selector: every read goes through
+// `kindBody(app, "cards")`, which answers from the visible card's body, and
+// the menu is portaled into that same body.
+const SHOWN = "";
 const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
 const headerFor = (id: string): string =>
   `${SHOWN}.cards-space-header[data-cards-space-id="${id}"]`;
@@ -153,7 +157,7 @@ async function swatchOf(
   app: App,
   spaceId: string,
 ): Promise<{ theme: string | null; color: string }> {
-  return app.evalJS<{ theme: string | null; color: string }>(
+  return kindBody(app, "cards").evalJS<{ theme: string | null; color: string }>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(swatchFor(spaceId))});
        return {
@@ -165,7 +169,7 @@ async function swatchOf(
 }
 
 async function waitSwatchTheme(app: App, spaceId: string, theme: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "cards").waitForCondition<boolean>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(swatchFor(spaceId))});
        return el !== null && el.getAttribute("data-cards-swatch-theme") === ${JSON.stringify(theme)};
@@ -176,15 +180,16 @@ async function waitSwatchTheme(app: App, spaceId: string, theme: string): Promis
 
 /** Open a row's theme menu with the real pointer and wait for its items. */
 async function openThemeMenu(app: App, spaceId: string): Promise<void> {
-  await app.nativeClickAtElement(swatchButtonFor(spaceId));
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "cards").nativeClickAtElement(swatchButtonFor(spaceId));
+  await kindBody(app, "cards").waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(`${MENU} .tug-menu-item`)}).length > 0`,
     { timeoutMs: 8_000 },
   );
 }
 
 async function waitMenuClosed(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
+  // The menu closes inside a card that stays standing.
+  await kindBody(app, "cards").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) === null`,
     { timeoutMs: 8_000 },
   );
@@ -212,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 2`,
             { timeoutMs: 20_000 },
           );
@@ -240,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           // under their headings, each chip in its theme's Key hue, with that
           // workspace's own checked.
           await openThemeMenu(app, SPACE_TWO);
-          const items = await app.evalJS<{ id: string; checked: string | null }[]>(
+          const items = await kindBody(app, "cards").evalJS<{ id: string; checked: string | null }[]>(
             `Array.prototype.map.call(
                document.querySelectorAll(${JSON.stringify(`${MENU} .tug-menu-item`)}),
                function (el) {
@@ -267,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
           expect(
             items.filter((item) => item.checked === "true").map((item) => item.id),
           ).toEqual([THEME_TWO]);
-          const sequence = await app.evalJS<string[]>(
+          const sequence = await kindBody(app, "cards").evalJS<string[]>(
             `Array.prototype.map.call(
                document.querySelectorAll(${JSON.stringify(`${MENU} .tug-menu-label, ${MENU} .tug-menu-item`)}),
                function (el) {
@@ -284,7 +289,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
             "# Light",
             ...THEME_CATALOG.filter((e) => e.mode === "light").map((e) => e.name),
           ]);
-          const chips = await app.evalJS<Record<string, string>>(
+          const chips = await kindBody(app, "cards").evalJS<Record<string, string>>(
             `(function () {
                var out = {};
                document.querySelectorAll(${JSON.stringify(`${MENU} .tug-menu-item`)}).forEach(function (el) {
@@ -307,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
 
           // (3) A pick for the parked workspace: its record and its swatch,
           // and nothing on screen.
-          await app.nativeClickAtElement(
+          await kindBody(app, "cards").nativeClickAtElement(
             `${MENU} [data-item-id="${THEME_PARKED_PICK}"]`,
           );
           await app.waitForCondition<boolean>(
@@ -343,12 +348,12 @@ describe.skipIf(!SHOULD_RUN)("at0665 — a workspace row's theme swatch", () => 
 
           // (5) A pick for the workspace on screen is the Theme menu's path:
           // the screen, this record alone, and the menu-bar checkmark.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(swatchButtonFor(SPACE_TWO))}) !== null`,
             { timeoutMs: 10_000 },
           );
           await openThemeMenu(app, SPACE_TWO);
-          await app.nativeClickAtElement(
+          await kindBody(app, "cards").nativeClickAtElement(
             `${MENU} [data-item-id="${THEME_ACTIVE_PICK}"]`,
           );
           await app.waitForCondition<boolean>(

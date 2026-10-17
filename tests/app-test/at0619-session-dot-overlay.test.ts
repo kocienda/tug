@@ -183,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
             }),
           )})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -194,8 +194,8 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // paste lands in when the pasteboard bridge is not in play, and it is
         // the one way to put a chip naming a CHOSEN session in the composer
         // without a copy gesture in front of it.
-        await app.focusElement(COMPOSER);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").focusElement(COMPOSER);
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           var dt = new DataTransfer();
           dt.setData("text/plain", ${JSON.stringify(VALUE)});
@@ -205,17 +205,17 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
           { timeoutMs: 8_000 },
         );
 
         // ---- A. Seated on the well, at rest. ------------------------------
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LAYER + " " + HOST)}) !== null`,
           { timeoutMs: 8_000 },
         );
-        const atRest = await app.evalJS<{
+        const atRest = await app.body("A").evalJS<{
           hosts: number;
           dots: number;
           dx: number;
@@ -273,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // is checked by freezing the page's main thread and photographing the
         // dot at two points in the freeze, which is a human check.
         await app.driveSession("A", { op: "send", text: "at0619 opening turn" });
-        const breath = await app.evalJS<{
+        const breath = await app.body("A").evalJS<{
           phase: string;
           hostMissing: string;
           hostSession: string;
@@ -338,7 +338,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // own box for exactly that reason, and the host is the same bounded
         // caller — uncapped, the glyph throws its ring past the opening and
         // the halo crosses the hairline a moment after every beat.
-        const bounded = await app.evalJS<{ reach: string; envelope: number }>(
+        const bounded = await app.body("A").evalJS<{ reach: string; envelope: number }>(
           `(function(){
             var host = document.querySelector(${JSON.stringify(LAYER + " " + HOST)});
             var reach = getComputedStyle(host)
@@ -367,12 +367,12 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // host takes the selected ink from outside the chip, where no cascade
         // reaches it.
         await app.nativeKey("a", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)})
              .dataset.selected === "true"`,
           { timeoutMs: 8_000 },
         );
-        const selected = await app.evalJS<{
+        const selected = await app.body("A").evalJS<{
           hostSelected: string;
           wellAlpha: number;
         }>(
@@ -411,7 +411,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // describes what anybody saw. A synchronous post-keystroke read lands
         // between the DOM mutation and the layer's measure frame and reports a
         // whole character of offset that never reached the screen.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           window.__at0619 = { samples: [], armed: false };
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           var obs = new MutationObserver(function(){
@@ -436,7 +436,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         for (const ch of TYPED) {
           await app.nativeType(ch);
         }
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(
              ${JSON.stringify(COMPOSER)} + ' .cm-line'))
              .map(function(l){ return l.textContent || ""; }).join("")
@@ -465,7 +465,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           expect(Math.abs(sample.dy)).toBeLessThan(0.5);
         }
         // And the text landed in front of the chip, which is what made it move.
-        const line = await app.evalJS<string>(
+        const line = await app.body("A").evalJS<string>(
           `Array.from(document.querySelectorAll(
              ${JSON.stringify(COMPOSER)} + ' .cm-line'))
              .map(function(l){ return l.textContent || ""; }).join("")`,
@@ -480,15 +480,15 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // contract this whole design exists to keep.
         await app.nativeKey("ArrowRight");
         await app.nativeKey("Backspace");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) === null`,
           { timeoutMs: 8_000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LAYER + " " + HOST)}) === null`,
           { timeoutMs: 8_000 },
         );
-        const after = await app.evalJS<{ chips: number; hosts: number; text: string }>(
+        const after = await app.body("A").evalJS<{ chips: number; hosts: number; text: string }>(
           `(function(){
             var layer = document.querySelector(${JSON.stringify(LAYER)});
             return {

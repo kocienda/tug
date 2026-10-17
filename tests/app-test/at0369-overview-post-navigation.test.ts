@@ -34,6 +34,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -94,7 +95,7 @@ const STANDING_JS = `(function () {
 })()`;
 
 async function standing(app: App): Promise<Standing> {
-  return app.evalJS<Standing>(STANDING_JS);
+  return kindBody(app, "overview").evalJS<Standing>(STANDING_JS);
 }
 
 describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
@@ -106,7 +107,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
       });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -118,7 +119,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
             ),
           ).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           // Held, and rendered: the column follows its newest post, so post
           // 31 is mounted once the commit that holds all twelve has landed.
           `(window.__tug.overviewPosts() || []).length === 12 &&
@@ -130,8 +131,8 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
         // The caret goes in the composer — the surface an arrow would
         // otherwise belong to. Everything below is dispatched while a CM6
         // editor holds DOM focus.
-        await app.nativeClickAtElement(`${FIELD} .cm-content`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").nativeClickAtElement(`${FIELD} .cm-content`);
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.activeElement !== null
             && document.activeElement.closest(${JSON.stringify(FIELD)}) !== null`,
           { timeoutMs: 10_000 },
@@ -148,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
         // ── Up. Each press pins one post's top to the top of the column,
         // and each pins the one before the last.
         await app.nativeKey("[", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             return el.scrollHeight - el.scrollTop - el.clientHeight > 2;
@@ -167,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
         ).toBeLessThan(opened.scrollTop);
 
         await app.nativeKey("[", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             return Math.round(el.scrollTop) < ${firstUp.scrollTop};
@@ -183,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
 
         // ── Down. The mirror: back to the post the first press had chosen.
         await app.nativeKey("]", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             return Math.round(el.scrollTop) > ${secondUp.scrollTop};
@@ -202,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
         for (let i = 0; i < 14; i++) {
           await app.nativeKey("]", ["cmd", "ctrl"]);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
@@ -218,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
         // The caret never left the composer — the routing is `key-card`, not
         // a listener on the column, so focus was never taken to scroll.
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `document.activeElement !== null
               && document.activeElement.closest(${JSON.stringify(FIELD)}) !== null`,
           ),

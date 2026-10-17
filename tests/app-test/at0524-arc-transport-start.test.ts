@@ -49,6 +49,7 @@ import {
   tugtool,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -150,11 +151,11 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
         // card follows whatever last held the keyboard, and opening the rail
         // is itself a focus move.
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
           { timeoutMs: 30_000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30_000 },
         );
@@ -164,11 +165,11 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
         // And no fold cue beside it: [D176] left plan rows out of the fold,
         // because the ledger a fold opens is one a waiting document does not
         // carry.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("start"))}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const offered = await app.evalJS<string>(
+        const offered = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const button = row.querySelector('[data-slot="arc-verb"]');
@@ -194,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
         expect(face.label).toBe(`Start arc ${ARC_NAME}`);
         expect(face.folds).toBe(0);
 
-        await app.nativeClickAtElement(transportWith("start"));
+        await kindBody(app, "dashes").nativeClickAtElement(transportWith("start"));
 
         // ── The server opened the arc the deck named ──────────────────────
         const opened = await pollUntil(
@@ -212,18 +213,18 @@ describe.skipIf(!SHOULD_RUN)("AT0524: Start on a waiting document's row", () => 
         //
         // The worker atom, not `data-bound`: that attribute is `ArcCell`'s
         // alone, and this is a document row.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(WORKER)}).length === 1`,
           { timeoutMs: 30_000 },
         );
         note("at0524 row after the start", (await app.screenshot()).path);
 
         // ── And the same button is now the way to stop it ─────────────────
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("stop"))}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const running = await app.evalJS<string>(
+        const running = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const buttons = document.querySelectorAll(${JSON.stringify(TRANSPORT)});
              return JSON.stringify({

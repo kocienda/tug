@@ -146,19 +146,19 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
           is_partial: false,
         });
         await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // Enter landing mode — the composer becomes the message field.
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMMIT_SHEET)}) !== null &&
            document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`,
           { timeoutMs: 6000 },
@@ -177,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
           );
 
         const read = (): Promise<StreamReading> =>
-          app.evalJS(
+          app.body("A").evalJS(
             `(() => {
                const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
                const scroller = content.closest(".cm-scroller");

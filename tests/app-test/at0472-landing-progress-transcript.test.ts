@@ -154,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // Nothing narrates yet: the precondition that makes every reading
         // below about the join rather than about the card's resting state.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(LIVE_EDGE)}) === null`,
           ),
           "an idle card puts no progress row at its live edge",
@@ -164,13 +164,13 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // stands, and the card fronts the Changes route on its own — which is
         // what enters join mode, and the register follows the mode.
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LIVE_REGISTER)}) !== null`,
           { timeoutMs: 240000 },
         );
         note(
           `at0472 live edge: ${JSON.stringify(
-            await app.evalJS<string>(
+            await app.body("A").evalJS<string>(
               `document.querySelector(${JSON.stringify(LIVE_REGISTER)})?.getAttribute("data-word") ?? ""`,
             ),
           )}`,
@@ -178,7 +178,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
 
         // ── And nowhere near the composer ────────────────────────────────
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(COMPOSER_REGISTER)}).length`,
           ),
           "the prompt entry's status row carries no register at all",
@@ -188,13 +188,13 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // Changes shade's own arc row still carries one — that mount is not
         // this file's subject and is deliberately untouched.)
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="tug-prompt-entry"] [data-slot="arc-join-register"]`)}).length`,
           ),
           "the composer carries no register anywhere in it",
         ).toBe(0);
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(LIVE_REGISTER)}).length`,
           ),
           "and the live edge carries exactly one",
@@ -211,7 +211,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // so the register began a gutter's width to the LEFT of every tool
         // block it appeared under. It reads the entry's own body-column inset
         // now, so the two share a left edge.
-        const order = await app.evalJS<{
+        const order = await app.body("A").evalJS<{
           rows: number;
           lastBottom: number;
           edgeTop: number;
@@ -251,16 +251,16 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // ── The join lands, and the ink settles into a receipt ───────────
         // The card is already on the Changes route with the composer armed, so
         // the press is the composer's ⌘Return and nothing else.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           { timeoutMs: 60000 },
         );
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
         await app.nativeType("at0472: land this arc");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 8000 },
         );
@@ -278,7 +278,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
 
         // One receipt, and it is the bespoke join block rather than the shell
         // fallback — the durable half of the arc, unchanged by the move.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
           { timeoutMs: 60000 },
         );
@@ -290,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // `Shell` speaker, while `/commit` wore a git one for the identical
         // act. The attribution comes from the receipt's own registration now,
         // so this reads what the entry actually says.
-        const attribution = await app.evalJS<{ participant: string; identifier: string }>(
+        const attribution = await app.body("A").evalJS<{ participant: string; identifier: string }>(
           `(function(){
              var entry = document.querySelector(${JSON.stringify(JOIN_RECEIPT)})
                ?.closest('[data-slot="tug-transcript-entry"]');
@@ -311,9 +311,9 @@ describe.skipIf(!SHOULD_RUN)("AT0472: landing progress is transcript ink", () =>
         // The progress row was never written down. Whatever it is saying now —
         // a settled sentence still resting, or nothing at all — the transcript
         // that replays from the ledger holds the receipt and no trace of it.
-        await app.evalJS<null>(`(window.__tug.refreshInkRestore("A"), null)`);
+        await app.body("A").evalJS<null>(`(window.__tug.refreshInkRestore("A"), null)`);
         await settle(4000);
-        const facts = await app.evalJS<{ shellTurns: number; commands: string[] }>(
+        const facts = await app.body("A").evalJS<{ shellTurns: number; commands: string[] }>(
           `window.__tug.inkRestoreFacts("A")`,
         );
         note(`at0472 ink: ${JSON.stringify(facts)}`);

@@ -202,6 +202,7 @@ const READ = `(function (hostSel) {
 })`;
 
 async function readLine(app: App, hostSel: string): Promise<Line | null> {
+  // card-dom: shell — title bars and mastheads are pane chrome, the shell's.
   return app.evalJS<Line | null>(`${READ}(${JSON.stringify(hostSel)})`);
 }
 
@@ -236,6 +237,7 @@ async function readRailPseudo(
  * afterwards differs from the rest state by exactly the field being painted.
  */
 async function forceFieldVisible(app: App): Promise<void> {
+  // card-dom: shell — the field is on pane chrome.
   await app.evalJS<null>(
     `(function () {
        var st = document.createElement("style");
@@ -257,6 +259,7 @@ async function forceFieldVisible(app: App): Promise<void> {
  * timeline that would advance it. See the call site.
  */
 async function freezeFieldFade(app: App): Promise<void> {
+  // card-dom: shell — the field is on pane chrome.
   await app.evalJS<null>(
     `(function () {
        var st = document.createElement("style");
@@ -270,6 +273,7 @@ async function freezeFieldFade(app: App): Promise<void> {
 
 /** Take the forcing fixture back off, so a later step reads the real cascade. */
 async function unforceFieldVisible(app: App): Promise<void> {
+  // card-dom: shell — the field is on pane chrome.
   await app.evalJS<null>(
     `(function () {
        var st = document.getElementById("at0628-force");
@@ -377,6 +381,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           tugSessionId: "at0628-A",
           projectDir: "/tmp/at0628",
         });
+        // card-dom: shell — mastheads and title bars are pane chrome.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null` +
             ` && document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null` +
@@ -403,6 +408,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // BEFORE the controls, so its grow is what pushes them to the trailing
         // edge — no `order` needed, unlike the rail's `::after` stripe band,
         // which is last in document order and has to be reordered around.
+        // card-dom: shell — pane chrome.
         const barRun = await app.evalJS<Array<[string, number]>>(
           `(function () {
             var bar = document.querySelector(${JSON.stringify(UTILITY_BAR)});
@@ -440,6 +446,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // the lead line, and a second copy on the bar would draw over the frame.
         // Read as a DIRECT child, because the lead line's handle is a descendant
         // of this bar and would otherwise answer for it.
+        // card-dom: shell — pane chrome.
         const mastheadBarOwn = await app.evalJS<number>(
           `document.querySelectorAll(
              '.tug-pane[data-pane-id="p1"] .tug-pane-title-bar > .tug-pane-grab-handle'
@@ -451,6 +458,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // along its whole run, which is exactly the claim that is no longer
         // true: a press anywhere but the dots does not move a content card, so
         // nothing but the dots may say it does.
+        // card-dom: shell — pane chrome.
         const barCursors = await app.evalJS<Record<string, string>>(
           `(function () {
              function cur(sel) {
@@ -482,6 +490,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         ).toBe(false);
 
         // And no handle reached it either — the exclusion's first face.
+        // card-dom: shell — pane chrome.
         const railHandles = await app.evalJS<number>(
           `document.querySelectorAll(
              ${JSON.stringify(RAIL_BAR)} + ' .tug-pane-grab-handle'
@@ -491,8 +500,8 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
 
         // The other face of the exclusion: the Cards rail mounts the same
         // `TugSessionRow` the mastheads do, and neither half of the field
-        // reached it.
-        const cell = await app.evalJS<{ grow: string; handles: number } | null>(
+        // reached it. The row is in the Cards card's own body.
+        const cell = await app.body("L").evalJS<{ grow: string; handles: number } | null>(
           `(function () {
             var line = document.querySelector('.cards-row .tug-session-row-name-line');
             if (line === null) return null;
@@ -592,6 +601,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
         // longest name there could be, and every tier's handle must still hold
         // the floor, its field must still fill it, and it must still stop
         // short of the line's reserved trailing run.
+        // card-dom: shell — the titles are pane chrome.
         await app.evalJS<null>(
           `(function () {
              var st = document.createElement("style");
@@ -604,6 +614,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
            })()`,
         );
         await wait(200);
+        // card-dom: shell — title bars and mastheads are pane chrome.
         const floors = await app.evalJS<
           Array<{ what: string; handle: number; dots: number; overrun: number } | null>
         >(
@@ -642,6 +653,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
             0.5,
           );
         }
+        // card-dom: shell — the titles are pane chrome.
         await app.evalJS<null>(
           `(function () {
              var st = document.getElementById("at0628-long-title");
@@ -686,6 +698,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
 
         /** The field's state, read while a gesture is in flight or after it. */
         const fieldNow = async (): Promise<{ opacity: string; within: boolean }> =>
+          // card-dom: shell — the bar and its field are pane chrome.
           app.evalJS<{ opacity: string; within: boolean }>(
             `(function () {
                var bar = document.querySelector('.tug-pane[data-pane-id="p1"] [data-testid="tug-pane-title-bar"]');
@@ -832,9 +845,15 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
             },
             focusCardId: "C",
           });
+          // The commit card is in its own body; its masthead is pane chrome,
+          // in the shell.
+          await app.body("C").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(COMMIT_CARD)}) !== null`,
+            { timeoutMs: 15_000 },
+          );
+          // card-dom: shell — the masthead is pane chrome.
           await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(COMMIT_CARD)}) !== null` +
-              ` && document.querySelector('.commit-masthead-row .tug-session-row-name-line') !== null`,
+            `document.querySelector('.commit-masthead-row .tug-session-row-name-line') !== null`,
             { timeoutMs: 15_000 },
           );
           await wait(AFTER_LAND_MS);
@@ -869,6 +888,7 @@ describe.skipIf(!SHOULD_RUN)("at0628 — the grab-dot field", () => {
           tugSessionId: "at0628-ink-A",
           projectDir: "/tmp/at0628",
         });
+        // card-dom: shell — mastheads and panes are the shell's.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_FRAME)}) !== null` +
             ` && document.querySelector(${JSON.stringify(DOC_FRAME)}) !== null` +

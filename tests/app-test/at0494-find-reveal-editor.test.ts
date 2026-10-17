@@ -83,12 +83,12 @@ async function standUp(testName: string, sid: string): Promise<App> {
 }
 
 async function parkAtLiveEdge(app: App): Promise<void> {
-  await app.evalJS<number>(`(function () {
+  await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLL}');
   el.scrollTop = el.scrollHeight;
   return el.scrollTop;
 })()`);
-  await waitFrames(app);
+  await waitFrames(app.body("A"));
 }
 
 // ---------------------------------------------------------------------------
@@ -145,18 +145,18 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals a match inside an editor", ()
           }),
           ingest(FILE_SID, { type: "turn_complete", seq: 0, msg_id: "m-read", result: "success" }),
         ]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${READ_BLOCK}') !== null`,
           { timeoutMs: 10_000 },
         );
         // The body is only searchable while the block is expanded — a
         // collapsed call projects its header alone.
         const disclosure = `${READ_BLOCK} [data-slot="tool-call-header-disclosure"]`;
-        const collapsed = await app.evalJS<boolean>(
+        const collapsed = await app.body("A").evalJS<boolean>(
           `document.querySelector('${READ_BLOCK} [data-slot="file-body"]') === null`,
         );
-        if (collapsed) await app.click(disclosure);
-        await app.waitForCondition<boolean>(
+        if (collapsed) await app.body("A").click(disclosure);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${READ_BLOCK} [data-slot="file-body"]') !== null`,
           { timeoutMs: 8000 },
         );
@@ -166,19 +166,19 @@ describe.skipIf(!SHOULD_RUN)("AT0494: find reveals a match inside an editor", ()
         await parkAtLiveEdge(app);
 
         await openFindBar(app);
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
         await app.nativeType(FILE_PROBE);
         // The match lives in CM6, so the transcript-level active highlight
         // stays empty — the editor's own selected match is the evidence.
         const SELECTED = `${READ_BLOCK} .cm-searchMatch-selected`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${SELECTED}') !== null`,
           { timeoutMs: 15_000 },
         );
-        const terminal = await awaitGestureReveal(app, mark, FILE_PROBE);
+        const terminal = await awaitGestureReveal(app.body("A"),mark, FILE_PROBE);
         note(`editor-match reveal terminal: ${JSON.stringify(terminal)}`);
 
-        const view = await app.evalJS<{
+        const view = await app.body("A").evalJS<{
           rectTop: number;
           rectBottom: number;
           bandTop: number;
@@ -311,27 +311,27 @@ describe.skipIf(!SHOULD_RUN)("AT0494: a revealed match stays painted", () => {
         for (let n = 0; n < TRAVEL_TURNS; n += 1) {
           await app.driveSessionBatch("A", travelTurn(n));
         }
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${SCROLL}[data-evict-active]') !== null`,
           { timeoutMs: 30_000 },
         );
         await parkAtLiveEdge(app);
 
         await openFindBar(app);
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
         await app.nativeType(HEADER_PROBE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var hl = CSS.highlights.get('transcript-find-active');
              if (!hl) return false; for (var _ of hl) return true; return false; })()`,
           { timeoutMs: 15_000 },
         );
-        const landed = await app.evalJS<ActiveState>(ACTIVE_STATE_EXPR);
+        const landed = await app.body("A").evalJS<ActiveState>(ACTIVE_STATE_EXPR);
         note(`travelled active at landing: ${JSON.stringify(landed)}`);
-        const terminal = await awaitGestureReveal(app, mark, HEADER_PROBE);
+        const terminal = await awaitGestureReveal(app.body("A"),mark, HEADER_PROBE);
         note(`travelled reveal terminal: ${JSON.stringify(terminal)}`);
 
         await new Promise((r) => setTimeout(r, PAST_FLASH_MS));
-        const after = await app.evalJS<ActiveState>(ACTIVE_STATE_EXPR);
+        const after = await app.body("A").evalJS<ActiveState>(ACTIVE_STATE_EXPR);
         const reveal = await readReveal(app);
         note(`travelled active after the flash: ${JSON.stringify(after)}`);
         note(`travelled reveal: ${JSON.stringify(reveal)}`);

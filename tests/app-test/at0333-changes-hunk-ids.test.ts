@@ -163,25 +163,25 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
           feedId: 0x40,
           decoded: { tug_session_id: SID, type: "turn_complete", seq: 0, msg_id: "m1", result: "success" },
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── Raise the changes sheet ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape"); // dismiss the completion popup
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // ── The edited file arrives in the shade ───────────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FILE_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
@@ -195,28 +195,28 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
         // that lands the click on nothing. Re-clicking only while still
         // collapsed can't toggle it back shut.
         const isExpanded = async (): Promise<boolean> =>
-          app.evalJS<boolean>(
+          app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${FILE_ROW}[data-expanded="true"]`,
             )}) !== null`,
           );
         for (let attempt = 0; attempt < 4; attempt += 1) {
           if (await isExpanded()) break;
-          await app.nativeClickAtElement(
+          await app.body("A").nativeClickAtElement(
             `${FILE_ROW} [data-slot="tug-changes-list-fold"]`,
           );
           await settle(500);
         }
         expect(await isExpanded()).toBe(true);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(
             `${FILE_ROW} [data-slot="diff-hunk"]`,
           )}).length >= 2`,
           { timeoutMs: 25000 },
         );
 
-        const ids = await app.evalJS<(string | null)[]>(
+        const ids = await app.body("A").evalJS<(string | null)[]>(
           `Array.from(
              document.querySelectorAll(${JSON.stringify(
                `${FILE_ROW} [data-slot="diff-hunk"]`,
@@ -242,7 +242,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
         // why a marker attribute is stamped on the live node first.
         const lastId = ids[ids.length - 1];
         const BODY = `${FILE_ROW} [data-slot="diff-body"]`;
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `document.querySelector(${JSON.stringify(BODY)})
              .setAttribute("data-at0333-mount", "before"), true`,
         );
@@ -250,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
         const bandFor = (id: string | null) =>
           `${FILE_ROW} [data-slot="diff-hunk"][data-hunk-id="${id}"]`;
         const isCollapsed = async (): Promise<boolean> =>
-          app.evalJS<boolean>(
+          app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${bandFor(lastId)}[data-collapsed="true"]`,
             )}) !== null`,
@@ -264,12 +264,12 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
         // expanded cannot toggle it back open.
         for (let attempt = 0; attempt < 4; attempt += 1) {
           if (await isCollapsed()) break;
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(bandFor(lastId))})
                .scrollIntoView({ block: "center" }), true`,
           );
           await settle(300);
-          await app.nativeClickAtElement(
+          await app.body("A").nativeClickAtElement(
             `${bandFor(lastId)} .tugx-diff-hunk-header`,
           );
           await settle(500);
@@ -278,7 +278,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
 
         writeMarkers("all");
         writeFileSync(scratchPath, "at0333 scratch\n");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(
             `${FILE_ROW} [data-slot="diff-hunk"]`,
           )}).length === 3`,
@@ -287,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: hunk ids reach the rendered diff", () => {
 
         // The folded band is still folded, and it is still the same hunk —
         // matched by id, which is now the third slot rather than the second.
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           collapsed: string | null;
           index: string | null;
           mount: string | null;

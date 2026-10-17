@@ -94,24 +94,24 @@ function factor(app: App): Promise<number> {
 
 /** The Zoom row's selected segment, or "" with none. */
 function selected(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("L").evalJS<string>(
     `document.querySelector('${ZOOM_GROUP} [data-choice-value][data-state="active"]')?.getAttribute("data-choice-value") ?? ""`,
   );
 }
 
 function noteText(app: App): Promise<string> {
-  return app.evalJS<string>(`document.querySelector(${JSON.stringify(NOTE)})?.textContent ?? ""`);
+  return app.body("L").evalJS<string>(`document.querySelector(${JSON.stringify(NOTE)})?.textContent ?? ""`);
 }
 
 /** The Zoom row's segment labels, in order. */
 function labels(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("L").evalJS<string[]>(
     `Array.from(document.querySelectorAll('${ZOOM_GROUP} [data-choice-value]')).map(function (el) { return el.textContent; })`,
   );
 }
 
 async function clickLevel(app: App, level: string): Promise<void> {
-  await app.click(`${ZOOM_GROUP} [data-choice-value="${level}"]`);
+  await app.body("L").click(`${ZOOM_GROUP} [data-choice-value="${level}"]`);
   await wait(SETTLE_MS);
 }
 
@@ -128,7 +128,7 @@ async function standUp(): Promise<App> {
     `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  await app.body("L").waitForCondition<boolean>(
     `document.querySelectorAll('${ZOOM_GROUP} [data-choice-value]').length > 0`,
     { timeoutMs: 8_000 },
   );
@@ -146,7 +146,7 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
         ]);
         // The row in a rail at its narrow width stays inside the card, like
         // every other row.
-        const fit = await app.evalJS<{ group: number; card: number }>(
+        const fit = await app.body("L").evalJS<{ group: number; card: number }>(
           `(function () {
             var group = document.querySelector('${ZOOM_GROUP}').getBoundingClientRect();
             var card = document.querySelector('.tug-pane[data-pane-id="pRail"]').getBoundingClientRect();

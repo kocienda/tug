@@ -72,6 +72,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 /**
  * Two gates, meaning different things. `TUGAPP_APP_TEST` is every app-test's;
@@ -236,7 +237,7 @@ afterAll(() => {
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(prompt);
+  await app.body("A").nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -356,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("AT0630: a closed step ends its jobs", () => {
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
 
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30_000 },
         );
@@ -437,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)("AT0630: a closed step ends its jobs", () => {
         // A collapsed block does not mount its body at all, and transcript
         // history collapses — so the block is found by its command, tagged,
         // and opened before its output is read.
-        const found = await app.evalJS<string>(
+        const found = await app.body("A").evalJS<string>(
           `(() => {
              const blocks = Array.from(document.querySelectorAll(${JSON.stringify(
                BASH_BLOCKS,

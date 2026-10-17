@@ -54,7 +54,7 @@ const SOFT_TABS_SWITCH = `${OPTIONS_PANEL} [data-testid="text-card-option-soft-t
 
 /** Type through CM6's real beforeinput pipeline, leaving the caret after it. */
 async function typeIntoEditor(app: App, selector: string, text: string): Promise<void> {
-  await app.evalJS<boolean>(
+  await app.body("A").evalJS<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(selector)});
       if (!el) return false;
@@ -70,7 +70,7 @@ async function typeIntoEditor(app: App, selector: string, text: string): Promise
  * back gives the document's own characters.
  */
 async function firstLine(app: App, selector: string): Promise<string> {
-  const raw = await app.evalJS<string>(
+  const raw = await app.body("A").evalJS<string>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(selector)});
       var line = el && el.querySelector(".cm-line");
@@ -132,7 +132,7 @@ async function seedTextCard(app: App, filePath: string): Promise<void> {
     },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(FILE_EDITOR)});
       return el !== null && el.innerText.indexOf("hello") !== -1;
@@ -203,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
 
         // The sheet took focus; hand it back to the editor and collapse the
         // block selection before typing, or the type replaces it.
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(FILE_EDITOR)});
             if (!el) return false;
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROMPT_EDITOR)}) !== null`,
           { timeoutMs: 15000 },
         );
@@ -274,10 +274,10 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
         // A non-empty composer indents; the empty-Tab gesture (which spends
         // Tab on the card's focus cycle) is why there is text here first.
         // Caret at column 2, width 3 → exactly ONE space, after the "b".
-        await app.nativeClickAtElement(PROMPT_EDITOR);
+        await app.body("A").nativeClickAtElement(PROMPT_EDITOR);
         await typeIntoEditor(app, PROMPT_EDITOR, "ab");
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(PROMPT_EDITOR)});
             var line = el && el.querySelector(".cm-line");

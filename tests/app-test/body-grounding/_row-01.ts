@@ -100,6 +100,7 @@ const placeholderRect = (app: App, cardId: string): Promise<Rect | null> =>
   );
 
 const lidLifted = (app: App, cardId: string): Promise<boolean> =>
+  // card-dom: shell
   app.evalJS<boolean>(
     `document.querySelector('[data-body-placeholder][data-card-id="${cardId}"][data-body-shown]') !== null`,
   );

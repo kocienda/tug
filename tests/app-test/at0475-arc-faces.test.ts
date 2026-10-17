@@ -90,19 +90,19 @@ const ARC_TRACK = `${PLACARD} [data-slot="tug-arc-track"][data-stopped="true"]`;
 /** The ARC cell's whole sentence — where the arc rides, since the reading
  *  itself is one short word with no room beside it. */
 const arcLabel = (app: App): Promise<string> =>
-  app.evalJS<string>(
+  app.body("A").evalJS<string>(
     `document.querySelector(${JSON.stringify(ARC_VALUE)})?.getAttribute("aria-label") ?? ""`,
   );
 
 /** The reading between the two dots. */
 const arcReading = (app: App): Promise<string> =>
-  app.evalJS<string>(
+  app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(ARC_VALUE)})?.textContent ?? "").trim()`,
   );
 
 /** Both flanking dots' states, in order. */
 const dotStates = (app: App): Promise<string[]> =>
-  app.evalJS<string[]>(
+  app.body("A").evalJS<string[]>(
     `Array.from(
        document.querySelectorAll(
          ${JSON.stringify(`${ARC_CELL} [data-slot="tug-progress-indicator"]`)},
@@ -164,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // The cell reads ARC once the binding reaches the aggregate. Until
         // then it is TASKS, and asserting the arc on it would be asserting
         // against the wrong reading entirely.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARC_VALUE)}) !== null`,
           { timeoutMs: 40_000 },
         );
@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         // ── A rotation in flight ──────────────────────────────────────────
         appendArcLine("arc-start", "paperwork/at0475-brief.md");
         appendArcLine("arc-stage", "devise claude-at0475-a opus");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(ARC_VALUE)})
               ?.getAttribute("aria-label") ?? "").includes(", in devise")`,
           { timeoutMs: 40_000 },
@@ -194,7 +194,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
 
         // ── The stop ──────────────────────────────────────────────────────
         appendArcLine("arc-stop", "review the plan did not lint");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(ARC_VALUE)})?.textContent ?? "").trim()
              === "Stopped"`,
           { timeoutMs: 40_000 },
@@ -207,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("AT0475: the arc's faces", () => {
         expect(stoppedDots.every((s) => s === "aborted")).toBe(true);
 
         // The words are on the placard, which is where there is room for them.
-        await app.click(ARC_CELL);
+        await app.body("A").click(ARC_CELL);
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARC_TRACK)}) !== null`,
           { timeoutMs: 10_000 },

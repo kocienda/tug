@@ -54,8 +54,9 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, note } from "./_harness";
+import { enforcedTimeout, launchTugApp, note, type App } from "./_harness";
 import { claudeProjectDir } from "./_harness/claude-home";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -141,10 +142,29 @@ const OVERVIEW = '[data-testid="overview-card"]';
  *  and no card around it, so the menu is the only way from the name to the
  *  session. */
 const OVERVIEW_CHIP = `${OVERVIEW} .overview-post [data-slot="tug-session-identity"]`;
-const CARD_HOSTS = `document.querySelectorAll('.tug-pane [data-card-host]').length`;
-/** Every transcript's user rows, across whichever card the gesture seated. */
+/** The deck's cards, counted in the shell by the placeholder each body sits over. */
+const CARD_HOSTS = `document.querySelectorAll('.tug-pane [data-body-placeholder][data-card-id]').length`;
+/** A transcript's user rows, in one card's body. */
 const USER_BODIES =
-  '.tug-pane [data-card-host] [data-testid="session-card-transcript-user-body"]';
+  '[data-card-host] [data-testid="session-card-transcript-user-body"]';
+
+/**
+ * Wait until `script` holds in some Session card's body — whichever card the
+ * gesture seated, which the test does not name. Throws at `timeoutMs`
+ * (scaled as `waitForCondition`'s is).
+ */
+async function waitInSomeSessionBody(app: App, script: string, timeoutMs: number): Promise<void> {
+  const budget = enforcedTimeout(timeoutMs);
+  const deadline = Date.now() + budget;
+  for (;;) {
+    for (const b of await app.bodies()) {
+      if (b.componentId !== "session" || b.cardId === null || b.state !== "ready") continue;
+      if (await app.body(b.cardId).evalJS<boolean>(script).catch(() => false)) return;
+    }
+    if (Date.now() >= deadline) throw new Error(`no Session card's body held the condition within ${budget} ms`);
+    await Bun.sleep(100);
+  }
+}
 
 /** A right press on the atom. Dispatched rather than driven from the mouse:
  *  at0387 gates the trusted press on this very chip, and what this test is
@@ -180,23 +200,23 @@ async function openChipMenu(
 ): Promise<ReadonlyArray<{ action: string; label: string; disabled: boolean }>> {
   // The Overview is a rail of its own, and a menu fires into the key view — so
   // it takes the key view back before every press.
-  await app.click(OVERVIEW);
-  await app.evalJS<null>(rightClickChip());
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").click(OVERVIEW);
+  await kindBody(app, "overview").evalJS<null>(rightClickChip());
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) !== null`,
     { timeoutMs: 10_000 },
   );
   // The leading item is disabled until the ledger's answer arrives over
   // `resolve_sessions`, so the wait is for the LIVE item rather than merely
   // for an item with that name.
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `(function(){
        var item = document.querySelector(${JSON.stringify(MENU)} + ' [role="menuitem"]');
        return item !== null && item.getAttribute("aria-disabled") !== "true";
      })()`,
     { timeoutMs: 15_000 },
   );
-  return app.evalJS<ReadonlyArray<{ action: string; label: string; disabled: boolean }>>(
+  return kindBody(app, "overview").evalJS<ReadonlyArray<{ action: string; label: string; disabled: boolean }>>(
     menuRows(),
   );
 }
@@ -238,12 +258,12 @@ describe.skipIf(!SHOULD_RUN)(
           // through the real `resolve_sessions` round trip against the row
           // seeded above, which is the lookup the gesture itself uses.
           await app.nativeKey("o", ["cmd", "ctrl"]);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERVIEW)}) !== null`,
             { timeoutMs: 15_000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(
                 JSON.stringify({
                   id: 1,
@@ -255,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)(
               )})`,
             ),
           ).toBe(true);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `(function(){
                var chip = document.querySelector(${JSON.stringify(OVERVIEW_CHIP)});
                return chip !== null && chip.getAttribute("data-missing") !== "true";
@@ -272,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- 2. It seats a card. ------------------------------------------
           const before = await app.evalJS<number>(CARD_HOSTS);
-          await app.nativeClickAtElement(`${MENU} [data-item-action="resume-session"]`);
+          await kindBody(app, "overview").nativeClickAtElement(`${MENU} [data-item-action="resume-session"]`);
           await app.waitForCondition<boolean>(`${CARD_HOSTS} > ${before}`, {
             timeoutMs: 25_000,
           });
@@ -285,14 +305,15 @@ describe.skipIf(!SHOULD_RUN)(
           // carries paints. This is the Exit's "a settled trip opens onto its
           // full transcript" — the half of the gesture that a seated card
           // alone does not prove.
-          await app.waitForCondition<boolean>(
+          await waitInSomeSessionBody(
+            app,
             `(function(){
                var bodies = document.querySelectorAll(${JSON.stringify(USER_BODIES)});
                return Array.prototype.some.call(bodies, function (b) {
                  return (b.textContent || "").indexOf(${JSON.stringify(FIXTURE_PROMPT)}) !== -1;
                });
              })()`,
-            { timeoutMs: 30_000 },
+            30_000,
           );
 
           // ---- 3. And the row then points at the card holding it. -----------

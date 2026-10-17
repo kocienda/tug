@@ -108,7 +108,7 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
 async function openTheShade(app: App): Promise<void> {
   const deadline = Date.now() + 90_000;
   for (let attempt = 1; Date.now() < deadline; attempt += 1) {
-    await app.nativeClickAtElement(EDITOR);
+    await app.body("A").nativeClickAtElement(EDITOR);
     await settle();
     await app.nativeKey("a", ["cmd"]);
     await app.nativeKey("Delete");
@@ -126,10 +126,10 @@ async function openTheShade(app: App): Promise<void> {
     // old 20 s wait spent 80 s of an 85 s run on that one bad attempt.
     const attemptBy = Date.now() + 5_000;
     while (Date.now() < attemptBy) {
-      if (await app.evalJS<boolean>(`document.querySelector(${JSON.stringify(ROW)}) !== null`)) return;
+      if (await app.body("A").evalJS<boolean>(`document.querySelector(${JSON.stringify(ROW)}) !== null`)) return;
       await settle(100);
     }
-    const seen = await app.evalJS<string>(
+    const seen = await app.body("A").evalJS<string>(
       `JSON.stringify({
         sheet: document.querySelector(${JSON.stringify(SHEET)}) !== null,
         lane: document.querySelector(${JSON.stringify(LANE)}) !== null,
@@ -180,11 +180,11 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
         lap("the shade shows the arc");
 
         // ── Join leads the row on a ready arc. ──
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const offered = await app.evalJS<{ label: string; lead: boolean }>(
+        const offered = await app.body("A").evalJS<{ label: string; lead: boolean }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(JOIN)});
              const row = el.closest('[data-slot="arc-verb-row"]');
@@ -216,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
         const nudge = join(projectDir(), "at0683-nudge.txt");
         writeFileSync(nudge, "at0683 recompose nudge\n");
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-brief-subject"]`)})?.textContent ?? "").includes("at0683 join draft")`,
             { timeoutMs: 30000 },
           );
@@ -227,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
         // only once the gate admits it — a join state that has not yet
         // recomposed past the nudge reads as blocked, exactly as it would to
         // the composer.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN)})?.getAttribute("data-refused") === null`,
           { timeoutMs: 30000 },
         );
@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("AT0683: Join on an arc row lands the arc", () => {
         const subjectBefore = baseSubject();
 
         // ── Press it. The base gains the squash commit carrying the draft. ──
-        await app.nativeClickAtElement(JOIN);
+        await app.body("A").nativeClickAtElement(JOIN);
         const deadline = Date.now() + 60_000;
         let subject = subjectBefore;
         while (Date.now() < deadline && !subject.includes("at0683 join draft")) {

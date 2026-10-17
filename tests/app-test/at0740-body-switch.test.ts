@@ -95,7 +95,7 @@ describe.skipIf(!SHOULD_RUN)("at0740: bodies are a switch", () => {
     "with nothing set, the host makes no bodies and every card mounts in the shell",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({
+      const app = await launchTugApp({ bodies: false,
         testName: TEST_NAME,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
@@ -130,7 +130,7 @@ describe.skipIf(!SHOULD_RUN)("at0740: bodies are a switch", () => {
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath);
       tugbankWrite(tugbankPath, "dev.tugapp.deck", "bodies", "bool", "true");
-      const app = await launchTugApp({
+      const app = await launchTugApp({ bodies: false,
         testName: TEST_NAME,
         env: { TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });

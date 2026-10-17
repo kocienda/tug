@@ -123,7 +123,7 @@ describe.skipIf(!SHOULD_RUN)(
           const first = paneWidthFor(canvas, 30);
           await seedFixture(app, first, PREFERRED);
           await wait(AFTER_LAND_MS);
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await app.body("L").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pRail")).toBeCloseTo(
             predictedRailWidth(canvas, first),
@@ -154,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Re-click the layout that is ALREADY active. This used to be a
           // total no-op; it now runs the same re-tune the settled-resize
           // observer asks for.
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await app.body("L").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           expect(await frameWidth(app, "pRail")).toBeCloseTo(
@@ -201,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)(
             },
             focusCardId: "A",
           });
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
             { timeoutMs: 8_000 },
           );

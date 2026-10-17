@@ -44,13 +44,14 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, note, type App } from "./_harness";
+import { enforcedTimeout, launchTugApp, note, type App } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
   tugbankRead,
 } from "./_harness/tugbank-helpers";
+import { kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -91,7 +92,7 @@ const CARD_ID = `(function(){
 /** Open the rail and wait for the composer to be there to type in. */
 async function openRail(app: App): Promise<void> {
   await app.nativeKey("o", ["cmd", "ctrl"]);
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(CONTENT)}) !== null`,
     { timeoutMs: 15_000 },
   );
@@ -105,7 +106,7 @@ async function openRail(app: App): Promise<void> {
  * `evalJS` cannot await, so the blob callback signals through a flag.
  */
 async function dropPngOnComposer(app: App): Promise<void> {
-  await app.evalJS<void>(
+  await kindBody(app, "overview").evalJS<void>(
     `(function(){
       window.__at0535Dropped = false;
       var host = document.querySelector(${JSON.stringify(FIELD)});
@@ -131,10 +132,10 @@ async function dropPngOnComposer(app: App): Promise<void> {
       }, "image/png");
     })()`,
   );
-  await app.waitForCondition<boolean>(`window.__at0535Dropped === true`, {
+  await kindBody(app, "overview").waitForCondition<boolean>(`window.__at0535Dropped === true`, {
     timeoutMs: 8_000,
   });
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(FIELD_ATOM)}) !== null`,
     { timeoutMs: 15_000 },
   );
@@ -148,14 +149,14 @@ const STRIP_TILE_DECODED = `(function(){
 
 /** Type the words and the picture into a composer that is standing open. */
 async function composeDraft(app: App): Promise<void> {
-  await app.nativeClickAtElement(FIELD);
+  await kindBody(app, "overview").nativeClickAtElement(FIELD);
   await app.nativeType(DRAFT);
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `${FIELD_TEXT}.indexOf(${JSON.stringify(DRAFT.trim())}) !== -1`,
     { timeoutMs: 8_000 },
   );
   await dropPngOnComposer(app);
-  await app.waitForCondition<boolean>(STRIP_TILE_DECODED, { timeoutMs: 15_000 });
+  await kindBody(app, "overview").waitForCondition<boolean>(STRIP_TILE_DECODED, { timeoutMs: 15_000 });
 }
 
 /** One `attachmentBytes` entry as it rests on tugbank disk. */
@@ -185,19 +186,16 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await openRail(app);
           await composeDraft(app);
-          const before = await app.evalJS<string>(CARD_ID);
+          const before = await kindBody(app, "overview").evalJS<string>(CARD_ID);
           note("card id with the draft in it", before);
           expect(before).not.toBe("");
 
           // Put the rail away. The same chord that opened it.
           await app.nativeKey("o", ["cmd", "ctrl"]);
-          await app.waitForCondition<boolean>(
-            `document.querySelector(${JSON.stringify(CARD)}) === null`,
-            { timeoutMs: 10_000 },
-          );
+          await waitForNoBodyOfKind(app, "overview", { timeoutMs: 10_000 });
 
           await openRail(app);
-          const after = await app.evalJS<string>(CARD_ID);
+          const after = await kindBody(app, "overview").evalJS<string>(CARD_ID);
           note("card id after showing it again", after);
           // [F07], measured: hiding the rail destroys the card and showing it
           // mints a new one. Everything below is therefore proving that a
@@ -206,21 +204,21 @@ describe.skipIf(!SHOULD_RUN)(
           expect(after).not.toBe(before);
 
           // The words.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `${FIELD_TEXT}.indexOf(${JSON.stringify(DRAFT.trim())}) !== -1`,
             { timeoutMs: 10_000 },
           );
-          note("restored field text", await app.evalJS<string>(FIELD_TEXT));
+          note("restored field text", await kindBody(app, "overview").evalJS<string>(FIELD_TEXT));
 
           // The chip, and a thumbnail with pixels in it. A chip whose tile
           // never decodes is the reserved slot a lost attachment leaves
           // behind — it looks like a restore and submits as nothing.
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(FIELD_ATOM)}) !== null`,
             ),
           ).toBe(true);
-          await app.waitForCondition<boolean>(STRIP_TILE_DECODED, {
+          await kindBody(app, "overview").waitForCondition<boolean>(STRIP_TILE_DECODED, {
             timeoutMs: 10_000,
           });
         } finally {
@@ -249,7 +247,7 @@ describe.skipIf(!SHOULD_RUN)(
             });
             await openRail(appA);
             await composeDraft(appA);
-            cardId = await appA.evalJS<string>(CARD_ID);
+            cardId = await kindBody(appA, "overview").evalJS<string>(CARD_ID);
             expect(cardId).not.toBe("");
 
             // The upload of the ORIGINAL runs in the background and its
@@ -257,19 +255,34 @@ describe.skipIf(!SHOULD_RUN)(
             // bytes are far too large to persist. Waiting for it is the one
             // wait the relaunch story needs; quitting before it lands would
             // persist an atom with no route back to its picture.
-            await appA.waitForCondition<boolean>(
-              `(function(){
-                window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
-                var bag = window.__tug.getCardStateBag(${JSON.stringify(cardId)});
-                var bytes = bag && bag.content ? bag.content.attachmentBytes : null;
-                if (!bytes) return false;
-                var ids = Object.keys(bytes);
-                if (ids.length !== 1) return false;
-                var e = bytes[ids[0]];
-                return typeof e.path === "string" && e.path.length > 0;
-              })()`,
-              { timeoutMs: 25_000 },
-            );
+            // The save is the shell's deck; the bag is the card's own, in
+            // its body — so each poll asks the shell to save, then reads
+            // the body's bag.
+            {
+              const budget = enforcedTimeout(25_000);
+              const deadline = Date.now() + budget;
+              for (;;) {
+                await appA.evalJS<boolean>(
+                  `(window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState(), true)`,
+                );
+                const landed = await kindBody(appA, "overview").evalJS<boolean>(
+                  `(function(){
+                    var bag = window.__tug.getCardStateBag(${JSON.stringify(cardId)});
+                    var bytes = bag && bag.content ? bag.content.attachmentBytes : null;
+                    if (!bytes) return false;
+                    var ids = Object.keys(bytes);
+                    if (ids.length !== 1) return false;
+                    var e = bytes[ids[0]];
+                    return typeof e.path === "string" && e.path.length > 0;
+                  })()`,
+                );
+                if (landed) break;
+                if (Date.now() >= deadline) {
+                  throw new Error(`the original's stored path did not land in the card's bag within ${budget} ms`);
+                }
+                await Bun.sleep(50);
+              }
+            }
             deckState = await appA.evalJS<unknown>(
               `window.tugdeck.diag.getDeckState()`,
             );
@@ -323,19 +336,19 @@ describe.skipIf(!SHOULD_RUN)(
               });
 
               // The words came back.
-              await appB.waitForCondition<boolean>(
+              await kindBody(appB, "overview").waitForCondition<boolean>(
                 `${FIELD_TEXT}.indexOf(${JSON.stringify(DRAFT.trim())}) !== -1`,
                 { timeoutMs: 20_000 },
               );
               note(
                 "relaunched field text",
-                await appB.evalJS<string>(FIELD_TEXT),
+                await kindBody(appB, "overview").evalJS<string>(FIELD_TEXT),
               );
 
               // The chip survived the orphan prune: an entry carrying a path
               // is not an orphan, however empty its `content` arrived.
               expect(
-                await appB.evalJS<boolean>(
+                await kindBody(appB, "overview").evalJS<boolean>(
                   `document.querySelector(${JSON.stringify(FIELD_ATOM)}) !== null`,
                 ),
               ).toBe(true);
@@ -343,7 +356,7 @@ describe.skipIf(!SHOULD_RUN)(
               // And the bytes came back through the real blob read, which is
               // the difference between a picture that can be sent again and
               // one that can only be looked at.
-              await appB.waitForCondition<boolean>(STRIP_TILE_DECODED, {
+              await kindBody(appB, "overview").waitForCondition<boolean>(STRIP_TILE_DECODED, {
                 timeoutMs: 25_000,
               });
             } finally {

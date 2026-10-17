@@ -82,7 +82,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // Stamp the live editor element. A property, not an attribute: it
         // cannot survive serialization, so it is only still readable if this
         // is the same element object the outage started with.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_CONTENT_SELECTOR}').__at0602Outage = "kept", null)`,
         );
 
@@ -116,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         await waitForEditorShowing(app, OUTAGE_SENTINEL, 60_000);
         note(`at0602 buffer caught up ${Date.now() - upAt}ms after tugcast came back`);
 
-        const marker = await app.evalJS<string | null>(
+        const marker = await app.body("A").evalJS<string | null>(
           `(function(){
             var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
             return el === null ? null : (el.__at0602Outage || null);

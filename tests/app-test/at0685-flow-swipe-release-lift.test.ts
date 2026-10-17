@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );
@@ -285,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("at0685 — flow swipe settles from the hand", () =
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );

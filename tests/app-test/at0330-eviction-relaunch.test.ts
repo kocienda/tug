@@ -61,7 +61,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
       const deck = sessionCardShape({ width: 900, height: 760 });
       /** The row under the scrollport top and its top edge's offset from it. */
       const readTopRow = (app: App): Promise<{ index: number; offset: number }> =>
-        app.evalJS(`(function () {
+        app.body("A").evalJS(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var top = el.getBoundingClientRect().top;
   var best = null;
@@ -81,13 +81,13 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
           const app = await standUp("at0330-relaunch-A");
           try {
             await scrollTo(app, 0.5);
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `!document.querySelector('${SCROLLER}').hasAttribute("data-evict-stale")`,
               { timeoutMs: 10_000, pollMs: 100 },
             );
             await new Promise((r) => setTimeout(r, 500));
             phaseA = await readTopRow(app);
-            bag = await app.evalJS<Bag>(`(function () {
+            bag = await app.body("A").evalJS<Bag>(`(function () {
   window.tugdeck.saveState();
   return JSON.parse(JSON.stringify(window.__tug.getCardStateBag("A")));
 })()`);
@@ -124,7 +124,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
             );
             await app.bindSession("A", { tugSessionId: SID });
             await app.awaitEngineReady("A", { timeoutMs: 20_000 });
-            await app.evalJS<boolean>(`(function () {
+            await app.body("A").evalJS<boolean>(`(function () {
   var card = document.querySelector('[data-card-id="A"]');
   window.__at0330PrevDisplay = card.style.display;
   card.style.display = "none";
@@ -133,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
             note(
               "relaunch: live bag heights before the turns arrive",
               String(
-                await app.evalJS<number>(`(function () {
+                await app.body("A").evalJS<number>(`(function () {
   window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
   var bag = window.__tug.getCardStateBag("A");
   var c = (bag && bag.components) || {};
@@ -143,15 +143,15 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
               ),
             );
             await seedTurns(app, TURNS);
-            const fallbacksBefore = await app.evalJS<number>(
+            const fallbacksBefore = await app.body("A").evalJS<number>(
               `Number(document.querySelector('${SCROLLER}').getAttribute("data-evict-fallbacks") || "0")`,
             );
-            const atReveal = await app.evalJS<{ stale: string | null }>(`(function () {
+            const atReveal = await app.body("A").evalJS<{ stale: string | null }>(`(function () {
   var card = document.querySelector('[data-card-id="A"]');
   card.style.display = window.__at0330PrevDisplay || "";
   return { stale: document.querySelector('${SCROLLER}').getAttribute("data-evict-stale") };
 })()`);
-            const firstSample = await app.evalJS<{ stale: string | null }>(
+            const firstSample = await app.body("A").evalJS<{ stale: string | null }>(
               `({ stale: document.querySelector('${SCROLLER}').getAttribute("data-evict-stale") })`,
             );
             note(
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
             expect(atReveal.stale).toBeNull();
             expect(firstSample.stale).toBeNull();
 
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
               { timeoutMs: 30_000, pollMs: 250 },
             );
@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
             // turns are in and the list has a box: CardHost's own cold-boot
             // event, carrying the saved anchor. It resolves against the
             // seeded heights, so it lands where phase A was without a drain.
-            await app.evalJS<boolean>(`(function () {
+            await app.body("A").evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.dispatchEvent(new CustomEvent("tug-region-scroll-set", {
     detail: ${JSON.stringify({ top: saved!.y, left: saved!.x, meta: saved!.meta })},
@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — relaunch", () 
   return true;
 })()`);
             await new Promise((r) => setTimeout(r, 1500));
-            const after = await app.evalJS<{ peak: number; fallbacks: number }>(`(function () {
+            const after = await app.body("A").evalJS<{ peak: number; fallbacks: number }>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   return {
     peak: Number(el.getAttribute("data-evict-peak") || "-1"),

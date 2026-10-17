@@ -89,20 +89,23 @@ function controlRequestForward(): Record<string, unknown> {
   };
 }
 
+// The readers below take card A's selectors, and card A is a body: each reads
+// in its page.
+
 function hasAttr(app: App, selector: string, attr: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `(function(){var el=document.querySelector(${JSON.stringify(selector)});return el!==null && el.hasAttribute(${JSON.stringify(attr)});})()`,
   );
 }
 
 function exists(app: App, selector: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) !== null`,
   );
 }
 
 function textOf(app: App, selector: string): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("A").evalJS<string | null>(
     `(function(){var el=document.querySelector(${JSON.stringify(selector)});return el?el.textContent:null;})()`,
   );
 }
@@ -149,7 +152,7 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
           decoded: controlRequestForward(),
         });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DIALOG)}) !== null`,
           { timeoutMs: 6000 },
         );
@@ -168,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
         // (3) On open the key view is seeded on Allow (the recommended default),
         // so Allow reads filled+ring ([P17]). Allow is a button, so the
         // engine-owned persistent ring stands down to the live key view.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(ALLOW)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
@@ -177,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
         // The ring must be VISIBLE on open — not just the attribute. The card's
         // `[data-cycling="false"]` suppression must NOT reach the card-modal
         // dialog (the bug: Allow rang only after the first Tab).
-        const allowOutlineOpen = await app.evalJS<number>(
+        const allowOutlineOpen = await app.body("A").evalJS<number>(
           `(function(){var el=document.querySelector(${JSON.stringify(ALLOW)});return el?parseFloat(getComputedStyle(el).outlineWidth)||0:0;})()`,
         );
         expect(allowOutlineOpen, "Allow shows a visible ring on open").toBeGreaterThan(0);
@@ -189,25 +192,25 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
         // commit (the checked scope is asserted unchanged in (5)). Ends on Allow so the
         // Tab assertions below still hold (seed = Allow).
         await app.nativeKey("ArrowLeft");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(DENY)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
         expect(await hasAttr(app, DENY, "data-key-view-kbd"), "Left from Allow rings Deny").toBe(true);
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(ALLOW)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
         expect(await hasAttr(app, ALLOW, "data-key-view-kbd"), "Right wraps back to Allow").toBe(true);
         await app.nativeKey("ArrowDown");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(SCOPE)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
         expect(await hasAttr(app, SCOPE, "data-key-view-kbd"), "Down crosses the seam into the scope group").toBe(true);
         await app.nativeKey("ArrowUp");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(ALLOW)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
@@ -218,18 +221,18 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
         // top of the group returns to Allow. (Ends on Allow so the Tab assertions
         // below still hold.)
         await app.nativeKey("ArrowLeft"); // Allow → Deny (button ring)
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(DENY)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
         await app.nativeKey("ArrowUp"); // Deny → scope group (loops up into it)
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(SCOPE)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
         expect(await hasAttr(app, SCOPE, "data-key-view-kbd"), "Up from Deny loops into the scope group (no beep)").toBe(true);
         await app.nativeKey("ArrowUp"); // scope top → Allow
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(ALLOW)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
           { timeoutMs: 4000 },
         );
@@ -297,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("AT0145: PermissionDialog is card-modal", () => {
         // (7) Escape denies and the dialog dismisses (Escape / Cmd-. → Deny via
         // the scope's CANCEL_DIALOG responder).
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DIALOG)}) === null`,
           { timeoutMs: 4000 },
         );

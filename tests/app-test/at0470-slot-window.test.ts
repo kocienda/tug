@@ -135,7 +135,7 @@ async function openDeck(app: App): Promise<void> {
     `(window.__tug.setTugbankValue("dev.tugapp.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
   );
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  await app.body("L").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
     { timeoutMs: 8_000 },
   );
@@ -144,7 +144,7 @@ async function openDeck(app: App): Promise<void> {
 
 /** Every row's window, in the Cards card's own order. */
 async function windows(app: App): Promise<WindowFacts[]> {
-  return app.evalJS<WindowFacts[]>(
+  return app.body("L").evalJS<WindowFacts[]>(
     `Array.prototype.map.call(
        document.querySelectorAll(${JSON.stringify(PICKER)}),
        function (run) {
@@ -174,7 +174,7 @@ async function pressPosition(
   const selector =
     `document.querySelectorAll(${JSON.stringify(PICKER)})[${row}]` +
     `.children[${position}]`;
-  await app.evalJS<boolean>(`(function () { ${selector}.click(); return true; })()`);
+  await app.body("L").evalJS<boolean>(`(function () { ${selector}.click(); return true; })()`);
   await wait(500);
 }
 
@@ -319,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
       try {
         await openDeck(app);
         expect(
-          await app.evalJS<number>(
+          await app.body("L").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(JUMP)}).length`,
           ),
           "nothing is open until the card's own chip is pressed",
@@ -331,12 +331,12 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
         // The card is in slot 1 and its window reaches slot 3. Slot 5 is the
         // case the door exists for.
         await pressPosition(app, row, 0);
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}) !== null`,
           { timeoutMs: 8_000 },
         );
 
-        const run = await app.evalJS<string[]>(
+        const run = await app.body("L").evalJS<string[]>(
           `Array.prototype.map.call(
              document.querySelectorAll(
                ${JSON.stringify(JUMP)} + ' [data-slot="tug-slot"]'
@@ -350,7 +350,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
           "the popup is the WHOLE arrangement — that is what it is for",
         ).toEqual(["1", "2", "3", "4", "5", "6"]);
 
-        await app.evalJS<boolean>(
+        await app.body("L").evalJS<boolean>(
           `(function () {
              var chips = document.querySelectorAll(
                ${JSON.stringify(JUMP)} + ' [data-slot="tug-slot"]'
@@ -373,7 +373,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
           "the card landed where the popup said, four places from where it stood",
         ).toBe("5");
         expect(
-          await app.evalJS<number>(
+          await app.body("L").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(JUMP)}).length`,
           ),
           "and the popup closed in the same act that moved it",

@@ -41,6 +41,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -87,7 +88,7 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.nativeKey("o", ["cmd", "ctrl"]);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CARD)}) !== null`,
             { timeoutMs: 15_000 },
           );
@@ -96,7 +97,7 @@ describe.skipIf(!SHOULD_RUN)(
           // workspace, which is this checkout. Wait for the FILTERED list —
           // the popup shows the cached root listing while the answer is in
           // flight, and accepting then takes whatever came first.
-          await app.nativeClickAtElement(FIELD);
+          await kindBody(app, "overview").nativeClickAtElement(FIELD);
           await app.nativeType(`@${NAMED_FILE.slice(0, 6)}`);
           await app.waitForCondition<boolean>(
             `(function () {
@@ -106,13 +107,13 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 15_000 },
           );
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
             { timeoutMs: 10_000 },
           );
 
           // ── 1. The chip carries an absolute path. ────────────────────────
-          const stamped = await app.evalJS<{
+          const stamped = await kindBody(app, "overview").evalJS<{
             label: string | null;
             annotation: string | null;
             path: string | null;
@@ -139,12 +140,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(stamped.path!.endsWith(`/${NAMED_FILE}`)).toBe(true);
 
           // ── 2. The gestures a file offers are there. ─────────────────────
-          expect(await app.evalJS<string>(OPEN_MENU_OVER_CHIP)).toBe("ok");
+          expect(await kindBody(app, "overview").evalJS<string>(OPEN_MENU_OVER_CHIP)).toBe("ok");
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${MENU} [data-item-action="open-file"]`)}) !== null`,
             { timeoutMs: 8_000 },
           );
-          const labels = await app.evalJS<string[]>(
+          const labels = await kindBody(app, "overview").evalJS<string[]>(
             `Array.from(document.querySelectorAll(${JSON.stringify(`${MENU} [data-item-action]`)}))
               .map(function (el) { return (el.getAttribute("data-item-action") || ""); })`,
           );

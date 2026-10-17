@@ -77,7 +77,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
 
         // Park the viewport while the workspace is on screen — the place the
         // reader is owed back has to be established while CM6 can measure it.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
         );
         const readTop = `(function(){
@@ -93,11 +93,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           }
           return null;
         })()`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
           { timeoutMs: 6000 },
         );
-        const before = await app.evalJS<{
+        const before = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -118,7 +118,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // ANCESTOR the canvas is hiding, so a shape that left the card's host
         // visible would prove nothing. The wait used also to clear a crossfade
         // beat; the switch is a cut now, so there is no beat to clear.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             if (host === null) return false;
@@ -133,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // it always meant: the card is not being rendered. `checkVisibility()`
         // is false under `visibility: hidden` and `content-visibility: hidden`
         // alike, and was false under `display: none` too.
-        const hiddenRendered = await app.evalJS<boolean | null>(
+        const hiddenRendered = await app.body("A").evalJS<boolean | null>(
           `(function(){
             var s = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
             if (s === null) return null;
@@ -159,7 +159,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(home)} }), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             if (host === null) return false;
@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           { timeoutMs: 8000 },
         );
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var s = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
             return s !== null && s.scrollHeight > ${before.scrollHeight} + 4;
@@ -179,7 +179,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           { timeoutMs: 8000 },
         );
 
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -205,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
 
         // The whole disk content really is in the buffer, not just its height.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");

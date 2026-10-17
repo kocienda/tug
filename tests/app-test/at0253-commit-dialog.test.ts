@@ -91,19 +91,19 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         await frame({ type: "content_block_start", msg_id: "m1", block_index: 0, kind: "text" });
         await frame({ type: "assistant_text", seq: 0, rev: 0, status: "complete", msg_id: "m1", block_index: 0, text: "hi", is_partial: false });
         await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── /commit enters the mode: the sheet rises AND Z5 shows Commit ─────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape"); // dismiss the completion popup
         await settle();
         await app.nativeKey("Return", ["cmd"]); // submit → run /commit
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMMIT_SHEET)}) !== null &&
            document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`,
           { timeoutMs: 6000 },
@@ -130,7 +130,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
           lineHeight: number;
           doc: string;
         }> =>
-          app.evalJS(
+          app.body("A").evalJS(
             `(() => {
                const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
                const lines = content.querySelectorAll(".cm-line");
@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         // the field's own reads as a band drawn across the message. It is
         // painted from the surface the entry shell publishes as it paints the
         // field, so the two computed colors are one string.
-        const surfaces = await app.evalJS<{ subject: string; field: string }>(
+        const surfaces = await app.body("A").evalJS<{ subject: string; field: string }>(
           `(() => {
              const content = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
              const paint = (el) => getComputedStyle(el).backgroundColor;
@@ -208,7 +208,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         await app.nativeKey("ArrowLeft", ["cmd"]);
         await app.nativeKey("ArrowLeft");
         await settle();
-        const onGap = await app.evalJS<number>(
+        const onGap = await app.body("A").evalJS<number>(
           `document.querySelector(${JSON.stringify(PROMPT_INPUT)}).querySelectorAll(".cm-landing-gap").length`,
         );
         expect(onGap, "the separator is a real line when the caret is on it").toBe(0);
@@ -243,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         // inside the field, not as a height divided by a height. The subject
         // is one of them and is taller than the rest (it wears the rule), which
         // is exactly the difference a height-over-height count misses.
-        const visible = await app.evalJS<{
+        const visible = await app.body("A").evalJS<{
           shown: number;
           declared: number;
           clientHeight: number;
@@ -273,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         );
         note(`at0253 visible lines: ${JSON.stringify(visible)}`);
         expect(visible.shown, "the field shows the lines the card declared").toBe(visible.declared);
-        const stuck = await app.evalJS<{
+        const stuck = await app.body("A").evalJS<{
           overflow: number;
           scrolled: number;
           offset: number;
@@ -305,14 +305,14 @@ describe.skipIf(!SHOULD_RUN)("AT0253: commit mode + read-only shade", () => {
         // Escape exits the mode (sheet drops, composer restores its prompt draft).
         await settle();
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMMIT_SHEET)}) === null &&
            document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) === null`,
           { timeoutMs: 4000 },
         );
 
         // The card and its transcript survived the open/dismiss cycle.
-        const after = await app.evalJS<{ cardPresent: boolean; userRows: number }>(
+        const after = await app.body("A").evalJS<{ cardPresent: boolean; userRows: number }>(
           `({
              cardPresent: document.querySelector(${JSON.stringify(CARD)}) !== null,
              userRows: document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length,

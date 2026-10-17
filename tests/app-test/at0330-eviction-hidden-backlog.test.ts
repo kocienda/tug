@@ -29,6 +29,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { note } from "./_harness";
+import { enforcedTimeout } from "./_harness/rpc";
 import {
   FEED_CODE_OUTPUT,
   SCROLLER,
@@ -51,7 +52,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
       try {
         // Rest at the bottom, following: the file's eviction precondition.
         await scrollTo(app, 1);
-        const before = await app.evalJS<{ fallbacks: number; following: boolean }>(`(function () {
+        const before = await app.body("A").evalJS<{ fallbacks: number; following: boolean }>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var state = el.getAttribute("data-tug-scroll-state");
   return {
@@ -63,25 +64,25 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
 
         // Hide the scroller the way an inactive card tab is hidden, and let
         // a backlog of turns arrive behind it.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   document.querySelector('${SCROLLER}').style.display = "none";
   return true;
 })()`);
         await seedTurns(app, TURNS, TURNS);
 
         // Reveal, and wait for the backlog to drain.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   document.querySelector('${SCROLLER}').style.display = "";
   return true;
 })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return el.hasAttribute("data-evict-active") && !el.hasAttribute("data-evict-stale");
 })()`,
           { timeoutMs: 30_000, pollMs: 250 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
@@ -89,7 +90,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
           { timeoutMs: 8000, pollMs: 100 },
         );
 
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           peak: number;
           fallbacks: number;
           following: boolean;
@@ -130,7 +131,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
         // Rest at the bottom, following.
         const rows = await readRowCount(app);
         const mountedIndices = (): Promise<number[]> =>
-          app.evalJS<number[]>(`(function () {
+          app.body("A").evalJS<number[]>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   return Array.prototype.map.call(
     el.querySelectorAll("[data-tug-list-cell-index]"),
@@ -150,9 +151,10 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
           // harness's settle wait would never return: drive without it, and
           // hand the parked data and the held notifications over under the
           // gate — the commit a parent re-render or an unheld update would
-          // make over data that changed mid-motion.
+          // make over data that changed mid-motion. The card's store is in its
+          // body, so the drive runs there; the gate is the shell's.
           const drive = (action: Record<string, unknown>): Promise<null> =>
-            app.evalJS<null>(
+            app.body("A").evalJS<null>(
               `(window.__tug.driveSession("A", ${JSON.stringify(action)}), null)`,
             );
           const frame = (decoded: Record<string, unknown>): Promise<null> =>
@@ -177,11 +179,22 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
           });
           await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
           await app.evalJS<boolean>(`(window.__at0330Delivered = 0, true)`);
-          await app.waitForCondition<boolean>(
-            `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate(),
-              window.__tug.sessionSettled("A"))`,
-            { timeoutMs: 10_000, pollMs: 100 },
-          );
+          // One poll, two pages: hand the held work over in the shell, then ask
+          // the card's body whether its session has settled.
+          {
+            const budget = enforcedTimeout(10_000);
+            const deadline = Date.now() + budget;
+            for (;;) {
+              await app.evalJS<boolean>(
+                `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate(), true)`,
+              );
+              if (await app.body("A").evalJS<boolean>(`window.__tug.sessionSettled("A")`)) break;
+              if (Date.now() >= deadline) {
+                throw new Error(`session A did not settle under the held gate within ${budget} ms`);
+              }
+              await new Promise((r) => setTimeout(r, 100));
+            }
+          }
           await new Promise((r) => setTimeout(r, 300));
           const delivered = await app.evalJS<number>(
             `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate())`,
@@ -202,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
         }
 
         // Once the gate opens the new turn mounts and the follower is on it.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return !!el.querySelector('[data-tug-list-cell-index="${rows}"]') &&

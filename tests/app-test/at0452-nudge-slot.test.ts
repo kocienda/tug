@@ -40,6 +40,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -161,7 +162,7 @@ async function paneIsFlashing(app: App, cardId: string): Promise<boolean> {
 const CURSOR_ROW = ".cards-list .tug-list-view-cell[data-key-cursor]";
 
 async function cursorTitle(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return kindBody(app, "cards").evalJS<string>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(CURSOR_ROW)});
       return el === null ? "" : (el.textContent || "");
@@ -195,7 +196,7 @@ async function walkCursorTo(app: App, title: string): Promise<void> {
 /** Put the keyboard in the Cards list and wait until its cursor is painted. */
 async function focusCardsList(app: App): Promise<void> {
   await app.dispatchControlAction("toggle-cards");
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "cards").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
     { timeoutMs: 8_000 },
   );

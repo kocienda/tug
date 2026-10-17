@@ -373,8 +373,8 @@ describe.skipIf(!SHOULD_RUN)("AT0440: the install row reports its version", () =
         // something that takes it, and the card element is a region rather
         // than a control.
         const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
-        await app.waitForCondition<boolean>(present(COMPOSER), { timeoutMs: 8000 });
-        await app.nativeClickAtElement(COMPOSER);
+        await app.body("A").waitForCondition<boolean>(present(COMPOSER), { timeoutMs: 8000 });
+        await app.body("A").nativeClickAtElement(COMPOSER);
         await waitForKeyboardInCard(app, "A", { timeoutMs: 8000 });
       } catch (err) {
         const tail = app.tailLog(200);

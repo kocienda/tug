@@ -146,7 +146,7 @@ describe.skipIf(!SHOULD_RUN)("at0597 — a drop lands, then reveals", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );

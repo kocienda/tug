@@ -59,6 +59,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import {
   activateMenuItem,
@@ -115,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)(
             decoded,
           });
         const readSpan = async (needle: string) =>
-          JSON.parse(await app.evalJS<string>(spanStateJS(needle))) as {
+          JSON.parse(await app.body("A").evalJS<string>(spanStateJS(needle))) as {
             found: boolean;
             kind?: string | null;
             path?: string | null;
@@ -149,13 +150,13 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Both spans render. Neither is actionable yet — nothing has
           // been asked of the filesystem at paint time.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `JSON.parse(${spanStateJS(citedSpan)}).found === true`,
             { timeoutMs: 8000 },
           );
 
           // --- verification confirms one and refuses the other ---------
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `JSON.parse(${spanStateJS(citedSpan)}).kind === "file-path"`,
             { timeoutMs: 8000 },
           );
@@ -178,10 +179,11 @@ describe.skipIf(!SHOULD_RUN)(
           expect(missing.path).toBeNull();
 
           // --- the click opens the file --------------------------------
-          await app.click(
+          await app.body("A").click(
             `[data-card-id="A"] code[data-tug-annotation="file-path"]`,
           );
-          await app.waitForCondition<boolean>(
+          // The file opens in a new Text card, in a body of its own.
+          await kindBody(app, "text").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;
@@ -248,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(replayComplete());
 
           const HEADER_REF = '[data-card-id="A"] [data-slot="read-tool-block-path"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${HEADER_REF}') !== null`,
             { timeoutMs: 8000 },
           );
@@ -257,9 +259,10 @@ describe.skipIf(!SHOULD_RUN)(
           // annotation's path as its own value, so it reaches the deck's
           // open-file handler rather than stopping at a surface that
           // would have had to supply the argument.
-          await openAnnotationMenu(app, HEADER_REF, "open-file");
-          await activateMenuItem(app, "open-file");
-          await app.waitForCondition<boolean>(
+          await openAnnotationMenu(app.body("A"), HEADER_REF, "open-file");
+          await activateMenuItem(app.body("A"), "open-file");
+          // The file opens in a new Text card, in a body of its own.
+          await kindBody(app, "text").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;
@@ -323,12 +326,12 @@ describe.skipIf(!SHOULD_RUN)(
           // The span is entirely one reference, so it is marked on the
           // `<code>` element it already has rather than split out.
           const MARK = `[data-card-id="A"] code[data-tug-annotation="file-path"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${MARK}') !== null`,
             { timeoutMs: 20_000 },
           );
           const mark = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector('${MARK}');
               return { text: el.textContent, path: el.getAttribute('data-path') };
             })())`),
@@ -396,7 +399,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the file tip portals into the run, and hosting a portal means
           // emptying the span first (`file-tip-portals.tsx`). Waiting on the
           // element alone would read the empty host mid-flight.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function () {
               var el = document.querySelector('${MARK}');
               return el !== null && (el.textContent || "") !== "";
@@ -404,7 +407,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 20_000 },
           );
           const mark = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector('${MARK}');
               return {
                 text: el.textContent,
@@ -471,12 +474,12 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(replayComplete());
 
           const MARK = `[data-card-id="A"] [data-tug-annotation="file-path"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${MARK}') !== null`,
             { timeoutMs: 15_000 },
           );
           const mark = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector('${MARK}');
               return {
                 text: el.textContent,
@@ -493,8 +496,9 @@ describe.skipIf(!SHOULD_RUN)(
           expect(mark.endLine).toBe("4");
 
           // And the click lands on the cited lines, not merely the file.
-          await app.click(MARK);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(MARK);
+          // The file opens in a new Text card, in a body of its own.
+          await kindBody(app, "text").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;

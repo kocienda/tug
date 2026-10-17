@@ -753,7 +753,9 @@ export interface LaunchTugAppOptions {
    * Launch with body views: every card whose kind is a body kind is its own
    * web view (`WKWebView`), placed and moved by the host, rather than a
    * subtree of the shell's document. Sets `TUG_BODY_VIEWS=1` on the
-   * launched app's environment. Off by default, which is today's launch.
+   * launched app's environment. On by default: the corpus runs on bodies,
+   * and `false` is left only to the files waiting on a cause slice or on
+   * removal, until the cut-over deletes the option with the in-document host.
    * A test reaches such a card's DOM only through `App.body(cardId)`.
    */
   bodies?: boolean;

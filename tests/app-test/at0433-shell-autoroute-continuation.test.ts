@@ -62,7 +62,7 @@ const SHELL_ROWS = `${CARD} [data-slot="session-transcript-shell-row"]`;
 async function shellRowFacts(
   app: App,
 ): Promise<Array<{ command: string; output: string; footer: string }>> {
-  return app.evalJS<Array<{ command: string; output: string; footer: string }>>(
+  return app.body("A").evalJS<Array<{ command: string; output: string; footer: string }>>(
     `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})).map(function(row){
        var cmd = row.querySelector(".shell-exchange-command-text");
        var out = row.querySelector(".tugx-term-content");
@@ -80,7 +80,7 @@ async function shellRowFacts(
  *  between them, which this composer writes as a line break rather than a
  *  submit — and submit the whole thing with ⌘Return. */
 async function typeAndSubmit(app: App, lines: readonly string[]): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   for (let i = 0; i < lines.length; i += 1) {
     if (i > 0) await app.nativeKey("Enter");
     await app.nativeType(lines[i]!);
@@ -112,7 +112,7 @@ describe.skipIf(!SHOULD_RUN)(
           // --- 1. The continuation routes. No `/shell` sigil, no model call:
           // the spliced line grades `yes` and runs on that alone. ---
           await typeAndSubmit(app, ["git \\", "--version"]);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
               if (rows.length !== 1) return false;

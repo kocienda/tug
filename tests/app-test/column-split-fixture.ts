@@ -9,7 +9,7 @@
  * under the 20 s budget.
  */
 
-import { type App } from "./_harness";
+import { type App, type BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
@@ -138,9 +138,10 @@ export function splitFrameCount(app: App): Promise<number> {
 export const placeMark = (key: string): string =>
   `[data-testid="layout-card-place-${key}"]`;
 
-/** Which slots the toggle row currently marks, low to high. */
-export function markedSlots(app: App): Promise<number[]> {
-  return app.evalJS<number[]>(
+/** Which slots the toggle row currently marks, low to high. `layout` is the
+ *  Layout card's page (`app.body("L")`). */
+export function markedSlots(layout: App | BodyApp): Promise<number[]> {
+  return layout.evalJS<number[]>(
     `Array.from(document.querySelectorAll('[data-testid="layout-card-toggles"] .layout-places-mark[data-place^="col-"]'))
       .map(function (el) {
         return parseInt(el.getAttribute("data-place").replace("col-", ""), 10);
@@ -149,9 +150,10 @@ export function markedSlots(app: App): Promise<number[]> {
   );
 }
 
-/** The arrangement pressing this mark would set — always the one NOT in force. */
-export function placeOffers(app: App, key: string): Promise<string | null> {
-  return app.getElementAttribute(placeMark(key), "data-choice-value");
+/** The arrangement pressing this mark would set — always the one NOT in force.
+ *  `layout` is the Layout card's page (`app.body("L")`). */
+export function placeOffers(layout: App | BodyApp, key: string): Promise<string | null> {
+  return layout.getElementAttribute(placeMark(key), "data-choice-value");
 }
 
 export async function setColumnMode(

@@ -148,36 +148,36 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // ── Raise the changes shade ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANE)}) !== null`,
           { timeoutMs: 30000 },
         );
         // The non-fronted arc is a visible row — no fold to open first.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
 
         // ── The mark ───────────────────────────────────────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERLAP_MARK)}) !== null`,
           { timeoutMs: 30000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERLAP_NOTE)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const mark = await app.evalJS<{ text: string; label: string; tone: string }>(
+        const mark = await app.body("A").evalJS<{ text: string; label: string; tone: string }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(OVERLAP_MARK)});
              const note = document.querySelector(${JSON.stringify(OVERLAP_NOTE)});
@@ -201,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
         // The conflicted and behind marks are absent: this arc is current
         // with its base, its own worktree is clean, and nothing has attempted
         // a replay on it.
-        const others = await app.evalJS<number>(
+        const others = await app.body("A").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(
             `${ROW} [data-slot="arc-trouble-note"]:not([data-fact="overlap"])`,
           )}).length`,
@@ -213,7 +213,7 @@ describe.skipIf(!SHOULD_RUN)("AT0427: the arc lane's divergence marks", () => {
         // its committed bytes, so the intersection is empty and the mark has
         // nothing left to report.
         writeFileSync(basePath(), OVERLAP_BASE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OVERLAP_MARK)}) === null &&
            document.querySelector(${JSON.stringify(OVERLAP_NOTE)}) === null`,
           { timeoutMs: 30000 },

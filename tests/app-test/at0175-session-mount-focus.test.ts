@@ -124,7 +124,7 @@ interface FocusState {
 
 async function captureFocus(app: App, cardId: string): Promise<FocusState> {
   const promptSelector = `[data-card-id="${cardId}"] ${PROMPT_INPUT_SELECTOR}`;
-  return app.evalJS<FocusState>(
+  return app.body(cardId).evalJS<FocusState>(
     `(function(){
       var el = document.activeElement;
       var card = el && el.closest ? el.closest("[data-card-id]") : null;
@@ -170,7 +170,7 @@ interface BannerWatchSnapshot {
  */
 async function installBannerWatch(app: App, cardId: string): Promise<void> {
   const cardSelector = `[data-card-id="${cardId}"]`;
-  await app.evalJS<null>(
+  await app.body(cardId).evalJS<null>(
     `(function(){
       var bannerSel = '[data-slot="tug-pane-banner"]';
       var cardSel = ${JSON.stringify(cardSelector)};
@@ -224,7 +224,7 @@ async function readBannerWatch(
   cardId: string,
 ): Promise<BannerWatchSnapshot> {
   const bannerSelector = `[data-card-id="${cardId}"] [data-slot="tug-pane-banner"]`;
-  return app.evalJS<BannerWatchSnapshot>(
+  return app.body(cardId).evalJS<BannerWatchSnapshot>(
     `(function(){
       var total = window.__at0175BannerTotal || 0;
       var current = document.querySelectorAll(${JSON.stringify(bannerSelector)}).length;
@@ -245,7 +245,7 @@ async function waitForEditor(app: App, cardId: string): Promise<void> {
   // contract is "settles within a second or so" (these dwells are
   // for headroom in the harness, not real production timing).
   await new Promise<void>((r) => setTimeout(r, 1500));
-  const dump = await app.evalJS<{
+  const dump = await app.body(cardId).evalJS<{
     hostRootRegistered: boolean;
     engineReady: boolean;
     contentPresent: boolean;

@@ -104,8 +104,8 @@ const countOf = (selector: string): string =>
   `document.querySelectorAll(${JSON.stringify(selector)}).length`;
 
 async function focusComposer(app: App): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
-  await app.waitForCondition<boolean>(
+  await app.body("A").nativeClickAtElement(EDITOR);
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
        var field = document.querySelector(${JSON.stringify(EDITOR)});
        return field !== null && document.activeElement !== null &&
@@ -155,12 +155,12 @@ describe.skipIf(!SHOULD_RUN)("AT0667: ⇧⌘D and the Session menu's dictation i
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(exists(SUBMIT), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(exists(MIC), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(exists(OTHER_FIELD), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(SUBMIT), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(MIC), { timeoutMs: 8000 });
+        await app.body("B").waitForCondition<boolean>(exists(OTHER_FIELD), { timeoutMs: 8000 });
 
         // ── 1. The items follow the caret. ─────────────────────────────────
-        await app.nativeClickAtElement(OTHER_FIELD);
+        await app.body("B").nativeClickAtElement(OTHER_FIELD);
         await waitMenu(app, TOGGLE_ITEM, { enabled: false });
         await waitMenu(app, SEND_ITEM, { enabled: false });
 
@@ -170,31 +170,31 @@ describe.skipIf(!SHOULD_RUN)("AT0667: ⇧⌘D and the Session menu's dictation i
 
         // ── 2. A live mic relabels the toggle and lights the send. ─────────
         await app.nativeKey("d", ["cmd"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
         await waitMenu(app, TOGGLE_ITEM, { enabled: true, title: "Stop Dictation" });
         await waitMenu(app, SEND_ITEM, { enabled: true });
 
         // ── 3. ⇧⌘D sends the transcript once it has landed. ────────────────
-        const id = await app.getElementAttribute(MIC, "data-dictation-id");
+        const id = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         expect((id ?? "").length).toBeGreaterThan(0);
         // Unsettled on purpose: a send that ran before the finish landed, or
         // one that dropped the tail, would carry nothing.
         await push(app, { id, kind: "volatile", text: "ship the release notes" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${textOf(EDITOR)} === "ship the release notes"`,
           { timeoutMs: 10_000 },
         );
-        expect(await app.evalJS<number>(countOf(USER_TURN))).toBe(0);
+        expect(await app.body("A").evalJS<number>(countOf(USER_TURN))).toBe(0);
 
         await app.nativeKey("d", ["cmd", "shift"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
-        await app.waitForCondition<boolean>(`${countOf(USER_TURN)} === 1`, {
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
+        await app.body("A").waitForCondition<boolean>(`${countOf(USER_TURN)} === 1`, {
           timeoutMs: 10_000,
         });
-        const sent = await app.evalJS<string>(textOf(USER_TURN));
+        const sent = await app.body("A").evalJS<string>(textOf(USER_TURN));
         note("the sent turn", sent);
         expect(sent.indexOf("ship the release notes")).not.toBe(-1);
-        const draft = await app.evalJS<string>(textOf(EDITOR));
+        const draft = await app.body("A").evalJS<string>(textOf(EDITOR));
         note("the composer after the send", draft);
         expect(draft.indexOf("ship the release notes")).toBe(-1);
 
@@ -206,8 +206,8 @@ describe.skipIf(!SHOULD_RUN)("AT0667: ⇧⌘D and the Session menu's dictation i
         // Native events are delivered in order, so a later gesture we can await
         // proves the chord above was fully processed.
         await focusComposer(app);
-        expect(await app.evalJS<number>(countOf(USER_TURN))).toBe(1);
-        expect(await app.evalJS<boolean>(modeIs(MIC, "idle"))).toBe(true);
+        expect(await app.body("A").evalJS<number>(countOf(USER_TURN))).toBe(1);
+        expect(await app.body("A").evalJS<boolean>(modeIs(MIC, "idle"))).toBe(true);
       } finally {
         await app.close();
       }

@@ -161,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
           decoded,
         });
       const readSpan = async (needle: string) =>
-        JSON.parse(await app.evalJS<string>(spanStateJS(needle))) as {
+        JSON.parse(await app.body("A").evalJS<string>(spanStateJS(needle))) as {
           found: boolean;
           tagged?: boolean;
           cmd?: string | null;
@@ -188,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
 
         // The known command's span renders, but is NOT clickable yet — the
         // known-set is empty (strict gate; the resume race).
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `JSON.parse(${spanStateJS(KNOWN_CMD)}).found === true`,
           { timeoutMs: 8000 },
         );
@@ -198,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
 
         // --- 2. Catalog lands → the span re-tags over existing DOM ------
         await app.ingestSessionMetadata("A", capabilities([KNOWN_CMD]));
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `JSON.parse(${spanStateJS(KNOWN_CMD)}).tagged === true`,
           { timeoutMs: 8000 },
         );
@@ -215,13 +215,13 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
         expect(path.tagged).toBe(false);
 
         // --- 3. Click the tagged span → the prompt seeds --------------
-        await app.click(
+        await app.body("A").click(
           `[data-card-id="A"] code.tugx-annotation[data-slash-command="${KNOWN_CMD}"]`,
         );
 
         // The editor holds the argument text and a command chip (an <img>
         // baked from the command atom), and is the focused first responder.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return false;
@@ -230,13 +230,13 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
           })()`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(PROMPT_INPUT)})`,
           { timeoutMs: 4000 },
         );
 
         // The card is on the Code route (`❯`) after the seed.
-        const route = await app.evalJS<string | null>(
+        const route = await app.body("A").evalJS<string | null>(
           `(function(){
             var el = document.querySelector('[data-card-id="A"] [data-slot="route-indicator"]');
             return el ? (el.getAttribute('data-route') || (el.textContent || '').trim()) : null;
@@ -253,10 +253,10 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
         // argument, so the whole command line as literal text is what
         // distinguishes this path from that one.
         const SPAN = `[data-card-id="A"] code.tugx-annotation[data-slash-command="${KNOWN_CMD}"]`;
-        await app.evalJS(
+        await app.body("A").evalJS(
           `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
         );
-        await app.nativeRightClickAtElement(SPAN);
+        await app.body("A").nativeRightClickAtElement(SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -272,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
         expect(itemPoint).not.toBeNull();
         await app.nativeClick(itemPoint as { x: number; y: number });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return false;
@@ -328,12 +328,12 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
 
         // The envelope rebuilds as a command chip whose host span carries
         // the command tag — no inline `<code>` involved.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-card-id="A"] [data-slot="tug-atom-markdown-body"] span.tug-atom-chip-host.tugx-annotation') !== null`,
           { timeoutMs: 8000 },
         );
         const tagged = JSON.parse(
-          await app.evalJS<string>(`JSON.stringify((function(){
+          await app.body("A").evalJS<string>(`JSON.stringify((function(){
             var el = document.querySelector('[data-card-id="A"] [data-slot="tug-atom-markdown-body"] span.tug-atom-chip-host.tugx-annotation');
             return {
               cmd: el.getAttribute('data-slash-command'),
@@ -347,10 +347,10 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
         expect(tagged.hasChip).toBe(true);
 
         // The same click gesture the assistant-side span gets.
-        await app.click(
+        await app.body("A").click(
           `[data-card-id="A"] span.tug-atom-chip-host[data-slash-command="${KNOWN_CMD}"]`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return false;

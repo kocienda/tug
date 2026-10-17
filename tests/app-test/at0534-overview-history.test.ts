@@ -49,6 +49,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 150_000;
@@ -90,7 +91,7 @@ const USER_POSTS = `document.querySelectorAll(${JSON.stringify(
 /** Open the rail and wait for the composer. */
 async function openRail(app: App): Promise<void> {
   await app.nativeKey("o", ["cmd", "ctrl"]);
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(FIELD)}) !== null`,
     { timeoutMs: 10_000 },
   );
@@ -102,20 +103,20 @@ async function openRail(app: App): Promise<void> {
  * outstanding and the next question cannot be typed until it clears.
  */
 async function ask(app: App, question: string, expectUserPosts: number): Promise<void> {
-  await app.nativeClickAtElement(FIELD);
+  await kindBody(app, "overview").nativeClickAtElement(FIELD);
   await app.nativeType(question);
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `${FIELD_TEXT}.indexOf(${JSON.stringify(question.slice(0, 12))}) !== -1`,
     { timeoutMs: 8_000 },
   );
   // ⇧⏎ at the shipped `newline` Return policy — the chord the send button
   // wears on its ring.
   await app.nativeKey("Return", ["shift"]);
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `${USER_POSTS} === ${expectUserPosts}`,
     { timeoutMs: 20_000 },
   );
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(FIELD)}).getAttribute("aria-disabled") !== "true" &&
      document.querySelector(${JSON.stringify(`${CARD} [data-testid="overview-pending-row"]`)}) === null`,
     { timeoutMs: 30_000 },
@@ -135,16 +136,16 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
         // The field is empty after a submit, and the cursor is back at the
         // end of the list — so the first Cmd-Up is the most recent question
         // rather than wherever a previous walk had left off.
-        expect(await app.evalJS<string>(FIELD_TEXT)).toBe("");
+        expect(await kindBody(app, "overview").evalJS<string>(FIELD_TEXT)).toBe("");
 
-        await app.nativeClickAtElement(FIELD);
+        await kindBody(app, "overview").nativeClickAtElement(FIELD);
         await app.nativeKey("ArrowUp", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `${FIELD_TEXT} === ${JSON.stringify(SECOND)}`,
           { timeoutMs: 8_000 },
         );
         await app.nativeKey("ArrowUp", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `${FIELD_TEXT} === ${JSON.stringify(FIRST)}`,
           { timeoutMs: 8_000 },
         );
@@ -156,17 +157,17 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
         // is the position-independent half of the pair and walks from where
         // the caret happens to be.
         await app.nativeKey("ArrowDown", ["alt"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `${FIELD_TEXT} === ${JSON.stringify(SECOND)}`,
           { timeoutMs: 8_000 },
         );
-        note("walked back and forward", await app.evalJS<string>(FIELD_TEXT));
+        note("walked back and forward", await kindBody(app, "overview").evalJS<string>(FIELD_TEXT));
 
         // And Opt-Up backward from a caret that is nowhere near an edge —
         // which is what distinguishes the Opt pair from the Cmd pair. Park
         // the caret mid-line first, so a pass here cannot be Cmd-Up's own
         // rule wearing another chord.
-        await app.evalJS<boolean>(`(function(){
+        await kindBody(app, "overview").evalJS<boolean>(`(function(){
           var view = document.querySelector(${JSON.stringify(CONTENT)});
           if (view === null) return false;
           var sel = window.getSelection();
@@ -180,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
           return true;
         })()`);
         await app.nativeKey("ArrowUp", ["alt"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `${FIELD_TEXT} === ${JSON.stringify(FIRST)}`,
           { timeoutMs: 8_000 },
         );
@@ -190,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
         // can reach carries this session and this route — the pair a session
         // card's `(session id, "❯")` can never collide with.
         expect(
-          await app.evalJS<boolean>(`(function(){
+          await kindBody(app, "overview").evalJS<boolean>(`(function(){
             window.__at0534Rows = null;
             fetch("/api/prompt-history?session=" +
               encodeURIComponent(${JSON.stringify(OVERVIEW_SESSION)}) + "&limit=50",
@@ -204,11 +205,11 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
             return true;
           })()`),
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `window.__at0534Rows !== null`,
           { timeoutMs: 10_000 },
         );
-        const rows = await app.evalJS<
+        const rows = await kindBody(app, "overview").evalJS<
           Array<{ session_id: string; route: string; text: string }>
         >(`window.__at0534Rows`);
         note("ledger rows", JSON.stringify(rows));
@@ -239,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
 
         // A real PNG through the real pipeline — the substrate downsamples
         // it, stages the bytes, and drops an `image-1` chip at the caret.
-        await app.evalJS<void>(
+        await kindBody(app, "overview").evalJS<void>(
           `(function () {
             window.__at0534Dropped = false;
             var host = document.querySelector(${JSON.stringify(FIELD)});
@@ -266,10 +267,10 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
             }, "image/png");
           })()`,
         );
-        await app.waitForCondition<boolean>(`window.__at0534Dropped === true`, {
+        await kindBody(app, "overview").waitForCondition<boolean>(`window.__at0534Dropped === true`, {
           timeoutMs: 8_000,
         });
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
               `${COMPOSE_STRIP} .tug-attachment-preview__thumb-img`,
@@ -283,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
 
         // The strip is empty again — the bytes went with the question and
         // this composer stopped holding them.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSE_STRIP)}) === null`,
           { timeoutMs: 10_000 },
         );
@@ -291,9 +292,9 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
         // ── Recall. The row's image atom was path-less at submit; the
         // answering post carried the rested path and completed it, so the
         // recall reads real bytes back rather than a severed marker.
-        await app.nativeClickAtElement(FIELD);
+        await kindBody(app, "overview").nativeClickAtElement(FIELD);
         await app.nativeKey("ArrowUp", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
               `${COMPOSE_STRIP} .tug-attachment-preview__thumb-img`,
@@ -302,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
           })()`,
           { timeoutMs: 30_000 },
         );
-        const recalled = await app.evalJS<{ text: string; width: number }>(
+        const recalled = await kindBody(app, "overview").evalJS<{ text: string; width: number }>(
           `(function () {
             var img = document.querySelector(${JSON.stringify(
               `${COMPOSE_STRIP} .tug-attachment-preview__thumb-img`,
@@ -318,10 +319,10 @@ describe.skipIf(!SHOULD_RUN)("at0534 — the Overview remembers what was asked",
 
         // ── And it goes out again, image and all. ─────────────────────────
         await app.nativeKey("Return", ["shift"]);
-        await app.waitForCondition<boolean>(`${USER_POSTS} === 2`, {
+        await kindBody(app, "overview").waitForCondition<boolean>(`${USER_POSTS} === 2`, {
           timeoutMs: 20_000,
         });
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var rows = document.querySelectorAll(${JSON.stringify(
               `${POST}[data-author="user"]`,

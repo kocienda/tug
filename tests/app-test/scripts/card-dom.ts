@@ -482,8 +482,9 @@ function receiverStart(src: string, dot: number): number {
  */
 function bodyNames(src: string): Set<string> {
   const names = new Set<string>();
-  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bkindBody\(|\bstandUpKind\(|\bcardPage\()/g)) names.add(m[1]);
-  for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*BodyApp\b/g)) names.add(m[1]);
+  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bkindBody\(|\bstandUpKind\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\()/g)) names.add(m[1]);
+  // `BodyApp`, or a page the caller chooses (`App | BodyApp`, either order).
+  for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*(?:BodyApp\b|App\s*\|\s*BodyApp\b)/g)) names.add(m[1]);
   return names;
 }
 
@@ -502,8 +503,11 @@ const BODY_TUG_VERBS = new Set([
   "publishOverviewPost", "publishOverviewPostsPage", "overviewPosts",
   "getDeckTrace", "markDeckTrace", "clearDeckTrace",
   "inkRestoreFacts", "refreshInkRestore", "lastSentUserMessage", "ingestSessionMetadata", "getSessionPerf",
-  "getCardStateBag", "rowParsesByIdentity",
+  "getCardStateBag", "rowParsesByIdentity", "setTranscriptEvictionDisabled",
 ]);
+
+/** The calls that make a page a card's DOM is read in. */
+const PAGE_MAKERS = /\.body\(|\bbodyOfKind\(|\bkindBody\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\(/;
 
 /** Whether `text` reads the shell's deck: `window.tugdeck`, a bare `__tug` reference, or a `__tug` verb only the shell answers. */
 function readsShellDeck(text: string): boolean {
@@ -555,8 +559,12 @@ export function censusOfSource(
     // A body, or the page a card lives in (`cardPage` answers its body when it has one).
     // `x.body` is a helper's answer carrying the body beside the card's id;
     // `kindBody(app, "…")` is the body of the deck's card of a kind.
-    if (receiver === "" || receiver.includes(".body(") || receiver.endsWith(".body") || receiver.includes("cardPage(") || receiver.includes("kindBody(")) continue;
+    if (receiver === "" || receiver.includes(".body(") || receiver.endsWith(".body") || receiver.includes("cardPage(") || receiver.includes("kindBody(") || receiver.includes("waitForBodyReady(") || receiver.includes("waitForBodyPainted(")) continue;
     if (onBody.has(receiver) || onBody.has(receiver.replace(/\([^()]*\)$/, ""))) continue;
+    // A call to a function the file binds whose own text makes a page
+    // (`layoutPage(app)`, `await contentPage(app, id, …)`) is that page.
+    const callee = /^\(?\s*(?:await\s+)?([A-Za-z_$][\w$]*)\(/.exec(receiver);
+    if (callee !== null && PAGE_MAKERS.test(bindings.get(callee[1]) ?? "")) continue;
     const close = skipBalanced(masked, open, "(", ")");
     const line = masked.slice(0, dot).split("\n").length;
     if ((lines[line - 1] ?? "").includes(SHELL_ON_PURPOSE) || (lines[line - 2] ?? "").includes(SHELL_ON_PURPOSE)) continue;

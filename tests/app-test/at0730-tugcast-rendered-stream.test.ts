@@ -100,7 +100,7 @@ describe.skipIf(!SHOULD_RUN)("at0730 — a streamed turn drawn from tugcast's re
       try {
         const stubs = await bindStreamingStubs(app, [CARD], stubDir, MESSAGES, 1, messageText);
         await startStreams(app, stubs);
-        await app.waitForCondition<boolean>(
+        await app.body(CARD).waitForCondition<boolean>(
           `(function(){
             var entry = document.querySelector('[data-card-id="${CARD}"] [data-slot="tug-prompt-entry"]');
             return entry !== null && entry.getAttribute("data-phase") !== "streaming";
@@ -138,7 +138,7 @@ describe.skipIf(!SHOULD_RUN)("at0730 — a streamed turn drawn from tugcast's re
           });
         }
 
-        const onScreen = await app.evalJS<
+        const onScreen = await app.body(CARD).evalJS<
           { hashes: string[]; text: string; stamped: number; keywords: string[] }[]
         >(`(function(){
           var rows = document.querySelectorAll('[data-card-id="${CARD}"] .session-card-transcript-code-body');

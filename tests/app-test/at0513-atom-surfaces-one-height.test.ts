@@ -62,7 +62,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -79,6 +79,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -181,16 +182,20 @@ function heightsJS(within: string, ancestor: string | null): string {
   })()`;
 }
 
-/** Wait until a surface has at least one laid-out pill, then measure them. */
+/**
+ * Wait until a surface has at least one laid-out pill, then measure them —
+ * in `page`, the body of the card the surface stands in.
+ */
 async function measure(
   app: App,
+  page: BodyApp,
   surface: string,
   within: string,
   ancestor: string | null = null,
 ): Promise<number[]> {
   const js = heightsJS(within, ancestor);
-  await app.waitForCondition<boolean>(`${js}.length > 0`, { timeoutMs: 30_000 });
-  const heights = await app.evalJS<number[]>(js);
+  await page.waitForCondition<boolean>(`${js}.length > 0`, { timeoutMs: 30_000 });
+  const heights = await page.evalJS<number[]>(js);
   note(`at0513 ${surface}`, JSON.stringify({ surface, heights }));
   note(`at0513 ${surface}`, (await app.screenshot()).path);
   return heights;
@@ -218,11 +223,12 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
           { timeoutMs: 20_000 },
         );
         await app.dispatchControlAction("show-card", { component: "gallery-atom" });
-        await app.waitForCondition<boolean>(
+        // The gallery card is a body: its register is read in its page.
+        await kindBody(app, "gallery-atom").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(GALLERY_HOST)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        const declared = await app.evalJS<number>(
+        const declared = await kindBody(app, "gallery-atom").evalJS<number>(
           `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(GALLERY_HOST)}))
              .getPropertyValue("--tugx-atom-height"))`,
         );
@@ -248,39 +254,39 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
 
         // ── 1. The Arcs card's block ───────────────────────────────────────
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARCS_BLOCK)}) !== null`,
           { timeoutMs: 30_000 },
         );
         const arcsCard = [
           // The arc's own pill — the name slot rides the run inside it.
-          ...(await measure(app, "arcs-card-arc", ARCS_BLOCK, '[data-slot="tug-arc-lifecycle-name"]')),
+          ...(await measure(app, kindBody(app, "dashes"), "arcs-card-arc", ARCS_BLOCK, '[data-slot="tug-arc-lifecycle-name"]')),
           // And the bound worker's, where the slot IS the pill.
-          ...(await measure(app, "arcs-card-worker", ARCS_BLOCK, null)),
+          ...(await measure(app, kindBody(app, "dashes"), "arcs-card-worker", ARCS_BLOCK, null)),
         ];
 
         // ── 2. The ARC placard ─────────────────────────────────────────────
-        await app.click(CELL);
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(CELL);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLACARD_HEAD)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        const placard = await measure(app, "arc-placard", PLACARD_HEAD, null);
+        const placard = await measure(app, app.body("A"), "arc-placard", PLACARD_HEAD, null);
         await app.nativeKey("Escape");
         await settle(400);
 
         // ── 3. The Changes shade's arc lane ────────────────────────────────
-        await app.nativeClickAtElement(PROMPT);
+        await app.body("A").nativeClickAtElement(PROMPT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        const shade = await measure(app, "changes-shade", SHADE_ROW, null);
+        const shade = await measure(app, app.body("A"), "changes-shade", SHADE_ROW, null);
 
         // ── 4. The arc receipt in the transcript ───────────────────────────
         await app.driveSession("A", {
@@ -294,6 +300,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
         });
         const receipt = await measure(
           app,
+          app.body("A"),
           "arc-receipt",
           RECEIPT_BLOCK,
           '[data-slot="tug-arc-lifecycle-name"]',
@@ -324,14 +331,14 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
         // the mark: a citation that never resolved and a card that never
         // opened both end as one timeout otherwise, and they are different
         // faults.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector('[data-testid="overview-card"]') !== null`,
           { timeoutMs: 20_000 },
         );
         await settle(2000);
         note(
           "at0513 overview",
-          await app.evalJS<string>(
+          await kindBody(app, "overview").evalJS<string>(
             `JSON.stringify((function () {
                var bodies = Array.from(document.querySelectorAll(
                  '[data-testid="overview-card"] .overview-post-body'));
@@ -348,7 +355,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
              })())`,
           ),
         );
-        const citation = await measure(app, "citation", CITATION_RUN, null);
+        const citation = await measure(app, kindBody(app, "overview"), "citation", CITATION_RUN, null);
 
         // ── One number, five surfaces ──────────────────────────────────────
         const measured = {

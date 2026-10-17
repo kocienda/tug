@@ -120,12 +120,12 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
           startedAtMs: 1_700_000_001_000,
         });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="session-transcript-quiet-row"]').length === 1`,
           { timeoutMs: 20_000 },
         );
 
-        const shape = await app.evalJS<{
+        const shape = await app.body("A").evalJS<{
           sentence: string;
           entries: number;
           addresses: number;
@@ -169,12 +169,12 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
           cwd: projectDir,
         });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 1`,
           { timeoutMs: 20_000 },
         );
 
-        const seat = await app.evalJS<{
+        const seat = await app.body("A").evalJS<{
           text: string;
           insideEntry: boolean;
           quietRows: number;
@@ -229,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
         await frame({ type: "turn_complete", seq: 0, msg_id: `${SID}-m1`, result: "success" });
 
         // The live seat survives the commit.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 1`,
           { timeoutMs: 20_000 },
         );
@@ -257,12 +257,12 @@ describe.skipIf(!SHOULD_RUN)("AT0507: an arc-note row is a quiet line, not an en
           startedAtMs: midTurnTs,
         });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 2`,
           { timeoutMs: 20_000 },
         );
 
-        const rethread = await app.evalJS<{
+        const rethread = await app.body("A").evalJS<{
           insideEntries: number;
           quietRows: number;
           restoredText: boolean;

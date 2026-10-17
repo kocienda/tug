@@ -168,9 +168,12 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
             }),
           )})`,
         );
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(CHIP)}) !== null
-             && document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
+        await app.body("G").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
+          { timeoutMs: 20_000 },
+        );
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 20_000 },
         );
 
@@ -180,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // `Copy as Atom`, which is the item this file's write is behind; the
         // rest of the menu (the go-to verb, the citation, the id) is
         // `useSessionIdentityMenu`'s and is pinned by at0387.
-        await app.evalJS<null>(`(function(){
+        await app.body("G").evalJS<null>(`(function(){
           var chip = document.querySelector(${JSON.stringify(CHIP)});
           var r = chip.getBoundingClientRect();
           chip.dispatchEvent(new MouseEvent("contextmenu", {
@@ -194,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
-        const copyItem = await app.evalJS<{ label: string; disabled: string }>(
+        const copyItem = await app.body("G").evalJS<{ label: string; disabled: string }>(
           `(function(){
             var item = document.querySelector(
               ${JSON.stringify(MENU)} + ' [data-item-action="copy-session-atom"]');
@@ -343,22 +346,22 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // The event is dispatched with an EMPTY clipboardData, which is exactly
         // the shape of the real hazard: everything the paste needs is on the
         // pasteboard and none of it is in the event.
-        await app.focusElement(COMPOSER);
-        const before = await app.evalJS<number>(
+        await app.body("A").focusElement(COMPOSER);
+        const before = await app.body("A").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length`,
         );
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           cm.dispatchEvent(new ClipboardEvent("paste", {
             bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length > ${before}`,
           { timeoutMs: 8_000 },
         );
-        const pasted = await app.evalJS<{ atoms: number; text: string }>(
+        const pasted = await app.body("A").evalJS<{ atoms: number; text: string }>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(COMPOSER)});
             return {
@@ -388,7 +391,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         //
         // Sampled in the bitmap's own device pixels; the bake is at 2× the
         // screen's density, so CSS coordinates are scaled by the ratio.
-        const face = await app.evalJS<{
+        const face = await app.body("A").evalJS<{
           type: string;
           groundAlpha: number;
           markAlpha: number;
@@ -431,7 +434,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // its dot would have gone; the layer seats a real `SessionPhaseDot`
         // there. Centre-to-centre against the well is the whole registration
         // claim, read once the frame has rendered.
-        const seated = await app.evalJS<{
+        const seated = await app.body("A").evalJS<{
           hosts: number;
           dots: number;
           dx: number;
@@ -483,7 +486,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // `tugtool/stocky-pixie` makes a narrower chip — and the reference the
         // atom carries must not move while its face does, which is the whole
         // rule in one assertion pair.
-        const chipBefore = await app.evalJS<{
+        const chipBefore = await app.body("A").evalJS<{
           width: number;
           value: string;
           title: string;
@@ -508,7 +511,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
             }),
           )})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var img = document.querySelector(
               ${JSON.stringify(COMPOSER + ' img[data-atom-type="session"]')});
@@ -516,7 +519,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
           })()`,
           { timeoutMs: 8_000 },
         );
-        const chipAfter = await app.evalJS<{
+        const chipAfter = await app.body("A").evalJS<{
           width: number;
           value: string;
           title: string;

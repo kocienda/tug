@@ -91,7 +91,7 @@ async function openDeck(app: App, layout: "fit" | "flow"): Promise<void> {
     `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   await app.seedDeckState({ state: deckShape(layout), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  await app.body("L").waitForCondition<boolean>(
     `document.querySelector('[data-testid="layout-card-places"] .layout-places-target') !== null`,
     { timeoutMs: 8_000 },
   );
@@ -170,12 +170,12 @@ describe.skipIf(!SHOULD_RUN)("at0661 — the window slides by its frame", () => 
         // (a) Under fit there is no window, so no grip.
         await openDeck(app, "fit");
         expect(
-          await app.evalJS<boolean>(`document.querySelector('${GRIP}') !== null`),
+          await app.body("L").evalJS<boolean>(`document.querySelector('${GRIP}') !== null`),
           "fit has no window to grip",
         ).toBe(false);
 
         await openDeck(app, "flow");
-        const grip = await app.evalJS<{
+        const grip = await app.body("L").evalJS<{
           left: number;
           right: number;
           top: number;
@@ -204,7 +204,7 @@ describe.skipIf(!SHOULD_RUN)("at0661 — the window slides by its frame", () => 
         );
         await app.nativeDragWithoutRelease(from, to);
         // The preview has drawn once the gauge has left the start.
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `(function () {
             var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
             var raw = mini === null ? "" : mini.style.getPropertyValue("--gauge-flow-offset");
@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("at0661 — the window slides by its frame", () => 
 
         // (d) The window's interior is not a target: the middle of a block
         // under it still takes the block press.
-        const inside = await app.evalJS<{
+        const inside = await app.body("L").evalJS<{
           x: number;
           y: number;
           slot: number;

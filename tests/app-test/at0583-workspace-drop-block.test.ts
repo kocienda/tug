@@ -46,6 +46,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -202,13 +203,13 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll('[data-testid="cards-space-header"]').length === 2`,
             { timeoutMs: 20_000 },
           );
           // Both expanded is the default now ([B02]), so workspace two's rows
           // are on screen and can be hovered.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(runOf(SPACE_TWO))}).length > 1`,
             { timeoutMs: 8_000 },
           );
@@ -217,13 +218,13 @@ describe.skipIf(!SHOULD_RUN)(
           // of workspace two that is NOT its header — the whole point.
           const SOURCE_ROW = `.cards-list .cards-row[data-cards-space-run="${SPACE_ONE}"]`;
           const TARGET_ROW = `.cards-list .cards-row[data-cards-space-run="${SPACE_TWO}"]`;
-          const targetRuns = await app.evalJS<number>(
+          const targetRuns = await kindBody(app, "cards").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(runOf(SPACE_TWO))}).length`,
           );
           note("at0583 elements in workspace two's run", String(targetRuns));
           expect(targetRuns).toBeGreaterThan(1);
 
-          const carry = await app.evalJS<Carry>(
+          const carry = await kindBody(app, "cards").evalJS<Carry>(
             carryScript(SOURCE_ROW, 0, TARGET_ROW, 0, runOf(SPACE_TWO)),
           );
           note("at0583 carry over the other workspace", JSON.stringify(carry));
@@ -250,7 +251,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(SPACE_ONE);
           // The mark did not outlive the gesture.
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll('[data-drop-target="true"]').length`,
             ),
           ).toBe(0);
@@ -283,14 +284,14 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll('.cards-list .cards-row[data-cards-space-run="${SPACE_ONE}"]').length >= 2`,
             { timeoutMs: 20_000 },
           );
 
           const ROWS = `.cards-list .cards-row[data-cards-space-run="${SPACE_ONE}"]`;
           const readOrder = (): Promise<string[]> =>
-            app.evalJS<string[]>(
+            kindBody(app, "cards").evalJS<string[]>(
               `Array.prototype.map.call(
                  document.querySelectorAll(${JSON.stringify(ROWS)}),
                  function (el) { return el.getAttribute("data-cards-row-id"); }
@@ -303,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The LOWER row carried up over the UPPER one — index 1 over index
           // 0, so the pointer's whole path is over rows of the dragged row's
           // own workspace, which is exactly what `excludeKey` has to refuse.
-          const carry = await app.evalJS<Carry>(
+          const carry = await kindBody(app, "cards").evalJS<Carry>(
             carryScript(ROWS, 1, ROWS, 0, runOf(SPACE_ONE)),
           );
           note("at0583 in-workspace reorder", JSON.stringify(carry));
@@ -318,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)(
           // That the order CHANGED is the claim: a reorder stood down by a
           // spurious drop-target hit commits nothing at all, so the rows would
           // read back exactly as they did before.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll('[data-drop-target="true"]').length === 0`,
             { timeoutMs: 8_000 },
           );

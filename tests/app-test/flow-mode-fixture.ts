@@ -6,9 +6,15 @@
  * Split out of `at0454-flow-mode.test.ts` when that file was cut into
  * `at0454-flow-mode-strip`, `-controls` and `-reveals` to keep each under the
  * 20 s budget.
+ *
+ * The slot, band, offset, arrival and cut readers read the deck — pane frames
+ * and deck state — in the shell. The Layout card's own controls (its rows'
+ * key-view ring, the standing Layout segment) are in that card's page
+ * (`LAYOUT_CARD_ID`'s body), and the readers of them resolve it.
  */
 
 import { type App } from "./_harness";
+import { cardPage } from "./_harness/card-reach";
 import {
   IMPOSITION_GAP_PX,
   IMPOSITION_SETTLE_MS,
@@ -43,6 +49,8 @@ export const SLOTS = 5;
 export const KIND_TILES = '[data-testid="layout-card-kind"] [data-choice-value]';
 export const LAYOUT_TILES = '[data-testid="layout-card-layout"] [data-choice-value]';
 export const KIND_GROUP = '[data-testid="layout-card-kind"]';
+/** The Layout card's id in {@link deckShape}. */
+export const LAYOUT_CARD_ID = "L";
 
 export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -78,7 +86,7 @@ export function deckShape(paneWidth: number = PANE_WIDTH) {
         title: `Card ${id}`,
         closable: true,
       })),
-      { id: "L", componentId: "layout", title: "Layout", closable: true },
+      { id: LAYOUT_CARD_ID, componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...ids.map((id, index) => pane(`p${index + 1}`, index, id)),
@@ -86,8 +94,8 @@ export function deckShape(paneWidth: number = PANE_WIDTH) {
         id: "pRail",
         position: { x: 0, y: 0 },
         size: { width: RAIL_WIDTH, height: 900 },
-        cardIds: ["L"],
-        activeCardId: "L",
+        cardIds: [LAYOUT_CARD_ID],
+        activeCardId: LAYOUT_CARD_ID,
         title: "Layout",
         acceptsFamilies: [],
       },
@@ -108,6 +116,7 @@ export function deckShape(paneWidth: number = PANE_WIDTH) {
 export async function slotRects(
   app: App,
 ): Promise<{ paneId: string; left: number; right: number }[]> {
+  // card-dom: shell
   return app.evalJS<{ paneId: string; left: number; right: number }[]>(
     `(function () {
       var state = window.tugdeck.diag.getDeckState();
@@ -137,6 +146,7 @@ export async function slotRects(
  * from pixels the deck actually drew.
  */
 export async function band(app: App): Promise<{ left: number; right: number }> {
+  // card-dom: shell
   return app.evalJS<{ left: number; right: number }>(
     `(function () {
       var el = document.querySelector("[data-deck-canvas-background]");
@@ -150,6 +160,7 @@ export async function band(app: App): Promise<{ left: number; right: number }> {
 }
 
 export async function flowOffset(app: App): Promise<number> {
+  // card-dom: shell
   return app.evalJS<number>(
     `(window.tugdeck.diag.getDeckState().flowOffset || 0)`,
   );
@@ -158,6 +169,7 @@ export async function flowOffset(app: App): Promise<number> {
 /** The ids of every Text card the deck holds, for catching the one an open
  *  adds. */
 export const textCardIds = (app: App): Promise<string[]> =>
+  // card-dom: shell
   app.evalJS<string[]>(
     `window.tugdeck.diag.getDeckState().cards
       .filter(function (c) { return c.componentId === "text"; })
@@ -186,6 +198,7 @@ export const startArrivalSampler = (
   app: App,
   known: readonly string[],
 ): Promise<null> =>
+  // card-dom: shell
   app.evalJS<null>(
     `(function () {
       var known = ${JSON.stringify(known)};
@@ -247,8 +260,8 @@ export async function setLayout(app: App, layout: "fit" | "flow"): Promise<void>
 /** Tab until `selector` is the group carrying the keyboard ring — the walk the
  *  sidebar ladder is actually navigated by (at0277 uses the same one). */
 export async function tabUntilKbd(app: App, selector: string): Promise<void> {
-  const reached = (): Promise<boolean> =>
-    app.evalJS<boolean>(
+  const reached = async (): Promise<boolean> =>
+    (await cardPage(app, LAYOUT_CARD_ID)).evalJS<boolean>(
       `document.querySelector(${JSON.stringify(`${selector}[data-key-view-kbd]`)}) !== null`,
     );
   for (let i = 0; i < 20; i += 1) {
@@ -262,7 +275,7 @@ export async function tabUntilKbd(app: App, selector: string): Promise<void> {
 
 /** Which segment of the Layout row is the standing answer. */
 export async function activeLayoutTile(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return (await cardPage(app, LAYOUT_CARD_ID)).evalJS<string | null>(
     `(function () {
       var el = document.querySelector(
         '[data-testid="layout-card-layout"] [data-choice-value][data-state="active"]',
@@ -273,6 +286,7 @@ export async function activeLayoutTile(app: App): Promise<string | null> {
 }
 
 export async function takeCuts(app: App): Promise<CutRecord[]> {
+  // card-dom: shell
   return app.evalJS<CutRecord[]>(`window.__tug.takeCutRecords()`);
 }
 

@@ -117,30 +117,30 @@ describe.skipIf(!SHOULD_RUN)("AT0332: unattributed row chrome in the Changes sha
           feedId: 0x40,
           decoded: { tug_session_id: SID, type: "turn_complete", seq: 0, msg_id: "m1", result: "success" },
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── Raise the changes sheet ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape"); // dismiss the completion popup
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // ── The scratch file arrives unattributed ──────────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(UNATTRIBUTED_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
 
-        const row = await app.evalJS<{ claimIcon: string | null; meta: number }>(
+        const row = await app.body("A").evalJS<{ claimIcon: string | null; meta: number }>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(UNATTRIBUTED_ROW)});
              const svg = row.querySelector('[data-testid="tug-changes-list-claim"] svg');
@@ -154,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)("AT0332: unattributed row chrome in the Changes sha
         expect(row.meta).toBe(0);
 
         // The section's bulk affordance carries the same icon vocabulary.
-        const claimAllIcon = await app.evalJS<string | null>(
+        const claimAllIcon = await app.body("A").evalJS<string | null>(
           `(() => {
              const svg = document.querySelector(
                ${JSON.stringify(`${SHEET} [data-testid="tug-changes-list-claim-all-unattributed"] svg`)},

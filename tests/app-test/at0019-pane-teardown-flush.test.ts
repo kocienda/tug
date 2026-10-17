@@ -45,7 +45,7 @@ const TEST_TIMEOUT_MS = 60_000;
 
 describe.skipIf(!SHOULD_RUN)("m19: _closePane flushes every card before destruction", () => {
   test("multi-card pane close fires save-callback for every cardId before any card-host-unmount", async () => {
-    const app = await launchTugApp({ testName: "at0019-pane-teardown-flush" });
+    const app = await launchTugApp({ bodies: false, testName: "at0019-pane-teardown-flush" });
     try {
       await app.enableDeckTrace(true);
 

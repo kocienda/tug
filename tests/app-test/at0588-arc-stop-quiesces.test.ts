@@ -69,6 +69,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 /**
  * Two gates, meaning different things. `TUGAPP_APP_TEST` is every app-test's;
@@ -248,7 +249,7 @@ afterAll(() => {
  */
 async function warmTheCard(app: App): Promise<void> {
   const editor = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(editor);
+  await app.body("A").nativeClickAtElement(editor);
   await app.nativeType("Reply with the single word ok and nothing else.");
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -256,7 +257,7 @@ async function warmTheCard(app: App): Promise<void> {
   // model can never race one. So the wait is for the turn to *end*, not for
   // the chip to have text: a reading with the model resolved arrives while
   // the turn is still running, and a press then lands on a dead button.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(() => {
        const chip = document.querySelector(${JSON.stringify(AI_CHIP_BUTTON)});
        if (chip === null || chip.hasAttribute("disabled")) return false;
@@ -271,15 +272,15 @@ async function pickDeckModel(app: App): Promise<string> {
   // than a hit-test, and the chip sits in chrome a native press at this
   // window's geometry does not reliably land on — `at0372` drives the same
   // sheet the same way.
-  await app.click(AI_CHIP_BUTTON);
-  await app.waitForCondition<boolean>(
+  await app.body("A").click(AI_CHIP_BUTTON);
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
     { timeoutMs: 15_000 },
   );
   // Whatever this account offers, minus the stage's own model and the row
   // that only names the default — the pick has to be a selection the card
   // could not have arrived at by itself.
-  const choice = await app.evalJS<string>(
+  const choice = await app.body("A").evalJS<string>(
     `(() => {
        const rows = Array.from(document.querySelectorAll(${JSON.stringify(`${SHEET} [data-testid="ai-config-model"] [data-model]`)}));
        const values = rows.map((el) => el.getAttribute("data-model") ?? "");
@@ -289,13 +290,13 @@ async function pickDeckModel(app: App): Promise<string> {
      })()`,
   );
   expect(choice, "the sheet offered a model to pick").not.toBe("");
-  await app.click(MODEL_ROW(choice));
-  await app.click(SHEET_OK);
-  await app.waitForCondition<boolean>(
+  await app.body("A").click(MODEL_ROW(choice));
+  await app.body("A").click(SHEET_OK);
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) === null`,
     { timeoutMs: 15_000 },
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").indexOf("?") === -1`,
     { timeoutMs: 30_000 },
   );
@@ -304,7 +305,7 @@ async function pickDeckModel(app: App): Promise<string> {
 
 /** The card's AI chip, as one trimmed string. */
 async function chipText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim()`,
   );
 }
@@ -312,7 +313,7 @@ async function chipText(app: App): Promise<string> {
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(prompt);
+  await app.body("A").nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -420,7 +421,7 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         note("at0588 the deck's model before the arc runs", deckModel);
 
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ANY_ROW)}) !== null`,
           { timeoutMs: 30_000 },
         );
@@ -467,14 +468,14 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         // stage's own model on the card, so this is a string the deck never
         // chose — and the one the card must not still be wearing once the
         // stop has handed it back.
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim() !== ${JSON.stringify(deckModel)}`,
+        await app.body("A").waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim() !==${JSON.stringify(deckModel)}`,
           { timeoutMs: 60_000 },
         );
         const stageChip = await chipText(app);
         note("at0588 the card's model while the stage holds it", stageChip);
 
-        const controlBefore = await app.evalJS<string>(
+        const controlBefore = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const button = document.querySelector(${JSON.stringify(TRANSPORT)});
              return button === null ? "(none)" : button.outerHTML;
@@ -484,15 +485,16 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
 
         // ── The two orderings, watched from the moment of the press ───────
         //
-        // The receipt and the row are both on screen, so the page itself is
-        // what times them: a stamp each, taken by the first poll that sees the
-        // thing, rather than two separate waits whose order is the harness's
-        // scheduling rather than the app's.
-        await app.evalJS<boolean>(
+        // The receipt and the row are both on screen, so the pages themselves
+        // are what time them: a stamp each, taken by the first poll that sees
+        // the thing, rather than two separate waits whose order is the
+        // harness's scheduling rather than the app's. The receipt is in the
+        // Session card's body and the row in the Arcs card's — two pages, two
+        // `performance.now()` origins — so each stamp is taken on the clock
+        // they share, `performance.timeOrigin + performance.now()`.
+        const watchFor = (key: "receiptAt" | "resumeAt", seenExpr: string): string =>
           `(() => {
-             window.__at0588 = { receiptAt: null, resumeAt: null };
-             const rows = ${JSON.stringify(SHELL_ROWS)};
-             const resume = ${JSON.stringify(transportWith("resume"))};
+             window.__at0588 = { ${key}: null };
              // A MutationObserver, never a timer. The harness's window spends
              // the run occluded, and WebKit throttles timers in one hard: a
              // 20ms interval was measured firing **14 times** across the whole
@@ -502,15 +504,10 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
              // the stamp is the mutation's rather than the next tick's.
              const seen = window.__at0588;
              const look = () => {
-               if (seen.receiptAt === null &&
-                   Array.from(document.querySelectorAll(rows))
-                     .some((el) => (el.textContent || "").indexOf("you stopped it") !== -1)) {
-                 seen.receiptAt = performance.now();
+               if (seen.${key} === null && (${seenExpr})) {
+                 seen.${key} = performance.timeOrigin + performance.now();
+                 observer.disconnect();
                }
-               if (seen.resumeAt === null && document.querySelector(resume) !== null) {
-                 seen.resumeAt = performance.now();
-               }
-               if (seen.receiptAt !== null && seen.resumeAt !== null) observer.disconnect();
              };
              const observer = new MutationObserver(look);
              observer.observe(document.body, {
@@ -524,14 +521,23 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
              // state that was already there.
              look();
              return true;
-           })()`,
+           })()`;
+        await app.body("A").evalJS<boolean>(
+          watchFor(
+            "receiptAt",
+            `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
+               .some((el) => (el.textContent || "").indexOf("you stopped it") !== -1)`,
+          ),
+        );
+        await kindBody(app, "dashes").evalJS<boolean>(
+          watchFor("resumeAt", `document.querySelector(${JSON.stringify(transportWith("resume"))}) !== null`),
         );
 
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("stop"))}) !== null`,
           { timeoutMs: 30_000 },
         );
-        await app.nativeClickAtElement(transportWith("stop"));
+        await kindBody(app, "dashes").nativeClickAtElement(transportWith("stop"));
 
         // ── The mark stands while the protocol is in flight ───────────────
         //
@@ -578,14 +584,19 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         expect(sentinelAlive(), "the stage's shell child is gone").toBe(false);
 
         // ── The card says it, and says it first ───────────────────────────
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("resume"))}) !== null`,
           { timeoutMs: 60_000 },
         );
-        const timing = await app.evalJS<{
+        // Each stamp from the page that took it: the receipt's in the Session
+        // card's body, the row's in the Arcs card's.
+        const timing: {
           receiptAt: number | null;
           resumeAt: number | null;
-        }>(`window.__at0588`);
+        } = {
+          receiptAt: await app.body("A").evalJS<number | null>(`window.__at0588.receiptAt`),
+          resumeAt: await kindBody(app, "dashes").evalJS<number | null>(`window.__at0588.resumeAt`),
+        };
         note("at0588 receipt and row, in the order they landed", JSON.stringify(timing));
         expect(timing.receiptAt, "the receipt reached the card").not.toBeNull();
         expect(timing.resumeAt, "and the row took its second face").not.toBeNull();
@@ -595,7 +606,7 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         ).toBeLessThanOrEqual(timing.resumeAt!);
         note("at0588 card with the stop receipt", (await app.screenshot()).path);
 
-        const controlAfter = await app.evalJS<string>(
+        const controlAfter = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const buttons = document.querySelectorAll(${JSON.stringify(TRANSPORT)});
              return JSON.stringify({
@@ -618,8 +629,8 @@ describe.skipIf(!SHOULD_RUN)("AT0588: a stop that ends the work", () => {
         // card comes back to that pick. A hand-back addressed to the dead
         // segment instead of the card leaves it wearing `stageChip`, which is
         // what the second assertion names.
-        await app.waitForCondition<boolean>(
-          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim() === ${JSON.stringify(deckModel)}`,
+        await app.body("A").waitForCondition<boolean>(
+          `(document.querySelector(${JSON.stringify(AI_CHIP)})?.textContent ?? "").trim() ===${JSON.stringify(deckModel)}`,
           { timeoutMs: 60_000 },
         );
         const handedBack = await chipText(app);

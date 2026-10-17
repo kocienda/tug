@@ -109,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Paced keystrokes (one batch, ~40ms apart) so the OS doesn't drop
           // keys the way a fast nativeType can under load.
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/permissions");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape");

@@ -142,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("AT0508: an arc quiet line reads as a Task step", (
           exitCode: 0,
           startedAtMs: 1_700_000_001_000,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="session-arc-note-line"]').length === 1`,
           { timeoutMs: 20_000 },
         );
@@ -156,12 +156,12 @@ describe.skipIf(!SHOULD_RUN)("AT0508: an arc quiet line reads as a Task step", (
           text: ROUND_SENTENCE,
           cwd: projectDir,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="arc-note"]').length === 1`,
           { timeoutMs: 20_000 },
         );
 
-        const rows = await app.evalJS<{
+        const rows = await app.body("A").evalJS<{
           between: Record<string, unknown> | null;
           mid: Record<string, unknown> | null;
         }>(`(function(){

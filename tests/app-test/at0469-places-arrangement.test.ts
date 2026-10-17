@@ -83,7 +83,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${PLACES}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -94,7 +94,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
         // Slot 1 is SET to split and slot 0 is stacked, and each wears exactly
         // one affordance: the layout glyph that once stood beside a split
         // place's mark is gone, and nothing on the picture says fit or flow.
-        const affordances = await app.evalJS<Record<string, number>>(
+        const affordances = await app.body("L").evalJS<Record<string, number>>(
           `(function () {
             var out = {};
             Array.prototype.forEach.call(
@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
         expect(affordances["col-1"], "the split slot wears one mark").toBe(1);
         expect(affordances["col-0"], "and so does the stacked one").toBe(1);
         expect(
-          await app.evalJS<number>(
+          await app.body("L").evalJS<number>(
             `document.querySelectorAll('${TOGGLES} [data-place-layout], ${TOGGLES} [data-testid$="-layout"]').length`,
           ),
           "no mark carries a layout — glyph or attribute",
@@ -123,11 +123,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
         // arrangement for a glyph to state or a press to change. The picture
         // still leaves the side its width; the marks over the field are the
         // slots' alone.
-        await app.click(
+        await app.body("L").click(
           `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
         );
         await wait(AFTER_LAND_MS);
-        const railMarks = await app.evalJS<number>(
+        const railMarks = await app.body("L").evalJS<number>(
           `document.querySelectorAll('${TOGGLES} .layout-places-mark[data-place^="rail-"], ${PLACES} .layout-places-mark').length`,
         );
         note(`rail marks, and marks on the picture: ${railMarks}`);
@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${PLACES}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -223,14 +223,14 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the arran
         expect(columnAtRest.disabled, "enabled — two cards stand in it").toBe(false);
         expect(columnAtRest.value, "reading Stack, which an untouched shared slot is").toBe("stack");
 
-        await app.click(`${columnRow(0)} [data-choice-value="split"]`);
+        await app.body("L").click(`${columnRow(0)} [data-choice-value="split"]`);
         await wait(AFTER_LAND_MS);
         let record = await stored();
         note(`after Split on Column 1: ${JSON.stringify(record)}`);
         expect(record.mode, "Split divided the slot").toBe("split");
         expect((await rowFacts(columnRow(0))).value, "and the row says Split").toBe("split");
 
-        await app.click(`${columnRow(0)} [data-choice-value="stack"]`);
+        await app.body("L").click(`${columnRow(0)} [data-choice-value="stack"]`);
         await wait(AFTER_LAND_MS);
         record = await stored();
         note(`after Stack on Column 1: ${JSON.stringify(record)}`);

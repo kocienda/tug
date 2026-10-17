@@ -110,6 +110,7 @@ import {
   twoRailPaneWidth,
   wait,
 } from "./space-allocator-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 describe.skipIf(!SHOULD_RUN)(
   "at0303 — the space allocator flexes the rail to tile the chain",
@@ -140,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(surplusPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, surplusPane);
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await kindBody(app, "layout").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           const surplusTotal = railTotalFor(canvas, surplusPane);
@@ -168,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           expect(deficitPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, deficitPane, "three-up");
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await kindBody(app, "layout").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           const deficitTotal = railTotalFor(canvas, deficitPane);
@@ -231,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)(
           const crowdedPane = twoRailPaneWidth(canvas, tiling);
           expect(crowdedPane).toBeGreaterThanOrEqual(200);
           await seedTwoRails(app, crowdedPane, "three-up");
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await kindBody(app, "layout").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           const overview = await frameWidth(app, "pGaz");

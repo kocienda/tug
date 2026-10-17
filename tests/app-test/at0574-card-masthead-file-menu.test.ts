@@ -109,7 +109,7 @@ async function seedTextCard(app: App, filePath: string): Promise<void> {
     },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT)});
       return el !== null && el.innerText.indexOf("masthead fixture") !== -1;

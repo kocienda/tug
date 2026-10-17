@@ -92,7 +92,7 @@ function hasAttr(app: App, selector: string, attr: string): Promise<boolean> {
  * for the lifecycle matrix, so the two tests agree on what the cell is.
  */
 function stateCellLabel(app: App, cardId: string): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body(cardId).evalJS<string | null>(
     `(function(){
       var cell = document.querySelector(
         '[data-card-id="${cardId}"] [data-priority="state"] .session-telemetry-status-value');
@@ -292,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       // `awaiting-user` button on a session with no turn running at all,
       // leaving a dead composer and a Stop button with nothing to stop. So Z2
       // says Awaiting and Z5 stays exactly where the real turn state left it.
-      const submitMode = await app.evalJS<string | null>(
+      const submitMode = await app.body("A").evalJS<string | null>(
         `(function(){
           var el = document.querySelector(
             '[data-card-id="A"] .tug-prompt-entry-submit-button');
@@ -314,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         await hasAttr(app, '[data-card-id="A"] .session-card', "data-inline-dialog-pending"),
         "MODAL: the card is card-modal while the question is up",
       ).toBe(true);
-      const entryInert = await app.evalJS<boolean>(`(function(){
+      const entryInert = await app.body("A").evalJS<boolean>(`(function(){
         var el = document.querySelector('[data-card-id="A"] .session-card-entry-pane');
         return el !== null && getComputedStyle(el).pointerEvents === "none";
       })()`);

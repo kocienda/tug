@@ -260,12 +260,12 @@ describe.skipIf(!SHOULD_RUN)("at0602 — a session atom the model can read", () 
         });
 
         // ---- A. The block rides out. ---------------------------------------
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `window.__tug.lastSentUserMessage("A") !== null`,
           { timeoutMs: 10_000 },
         );
         const wire = JSON.parse(
-          (await app.evalJS<string>(`window.__tug.lastSentUserMessage("A")`))!,
+          (await app.body("A").evalJS<string>(`window.__tug.lastSentUserMessage("A")`))!,
         ) as WireMessage;
         note("at0602 wire", JSON.stringify(wire).slice(0, 600));
         expect(wire.type).toBe("user_message");
@@ -290,11 +290,11 @@ describe.skipIf(!SHOULD_RUN)("at0602 — a session atom the model can read", () 
         expect(body).toContain(`\`@session:${REFERENCE}\``);
 
         // ---- B. And it is not in the transcript. ---------------------------
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PILL)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        const row = await app.evalJS<{ text: string; pills: number }>(
+        const row = await app.body("A").evalJS<{ text: string; pills: number }>(
           `(function(){
             var body = document.querySelector(${JSON.stringify(USER_BODY)});
             return {
@@ -366,11 +366,11 @@ describe.skipIf(!SHOULD_RUN)("at0602 — a session atom the model can read", () 
           totalTurns: 1,
           hasOlder: false,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PILL)}).length >= 1`,
           { timeoutMs: 10_000 },
         );
-        const replayed = await app.evalJS<{
+        const replayed = await app.body("A").evalJS<{
           sessionIds: string[];
           text: string;
           bodies: number;

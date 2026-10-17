@@ -82,9 +82,9 @@ const USAGE_TEXT = [
 const USAGE_ACCOUNT = { email: "user@example.com", subscription_type: "max" };
 
 async function runUsage(app: App): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType("/usage");
-  await app.nativeClickAtElement(SUBMIT_BTN);
+  await app.body("A").nativeClickAtElement(SUBMIT_BTN);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {

@@ -60,7 +60,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
           await app.bindSession("A");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
             { timeoutMs: 8_000 },
           );
@@ -68,14 +68,14 @@ describe.skipIf(!SHOULD_RUN)(
           // The caret goes in the prompt — the posture the whole decision is
           // about — and every press below is native, so AppKit gets its say
           // about the key equivalent before CodeMirror does.
-          await app.nativeClickAtElement(COMPOSER);
-          await app.waitForCondition<boolean>(
+          await app.body("A").nativeClickAtElement(COMPOSER);
+          await app.body("A").waitForCondition<boolean>(
             `document.activeElement !== null
               && document.activeElement.closest(${JSON.stringify(COMPOSER)}) !== null`,
             { timeoutMs: 8_000 },
           );
           await app.nativeType(TYPED);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(COMPOSER)});
               return el !== null && el.textContent.indexOf(${JSON.stringify(TYPED)}) !== -1;
@@ -84,7 +84,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           const read = (): Promise<string> =>
-            app.evalJS<string>(
+            app.body("A").evalJS<string>(
               `document.querySelector(${JSON.stringify(COMPOSER)}).textContent`,
             );
           const typed = await read();

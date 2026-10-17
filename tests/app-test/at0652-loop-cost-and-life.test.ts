@@ -103,7 +103,7 @@ interface LoopLife {
 }
 
 const loopLife = (app: App, selector: string): Promise<LoopLife> =>
-  app.evalJS<LoopLife>(
+  app.body("A").evalJS<LoopLife>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(selector)});
        if (el === null) {
@@ -227,7 +227,7 @@ interface RestReading {
  * not woken to blend it.
  */
 async function rest(app: App, slot: string): Promise<RestReading> {
-  await app.evalJS<null>(`(function(){
+  await app.body("A").evalJS<null>(`(function(){
     window.${slot} = { done: false };
     window.__tugMotion.rest().then(function (reading) {
       window.${slot} = { done: true, reading: reading };
@@ -256,7 +256,7 @@ async function cost(
   slot: string,
   frames: number,
 ): Promise<CostReading> {
-  await app.evalJS<null>(`(function(){
+  await app.body("A").evalJS<null>(`(function(){
     window.${slot} = { done: false };
     window.__tugMotion.cost(${frames}).then(function (reading) {
       window.${slot} = { done: true, reading: reading };
@@ -335,7 +335,7 @@ async function launch(): Promise<App> {
   // composer's CodeMirror instance, which the stub transport does not always
   // bring up inside the budget, and none of the three loops below needs it:
   // the wave is the in-flight footer's and the phase dot is the masthead's.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(`${CARD} [data-slot="session-card"]`)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -418,12 +418,12 @@ describe.skipIf(!SHOULD_RUN)(
           }
           await wait(400);
           note(
-            `at0652 transcript cells: ${await app.evalJS<number>(
+            `at0652 transcript cells: ${await app.body("A").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(`${CARD} .tug-list-view-cell`)}).length`,
             )}`,
           );
           await app.driveSession("A", { op: "send", text: "at0652" });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WAVE)}) !== null`,
             { timeoutMs: 10_000 },
           );

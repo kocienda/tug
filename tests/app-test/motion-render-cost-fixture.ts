@@ -8,6 +8,7 @@
  */
 
 import { type App } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -189,7 +190,7 @@ export async function seatListBench(
     state: listDeckShape(cardId, componentId),
     focusCardId: cardId,
   });
-  await app.waitForCondition<boolean>(
+  await (await waitForBodyReady(app, cardId)).waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(listDots(cardId))}).length === ${BENCH_COUNT}`,
     { timeoutMs: 30_000 },
   );
@@ -240,6 +241,10 @@ export async function cost(
   slot: string,
   frames: number,
 ): Promise<CostReading> {
+  // `window.__tugMotion` is the shell's alone (`main.tsx` installs it; a
+  // body's page has none), so the reading is the shell's main thread, not
+  // the bench body's.
+  // card-dom: shell
   await app.evalJS<null>(`(function(){
     window.${slot} = { done: false };
     window.__tugMotion.cost(${frames}).then(function (reading) {
@@ -261,6 +266,7 @@ export async function cost(
       { cause },
     );
   }
+  // card-dom: shell
   return app.evalJS<CostReading>(`(function(){
     var r = window.${slot}.reading;
     return { p50: r.p50, p95: r.p95, max: r.max, burst: r.burst };
@@ -286,6 +292,7 @@ export interface RestReading {
  * that already proved the window is painting.
  */
 export async function rest(app: App, slot: string): Promise<RestReading> {
+  // card-dom: shell
   await app.evalJS<null>(`(function(){
     window.${slot} = { done: false };
     window.__tugMotion.rest().then(function (reading) {

@@ -101,11 +101,11 @@ describe.skipIf(!SHOULD_RUN)(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
           await app.bindSession("A");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}) !== null`,
             { timeoutMs: 15_000 },
           );
-          await app.nativeClickAtElement(EDITOR_CONTENT);
+          await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
 
           // ── An image becomes an image atom ───────────────────────────
           await app.evalJS<void>(
@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(txtPath);
 
           // ── The chord asks the host's panel for a path ──────────────
-          await app.nativeClickAtElement(EDITOR_CONTENT);
+          await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
           await app.evalJS<void>(
             `(function(){
               var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.choosePath;

@@ -51,6 +51,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -104,7 +105,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
           },
           focusCardId: "A",
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${EDITOR_CONTENT}');
             return el !== null && el.innerText.indexOf("alpha") !== -1;
@@ -112,7 +113,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
           { timeoutMs: 15_000 },
         );
         await app.dispatchControlAction("toggle-cards");
-        await app.waitForCondition<boolean>(`${count(PANE_ROW)} === 1`, {
+        await kindBody(app, "cards").waitForCondition<boolean>(`${count(PANE_ROW)} === 1`, {
           timeoutMs: 15_000,
         });
 
@@ -121,8 +122,8 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // Nothing about it says "container": no subrow beneath it, and no fold
         // control inside it. Its accessories are the ones a file row has always
         // carried.
-        expect(await app.evalJS<number>(count(SUBROW))).toBe(0);
-        const single = await app.evalJS<{
+        expect(await kindBody(app, "cards").evalJS<number>(count(SUBROW))).toBe(0);
+        const single = await kindBody(app, "cards").evalJS<{
           title: string;
           hasClose: boolean;
           hasSlots: boolean;
@@ -161,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // or four. Read from the token for the reason the rule states it once:
         // so tuning the step stays a one-file edit.
         expect(single.indent).toBe(
-          await app.evalJS<number>(
+          await kindBody(app, "cards").evalJS<number>(
             `(function(){
                var s = getComputedStyle(document.body);
                var inset = parseFloat(
@@ -176,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         );
 
         // The file row sits under a Files header — one group, one header.
-        expect(await app.evalJS<number>(count(HEADER))).toBe(1);
+        expect(await kindBody(app, "cards").evalJS<number>(count(HEADER))).toBe(1);
 
         // ---- D. The card seeds its cursor onto a CARD row, not a header. ---
         //
@@ -184,11 +185,11 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // on index 0 — the Files header — if the card did not seed past it.
         // The rail ladder is the door: `toggle-cards` shows the card and brings
         // the keyboard to it, which is the same entry the menu row calls.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector('${LIST}[data-key-view-kbd] [data-key-cursor]') !== null`,
           { timeoutMs: 8_000 },
         );
-        const seeded = await app.evalJS<{ isHeader: boolean; isPane: boolean }>(
+        const seeded = await kindBody(app, "cards").evalJS<{ isHeader: boolean; isPane: boolean }>(
           `(function(){
             var cur = document.querySelector('${LIST} [data-key-cursor]');
             return {
@@ -206,12 +207,12 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // `show-component-gallery` runs `addCard("gallery-buttons")`, whose
         // registration seeds a four-card stack from its `defaultCards`.
         await app.dispatchControlAction("show-component-gallery");
-        await app.waitForCondition<boolean>(`${count(SUBROW)} === 4`, {
+        await kindBody(app, "cards").waitForCondition<boolean>(`${count(SUBROW)} === 4`, {
           timeoutMs: 15_000,
         });
         // Zero clicks were spent opening it: the wait above is the assertion,
         // and this pins that the stack row itself carries no fold control.
-        const stack = await app.evalJS<{
+        const stack = await kindBody(app, "cards").evalJS<{
           tabCount: string;
           hasClose: boolean;
           closeLabel: string;
@@ -253,17 +254,21 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         expect(stack.subrowIndent).toBeGreaterThan(stack.paneIndent);
 
         // ---- C. Activating a subrow fronts that tab within its pane. -------
+        // The subrow is the Cards card's; the deck is the shell's.
+        const subrowCardId = await kindBody(app, "cards").evalJS<string | null>(
+          `document.querySelector(${JSON.stringify(SUBROW)}).getAttribute("data-cards-subrow-card-id")`,
+        );
+        // card-dom: shell
         const before = await app.evalJS<{ paneId: string; activeCardId: string }>(
           `(function(){
-            var sub = document.querySelector(${JSON.stringify(SUBROW)});
-            var cardId = sub.getAttribute("data-cards-subrow-card-id");
+            var cardId = ${JSON.stringify(subrowCardId)};
             var deck = window.tugdeck.diag.getDeckState();
             var pane = deck.panes.find(function (p) { return p.cardIds.indexOf(cardId) >= 0; });
             return { paneId: pane.id, activeCardId: pane.activeCardId };
           })()`,
         );
         // Pick a subrow that is NOT already the active tab.
-        const targetCardId = await app.evalJS<string>(
+        const targetCardId = await kindBody(app, "cards").evalJS<string>(
           `(function(){
             var subs = Array.prototype.slice.call(
               document.querySelectorAll(${JSON.stringify(SUBROW)}),
@@ -277,6 +282,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
             return pick.getAttribute("data-cards-subrow-card-id");
           })()`,
         );
+        // card-dom: shell
         await app.waitForCondition<boolean>(
           `(function(){
             var deck = window.tugdeck.diag.getDeckState();
@@ -299,29 +305,29 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
             height: el.getBoundingClientRect().height,
           };
         })()`;
-        expect(await app.evalJS<{ display: string; height: number }>(countBox))
+        expect(await kindBody(app, "cards").evalJS<{ display: string; height: number }>(countBox))
           .toEqual({ display: "none", height: 0 });
 
         // Clicking the label does not fold. A group folding out from under a
         // user who clicked a word they were reading is the whole reason the
         // fold cue is the only thing that toggles.
-        await app.evalJS<null>(
+        await kindBody(app, "cards").evalJS<null>(
           `(document.querySelector('${filesHeader} .tug-list-row-title').click(), null)`,
         );
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "cards").evalJS<boolean>(
             `document.querySelector('${filesHeader}').getAttribute("data-group-collapsed") === "true"`,
           ),
         ).toBe(false);
 
-        await app.evalJS<null>(
+        await kindBody(app, "cards").evalJS<null>(
           `(document.querySelector('${filesHeader} [data-slot="block-fold-cue"]').click(), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector('${filesHeader}[data-group-collapsed="true"]') !== null`,
           { timeoutMs: 8_000 },
         );
-        const collapsed = await app.evalJS<{
+        const collapsed = await kindBody(app, "cards").evalJS<{
           fileRows: number;
           count: string;
           countPainted: boolean;
@@ -362,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // near-identical bars. Read as painted color rather than as a class,
         // because the failure is a cascade one: a header cell that never
         // overrode the striping still has every class it is supposed to.
-        const surfaces = await app.evalJS<{
+        const surfaces = await kindBody(app, "cards").evalJS<{
           header: string;
           rows: string[];
         }>(`(function(){
@@ -394,7 +400,7 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
         // must actually engage: if the visible order handed to the reorder hook
         // still carried the collapsed Files group's keys, `beginDrag` would
         // return without a word and the row would never pick up.
-        const engaged = await app.evalJS<boolean>(`(function(){
+        const engaged = await kindBody(app, "cards").evalJS<boolean>(`(function(){
           var row = document.querySelector(
             '${LIST} .cards-row[data-cards-row-id]'
           );
@@ -417,10 +423,10 @@ describe.skipIf(!SHOULD_RUN)("at0312 — Cards is two-level, never a folder", ()
 
         // Re-expanding puts the group back — the fold cue again, since that is
         // the only thing the mouse can toggle.
-        await app.evalJS<null>(
+        await kindBody(app, "cards").evalJS<null>(
           `(document.querySelector('${filesHeader} [data-slot="block-fold-cue"]').click(), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector('${filesHeader}[data-group-collapsed="false"]') !== null`,
           { timeoutMs: 8_000 },
         );

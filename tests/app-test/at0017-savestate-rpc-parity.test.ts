@@ -42,7 +42,7 @@ const TEST_TIMEOUT_MS = 60_000;
 
 describe.skipIf(!SHOULD_RUN)("m17: saveState RPC captures same axes as will-phase saves", () => {
   test("saveState() bag === window-blur bag for steady state", async () => {
-    const app = await launchTugApp({
+    const app = await launchTugApp({ bodies: false,
     // Foreground: drives a real app resign / hide / become-active cycle,
     // which only happens to an app that is actually active (pid-mode default
     // never activates).

@@ -123,7 +123,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 4000 },
           );
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
+          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "an unattached Session card should not raise a close confirm",
@@ -143,7 +143,7 @@ describe.skipIf(!SHOULD_RUN)(
           await seedCards(app, ["A"]);
           // A bound card with no frames flowing: attached, never spoken to.
           await app.bindSession("A");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -154,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 4000 },
           );
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
+          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "a session that was never sent a message has nothing to confirm over",
@@ -173,19 +173,19 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seedCards(app, ["A"]);
           await app.bindSession("A");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)}) !== null`,
             { timeoutMs: 8000 },
           );
 
           // Type into the composer — the draft lives only in the editor.
-          await app.nativeClickAtElement(COMPOSER_SELECTOR);
-          await app.waitForCondition<boolean>(
+          await app.body("A").nativeClickAtElement(COMPOSER_SELECTOR);
+          await app.body("A").waitForCondition<boolean>(
             `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(COMPOSER_SELECTOR)})`,
             { timeoutMs: 4000 },
           );
           await app.nativeType("half a thought");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(COMPOSER_SELECTOR)});
               return el !== null && el.textContent.indexOf("half a thought") !== -1;
@@ -197,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Past the popover-flash window, so this reads a popover that holds.
           await pause(300);
 
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
+          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "an unsent draft must not be discarded silently",
@@ -225,7 +225,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
           await pause(300);
 
-          const popoverText = await app.evalJS<string | null>(popoverTextScript());
+          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "a multi-tab pane keeps its whole-pane confirm",

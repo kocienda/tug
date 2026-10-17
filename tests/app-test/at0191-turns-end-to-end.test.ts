@@ -131,7 +131,7 @@ describe.skipIf(!SHOULD_RUN)(
             .filter((s) => s.length > 0)
         )`;
         const readAddrs = async (): Promise<string[]> =>
-          JSON.parse(await app.evalJS<string>(ADDRS_JS));
+          JSON.parse(await app.body("A").evalJS<string>(ADDRS_JS));
         // The transcript evicts rows far from the scrollport, so "every
         // address" is only ever the addresses near where the user is
         // looking. Reading both ends is what a reader would do — and it is
@@ -143,7 +143,7 @@ describe.skipIf(!SHOULD_RUN)(
         // position. A bare `scrollTop` write is a scroll nobody caused, and
         // the follow-bottom pin that lands after a prepend takes it back.
         const readAddrsAt = async (frac: number): Promise<string[]> => {
-          await app.evalJS<number>(`(function () {
+          await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('[data-card-id="A"] [data-tug-scroll-key="session-card-transcript"]');
   el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
   el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * ${frac});
@@ -184,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(turnDone("m8"));
           await ingest(replayComplete(3, 5, 8, true));
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `JSON.parse(${ADDRS_JS}).length >= 6`,
             { timeoutMs: 8000 },
           );
@@ -216,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)(
           }
           await ingest(replayComplete(5, 0, 8, false));
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `JSON.parse(${ADDRS_JS}).some((a) => a === "#u1")`,
             { timeoutMs: 8000 },
           );

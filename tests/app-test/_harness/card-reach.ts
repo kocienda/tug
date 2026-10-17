@@ -89,18 +89,65 @@ export async function waitForKeyboardInCard(app: App, cardId: string, opts: { ti
 /**
  * The body of the deck's card of `componentId`, once the host holds it ready:
  * for a file that opens a card (the Overview by its chord, say) rather than
- * seeding one under an id it names. Throws when no such card stands ready in
- * `timeoutMs`.
+ * seeding one under an id it names. With several of the kind, the visible one.
+ * Throws when no such card stands ready in `timeoutMs`.
  */
 export async function bodyOfKind(app: App, componentId: string, timeoutMs = 30_000): Promise<BodyApp> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const bodies = await app.bodies();
-    const ready = bodies.find((b) => b.componentId === componentId && b.state === "ready");
+    // Several cards of a kind (one Workspaces card per workspace, say): the
+    // one the user can see is the one meant; a hidden layer's is the fallback.
+    const ofKind = bodies.filter((b) => b.componentId === componentId && b.state === "ready");
+    const ready = ofKind.find((b) => b.visible) ?? ofKind[0];
     if (ready?.cardId !== undefined && ready.cardId !== null) return app.body(ready.cardId);
     if (Date.now() >= deadline) {
       const held = bodies.map((b) => `${b.cardId}:${b.componentId}:${b.state}`).join(", ") || "none";
       throw new Error(`no ready body holds a ${componentId} card within ${timeoutMs} ms (the host holds ${held})`);
+    }
+    await Bun.sleep(50);
+  }
+}
+
+/**
+ * The body of `cardId`, once the host holds it ready. `app.body(cardId)` is a
+ * handle whose calls fail at once (`NoSuchBody`) before the host has the
+ * body; a test that has just seeded or opened the card waits here first.
+ * Throws with what the host holds when the body is not ready in `timeoutMs`.
+ */
+export async function waitForBodyReady(app: App, cardId: string, timeoutMs = 30_000): Promise<BodyApp> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const bodies = await app.bodies();
+    if (bodies.some((b) => b.cardId === cardId && b.state === "ready")) return app.body(cardId);
+    if (Date.now() >= deadline) {
+      const held = bodies.map((b) => `${b.cardId}:${b.componentId}:${b.state}`).join(", ") || "none";
+      throw new Error(`no ready body for card ${cardId} within ${timeoutMs} ms (the host holds ${held})`);
+    }
+    await Bun.sleep(50);
+  }
+}
+
+/**
+ * Whether the host holds a body for a card of `componentId`, in any state:
+ * the deck has such a card. A card that closes takes its body with it, so
+ * this is how a test asks that a card it opened has gone — `kindBody` would
+ * wait for one that never comes.
+ */
+export async function hasBodyOfKind(app: App, componentId: string): Promise<boolean> {
+  return (await app.bodies()).some((b) => b.componentId === componentId);
+}
+
+/** Wait until no body holds a card of `componentId`; throws with what the host holds when one remains at `timeoutMs` (scaled as `waitForCondition`'s is). */
+export async function waitForNoBodyOfKind(app: App, componentId: string, opts: { timeoutMs: number }): Promise<void> {
+  const budget = enforcedTimeout(opts.timeoutMs);
+  const deadline = Date.now() + budget;
+  for (;;) {
+    const bodies = await app.bodies();
+    if (!bodies.some((b) => b.componentId === componentId)) return;
+    if (Date.now() >= deadline) {
+      const held = bodies.map((b) => `${b.cardId}:${b.componentId}:${b.state}`).join(", ");
+      throw new Error(`a ${componentId} card's body still stands after ${budget} ms (the host holds ${held})`);
     }
     await Bun.sleep(50);
   }

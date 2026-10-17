@@ -39,6 +39,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank, rmTempTugbank } from "./_harness/tugbank-helpers";
 import {
   AUTOSAVE_DEBOUNCE_MS,
   EDITOR_CONTENT_SELECTOR,
@@ -69,7 +70,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
     "automatic mode merges a distant external edit into a dirty buffer",
     async () => {
       const { dir, file } = mkTextFixture("at0602-merge-auto-", FIXTURE_CONTENT, { realpath: true });
-      const app = await launchTugApp({ testName: "at0602-merge-automatic" });
+      // A body Text card reads its save mode from the tugbank the app opens,
+      // not from the shell's cache `seedTextCard` writes, so automatic is
+      // seeded there too.
+      const tugbankPath = mkSeededTugbank([AUTOMATIC_SAVE_MODE]);
+      const app = await launchTugApp({ testName: "at0602-merge-automatic", env: { TUGBANK_PATH: tugbankPath } });
       try {
         await seedTextCard(app, file, "automatic");
         await waitForEditorShowing(app, "fixture line 01");
@@ -108,6 +113,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
       } finally {
         await app.close();
         rmFixture(dir);
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,
@@ -162,7 +168,8 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
     async () => {
       const UNDO_RUN = "UNDO-RUN-ONE ";
       const { dir, file } = mkTextFixture("at0602-undo-", FIXTURE_CONTENT, { realpath: true });
-      const app = await launchTugApp({ testName: "at0602-undo-after-reload" });
+      const tugbankPath = mkSeededTugbank([AUTOMATIC_SAVE_MODE]);
+      const app = await launchTugApp({ testName: "at0602-undo-after-reload", env: { TUGBANK_PATH: tugbankPath } });
       try {
         await seedTextCard(app, file, "automatic");
         await waitForEditorShowing(app, "fixture line 01");
@@ -199,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         ).toBe("Undo Typing");
 
         await undoOnce(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
             return el !== null && el.innerText.indexOf(${JSON.stringify(UNDO_RUN.trim())}) === -1;
@@ -212,6 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
       } finally {
         await app.close();
         rmFixture(dir);
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,

@@ -27,11 +27,24 @@
  * the reveal's own terminal event, rather than a sleep long enough to
  * usually be enough.
  *
+ * ## Where each probe runs
+ *
+ * The find bar, the transcript, the find engine and `window.__findTrace` all
+ * live in the card's own page — its body — not in the shell's document. A
+ * probe that names its card (`readReveal`, `readChip`, `sampleReveal`,
+ * `openFindBar`) resolves that page itself; one that does not (`chord`,
+ * `markTrace`, `traceSince`, the gesture/reveal waits, `waitFrames`) takes
+ * the page to run in, and the caller passes the card's (`app.body("A")`).
+ *
  * @module tests/app-test/find-probes
  */
 
-import type { App } from "./_harness";
+import type { App, BodyApp } from "./_harness";
+import { cardPage } from "./_harness/card-reach";
 import type { SessionDriveAction } from "./_harness/client";
+
+/** The page a probe runs in: the card's body, or the shell for a card that is not one. */
+export type FindPage = App | BodyApp;
 
 /** The transcript scroller's stable scroll key. */
 export const SCROLLER = '[data-tug-scroll-key="session-card-transcript"]';
@@ -87,12 +100,12 @@ export function sessionDeckShape(
  * from the real press as far as the pipeline is concerned.
  */
 export async function chord(
-  app: App,
+  page: FindPage,
   code: string,
   key: string,
   mods: { meta?: boolean; shift?: boolean } = {},
 ): Promise<void> {
-  await app.evalJS<boolean>(
+  await page.evalJS<boolean>(
     `(function(){
       var t = document.activeElement || document;
       return t.dispatchEvent(new KeyboardEvent("keydown", {
@@ -163,12 +176,12 @@ export function revealExpr(cardId = "A"): string {
 }
 
 export async function readReveal(app: App, cardId = "A"): Promise<Reveal | null> {
-  return app.evalJS<Reveal | null>(revealExpr(cardId));
+  return (await cardPage(app, cardId)).evalJS<Reveal | null>(revealExpr(cardId));
 }
 
 /** The find chip's text (`"3 of 17"`), or the empty string when unpainted. */
 export async function readChip(app: App, cardId = "A"): Promise<string> {
-  return app.evalJS<string>(
+  return (await cardPage(app, cardId)).evalJS<string>(
     `(document.querySelector(${JSON.stringify(
       sessionSelectors(cardId).chip,
     )})?.textContent || "").trim()`,
@@ -211,7 +224,8 @@ export async function sampleReveal(
   cardId = "A",
 ): Promise<RevealSample[]> {
   const sel = sessionSelectors(cardId);
-  await app.evalJS<boolean>(`(function () {
+  const page = await cardPage(app, cardId);
+  await page.evalJS<boolean>(`(function () {
   window.__findSamples = [];
   var deadline = performance.now() + ${ms};
   function tick() {
@@ -234,7 +248,7 @@ export async function sampleReveal(
   return true;
 })()`);
   await new Promise((r) => setTimeout(r, ms + 250));
-  return app.evalJS<RevealSample[]>(`(window.__findSamples || [])`);
+  return page.evalJS<RevealSample[]>(`(window.__findSamples || [])`);
 }
 
 /**
@@ -264,16 +278,16 @@ export interface FindTraceEventLike {
 }
 
 /** The trace's current `seq`, to bracket a gesture with. */
-export async function markTrace(app: App): Promise<number> {
-  return app.evalJS<number>(`(window.__findTrace ? window.__findTrace.mark() : 0)`);
+export async function markTrace(page: FindPage): Promise<number> {
+  return page.evalJS<number>(`(window.__findTrace ? window.__findTrace.mark() : 0)`);
 }
 
 /** Everything the trace recorded after `mark`. */
 export async function traceSince(
-  app: App,
+  page: FindPage,
   mark: number,
 ): Promise<FindTraceEventLike[]> {
-  return app.evalJS<FindTraceEventLike[]>(
+  return page.evalJS<FindTraceEventLike[]>(
     `(window.__findTrace ? window.__findTrace.dump({ since: ${mark} }) : [])`,
   );
 }
@@ -288,13 +302,13 @@ export async function traceSince(
  * caller is better placed to say so.
  */
 export async function awaitRevealTerminal(
-  app: App,
+  page: FindPage,
   mark: number,
   timeoutMs = 10_000,
 ): Promise<FindTraceEventLike | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const events = await traceSince(app, mark);
+    const events = await traceSince(page, mark);
     const reveal = events.filter((e) => e.kind === "reveal").pop();
     if (reveal !== undefined) return reveal;
     await new Promise((r) => setTimeout(r, 100));
@@ -316,14 +330,14 @@ export async function awaitRevealTerminal(
  * as {@link awaitRevealTerminal} does.
  */
 export async function awaitGestureReveal(
-  app: App,
+  page: FindPage,
   mark: number,
   query?: string,
   timeoutMs = 10_000,
 ): Promise<FindTraceEventLike | null> {
   const want = query === undefined ? "null" : JSON.stringify(query);
   try {
-    return await app.waitForCondition<FindTraceEventLike | null>(
+    return await page.waitForCondition<FindTraceEventLike | null>(
       `(function () {
   var events = window.__findTrace ? window.__findTrace.dump({ since: ${mark} }) : [];
   var want = ${want};
@@ -352,12 +366,12 @@ export async function awaitGestureReveal(
  * selection — so this is what a Text card keystroke is waited on by.
  */
 export async function awaitGesture(
-  app: App,
+  page: FindPage,
   mark: number,
   query: string,
   timeoutMs = 10_000,
 ): Promise<FindTraceEventLike> {
-  return app.waitForCondition<FindTraceEventLike>(
+  return page.waitForCondition<FindTraceEventLike>(
     `(function () {
   var events = window.__findTrace ? window.__findTrace.dump({ since: ${mark} }) : [];
   var found = null;
@@ -376,8 +390,8 @@ export async function awaitGesture(
  * enough to usually be enough was here before; a frame count is the thing
  * itself.
  */
-export async function waitFrames(app: App, n = 3): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+export async function waitFrames(page: FindPage, n = 3): Promise<void> {
+  await page.evalJS<boolean>(`(function () {
   window.__findFrames = 0;
   function tick() {
     window.__findFrames += 1;
@@ -386,17 +400,17 @@ export async function waitFrames(app: App, n = 3): Promise<void> {
   requestAnimationFrame(tick);
   return true;
 })()`);
-  await app.waitForCondition<boolean>(`(window.__findFrames || 0) >= ${n}`, {
+  await page.waitForCondition<boolean>(`(window.__findFrames || 0) >= ${n}`, {
     timeoutMs: 5000,
   });
 }
 
 /** The trace's view of the last gesture recorded after `mark`. */
 export async function lastGesture(
-  app: App,
+  page: FindPage,
   mark: number,
 ): Promise<FindTraceEventLike | null> {
-  const events = await traceSince(app, mark);
+  const events = await traceSince(page, mark);
   return events.filter((e) => e.kind === "gesture").pop() ?? null;
 }
 
@@ -497,9 +511,10 @@ export async function seedProseTurns(
 /** Open the find bar on a Session card and wait for its field. */
 export async function openFindBar(app: App, cardId = "A"): Promise<void> {
   const sel = sessionSelectors(cardId);
-  await app.nativeClickAtElement(sel.editor);
-  await chord(app, "KeyF", "f", { meta: true });
-  await app.waitForCondition<boolean>(
+  const page = await cardPage(app, cardId);
+  await page.nativeClickAtElement(sel.editor);
+  await chord(page, "KeyF", "f", { meta: true });
+  await page.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(sel.findInput)}) !== null`,
     { timeoutMs: 8000 },
   );

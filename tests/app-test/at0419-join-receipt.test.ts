@@ -286,11 +286,11 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
 
         // ── The commit, in the entry named for it ────────────────────────
         await receiptRow(app, "join-1", "/arc-join", JOIN_SUMMARY_WITH_RECORD);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        const receipt = await app.evalJS<{
+        const receipt = await app.body("A").evalJS<{
           sha: string;
           subject: string;
           summary: string;
@@ -343,11 +343,11 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         expect(receipt.inBodyColumn, "the receipt sits in the entry's body column").toBe(true);
 
         // ── The boundary, at the transcript's edge, folded ────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_BOUNDARY)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        const bar = await app.evalJS<{
+        const bar = await app.body("A").evalJS<{
           event: string;
           detail: string;
           summary: string;
@@ -409,7 +409,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         ).toBeLessThanOrEqual(1);
 
         // ── Opened: the arc's record is what is behind the fold ───────────
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector(${JSON.stringify(
             `${JOIN_BOUNDARY} ${FOLD_CUE}`,
           )}).click(), null)`,
@@ -418,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
           `document.querySelectorAll(${JSON.stringify(RECORD)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        const record = await app.evalJS<{
+        const record = await app.body("A").evalJS<{
           strip: string;
           docs: string[];
           stages: string[][];
@@ -452,11 +452,11 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
 
         // ── A join with no record folds nothing ──────────────────────────
         await receiptRow(app, "join-quiet", "/arc-join", JOIN_SUMMARY);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${byArc(JOIN_BOUNDARY, "quiet-lane")} !== undefined`,
           { timeoutMs: 20000 },
         );
-        const quiet = await app.evalJS<{
+        const quiet = await app.body("A").evalJS<{
           event: string;
           summary: string;
           cues: number;
@@ -526,18 +526,18 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // reload, so a format change that orphaned these would turn every join
         // already recorded back into a raw shell row.
         await receiptRow(app, "join-historical", "/arc-join", HISTORICAL_JOIN_SUMMARY);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${byArc(JOIN_BOUNDARY, "old-lane")} !== undefined`,
           { timeoutMs: 20000 },
         );
         // Both halves of the row, before reading either: the boundary and the
         // receipt mount independently, and a read taken on the first alone
         // finds the second undefined often enough to be a flake.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${byReceiptArc("old-lane")} !== undefined`,
           { timeoutMs: 20000 },
         );
-        const historical = await app.evalJS<{
+        const historical = await app.body("A").evalJS<{
           event: string;
           subject: string;
           arcIdentity: string;
@@ -563,11 +563,11 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
 
         // ── The discard receipt ───────────────────────────────────────────
         await receiptRow(app, "discard-1", "/arc-discard", DISCARD_SUMMARY);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DISCARD_RECEIPT)}).length === 1`,
           { timeoutMs: 20000 },
         );
-        const discarded = await app.evalJS<{ identity: string; body: string }>(
+        const discarded = await app.body("A").evalJS<{ identity: string; body: string }>(
           `(() => {
              const block = document.querySelector(${JSON.stringify(DISCARD_RECEIPT)});
              return {
@@ -586,11 +586,11 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // The fallback is the whole reason a parse miss returns null: the
         // reader sees the output rather than an empty block.
         await receiptRow(app, "join-legacy", "/arc-join", LEGACY_OUTPUT);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length === 6`,
           { timeoutMs: 20000 },
         );
-        const fallback = await app.evalJS<{ boundaries: number; raw: string }>(
+        const fallback = await app.body("A").evalJS<{ boundaries: number; raw: string }>(
           `(() => {
              const rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
              const last = rows[rows.length - 1];

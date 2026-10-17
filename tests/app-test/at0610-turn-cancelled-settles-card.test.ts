@@ -102,11 +102,11 @@ describe.skipIf(!SHOULD_RUN)(
             });
 
           // Baseline: idle card, composer live, Z5 offering submit.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${SUBMIT_MODE} === "submit"`,
             { timeoutMs: 6000 },
           );
-          expect(await app.evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);
+          expect(await app.body("A").evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);
 
           // ── a user turn, streaming ──────────────────────────────────
           await app.driveSession("A", { op: "send", text: "count to a million" });
@@ -128,19 +128,19 @@ describe.skipIf(!SHOULD_RUN)(
             is_partial: true,
             tug_session_id: TUG_SESSION_ID,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${SUBMIT_MODE} === "stop"`,
             { timeoutMs: 6000 },
           );
 
           // ── the user presses Stop; content had arrived, so CASE B ───
           await app.driveSession("A", { op: "interrupt" });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${SUBMIT_MODE} === "stopping"`,
             { timeoutMs: 6000 },
           );
           // This is the state the defect stranded the card in.
-          expect(await app.evalJS<string>(STATE_TEXT)).toContain("Interrupting");
+          expect(await app.body("A").evalJS<string>(STATE_TEXT)).toContain("Interrupting");
 
           // ── claude never answered; the ladder cancelled the turn ────
           await frame({
@@ -153,17 +153,17 @@ describe.skipIf(!SHOULD_RUN)(
           });
 
           // The Z5 leaves `stopping`.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${SUBMIT_MODE} === "submit"`,
             { timeoutMs: 6000 },
           );
           // The STATE cell stops reading "Interrupting".
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${STATE_TEXT}.indexOf("Interrupting") === -1`,
             { timeoutMs: 6000 },
           );
           // And the composer takes text again.
-          expect(await app.evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);
+          expect(await app.body("A").evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

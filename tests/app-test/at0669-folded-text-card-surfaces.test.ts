@@ -76,20 +76,21 @@ async function seed(app: App, file: string): Promise<void> {
     cardStates: { A: { content: { path: file, anchor: { line: 1, ch: 0 }, scrollTop: 0 } } },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){var el=document.querySelector('${EDITOR}'); return el!==null && el.innerText.indexOf("fixture line 01")!==-1;})()`,
     { timeoutMs: 15_000 },
   );
 }
 
 function toggleFold(app: App): Promise<unknown> {
+  // card-dom: shell
   return app.evalJS(`(window.__tug.dispatchControlAction("toggle-card-fold"), null)`);
 }
 
 /** Fold, and wait for the folded form to land on the card host. */
 async function fold(app: App): Promise<void> {
   await toggleFold(app);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('${HOST}').getAttribute("data-card-fold")==="settled"`,
     { timeoutMs: 6000 },
   );
@@ -110,6 +111,8 @@ async function unfolded(app: App): Promise<void> {
   await app.waitForCondition<boolean>(`window.__tug.getPaneRecord("p1").folded===false`, {
     timeoutMs: 6000,
   });
+  // The pane frame is the shell's chrome.
+  // card-dom: shell
   await app.waitForCondition<boolean>(
     `!document.querySelector(".tug-pane").hasAttribute("data-fold-crossing")`,
     { timeoutMs: 6000 },
@@ -133,13 +136,13 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
       const app = await launchTugApp({ testName: "at0669-find" });
       try {
         await seed(app, file);
-        await app.nativeClickAtElement('[data-card-id="A"] .cm-line');
+        await app.body("A").nativeClickAtElement('[data-card-id="A"] .cm-line');
 
         // Return on the folded card's glyph opens it into the editor.
         await fold(app);
         await press(app, "Enter", "Enter", false);
         await unfolded(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var c=document.querySelector('${EDITOR}'); return c!==null && c.contains(document.activeElement);})()`,
           { timeoutMs: 6000 },
         );
@@ -148,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
         await fold(app);
         await app.evalJS(`(window.__tug.dispatchControlAction("find"), null)`);
         await unfolded(app);
-        await app.waitForCondition<boolean>(`document.querySelector('${BAR}')!==null`, {
+        await app.body("A").waitForCondition<boolean>(`document.querySelector('${BAR}')!==null`, {
           timeoutMs: 6000,
         });
 
@@ -157,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
         await fold(app);
         await press(app, "KeyF", "f", true);
         await unfolded(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var b=document.querySelector('${BAR}'); return b!==null && getComputedStyle(b).display!=="none" && b.contains(document.activeElement);})()`,
           { timeoutMs: 6000 },
         );
@@ -180,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
         // follows conflicts. The fold lands inside the autosave's debounce, so
         // the conflict is raised on a folded card.
         fs.writeFileSync(file, "EXTERNAL\n" + BODY, "utf8");
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `(function(){var el=document.querySelector('${EDITOR}'); el.focus(); return document.execCommand("insertText", false, "LOCAL ");})()`,
         );
         await toggleFold(app);
@@ -188,16 +191,17 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
           `(function(){var d=document.querySelector('${DETAIL}'); return d!==null && d.textContent==="File changed";})()`,
           { timeoutMs: 10_000 },
         );
-        const folded = await app.evalJS<string>(
-          `JSON.stringify({folded: window.__tug.getPaneRecord("p1").folded, banner: document.querySelector('${RELOAD}')!==null})`,
-        );
+        // The pane record is the shell's deck; the banner is the card's, in its body.
+        const paneFolded = await app.evalJS<boolean>(`window.__tug.getPaneRecord("p1").folded`);
+        const banner = await app.body("A").evalJS<boolean>(`document.querySelector('${RELOAD}')!==null`);
+        const folded = JSON.stringify({ folded: paneFolded, banner });
         expect(JSON.parse(folded), "folded: the masthead says it, no banner").toEqual({
           folded: true,
           banner: false,
         });
 
         await toggleFold(app);
-        await app.waitForCondition<boolean>(`document.querySelector('${RELOAD}')!==null`, {
+        await app.body("A").waitForCondition<boolean>(`document.querySelector('${RELOAD}')!==null`, {
           timeoutMs: 6000,
         });
         expect(

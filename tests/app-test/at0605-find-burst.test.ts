@@ -72,38 +72,38 @@ describe.skipIf(!SHOULD_RUN)("AT0605a: a burst of ⌘G ends somewhere coherent",
       try {
         await standUpSession(app, "A", SID, sessionDeckShape(["A"]));
         await seedProseTurns(app, "A", SID, TURNS, replyText);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 4`,
           { timeoutMs: 60_000 },
         );
 
         await openFindBar(app);
-        const typed = await markTrace(app);
+        const typed = await markTrace(app.body("A"));
         await app.nativeType(PROBE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "") !== ""`,
           { timeoutMs: 20_000 },
         );
         // The query's own reveal is over before the burst starts.
-        await awaitGestureReveal(app, typed, PROBE);
+        await awaitGestureReveal(app.body("A"),typed, PROBE);
         const total = Number((await readChip(app)).split(" of ")[1] ?? "0");
         expect(total, "there must be a match set to walk").toBeGreaterThan(10);
 
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
         // Ten presses, nothing awaited between the dispatches — the shape a
         // user leaning on the key produces.
         const bursts: Array<Promise<void>> = [];
-        for (let i = 0; i < 10; i += 1) bursts.push(chord(app, "KeyG", "g", { meta: true }));
+        for (let i = 0; i < 10; i += 1) bursts.push(chord(app.body("A"),"KeyG", "g", { meta: true }));
         await Promise.all(bursts);
 
         // The newest gesture's own reveal: every earlier one settles
         // `superseded`, and waiting on the first terminal would sample a
         // scroller still moving toward the last.
-        const terminal = await awaitGestureReveal(app, mark, undefined, 20_000);
+        const terminal = await awaitGestureReveal(app.body("A"),mark, undefined, 20_000);
         note(`burst terminal event: ${JSON.stringify(terminal)}`);
         const samples = await sampleReveal(app, 300);
         const last10 = tail(samples);
-        const events = await traceSince(app, mark);
+        const events = await traceSince(app.body("A"), mark);
         const outcomes = events
           .filter((e) => e.kind === "reveal")
           .map((e) => `${String(e.outcome)}:${String(e.reason)}`);

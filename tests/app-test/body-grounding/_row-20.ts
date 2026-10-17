@@ -191,6 +191,7 @@ async function expectTextWhole(app: App, say: (text: string) => void, surface: R
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, 3_000);
   const shot = reading.frames[reading.frames.length - 1];
   const canvas = parseRgb(
+    // card-dom: shell
     await app.evalJS<string>(asRgbJs(`getComputedStyle(document.body).getPropertyValue('--tug7-surface-global-primary-normal-canvas-rest')`)),
   );
   const classes = classifyFrame(shot, { surface, canvas, bare: parseRgb(reading.windowBackground) }, 8);

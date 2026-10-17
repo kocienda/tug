@@ -86,7 +86,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${PLACES}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -103,7 +103,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         // gone with the marks it copied.
         await cursorOnto(app, "layout-card-width", "wide");
         await wait(400);
-        const previewFacts = await app.evalJS<{
+        const previewFacts = await app.body("L").evalJS<{
           layerId: string | null;
           ghosts: number;
           marksOnLayer: number;
@@ -146,13 +146,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         // There is one picture for a rail now ([B01]): a member per card the
         // side holds, in both layers, so a preview cannot make the side look
         // like a different kind of place.
-        await app.click(
+        await app.body("L").click(
           `[data-testid="layout-card-sidebar-jots"] [data-choice-value="right"]`,
         );
         await wait(AFTER_LAND_MS);
         await cursorOnto(app, "layout-card-width", "wide");
         await wait(400);
-        const railDrawing = await app.evalJS<{
+        const railDrawing = await app.body("L").evalJS<{
           committed: number;
           preview: number;
         }>(
@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         // this reads the drop rather than staging one.
         await cursorOffTheRows(app);
         await wait(400);
-        const after = await app.evalJS<{ previewing: boolean; liveOpacity: string }>(
+        const after = await app.body("L").evalJS<{ previewing: boolean; liveOpacity: string }>(
           `(function () {
             var plan = document.querySelector('[data-testid="layout-card-plan"]');
             var live = document.querySelector('${TOGGLES} .layout-places-mark[data-place="col-0"]');
@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         );
         await wait(600);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("L").evalJS<boolean>(
             `document.querySelector('[data-testid="layout-card-plan"]').hasAttribute("data-previewing")`,
           ),
           "a pointer resting on a segment does not swap the drawing",
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-target-block-0"]') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -254,7 +254,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         // card behind the front one stepping out at the top. An empty slot
         // stays a bare block — there is no card to draw. Read off the
         // committed layer's live DOM.
-        const faces = await app.evalJS<{
+        const faces = await app.body("L").evalJS<{
           faced: number[];
           sheets: Record<string, number>;
           icons: Record<string, number>;
@@ -306,7 +306,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         // The target is a TugTooltip trigger; a pointer resting on it opens
         // the bubble. The tip resolves the card's name through the one
         // identity door, so it reads the seeded card's own title.
-        await app.evalJS<null>(
+        await app.body("L").evalJS<null>(
           `(function () {
             var el = document.querySelector('[data-testid="layout-card-target-block-0"]');
             var opts = { bubbles: true, cancelable: true, pointerType: "mouse" };
@@ -315,11 +315,11 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
             return null;
           })()`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-tip"]') !== null`,
           { timeoutMs: 5_000 },
         );
-        const tip = await app.getElementText('[data-testid="layout-card-tip"]');
+        const tip = await app.body("L").getElementText('[data-testid="layout-card-tip"]');
         note(`slot 1 tip: ${tip.replace(/\s+/g, " ")}`);
         expect(tip, "the tip names the front card").toMatch(/Card [AB]/);
         expect(tip, "and its place and depth").toContain("Slot 1 · front of 2");
@@ -327,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
         expect(tip, "and what a press does").toContain("Click to bring it forward");
 
         // ── An empty slot's hover says so, and what a press there does. ──
-        await app.evalJS<null>(
+        await app.body("L").evalJS<null>(
           `(function () {
             var el = document.querySelector('[data-testid="layout-card-target-block-2"]');
             var opts = { bubbles: true, cancelable: true, pointerType: "mouse" };

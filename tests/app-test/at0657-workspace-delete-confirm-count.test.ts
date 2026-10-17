@@ -115,19 +115,19 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("C1").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 1`,
             { timeoutMs: 25_000 },
           );
 
           // ---- A fresh workspace, through the real `+`.
-          await app.nativeClickAtElement(NEW_BUTTON);
-          await app.waitForCondition<boolean>(
+          await app.body("C1").nativeClickAtElement(NEW_BUTTON);
+          await app.body("C1").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 15_000 },
           );
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await app.body("C1").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await new Promise<void>((r) => setTimeout(r, 400));
 
-          const facts = await app.evalJS<{
+          const facts = await app.body("C1").evalJS<{
             message: string;
             tally: string | null;
             headerBottom: number;

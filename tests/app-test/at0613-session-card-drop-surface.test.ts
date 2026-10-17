@@ -112,13 +112,16 @@ const DECK_STATE = {
  * await and `canvas.toBlob` is async, so completion rides a window flag.
  *
  * The PNG is minted in-page so the bytes are real ones a real decoder has to
- * handle, with no fixture to copy.
+ * handle, with no fixture to copy. Everything runs in `card`'s body, the page
+ * that holds `selector`.
  */
 async function dragFileOnto(
   app: App,
+  card: string,
   selector: string,
 ): Promise<{ accepted: boolean }> {
-  await app.evalJS<void>(
+  const page = app.body(card);
+  await page.evalJS<void>(
     `(function(){
       window.__at0613 = { done: false, accepted: null };
       var el = document.querySelector(${JSON.stringify(selector)});
@@ -151,10 +154,10 @@ async function dragFileOnto(
       }, "image/png");
     })()`,
   );
-  await app.waitForCondition<boolean>(`window.__at0613.done === true`, {
+  await page.waitForCondition<boolean>(`window.__at0613.done === true`, {
     timeoutMs: 5_000,
   });
-  const accepted = await app.evalJS<boolean>(
+  const accepted = await page.evalJS<boolean>(
     `window.__at0613.accepted === true`,
   );
   return { accepted };
@@ -166,9 +169,12 @@ async function dragFileOnto(
  * bag reflects the editor's current state rather than the last quiescent one.
  */
 async function readDraftText(app: App, card: string): Promise<string | null> {
-  return app.evalJS<string | null>(
+  // The save is the shell's deck; the bag is the card's own, in its body.
+  await app.evalJS<boolean>(
+    `(window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState(), true)`,
+  );
+  return app.body(card).evalJS<string | null>(
     `(function(){
-      window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
       var bag = window.__tug.getCardStateBag(${JSON.stringify(card)});
       var draft = bag && bag.content ? bag.content.draft : null;
       return draft && typeof draft.text === "string" ? draft.text : null;
@@ -178,7 +184,7 @@ async function readDraftText(app: App, card: string): Promise<string | null> {
 
 /** Wait until the card's composer holds an editable surface. */
 async function awaitComposer(app: App, card: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body(card).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(editorContent(card))}) !== null`,
     { timeoutMs: 15_000 },
   );
@@ -205,21 +211,21 @@ describe.skipIf(!SHOULD_RUN)(
         // B is unbound, so its picker renders in place of the card
         // content and these handlers are not mounted at all. The drag
         // has to read as refused rather than be accepted and swallowed.
-        const unbound = await dragFileOnto(app, `[data-card-id="B"]`);
+        const unbound = await dragFileOnto(app, "B", `[data-card-id="B"]`);
         expect(
           unbound.accepted,
           "axis decline: a drag over an unbound card (picker up) is not accepted",
         ).toBe(false);
 
         // ── Lands at the caret, not appended ─────────────────────────
-        await app.nativeClickAtElement(editorContent("A"));
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(editorContent("A"));
+        await app.body("A").waitForCondition<boolean>(
           `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(editorContent("A"))})`,
           { timeoutMs: 3_000 },
         );
         await app.nativeType("AB");
         await app.nativeKey("ArrowLeft");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var bag = window.__tug.getCardStateBag("A");
             var d = bag && bag.content ? bag.content.draft : null;
@@ -228,12 +234,12 @@ describe.skipIf(!SHOULD_RUN)(
           { timeoutMs: 5_000 },
         );
 
-        const onTranscript = await dragFileOnto(app, transcriptRegion("A"));
+        const onTranscript = await dragFileOnto(app, "A", transcriptRegion("A"));
         expect(
           onTranscript.accepted,
           "axis accept: a file drag over the transcript is accepted by the card",
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(atomImg("A"))}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -247,18 +253,18 @@ describe.skipIf(!SHOULD_RUN)(
         // ── An inactive card accepts, and raises itself ──────────────
         await app.bindSession("B");
         await awaitComposer(app, "B");
-        await app.nativeClickAtElement(editorContent("A"));
+        await app.body("A").nativeClickAtElement(editorContent("A"));
         await app.waitForCondition<boolean>(
           `window.__tug.getActiveCardId() === "A"`,
           { timeoutMs: 5_000 },
         );
 
-        const onBackground = await dragFileOnto(app, transcriptRegion("B"));
+        const onBackground = await dragFileOnto(app, "B", transcriptRegion("B"));
         expect(
           onBackground.accepted,
           "axis accept: a background card's transcript accepts the drag too",
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(atomImg("B"))}) !== null`,
           { timeoutMs: 15_000 },
         );

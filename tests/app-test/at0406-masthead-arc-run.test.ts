@@ -148,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("AT0406: the masthead's arc run", () => {
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`, 0);
         note(
           "at0406 bind row",
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]?.textContent ?? "").trim().slice(0, 400)`,
           ),
         );

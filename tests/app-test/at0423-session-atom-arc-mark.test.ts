@@ -257,11 +257,11 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
             },
           ],
         });
-        await app.focusElement(PROMPT);
-        const chipsBefore = await app.evalJS<number>(
+        await app.body("A").focusElement(PROMPT);
+        const chipsBefore = await app.body("A").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(PROMPT)} + ' img:not(.cm-widgetBuffer)').length`,
         );
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(PROMPT)});
           var dt = new DataTransfer();
           dt.setData("text/plain", "￼");
@@ -271,12 +271,12 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROMPT)}
              + ' img[data-atom-type="session"]') !== null`,
           { timeoutMs: 10_000 },
         );
-        const pasted = await app.evalJS<{
+        const pasted = await app.body("A").evalJS<{
           chips: number;
           alt: string;
           value: string | null;
@@ -308,13 +308,13 @@ describe.skipIf(!SHOULD_RUN)("AT0423: the atom's arc mark", () => {
         // Leave the composer as this case found it. The unbind below types its
         // own `/shell` line into this very editor, and a chip left resting in
         // front of the cursor would ride along in front of the command.
-        await app.nativeClickAtElement(PROMPT);
+        await app.body("A").nativeClickAtElement(PROMPT);
         await app.nativeKey("a", ["cmd"]);
         await new Promise((r) => setTimeout(r, 150));
         // Backspace, not `Delete` — the harness maps `Delete` to macOS forward
         // delete, which has nothing in front of it here.
         await app.nativeKey("Backspace");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PROMPT)}
              + ' img:not(.cm-widgetBuffer)').length === 0`,
           { timeoutMs: 10_000 },

@@ -37,6 +37,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -80,7 +81,7 @@ async function frames(): Promise<void> {
 }
 
 async function setScrollTop(app: App, top: number): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+  await kindBody(app, "overview").evalJS<boolean>(`(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   el.scrollTop = ${top};
   el.dispatchEvent(new Event("scroll"));
@@ -97,7 +98,7 @@ interface CellAt {
 }
 
 async function cellAt(app: App, n: number): Promise<CellAt | null> {
-  return app.evalJS<CellAt | null>(`(function () {
+  return kindBody(app, "overview").evalJS<CellAt | null>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var cell = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
@@ -115,7 +116,7 @@ async function findPost(app: App, n: number): Promise<CellAt> {
   for (let tries = 0; tries < 60; tries++) {
     const at = await cellAt(app, n);
     if (at !== null) return at;
-    const range = await app.evalJS<{ lo: number; hi: number; top: number; page: number }>(`(function () {
+    const range = await kindBody(app, "overview").evalJS<{ lo: number; hi: number; top: number; page: number }>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var ns = Array.from(document.querySelectorAll(${JSON.stringify(CELL)})).map(postNumber);
@@ -169,7 +170,7 @@ const HEADER_JS = `(function () {
 })()`;
 
 async function readHeader(app: App, label: string): Promise<HeaderReading> {
-  const r = await app.evalJS<HeaderReading>(HEADER_JS);
+  const r = await kindBody(app, "overview").evalJS<HeaderReading>(HEADER_JS);
   note(`header ${label}`, JSON.stringify(r));
   return r;
 }
@@ -253,18 +254,18 @@ describe.skipIf(!SHOULD_RUN)("at0729 — the Overview's one pinned header", () =
       const app = await launchTugApp({ testName: "at0729-overview-pinned-header" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
         for (let id = 0; id < POST_COUNT; id++) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(window.__tug.overviewPosts() || []).length === ${POST_COUNT} &&
             Array.from(document.querySelectorAll(${JSON.stringify(`${CELL} .overview-post-body`)}))
               .some(function (b) { return (b.textContent || "").indexOf("Post ${POST_COUNT - 1}:") === 0; })`,
@@ -273,7 +274,7 @@ describe.skipIf(!SHOULD_RUN)("at0729 — the Overview's one pinned header", () =
         await frames();
 
         // ── One stacking context per post, at the live edge.
-        const edgeCensus = await app.evalJS<CellCensus[]>(CENSUS_JS);
+        const edgeCensus = await kindBody(app, "overview").evalJS<CellCensus[]>(CENSUS_JS);
         note("census at the live edge", JSON.stringify(edgeCensus.slice(0, 3)));
         expect(edgeCensus.length).toBeGreaterThan(0);
         expectOneContextPerPost(edgeCensus);
@@ -298,7 +299,7 @@ describe.skipIf(!SHOULD_RUN)("at0729 — the Overview's one pinned header", () =
         expect(push.expectedTop, "the header is pushed up past the top").toBeLessThan(mid.expectedTop - 1);
 
         // ── Between two posts: the next post's head is below the top.
-        const gap = await app.evalJS<number>(
+        const gap = await kindBody(app, "overview").evalJS<number>(
           `parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(TRANSCRIPT)})).rowGap) || 0`,
         );
         await setScrollTop(app, Math.round(long.top + long.height + gap / 2));
@@ -313,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("at0729 — the Overview's one pinned header", () =
         const inBlock = await readHeader(app, "in a code block");
         expect(inBlock.topPost).toBe(CODE_POST);
         expectHeaderPlaced(inBlock, true);
-        const chrome = await app.evalJS<{ chromeTop: number; portTop: number; stackTop: number; position: string }>(`(function () {
+        const chrome = await kindBody(app, "overview").evalJS<{ chromeTop: number; portTop: number; stackTop: number; position: string }>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var cell = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
@@ -330,7 +331,7 @@ describe.skipIf(!SHOULD_RUN)("at0729 — the Overview's one pinned header", () =
         expect(chrome.position).toBe("sticky");
         expect(Math.abs(chrome.chromeTop - (chrome.portTop + chrome.stackTop))).toBeLessThanOrEqual(0.5);
 
-        const blockCensus = await app.evalJS<CellCensus[]>(CENSUS_JS);
+        const blockCensus = await kindBody(app, "overview").evalJS<CellCensus[]>(CENSUS_JS);
         const codeCell = blockCensus.find((c) => c.post === CODE_POST);
         note("census around the code block", JSON.stringify(codeCell));
         expect(codeCell?.hasBodyChrome).toBe(true);

@@ -136,7 +136,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: what it reveals", () => {
           state: deckShape(WIDE_PANE_WIDTH),
           focusCardId: "A",
         });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );
@@ -300,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: what it reveals", () => {
           state: deckShape(WIDE_PANE_WIDTH),
           focusCardId: "A",
         });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );

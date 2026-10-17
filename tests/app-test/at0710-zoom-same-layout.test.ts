@@ -87,14 +87,14 @@ async function standUp(testName: string): Promise<App> {
   await app.awaitEngineReady("A", { timeoutMs: 20_000 });
   await seedTurn(app);
   try {
-    await app.waitForCondition<boolean>(
+    await app.body("A").waitForCondition<boolean>(
       `document.querySelectorAll('[data-card-id="A"] [data-slot="session-card-status-bar"] [data-slot="tug-status-cell"]').length === 5`,
       { timeoutMs: 20_000 },
     );
   } catch (err) {
     note(
       "Z2 strip at timeout",
-      await app.evalJS<string>(
+      await app.body("A").evalJS<string>(
         `(document.querySelector('[data-card-id="A"] [data-slot="session-card-status-bar"]') || {outerHTML: "no strip"}).outerHTML.slice(0, 1500)`,
       ),
     );
@@ -126,7 +126,7 @@ interface ZoomReading {
 }
 
 function read(app: App): Promise<ZoomReading> {
-  return app.evalJS<ZoomReading>(`(function () {
+  return app.body("A").evalJS<ZoomReading>(`(function () {
   var root = document.getElementById("deck-container");
   var r = root.getBoundingClientRect();
   var bar = document.querySelector('[data-card-id="A"] [data-slot="session-card-status-bar"]');
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
     async () => {
       const app = await standUp("at0710-readout");
       try {
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   var bridge = window.__tugBridge;
   var log = [];
   var snap = function (kind) {
@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
   return true;
 })()`);
         await app.setPageZoom(0.9);
-        const log = await app.evalJS<
+        const log = await app.body("A").evalJS<
           Array<{
             kind: string;
             transform: string;

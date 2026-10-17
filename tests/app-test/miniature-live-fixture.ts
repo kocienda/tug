@@ -7,9 +7,13 @@
  * Split out of `at0463-miniature-live.test.ts` when that file was cut into
  * `at0463-miniature-live-strip`, `-drag` and `-flow` to keep each under the
  * 20 s budget.
+ *
+ * The plan and its drawing are the Layout card's DOM, in that card's own page
+ * (`LAYOUT_CARD_ID`'s body), not the shell's; the readers resolve it.
  */
 
-import { type App } from "./_harness";
+import { type App, type BodyApp } from "./_harness";
+import { cardPage, waitForBodyReady } from "./_harness/card-reach";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -22,6 +26,9 @@ export const HOLD_MS = 400;
 
 export const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
+
+/** The Layout card's id in {@link deckShape}. */
+export const LAYOUT_CARD_ID = "L";
 
 export const COMMITTED_MINI =
   '[data-testid="layout-card-plan"] [data-plan-layer="committed"] .layout-mini';
@@ -44,7 +51,7 @@ export function deckShape(): Record<string, unknown> {
         title: `Card ${id}`,
         closable: true,
       })),
-      { id: "L", componentId: "layout", title: "Layout", closable: true },
+      { id: LAYOUT_CARD_ID, componentId: "layout", title: "Layout", closable: true },
     ],
     panes: [
       ...ids.map((id, index) => ({
@@ -61,8 +68,8 @@ export function deckShape(): Record<string, unknown> {
         id: "pRail",
         position: { x: 0, y: 0 },
         size: { width: RAIL_WIDTH, height: 900 },
-        cardIds: ["L"],
-        activeCardId: "L",
+        cardIds: [LAYOUT_CARD_ID],
+        activeCardId: LAYOUT_CARD_ID,
         title: "Layout",
         acceptsFamilies: [],
       },
@@ -86,11 +93,12 @@ export async function openDeck(app: App, layout?: "flow"): Promise<void> {
     (state.imposition as Record<string, unknown>).layout = "flow";
   }
   await app.seedDeckState({ state, focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  const layoutCard: BodyApp = await waitForBodyReady(app, LAYOUT_CARD_ID);
+  await layoutCard.waitForCondition<boolean>(
     `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
     { timeoutMs: 8_000 },
   );
-  await app.evalJS(
+  await layoutCard.evalJS(
     `document.querySelector('[data-testid="layout-card-section"]')
        .scrollIntoView({ block: "center" })`,
   );
@@ -100,7 +108,7 @@ export async function openDeck(app: App, layout?: "flow"): Promise<void> {
 /** One gauge property as it stands on the committed drawing, or null when the
  *  channel has published nothing onto it. */
 export async function gauge(app: App, property: string): Promise<number | null> {
-  return app.evalJS<number | null>(
+  return (await cardPage(app, LAYOUT_CARD_ID)).evalJS<number | null>(
     `(function () {
       var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
       if (mini === null) return null;
@@ -113,7 +121,7 @@ export async function gauge(app: App, property: string): Promise<number | null> 
 /** The vertical translation the first overflowing column member is drawing
  *  with, in pixels — the live half of its position. */
 export async function memberSlidePx(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return (await cardPage(app, LAYOUT_CARD_ID)).evalJS<number>(
     `(function () {
       var block = document.querySelector(
         ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-column-overflow]"

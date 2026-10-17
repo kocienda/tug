@@ -23,7 +23,8 @@ import { expect } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { note, type App } from "./_harness";
+import { note, type App, type BodyApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -79,6 +80,11 @@ export const EDITOR_CONTENT_SELECTOR =
 
 export const EDITOR_SCROLLER_SELECTOR =
   '[data-card-id="A"] [data-slot="tug-text-card-editor"] .cm-scroller';
+
+/** Card A's own page: every editor and conflict-surface reach below runs there. */
+function editorPage(app: App): BodyApp {
+  return app.body("A");
+}
 
 export function deckShape() {
   return {
@@ -165,8 +171,12 @@ export function deckShapeStacked() {
 
 /**
  * Seed the deck-wide save-mode default BEFORE the card mounts —
- * `setTugbankValue` populates the same client cache `readSaveMode` reads.
- * Manual is the shipping default; the automatic scenarios opt in.
+ * `setTugbankValue` populates the shell page's client cache, which is what
+ * `readSaveMode` reads for a card the shell mounts. A Text card in its own
+ * page reads its own tugbank snapshot instead, so an automatic scenario on a
+ * body card also launches on a tugbank seeded with `AUTOMATIC_SAVE_MODE`
+ * (`mkSeededTugbank`). Manual is the shipping default; the automatic
+ * scenarios opt in.
  */
 export async function seedSaveMode(app: App, mode: "automatic" | "manual"): Promise<void> {
   await app.evalJS<null>(
@@ -222,7 +232,7 @@ export async function waitForEditorShowing(
   sentinel: string,
   timeoutMs = 8000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await (await waitForBodyReady(app, "A")).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       return el !== null && el.innerText.indexOf(${JSON.stringify(sentinel)}) !== -1;
@@ -233,7 +243,7 @@ export async function waitForEditorShowing(
 
 /** The rendered buffer text. */
 export function editorText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return editorPage(app).evalJS<string>(
     `document.querySelector('${EDITOR_CONTENT_SELECTOR}').innerText`,
   );
 }
@@ -244,7 +254,7 @@ export function editorText(app: App): Promise<string> {
  * beforeinput exactly like a keystroke.
  */
 export async function typeIntoEditor(app: App, text: string): Promise<void> {
-  const ok = await app.evalJS<boolean>(
+  const ok = await editorPage(app).evalJS<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       if (!el) return false;
@@ -262,7 +272,7 @@ export async function typeIntoEditor(app: App, text: string): Promise<void> {
  * eats the chord before the menu bar sees it (`at0174` records why).
  */
 export async function undoOnce(app: App): Promise<void> {
-  await app.evalJS<null>(
+  await editorPage(app).evalJS<null>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       if (el !== null) el.focus();
@@ -310,7 +320,7 @@ export async function waitForDisk(
 
 /** Nothing on either conflict surface — the banner or the sheet. */
 export async function assertNoConflictSurface(app: App): Promise<void> {
-  const open = await app.evalJS<string[]>(
+  const open = await editorPage(app).evalJS<string[]>(
     `(function(){
       var ids = ["text-card-conflict-reload","text-card-conflict-diff","file-save-sheet-reload","file-save-sheet-save-anyway"];
       var found = [];
@@ -429,7 +439,7 @@ export async function proveWatchLive(
   await waitForEditorShowing(app, "WARMUP marker", 60_000);
   note(`at0602 first watch delivery: ${Date.now() - started}ms`);
   fs.writeFileSync(file, restore, "utf8");
-  await app.waitForCondition<boolean>(
+  await editorPage(app).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       if (el === null) return false;

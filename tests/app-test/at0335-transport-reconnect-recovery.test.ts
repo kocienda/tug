@@ -108,7 +108,7 @@ function errorBannerCount(app: App): Promise<number> {
 
 /** Whether this card's pane body carries the banner's `inert` lock. */
 function bodyIsInert(app: App, cardId: CardId): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body(cardId).evalJS<boolean>(
     `(function(){
       var el = document.querySelector('[data-card-id="${cardId}"] [inert]');
       return el !== null;
@@ -118,7 +118,7 @@ function bodyIsInert(app: App, cardId: CardId): Promise<boolean> {
 
 /** The submit button's `data-mode`, or null when the card has no body. */
 function submitButtonMode(app: App, cardId: CardId): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body(cardId).evalJS<string | null>(
     `(function(){
       var el = document.querySelector(
         '[data-card-id="${cardId}"] .tug-prompt-entry-submit-button');
@@ -140,7 +140,7 @@ async function waitForSubmitMode(
   mode: string,
   timeoutMs = 8000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(
         '[data-card-id="${cardId}"] .tug-prompt-entry-submit-button');
@@ -159,7 +159,7 @@ async function mountAllCards(app: App): Promise<void> {
     await app.bindSession(id, { tugSessionId: sessionIdFor(id) });
   }
   for (const id of ALL_CARD_IDS) {
-    await app.waitForCondition<boolean>(
+    await app.body(id).waitForCondition<boolean>(
       `document.querySelector(
         '[data-card-id="${id}"] [data-slot="session-telemetry-status-row"]') !== null`,
       { timeoutMs: 8000 },

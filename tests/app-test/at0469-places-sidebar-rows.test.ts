@@ -85,7 +85,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-sidebar-layout"]') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -114,7 +114,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
           "the Layout card starts to the right of the content cards",
         ).toBeGreaterThan(cardBefore);
 
-        await app.click(
+        await app.body("L").click(
           `[data-testid="layout-card-sidebar-layout"] [data-choice-value="left"]`,
         );
         await wait(AFTER_LAND_MS);
@@ -137,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         );
 
         // And the row now reads the side it holds.
-        const activeNow = await app.evalJS<string | null>(
+        const activeNow = await app.body("L").evalJS<string | null>(
           `(function () {
             var el = document.querySelector('[data-testid="layout-card-sidebar-layout"] [data-choice-value][data-state="active"]');
             return el === null ? null : el.getAttribute("data-choice-value");
@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${PLACES}') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -183,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         for (let i = 0; i < 16; i += 1) {
           await app.nativeKey("Tab");
           await wait(150);
-          const at = await app.evalJS<string | null>(
+          const at = await app.body("L").evalJS<string | null>(
             `(function () {
               var all = document.querySelectorAll('[data-key-view-kbd][data-testid]');
               var el = all[all.length - 1];
@@ -205,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
           walk,
           "the drawing's overlay is not a stop of its own",
         ).not.toContain("layout-card-places");
-        const stops = await app.evalJS<number>(
+        const stops = await app.body("L").evalJS<number>(
           `document.querySelectorAll('${TOGGLES}[data-tug-focusable]').length`,
         );
         expect(stops, "the row registers exactly one focusable").toBe(1);
@@ -219,13 +219,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         // read as the accent the glyph carries, not as a declared value: the
         // resting stroke is the drawing's neutral ink and the reached-for one
         // is the control accent, so the two are simply different colours.
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('${TOGGLES} [data-key-cursor]') !== null`,
           { timeoutMs: 4_000 },
         );
         await app.nativeKey("ArrowRight");
         await wait(400);
-        const cursorFacts = await app.evalJS<{
+        const cursorFacts = await app.body("L").evalJS<{
           testid: string | null;
           cursorStroke: string;
           restStroke: string;
@@ -304,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-sidebar-jots"]') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -343,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         expect(await drawnRails(), "only the occupied right side is drawn").toBe(1);
 
         // ── Pressing a side on a hidden card's row shows it THERE. ──
-        await app.click(
+        await app.body("L").click(
           `[data-testid="layout-card-sidebar-jots"] [data-choice-value="left"]`,
         );
         await wait(AFTER_LAND_MS);
@@ -365,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         expect(await drawnRails(), "both edges now carry a rail").toBe(2);
 
         // ── Off hides it again, and everything retracts together. ──
-        await app.click(
+        await app.body("L").click(
           `[data-testid="layout-card-sidebar-jots"] [data-choice-value="off"]`,
         );
         await wait(AFTER_LAND_MS);

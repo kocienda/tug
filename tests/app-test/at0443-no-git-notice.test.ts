@@ -115,8 +115,8 @@ describe.skipIf(!SHOULD_RUN)("AT0443: the shades say when there is no git", () =
           { timeoutMs: 15_000 },
         );
         await app.bindSession("D", { projectDir: REPO });
-        await app.waitForCondition<boolean>(present(EDITOR), { timeoutMs: 15_000 });
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("D").waitForCondition<boolean>(present(EDITOR), { timeoutMs: 15_000 });
+        await app.body("D").nativeClickAtElement(EDITOR);
         await settle(300);
 
         // ---- Changes: the ordinary reading, then the no-git one ----

@@ -134,14 +134,14 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
       try {
         await standUpSession(app, "A", SID, sessionDeckShape(["A"]));
         await seedFixture(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 3`,
           { timeoutMs: 30_000 },
         );
         // Let the last frames commit and the list settle its heights.
         await new Promise((r) => setTimeout(r, 1500));
 
-        const rowCount = await app.evalJS<number>(`(function () {
+        const rowCount = await app.body("A").evalJS<number>(`(function () {
   var max = -1;
   document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').forEach(function (el) {
     var n = Number(el.getAttribute("data-tug-list-cell-index"));
@@ -156,19 +156,19 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
         // inside `paint()`, and `paint()` only runs under a live query.
         await openFindBar(app);
         await app.nativeType(QUERY);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "") !== ""`,
           { timeoutMs: 15_000 },
         );
         await new Promise((r) => setTimeout(r, 1200));
 
         // Everything from here is what the sweep is about.
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
 
         // Top to bottom in viewport-sized steps, waiting for the mounted set
         // to turn over between steps and then for one quiet window, so every
         // row is mounted (and therefore compared) at least once.
-        await app.evalJS<number>(`(function () {
+        await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SEL.card} ${SCROLLER}');
   el.scrollTop = 0;
   return el.scrollTop;
@@ -177,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
 
         const seen = new Set<number>();
         const absorb = async (): Promise<void> => {
-          const mounted = await app.evalJS<string>(MOUNTED_EXPR);
+          const mounted = await app.body("A").evalJS<string>(MOUNTED_EXPR);
           for (const part of mounted.split(",")) {
             if (part !== "") seen.add(Number(part));
           }
@@ -185,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
         await absorb();
 
         for (let step = 0; step < 60; step += 1) {
-          const moved = await app.evalJS<boolean>(`(function () {
+          const moved = await app.body("A").evalJS<boolean>(`(function () {
   var el = document.querySelector('${SEL.card} ${SCROLLER}');
   var before = el.scrollTop;
   el.scrollTop = Math.min(el.scrollTop + Math.round(el.clientHeight * 0.75),
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
         const rowsSeen = [...seen].sort((a, b) => a - b);
         note(`rows mounted during the sweep: ${rowsSeen.length} (${rowsSeen.join(",")})`);
 
-        const events = await traceSince(app, mark);
+        const events = await traceSince(app.body("A"), mark);
         const divergences = events.filter(
           (e) => e.kind === "divergence",
         ) as unknown as Divergence[];
@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("AT0602: the index and the DOM agree on every row",
         // divergences while having compared nothing at all. A green here has
         // to mean "compared and agreed", never "never looked".
         expect(rowsSeen.length, "the sweep must have mounted rows to compare").toBeGreaterThan(3);
-        const painted = await app.evalJS<number>(`(function () {
+        const painted = await app.body("A").evalJS<number>(`(function () {
   var n = 0;
   for (var name of ['transcript-find-match', 'transcript-find-active']) {
     var hl = CSS.highlights.get(name);

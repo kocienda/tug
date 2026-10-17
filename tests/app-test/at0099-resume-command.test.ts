@@ -83,13 +83,13 @@ describe.skipIf(!SHOULD_RUN)("AT0099: /resume focused sessions overlay", () => {
         await frame({ type: "content_block_start", msg_id: "m1", block_index: 0, kind: "text" });
         await frame({ type: "assistant_text", seq: 0, rev: 0, status: "complete", msg_id: "m1", block_index: 0, text: "hi", is_partial: false });
         await frame({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // Open /resume via the real submit path.
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/resume");
         await new Promise((r) => setTimeout(r, 200));
         await app.nativeKey("Escape");
@@ -117,7 +117,7 @@ describe.skipIf(!SHOULD_RUN)("AT0099: /resume focused sessions overlay", () => {
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 4000 },
         );
-        const after = await app.evalJS<{ cardPresent: boolean; userRows: number }>(
+        const after = await app.body("A").evalJS<{ cardPresent: boolean; userRows: number }>(
           `({
              cardPresent: document.querySelector(${JSON.stringify(CARD)}) !== null,
              userRows: document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length,

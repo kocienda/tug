@@ -47,6 +47,7 @@ import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -134,7 +135,7 @@ afterAll(() => {
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 async function runCommand(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType(line);
   await settle();
   await app.nativeKey("Escape");
@@ -166,7 +167,7 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   silenceJoinPrompt(arc.scratch.repo, arc.arc);
 
   await app.dispatchControlAction("toggle-arcs");
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "dashes").waitForCondition<boolean>(
     `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${arc.arc}"]') !== null`,
     { timeoutMs: 30000 },
   );
@@ -176,7 +177,7 @@ async function resolveArc(app: App, arc: Arc): Promise<string> {
   // `/arc-join` fronts the row so the audit's own surfaces render; it does
   // not start the run, and on a conflicted arc it never did.
   await runCommand(app, `/arc-join ${arc.arc}`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(row)}) !== null`,
     { timeoutMs: 40000 },
   );
@@ -201,11 +202,11 @@ describe.skipIf(!SHOULD_RUN)("AT0426: the resolver audits what the machines deci
         // Silence about a file the machines resolved is exactly the failure
         // the audit exists to catch, so it is a contract violation rather than
         // an empty report — and the refusal names the path.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-arc-join-stuck"]`)}) !== null`,
           { timeoutMs: 180000 },
         );
-        const stuck = await app.evalJS<string>(
+        const stuck = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(`${row} [data-slot="session-changes-arc-join-stuck"]`)})?.textContent || "")`,
         );
         expect(stuck, "the refusal names what went unaccounted for").toContain(FILE);

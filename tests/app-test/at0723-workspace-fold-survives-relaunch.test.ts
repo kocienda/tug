@@ -128,12 +128,12 @@ describe.skipIf(!SHOULD_RUN)("at0723 — a workspace fold survives a relaunch", 
         // ---- 1. First launch: expanded by default, then folded by the cue.
         const first = await launch("at0723-first");
         try {
-          await first.waitForCondition<boolean>(
+          await first.body("C1").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(RUN_UNDER)}).length > 0`,
             { timeoutMs: 20_000 },
           );
-          await first.nativeClickAtElement(FOLD);
-          await first.waitForCondition<boolean>(
+          await first.body("C1").nativeClickAtElement(FOLD);
+          await first.body("C1").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(RUN_UNDER)}).length === 0`,
             { timeoutMs: 8_000 },
           );
@@ -147,14 +147,14 @@ describe.skipIf(!SHOULD_RUN)("at0723 — a workspace fold survives a relaunch", 
         // ---- 2. Second launch: the header stands, and nothing is under it.
         const second = await launch("at0723-second");
         try {
-          await second.waitForCondition<boolean>(
+          await second.body("C1").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(HEADER)}) !== null`,
             { timeoutMs: 20_000 },
           );
           // A beat for any late hydrate to land, so a fold that only arrived
           // after a first expanded paint would still be caught as expanded.
           await wait(500);
-          const rows = await second.evalJS<number>(
+          const rows = await second.body("C1").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(RUN_UNDER)}).length`,
           );
           note("at0723 rows under the workspace after relaunch", String(rows));

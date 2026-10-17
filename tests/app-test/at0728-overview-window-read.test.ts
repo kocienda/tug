@@ -74,6 +74,7 @@ import {
   scrollToTop,
   wirePost,
 } from "./overview-window-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: reading it", () => {
   test(
@@ -82,19 +83,19 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
       const app = await launchTugApp({ testName: "at0728-overview-window" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
         // ── Opening page: hidden before the first post, so the column has no
         // window to hold when the page arrives — the cold opening's shape.
-        await app.evalJS<boolean>(`(function () {
+        await kindBody(app, "overview").evalJS<boolean>(`(function () {
   document.querySelector(${JSON.stringify(TRANSCRIPT)}).style.display = "none";
   return true;
 })()`);
         for (let id = 0; id < POST_COUNT; id++) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
@@ -103,11 +104,11 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
           `(window.__tug.overviewPosts() || []).length === ${POST_COUNT}`,
           { timeoutMs: 30_000 },
         );
-        await app.evalJS<boolean>(`(function () {
+        await kindBody(app, "overview").evalJS<boolean>(`(function () {
   document.querySelector(${JSON.stringify(TRANSCRIPT)}).style.display = "";
   return true;
 })()`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   return el.hasAttribute("data-window-peak") && !el.hasAttribute("data-window-stale") &&
@@ -117,7 +118,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
           { timeoutMs: 30_000 },
         );
         await new Promise((r) => setTimeout(r, 800));
-        const opening = await app.evalJS<{ peak: number; newestGap: number | null }>(`(function () {
+        const opening = await kindBody(app, "overview").evalJS<{ peak: number; newestGap: number | null }>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var cs = getComputedStyle(el);
@@ -139,12 +140,12 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
         expect(Math.abs(opening.newestGap!)).toBeLessThanOrEqual(1);
 
         // ── Live edge: windowed, and the document is the full one's height.
-        const edge = await column(app);
+        const edge = await column(kindBody(app, "overview"));
         note("at the live edge", JSON.stringify(edge));
         expect(edge.scrollHeight - edge.scrollTop - edge.clientHeight).toBeLessThanOrEqual(2);
         expect(edge.mounted).toBeLessThan(POST_COUNT);
 
-        const ref = await measureReference(app, edge);
+        const ref = await measureReference(kindBody(app, "overview"), edge);
         const unmeasured = ref.heights.filter((h) => h < 0).length;
         expect(unmeasured, "the sweep mounted and measured every post").toBe(0);
         const fullHeight =
@@ -153,8 +154,8 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
           ref.firstMargin +
           ref.lastMargin +
           ref.padEnd;
-        await scrollToTop(app, edge.scrollHeight);
-        const back = await column(app);
+        await scrollToTop(kindBody(app, "overview"),edge.scrollHeight);
+        const back = await column(kindBody(app, "overview"));
         note("reference", JSON.stringify({ fullHeight, gap: ref.gap, firstMargin: ref.firstMargin, lastMargin: ref.lastMargin, padEnd: ref.padEnd, scrollHeight: back.scrollHeight }));
         expect(Math.abs(back.scrollHeight - fullHeight)).toBeLessThanOrEqual(2);
         // The drained opening's window was the one the reference places there.
@@ -163,8 +164,8 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
         // ── Far scroll: the post a full mount would show, and no hole.
         for (const frac of [0.1, 0.5, 0.9]) {
           const top = Math.round((back.scrollHeight - back.clientHeight) * frac);
-          await scrollToTop(app, top);
-          const at = await column(app);
+          await scrollToTop(kindBody(app, "overview"),top);
+          const at = await column(kindBody(app, "overview"));
           note(`at ${frac}`, JSON.stringify({ ...at, expected: postAt(ref, at.scrollTop) }));
           expect(at.mounted).toBeLessThan(POST_COUNT);
           expect(at.covered).toBe(true);
@@ -174,8 +175,8 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
         // ── Selection pin: a selection in post 10 survives scrolling away.
         let post10Top = ref.firstMargin;
         for (let i = 0; i < 10; i++) post10Top += ref.heights[i]! + ref.gap;
-        await scrollToTop(app, Math.round(post10Top));
-        const selected = await app.evalJS<string>(`(function () {
+        await scrollToTop(kindBody(app, "overview"),Math.round(post10Top));
+        const selected = await kindBody(app, "overview").evalJS<string>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var cell = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
     .filter(function (c) { return postNumber(c) === 10; })[0];
@@ -189,8 +190,8 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
 })()`);
         expect(selected).toContain("Post 10:");
         await new Promise((r) => setTimeout(r, 300));
-        await scrollToTop(app, back.scrollHeight);
-        const kept = await app.evalJS<{ mounted: boolean; text: string }>(`(function () {
+        await scrollToTop(kindBody(app, "overview"),back.scrollHeight);
+        const kept = await kindBody(app, "overview").evalJS<{ mounted: boolean; text: string }>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   return {
     mounted: Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
@@ -204,14 +205,14 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
         await app.evalJS<boolean>(`(document.getSelection().removeAllRanges(), true)`);
 
         // ── Post stepping from the bottom, across posts never mounted there.
-        await app.nativeClickAtElement(`${FIELD} .cm-content`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").nativeClickAtElement(`${FIELD} .cm-content`);
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.activeElement !== null
             && document.activeElement.closest(${JSON.stringify(FIELD)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        await scrollToTop(app, back.scrollHeight);
-        const lowestMountedAtBottom = await app.evalJS<number>(`(function () {
+        await scrollToTop(kindBody(app, "overview"),back.scrollHeight);
+        const lowestMountedAtBottom = await kindBody(app, "overview").evalJS<number>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   return Math.min.apply(null, Array.from(document.querySelectorAll(${JSON.stringify(CELL)})).map(postNumber));
 })()`);
@@ -228,14 +229,14 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
         let prev: { flush: number; top: number } | null = null;
         const steps: number[] = [];
         for (let press = 0; press < 60; press++) {
-          const before = await app.evalJS<{ flush: number; top: number }>(flushJs);
+          const before = await kindBody(app, "overview").evalJS<{ flush: number; top: number }>(flushJs);
           await app.nativeKey("[", ["cmd", "ctrl"]);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `Math.round(document.querySelector(${JSON.stringify(TRANSCRIPT)}).scrollTop) < ${before.top}`,
             { timeoutMs: 5_000 },
           );
           await new Promise((r) => setTimeout(r, 150));
-          const now = await app.evalJS<{ flush: number; top: number }>(flushJs);
+          const now = await kindBody(app, "overview").evalJS<{ flush: number; top: number }>(flushJs);
           steps.push(now.flush);
           expect(now.flush, "each press lands a post's top flush").toBeGreaterThanOrEqual(0);
           if (prev !== null) {

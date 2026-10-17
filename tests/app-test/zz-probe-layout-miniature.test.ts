@@ -109,7 +109,7 @@ interface Drawing {
 }
 
 async function drawing(app: App, selector: string): Promise<Drawing> {
-  return app.evalJS<Drawing>(
+  return app.body("L").evalJS<Drawing>(
     `(function () {
       var layer = document.querySelector(${JSON.stringify(selector)});
       if (layer === null) return null;
@@ -130,6 +130,7 @@ async function drawing(app: App, selector: string): Promise<Drawing> {
 /** Every imposed pane's painted width, in slot order — the extents the strip
  *  is built from, read off the pixels the deck actually drew. */
 async function paintedWidths(app: App): Promise<number[]> {
+  // card-dom: shell
   return app.evalJS<number[]>(
     `(function () {
       var state = window.tugdeck.diag.getDeckState();
@@ -156,6 +157,7 @@ async function paintedWidths(app: App): Promise<number[]> {
  * arithmetic `resolveSpan` does — read here from pixels instead.
  */
 async function bandWidth(app: App): Promise<number> {
+  // card-dom: shell
   return app.evalJS<number>(
     `(function () {
       var box = document
@@ -179,11 +181,11 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
           { timeoutMs: 8_000 },
         );
-        await app.evalJS(
+        await app.body("L").evalJS(
           `document.querySelector('[data-testid="layout-card-section"]')
              .scrollIntoView({ block: "center" })`,
         );
@@ -294,7 +296,7 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
         await app.dispatchControlAction("toggle-layout");
         await wait(300);
         for (let i = 0; i < 24; i += 1) {
-          const on = await app.evalJS<boolean>(
+          const on = await app.body("L").evalJS<boolean>(
             `document.querySelector('[data-testid="layout-card-width"][data-key-view-kbd]') !== null`,
           );
           if (on) break;
@@ -302,14 +304,14 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
           await wait(200);
         }
         for (let i = 0; i < 8; i += 1) {
-          const on = await app.evalJS<boolean>(
+          const on = await app.body("L").evalJS<boolean>(
             `document.querySelector('[data-testid="layout-card-width"] [data-key-cursor][data-choice-value="wide"]') !== null`,
           );
           if (on) break;
           await app.nativeKey("ArrowRight");
           await wait(150);
         }
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-plan"]')
              .hasAttribute("data-previewing")`,
           { timeoutMs: 4_000 },
@@ -332,7 +334,7 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
           { timeoutMs: 8_000 },
         );
@@ -341,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)("zz probe — layout miniature", () => {
         // What is animated is asserted from the rule, never from a value read
         // while it is in flight — a mid-transition read is an interpolation,
         // and asserting one would pin the clock rather than the choreography.
-        const rule = await app.evalJS<{
+        const rule = await app.body("L").evalJS<{
           property: string;
           duration: string;
           previewDuration: string;

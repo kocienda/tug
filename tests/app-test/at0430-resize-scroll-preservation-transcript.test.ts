@@ -105,12 +105,12 @@ describe.skipIf(!SHOULD_RUN)(
           await waitForTranscriptSettled(app);
           await armEpisodeWatch(app, FRAME);
 
-          const displacementsBefore = await displacements(app, SCROLLER);
+          const displacementsBefore = await displacements(app.body("A"), SCROLLER);
 
           // Wheel-up disengages follow-bottom, then land at ~40% of the range:
           // a mid anchor with document above and below it, so a width change
           // can move the position in either direction.
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(SCROLLER)});
               el.dispatchEvent(new WheelEvent("wheel", { deltaY: -600, bubbles: true, cancelable: true }));
@@ -132,7 +132,7 @@ describe.skipIf(!SHOULD_RUN)(
             label: string,
             gesture: () => Promise<void>,
           ): Promise<void> => {
-            const before = await claimSubject(app, SCROLLER);
+            const before = await claimSubject(app.body("A"), SCROLLER);
             const widthBefore = await paneWidth(app, FRAME);
             const episodesBefore = await episodeCount(app);
 
@@ -145,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)(
             // satisfied by content that simply did not reflow.
             expect(await episodeCount(app)).toBeGreaterThan(episodesBefore);
 
-            const after = await readSubject(app, SCROLLER);
+            const after = await readSubject(app.body("A"), SCROLLER);
             expect(after).not.toBeNull();
             note(
               `${label}: width ${widthBefore}→${widthAfter}, subject in row ${before.index}` +
@@ -189,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)(
           // contributes is the pointer-down raise — the episode must open
           // while the pre-gesture layout is still on screen, not at the move
           // latch — and that is what fails if the call is removed.
-          const beforeDrag = await claimSubject(app, SCROLLER);
+          const beforeDrag = await claimSubject(app.body("A"), SCROLLER);
           const episodesBeforeDrag = await episodeCount(app);
           const handle = await app.evalJS<{ x: number; y: number }>(
             `(function () {
@@ -205,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)(
           await waitForEpisodesClosed(app, FRAME);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeDrag);
           // And a gesture that changed no geometry left the reader alone.
-          const afterDrag = await readSubject(app, SCROLLER);
+          const afterDrag = await readSubject(app.body("A"), SCROLLER);
           expect(afterDrag).not.toBeNull();
           note(`west-edge drag: subject delta ${beforeDrag.delta}→${afterDrag!.delta}`);
           expect(
@@ -214,7 +214,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── Follow-bottom is not an anchor. ──────────────────────────────
           // A transcript riding the tail must still be riding it afterwards.
-          await app.evalJS<null>(
+          await app.body("A").evalJS<null>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(SCROLLER)});
               el.scrollTop = el.scrollHeight;
@@ -223,18 +223,18 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
           );
           await wait(600);
-          expect(await isAtBottom(app, SCROLLER)).toBe(true);
+          expect(await isAtBottom(app.body("A"), SCROLLER)).toBe(true);
 
           const episodesBeforeTail = await episodeCount(app);
           await chooseWidth(app, "p1", "wide");
           await waitForEpisodesClosed(app, FRAME);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBeforeTail);
-          expect(await isAtBottom(app, SCROLLER)).toBe(true);
+          expect(await isAtBottom(app.body("A"), SCROLLER)).toBe(true);
 
           // ── The guard. ───────────────────────────────────────────────────
           // Every `scrollTop` the episode wrote was attributed; nothing in
           // this run looked to the list view like an unexplained move.
-          const displacementsAfter = await displacements(app, SCROLLER);
+          const displacementsAfter = await displacements(app.body("A"), SCROLLER);
           note(`displacements ${displacementsBefore} → ${displacementsAfter}`);
           expect(displacementsAfter).toBe(displacementsBefore);
         } finally {

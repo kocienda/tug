@@ -149,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
           startedAtMs: 1_700_000_000_000,
         });
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="commit-receipt-block"]').length === 1`,
           { timeoutMs: 20_000 },
         );
@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
         // Promote the row to first responder the way a reader does — a
         // click inside it. Both the menu's enablement and ⌘C's routing
         // start from there.
-        await app.nativeClickAtElement(`${CARD} .commit-receipt-summary`);
+        await app.body("A").nativeClickAtElement(`${CARD} .commit-receipt-summary`);
         await app.waitForCondition<boolean>(`window.__tug.getHasFocus() === true`, {
           timeoutMs: 3000,
         });

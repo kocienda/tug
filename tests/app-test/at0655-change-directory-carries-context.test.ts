@@ -166,7 +166,7 @@ const facts = (app: App): Promise<LineFacts> =>
  * which accepts an active completion itself.
  */
 async function submit(app: App, text: string, opts?: { idle?: boolean }): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType(text);
   await new Promise((r) => setTimeout(r, 200));
   if (opts?.idle !== false) {
@@ -199,7 +199,7 @@ const carriedThenDivider = (): string => `(() => {
 
 /** What the card's transcript holds, for a note when a wait goes wrong. */
 const transcriptShape = (app: App): Promise<string> =>
-  app.evalJS<string>(
+  app.body("A").evalJS<string>(
     `JSON.stringify({
        boundaries: Array.from(document.querySelectorAll(${JSON.stringify(`${TRANSCRIPT} [data-boundary]`)}))
          .map((b) => b.getAttribute("data-boundary") + ": " + (b.textContent ?? "").slice(0, 200)),
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
         );
         await app.spawnSessionResume("A", { tugSessionId: PARENT_SID, projectDir: dirA });
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(TRANSCRIPT)})?.textContent ?? "").includes(${JSON.stringify(WORD)})`,
           { timeoutMs: 30_000 },
         );
@@ -240,13 +240,13 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
         const moved = await facts(app);
         note("at0655 the card after the move", JSON.stringify(moved));
         await app
-          .waitForCondition<boolean>(
+          .body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(TRANSCRIPT)})?.textContent ?? "").includes(${JSON.stringify(WORD)})`,
             { timeoutMs: 30_000 },
           )
           .catch(() => false);
         note("at0655 the transcript after the move", await transcriptShape(app));
-        await app.waitForCondition<boolean>(carriedThenDivider(), { timeoutMs: 60_000 });
+        await app.body("A").waitForCondition<boolean>(carriedThenDivider(), { timeoutMs: 60_000 });
         note("at0655 moved, before any new prompt", (await app.screenshot()).path);
 
         // ── A reload replays the parent, still pending ───────────────────
@@ -265,7 +265,7 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
         await app.spawnSessionResume("A", { tugSessionId: moved.tugSessionId, projectDir: dirB });
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
         const restored = await app
-          .waitForCondition<boolean>(carriedThenDivider(), { timeoutMs: 60_000 })
+          .body("A").waitForCondition<boolean>(carriedThenDivider(), { timeoutMs: 60_000 })
           .then(() => true, () => false);
         note("at0655 the transcript after the reload", await transcriptShape(app));
         note(
@@ -280,12 +280,12 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
         );
 
         // ── The first turn in B: claude remembers, and runs in B ─────────
-        await app.waitForCondition<boolean>(chipIdle, { timeoutMs: 60_000 });
+        await app.body("A").waitForCondition<boolean>(chipIdle, { timeoutMs: 60_000 });
         await submit(
           app,
           "What code word did I ask you to remember? Also state your current working directory as an absolute path.",
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
              const entries = document.querySelectorAll(${JSON.stringify(`${TRANSCRIPT} .tug-transcript-entry`)});
              const last = entries[entries.length - 1];
@@ -294,7 +294,7 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
            })()`,
           { timeoutMs: 180_000 },
         );
-        await app.waitForCondition<boolean>(chipIdle, { timeoutMs: 180_000 });
+        await app.body("A").waitForCondition<boolean>(chipIdle, { timeoutMs: 180_000 });
 
         // ── On disk: the fork is B's, the parent untouched ───────────────
         const forkJsonl = join(claudeProjectDir(dirB), `${moved.tugSessionId}.jsonl`);
@@ -327,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
 
         // ── Mid-turn, a move is refused ──────────────────────────────────
         await submit(app, "Count slowly from 1 to 60, one number per line.");
-        await app.waitForCondition<boolean>(`!${chipIdle}`, { timeoutMs: 30_000 });
+        await app.body("A").waitForCondition<boolean>(`!${chipIdle}`, { timeoutMs: 30_000 });
         await submit(app, `/cd ${dirA}`, { idle: false });
         await app.waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(BULLETIN)}))
@@ -335,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("AT0655: /cd carries the conversation", () => {
           { timeoutMs: 15_000 },
         );
         expect((await facts(app)).projectDir, "the refused move left the card in B").toBe(dirB);
-        await app.waitForCondition<boolean>(chipIdle, { timeoutMs: 180_000 });
+        await app.body("A").waitForCondition<boolean>(chipIdle, { timeoutMs: 180_000 });
         expect((await facts(app)).projectDir, "still in B after the turn").toBe(dirB);
       } finally {
         await app.close();

@@ -159,7 +159,7 @@ async function waitForEditorShowing(
   sentinel: string,
   timeoutMs = 8000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT}');
       return el !== null && el.innerText.indexOf(${JSON.stringify(sentinel)}) !== -1;
@@ -169,7 +169,7 @@ async function waitForEditorShowing(
 }
 
 function editorText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `document.querySelector('${EDITOR_CONTENT}').innerText`,
   );
 }
@@ -180,7 +180,7 @@ function editorText(app: App): Promise<string> {
  * not synthesize keys here).
  */
 async function typeIntoEditor(app: App, text: string): Promise<void> {
-  const ok = await app.evalJS<boolean>(
+  const ok = await app.body("A").evalJS<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT}');
       if (!el) return false;
@@ -205,7 +205,7 @@ async function proveWatchLive(app: App, file: string): Promise<void> {
   await waitForEditorShowing(app, "WARMUP marker", 60_000);
   note(`at0607 first watch delivery: ${Date.now() - started}ms`);
   fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT}');
       if (el === null) return false;

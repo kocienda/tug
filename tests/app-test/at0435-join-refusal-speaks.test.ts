@@ -124,17 +124,17 @@ afterAll(() => {
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 async function raiseShade(app: App): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType("/commit");
   await settle();
   await app.nativeKey("Escape");
   await settle();
   await app.nativeKey("Return", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
     { timeoutMs: 8000 },
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(LANE)}) !== null`,
     { timeoutMs: 40000 },
   );
@@ -212,10 +212,10 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // work ready to join enters join mode BY ITSELF once the composer is
         // free. Nothing types `/arc-join`, which would only open by name a
         // mode the binding opens on its own.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           { timeoutMs: 60000 },
         );
@@ -225,7 +225,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // anchoring — a press before it measures the outcome refusal rather
         // than the empty-message one under test. The resolver's account is not
         // the signal: a clean join resolves nothing and files no account.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
           { timeoutMs: 180000 },
         );
@@ -235,13 +235,13 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // menu chord and menu chords die in a background window (at0043 takes
         // the screen for exactly that reason), so the fixture supplies
         // the empty document instead of a keystroke pretending to.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         // Emptiness is `.cm-placeholder`, never `textContent`: CM6 renders the
         // placeholder inside `.cm-content` when the document length is 0, so
         // an empty join editor reads as "Write the join message, or use
         // Auto-Message." to anyone asking the DOM for its text (at0043).
-        const opening = await app.evalJS<{ text: string; empty: boolean }>(
+        const opening = await app.body("A").evalJS<{ text: string; empty: boolean }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(EDITOR)});
              return {
@@ -252,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         );
         note(`at0435 join editor opened with: ${JSON.stringify(opening)}`);
         expect(opening.empty, "the refusal under test is the empty message").toBe(true);
-        const buttonDisabled = await app.evalJS<boolean>(
+        const buttonDisabled = await app.body("A").evalJS<boolean>(
           `(() => {
              const b = document.querySelector(${JSON.stringify(JOIN_BUTTON)});
              return b !== null && (b.hasAttribute("disabled") || b.getAttribute("aria-disabled") === "true");
@@ -268,10 +268,10 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // before asserting on the words. A bare wait for the exact sentence
         // times out identically whether the refusal was silent or merely
         // reworded, and those are different bugs.
-        await app.waitForCondition<boolean>(`${STRIP_TEXTS}.length > 0`, {
+        await app.body("A").waitForCondition<boolean>(`${STRIP_TEXTS}.length > 0`, {
           timeoutMs: 10000,
         });
-        const texts = await app.evalJS<string[]>(STRIP_TEXTS);
+        const texts = await app.body("A").evalJS<string[]>(STRIP_TEXTS);
         note(`at0435 band notices after the refused press: ${JSON.stringify(texts)}`);
         expect(
           texts.some((t) => t.includes("Write a join message")),
@@ -295,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // The refusal is not a dismissal: the mode is still up, so the user is
         // one keystroke from the landing they asked for.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           ),
           "join mode survives a refused press",
@@ -310,14 +310,14 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // silent on exactly the press where the user is asking louder. The
         // fade is observed rather than forced; removing the node by hand would
         // leave the band believing the notice was still up.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${STRIP_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
           { timeoutMs: 30000 },
         );
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${STRIP_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
           { timeoutMs: 10000 },
         );
@@ -335,12 +335,12 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // reported after clicking it and watching the app do nothing. The
         // button now dims without going numb, so the click refuses out loud
         // like the keystroke does.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${STRIP_TEXTS}.every(function(t){ return t.indexOf("Write a join message") === -1; })`,
           { timeoutMs: 30000 },
         );
-        await app.nativeClickAtElement(JOIN_BUTTON);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(JOIN_BUTTON);
+        await app.body("A").waitForCondition<boolean>(
           `${STRIP_TEXTS}.some(function(t){ return t.indexOf("Write a join message") !== -1; })`,
           { timeoutMs: 10000 },
         );

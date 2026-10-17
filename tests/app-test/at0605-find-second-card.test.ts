@@ -74,20 +74,20 @@ describe.skipIf(!SHOULD_RUN)("AT0605c: a second card does not erase the first ca
         );
         await standUpSession(app, "B", sidB);
         await seedProseTurns(app, "A", sidA, TURNS, replyText);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 3`,
           { timeoutMs: 40_000 },
         );
 
         await openFindBar(app);
-        const mark = await markTrace(app);
+        const mark = await markTrace(app.body("A"));
         await app.nativeType(PROBE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "") !== ""`,
           { timeoutMs: 20_000 },
         );
-        await awaitGestureReveal(app, mark, PROBE);
-        const before = await app.evalJS<number>(`(function () {
+        await awaitGestureReveal(app.body("A"),mark, PROBE);
+        const before = await app.body("A").evalJS<number>(`(function () {
   var hl = CSS.highlights.get('transcript-find-match');
   var n = 0; if (hl) { for (var _ of hl) n += 1; }
   return n;
@@ -117,7 +117,7 @@ describe.skipIf(!SHOULD_RUN)("AT0605c: a second card does not erase the first ca
             text: `streaming token ${i} `.repeat(i + 1),
             is_partial: true,
           });
-          const state = await app.evalJS<{ inA: number; total: number }>(`(function () {
+          const state = await app.body("A").evalJS<{ inA: number; total: number }>(`(function () {
   var out = { inA: 0, total: 0 };
   for (var name of ['transcript-find-match', 'transcript-find-active']) {
     var hl = CSS.highlights.get(name);

@@ -50,7 +50,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -81,11 +82,11 @@ const cardAiValue = (cardId: string): string =>
  * thing under test and silent about the effort/mode that follow it.
  */
 async function waitForModel(
-  app: App,
+  page: App | BodyApp,
   selector: string,
   label: string,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(selector)});
       return el !== null && el.textContent.trim().indexOf(${JSON.stringify(label)}) === 0;
@@ -172,8 +173,8 @@ function deckShape(cardIds: string[]) {
 }
 
 /** Trimmed text content at `selector`, or null when absent. */
-async function textAt(app: App, selector: string): Promise<string | null> {
-  return await app.evalJS<string | null>(
+async function textAt(page: App | BodyApp, selector: string): Promise<string | null> {
+  return await page.evalJS<string | null>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(selector)});
       return el ? el.textContent.trim() : null;
@@ -183,7 +184,7 @@ async function textAt(app: App, selector: string): Promise<string | null> {
 
 /** Wait for the model channel to mark `value`'s row as the current one. */
 async function waitForSelectedModel(app: App, value: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "settings").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(
       `${SETTINGS_AI} ${MODEL_LIST} [data-model="${value}"][data-selected="true"]`,
     )}) !== null`,
@@ -197,18 +198,18 @@ async function waitForSelectedModel(app: App, value: string): Promise<void> {
  * tab and waits for the panel.
  */
 async function openSessionCardSection(app: App): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "settings").waitForCondition<boolean>(
     `document.querySelector('[data-testid="settings-card"]') !== null`,
     { timeoutMs: 8000 },
   );
-  await app.click('[data-testid="tug-tab-view-tab-sessionCard"]');
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "settings").click('[data-testid="tug-tab-view-tab-sessionCard"]');
+  await kindBody(app, "settings").waitForCondition<boolean>(
     `document.querySelector(
       '[data-testid="settings-section-sessionCard"][data-state="open"]',
     ) !== null`,
     { timeoutMs: 8000 },
   );
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "settings").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SETTINGS)}) !== null`,
     { timeoutMs: 8000 },
   );
@@ -244,26 +245,26 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- The AI Model box IS the mixer's channels — all three on the
           //      page, no chip to press and no sheet to raise — and the old
           //      Permission Mode dropdown is gone.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "settings").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SETTINGS_AI)}) !== null`,
             { timeoutMs: 8000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "settings").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(`${SETTINGS} [data-slot="ai-chip"]`)}) === null`,
             ),
             "no chip stands between the reader and the settings",
           ).toBe(true);
           for (const channel of ["ai-config-model", "ai-config-effort", "ai-config-mode"]) {
             expect(
-              await app.evalJS<boolean>(
+              await kindBody(app, "settings").evalJS<boolean>(
                 `document.querySelector(${JSON.stringify(`${SETTINGS_AI} [data-testid="${channel}"]`)}) !== null`,
               ),
               `${channel} is on the page`,
             ).toBe(true);
           }
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "settings").evalJS<boolean>(
               `document.querySelector('.settings-session-card-popup-mode') === null`,
             ),
             "no TugPopupButton remains for the permission-mode default",
@@ -275,13 +276,13 @@ describe.skipIf(!SHOULD_RUN)(
           //      the full list arrives after the first request.
           await waitForSelectedModel(app, "default");
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "settings").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(`${SETTINGS_AI} ${MODEL_LIST} [data-model]`)}).length`,
             ),
             "no catalog → exactly one Default row, nothing invented",
           ).toBe(1);
           expect(
-            await app.evalJS<string>(
+            await kindBody(app, "settings").evalJS<string>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(`${SETTINGS_AI} ${MODEL_SEGMENT("default")}`)});
                 return el ? el.textContent : "";
@@ -296,8 +297,8 @@ describe.skipIf(!SHOULD_RUN)(
           //      description wording via the one resolveModelLabel path, and
           //      the Settings list fills with the same rows.
           await app.ingestSessionMetadata("A", capabilities());
-          await waitForModel(app, cardAiValue("A"), "Opus 4.8 · 1M");
-          await app.waitForCondition<boolean>(
+          await waitForModel(app.body("A"), cardAiValue("A"), "Opus 4.8 · 1M");
+          await kindBody(app, "settings").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${SETTINGS_AI} ${MODEL_SEGMENT("sonnet")}`)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -306,10 +307,10 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- Pick Sonnet as the deck default. The click IS the write —
           //      there is no OK here, because a deck default costs nothing to
           //      change — and the row takes the mark at once.
-          await app.click(`${SETTINGS_AI} ${MODEL_SEGMENT("sonnet")}`);
+          await kindBody(app, "settings").click(`${SETTINGS_AI} ${MODEL_SEGMENT("sonnet")}`);
           await waitForSelectedModel(app, "sonnet");
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "settings").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(SETTINGS_MODEL_SELECTED)}).length`,
             ),
             "exactly one row carries the mark",
@@ -318,11 +319,11 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- Card A's session is knowable (capabilities landed above), so
           //      the seed aligns it to the new deck default, and the Z4B label
           //      matches Settings byte-for-byte.
-          await waitForModel(app, cardAiValue("A"), "Sonnet 4.6");
+          await waitForModel(app.body("A"), cardAiValue("A"), "Sonnet 4.6");
 
           // Card B seeds from the same default.
           await app.ingestSessionMetadata("B", capabilities());
-          await waitForModel(app, cardAiValue("B"), "Sonnet 4.6");
+          await waitForModel(app.body("B"), cardAiValue("B"), "Sonnet 4.6");
 
           // The seed must STICK: a turn-free, model-less system_metadata
           // (the synthetic session_init emitted right after spawn) says
@@ -334,23 +335,23 @@ describe.skipIf(!SHOULD_RUN)(
             ipc_version: 2,
           });
           expect(
-            (await textAt(app, cardAiValue("B")))?.startsWith("Sonnet 4.6"),
+            (await textAt(app.body("B"), cardAiValue("B")))?.startsWith("Sonnet 4.6"),
             "a model-less metadata frame must not clobber the seeded pick",
           ).toBe(true);
 
           // ---- Isolation: change card A's model via its own Z4B mixer.
           //      The deck default and card B must not move.
-          await app.click(`[data-card-id="A"] [data-slot="ai-chip"]`);
+          await app.body("A").click(`[data-card-id="A"] [data-slot="ai-chip"]`);
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${CARD_A_SHEET} ${MODEL_SEGMENT("haiku")}`)}) !== null`,
             { timeoutMs: 4000 },
           );
           await app.click(`${CARD_A_SHEET} ${MODEL_SEGMENT("haiku")}`);
           await app.click(`${CARD_A_SHEET} [data-slot="ai-config-ok"]`);
-          await waitForModel(app, cardAiValue("A"), "Haiku");
+          await waitForModel(app.body("A"), cardAiValue("A"), "Haiku");
 
           expect(
-            await app.evalJS<string | null>(
+            await kindBody(app, "settings").evalJS<string | null>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(SETTINGS_MODEL_SELECTED)});
                 return el ? el.getAttribute("data-model") : null;
@@ -359,7 +360,7 @@ describe.skipIf(!SHOULD_RUN)(
             "deck default unchanged by a per-card pick",
           ).toBe("sonnet");
           expect(
-            (await textAt(app, cardAiValue("B")))?.startsWith("Sonnet 4.6"),
+            (await textAt(app.body("B"), cardAiValue("B")))?.startsWith("Sonnet 4.6"),
             "other open cards unchanged by a per-card pick",
           ).toBe(true);
         } catch (err) {
@@ -428,7 +429,7 @@ describe.skipIf(!SHOULD_RUN)(
           //      model_change to a concrete pick), so the chip shows the
           //      account default's name-with-version title.
           await app.ingestSessionMetadata("A", capabilities());
-          await waitForModel(app, cardAiValue("A"), "Opus 4.8 · 1M");
+          await waitForModel(app.body("A"), cardAiValue("A"), "Opus 4.8 · 1M");
         } catch (err) {
           const tail = app.tailLog(200);
           if (tail !== "") {
@@ -476,7 +477,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- The saved pick survives: the chip names Fable, not the
           //      account default it would have been reset to.
-          await waitForModel(app, cardAiValue("A"), "Fable 5");
+          await waitForModel(app.body("A"), cardAiValue("A"), "Fable 5");
 
           // ---- And nothing was raised — a respelling is not a breakage.
           const alertPresent = await app.evalJS<boolean>(

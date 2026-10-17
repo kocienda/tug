@@ -95,7 +95,7 @@ async function standUp(): Promise<App> {
     });
     await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
   }
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('[data-card-id="A"] [data-slot="session-card-status-bar"] [data-slot="tug-status-cell"]') !== null`,
     { timeoutMs: 20_000 },
   );
@@ -110,7 +110,7 @@ interface Edges {
 }
 
 function edges(app: App): Promise<Edges> {
-  return app.evalJS<Edges>(`(function () {
+  return app.body("A").evalJS<Edges>(`(function () {
     var card = document.querySelector('[data-card-id="A"] .session-card');
     var z2 = card.querySelector('[data-slot="session-card-status-bar"]').getBoundingClientRect();
     var entry = card.querySelector('.session-card-entry-region').getBoundingClientRect();

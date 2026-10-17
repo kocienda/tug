@@ -124,7 +124,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );
@@ -217,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(LAYOUT_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
         // The row offers exactly the two modes, and rests on the one the deck
         // holds — a settled control shows what the store holds.
         expect(
-          await app.evalJS<string[]>(
+          await app.body("L").evalJS<string[]>(
             `Array.from(document.querySelectorAll(${JSON.stringify(LAYOUT_TILES)}))
               .map(function (el) { return el.getAttribute("data-choice-value"); })`,
           ),
@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
         expect(await activeLayoutTile(app), "the control rests on fit").toBe("fit");
 
         // ── Clicking it moves the deck ──────────────────────────────────────
-        await app.click(`${LAYOUT_TILES}[data-choice-value="flow"]`);
+        await app.body("L").click(`${LAYOUT_TILES}[data-choice-value="flow"]`);
         await wait(AFTER_LAND_MS);
         expect(
           await app.evalJS<string | undefined>(
@@ -251,7 +251,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
         // The committed drawing carries the mode, and an overflowing strip
         // shows the viewport window — the picture states that this
         // arrangement scrolls.
-        const drawing = await app.evalJS<{ layout: string | null; windows: number }>(
+        const drawing = await app.body("L").evalJS<{ layout: string | null; windows: number }>(
           `(function () {
             var mini = document.querySelector(
               '[data-testid="layout-card-plan"] [data-plan-layer="committed"] .layout-mini',
@@ -276,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
         // The fit layer is pre-rendered and draws no window — the preview the
         // other segment would show, and the proof the window is mode-borne.
         expect(
-          await app.evalJS<number>(
+          await app.body("L").evalJS<number>(
             `document.querySelectorAll(
               '[data-plan-preview-id="layout:fit"] .layout-mini-window',
             ).length`,
@@ -308,7 +308,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
         // Tab-into parks the cursor on the SELECTED segment, and this deck is
         // six-up — the last one in the run. So a single Down is already off
         // the end, and off the end Down means down.
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `(function () {
             var el = document.querySelector('${KIND_GROUP} [data-key-cursor]');
             return el !== null && el.getAttribute("data-choice-value") === "six-up";
@@ -316,14 +316,14 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
           { timeoutMs: 3_000 },
         );
         await app.nativeKey("ArrowDown");
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-zoom"][data-key-view-kbd]') !== null`,
           { timeoutMs: 3_000 },
         );
         // The Zoom row sits between them, its cursor parked on 100 % — the
         // last of its run — so one more Down is off its end.
         await app.nativeKey("ArrowDown");
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector('[data-testid="layout-card-layout"][data-key-view-kbd]') !== null`,
           { timeoutMs: 3_000 },
         );
@@ -332,7 +332,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
         // And the cursor lands on the standing answer, not on the run's head —
         // a settled control shows what the store holds, by keyboard too.
         expect(
-          await app.evalJS<string | null>(
+          await app.body("L").evalJS<string | null>(
             `(function () {
               var el = document.querySelector(
                 '[data-testid="layout-card-layout"] [data-key-cursor]',

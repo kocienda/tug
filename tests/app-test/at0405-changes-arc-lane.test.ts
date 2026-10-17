@@ -94,7 +94,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -115,6 +115,7 @@ import {
   pressArcRowMenuItem,
   readArcRowMenu,
 } from "./arc-row-menu-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -246,7 +247,7 @@ const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
  * window between reading the coordinates and pressing them.
  */
 async function clickUntil(
-  app: Awaited<ReturnType<typeof launchTugApp>>,
+  page: BodyApp,
   target: string,
   expected: string,
   want: "present" | "absent" = "present",
@@ -257,7 +258,7 @@ async function clickUntil(
       ? `document.querySelector(${JSON.stringify(expected)}) !== null`
       : `document.querySelector(${JSON.stringify(expected)}) === null`;
   for (let i = 0; i < attempts; i += 1) {
-    await app.evalJS<null>(
+    await page.evalJS<null>(
       `(() => {
          const el = document.querySelector(${JSON.stringify(target)});
          if (el !== null) el.scrollIntoView({ block: "center" });
@@ -265,9 +266,9 @@ async function clickUntil(
        })()`,
     );
     await settle();
-    await app.nativeClickAtElement(target);
+    await page.nativeClickAtElement(target);
     try {
-      await app.waitForCondition<boolean>(predicate, { timeoutMs: 2500 });
+      await page.waitForCondition<boolean>(predicate, { timeoutMs: 2500 });
       return;
     } catch {
       note(`at0405 click on ${target} did not land (attempt ${i + 1})`);
@@ -301,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // The resumed transcript's one committed turn, on screen — typing into
         // the composer before the card reaches its resting state races the
         // resume's own repaint.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
@@ -331,18 +332,18 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // Asserting the lane's absence before this would pass on a snapshot
         // that simply has not recomposed yet.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${ARCS_ROW} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
 
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -354,21 +355,25 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // never touched, a bind would co-bind onto a session mid-run — and its
         // room is the card working it, one click away on the Arcs card. A row
         // here was a weaker face for that room.
-        const held = await app.evalJS<{
+        // The shade is card A's and the Arcs row is the Arcs card's: two
+        // bodies, read one each.
+        const shade = await app.body("A").evalJS<{
           lanes: number;
           rows: number;
           restLabels: number;
-          arcsRows: number;
           clean: number;
         }>(
           `(() => ({
              lanes: document.querySelectorAll(${JSON.stringify(LANE)}).length,
              rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
              restLabels: document.querySelectorAll(${JSON.stringify(REST_LABEL)}).length,
-             arcsRows: document.querySelectorAll(${JSON.stringify(ARCS_ROW)}).length,
              clean: document.querySelectorAll(${JSON.stringify(CLEAN)}).length,
            }))()`,
         );
+        const arcsRows = await kindBody(app, "dashes").evalJS<number>(
+          `document.querySelectorAll(${JSON.stringify(ARCS_ROW)}).length`,
+        );
+        const held = { ...shade, arcsRows };
         // This scratch project's only arc is the held one, so the lane has
         // nothing left to draw — and a lane with nothing in it renders
         // nothing at all, not an empty element spending the shade body's gap
@@ -412,19 +417,19 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // committed turn, which is the card's resting state.
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── Raise the changes shade ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -433,14 +438,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // Nothing is fronted yet — the card is bound to no arc — but the row
         // is on screen with no gesture at all. An arc nobody is working is a
         // situation to look at, not a count to expand.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
         // The count is of THIS fixture's row, not of the lane. An arc's refs
         // are repo-global, so any arc the developer has open is a row here
         // too — a total is a fact about whoever is running the suite.
-        const unfrontedState = await app.evalJS<{ fronted: number; rows: number; restLabel: string }>(
+        const unfrontedState = await app.body("A").evalJS<{ fronted: number; rows: number; restLabel: string }>(
           `(() => ({
              fronted: document.querySelectorAll(${JSON.stringify(FRONTED_LABEL)}).length,
              rows: document.querySelectorAll(${JSON.stringify(ROW)}).length,
@@ -457,7 +462,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
 
         // The fold is gone, not merely unused — nothing anywhere renders it.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll('[data-slot="session-changes-arc-lane-fold"]').length`,
           ),
           "the other-arcs fold no longer exists",
@@ -466,13 +471,13 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // Every verb stands on the row's one verb row, and the `⋯` that once
         // hid the rare ones is gone.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(ROW_VERBS)}).length`,
           ),
           "the row carries one verb row",
         ).toBe(1);
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-row-menu-open"]`)}).length`,
           ),
           "and no `⋯` opener",
@@ -480,7 +485,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // Discard reaches an unbound arc. No live session is mated to this one,
         // so it is nobody's to protect and this shade may clean it up — the
         // whole point of widening the gesture past the fronted row.
-        const unbound = await readArcRowMenu(app, ROW);
+        const unbound = await readArcRowMenu(app.body("A"), ROW);
         expect(unbound.discard.present, "an unbound arc offers Discard").toBe(true);
         expect(unbound.discard.disabled, "and nothing is blocking it").toBe(false);
         // The reason rides the label when there is one, so an available verb
@@ -490,7 +495,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         );
 
         // ── The row reads in arc grammar ─────────────────────────────────
-        const row = await app.evalJS<{
+        const row = await app.body("A").evalJS<{
           badge: string;
           phase: string | null;
           note: string;
@@ -535,7 +540,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         expect(row.claimish).toBe(0);
 
         // ── Expanded face: the rounds, the files, and the join draft ───────
-        await clickUntil(app, ROW_FOLD, `${ROW}[data-expanded="true"]`);
+        await clickUntil(app.body("A"), ROW_FOLD, `${ROW}[data-expanded="true"]`);
 
         // The draft is a ledger row, and the harness points this instance's
         // changes ledger at its own private copy so a run never writes into
@@ -564,7 +569,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           // for a grammar that could not appear. The words are the subject's:
           // the brief fronts the message's first line as its heading and
           // folds the rest, so the heading is where a draft's words surface.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(() => {
                const row = document.querySelector(${JSON.stringify(ROW)});
                const subject = row?.querySelector('[data-slot="session-changes-arc-brief-subject"]');
@@ -573,7 +578,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
             { timeoutMs: 25000 },
           );
         } catch (err) {
-          const shape = await app.evalJS<Record<string, unknown>>(
+          const shape = await app.body("A").evalJS<Record<string, unknown>>(
             `(() => {
                const row = document.querySelector(${JSON.stringify(ROW)});
                if (row === null) return { row: "absent" };
@@ -591,7 +596,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           rmSync(nudge, { force: true });
         }
 
-        const detail = await app.evalJS<{
+        const detail = await app.body("A").evalJS<{
           landsAs: string | null;
           plainDraft: string | null;
           provenance: number;
@@ -638,7 +643,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // `ArcRangeFileRow`, so the fold's rows and a commit receipt's rows
         // cannot drift apart. A root-level file is a cluster of one and
         // renders directly.
-        const shape = await app.evalJS<{
+        const shape = await app.body("A").evalJS<{
           blocks: number;
           roundFile: boolean;
           area: string | null;
@@ -663,27 +668,27 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // And the head's own fold cue turns it — the directory row is a fold,
         // not a label with a chevron drawn beside it.
         const AREA = `${FILES} [data-slot="session-changes-arc-cluster"][data-dir$="${ROUND_AREA}"]`;
-        await app.nativeClickAtElement(`${AREA} .arc-fold-row`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(`${AREA} .arc-fold-row`);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${AREA}')?.getAttribute("data-expanded") === "true"`,
           { timeoutMs: 8000 },
         );
-        await app.nativeClickAtElement(`${AREA} .arc-fold-row`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(`${AREA} .arc-fold-row`);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${AREA}')?.getAttribute("data-expanded") === "false"`,
           { timeoutMs: 8000 },
         );
 
         // Expanding one mounts THAT file's diff and no other — the pathspec
         // this fold's pop-outs rest on, proven at the row that uses it.
-        await app.nativeClickAtElement(
+        await app.body("A").nativeClickAtElement(
           `${FILES} .tug-changes-list-file-block[data-path="${ROUND_FILE}"] .tug-changes-list-row-hit`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${FILES} .tug-changes-list-file-block[data-path="${ROUND_FILE}"] [data-slot="diff-body"]') !== null`,
           { timeoutMs: 20000 },
         );
-        const scoped = await app.evalJS<{ headers: string[] }>(
+        const scoped = await app.body("A").evalJS<{ headers: string[] }>(
           `(() => {
              const block = document.querySelector('${FILES} .tug-changes-list-file-block[data-path="${ROUND_FILE}"]');
              return {
@@ -701,24 +706,24 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         ).not.toContain(ROUND_AREA);
 
         // ── The totals row folds the whole list, and stays ────────────────
-        await app.nativeClickAtElement(
+        await app.body("A").nativeClickAtElement(
           `${FILES} [data-slot="session-changes-arc-totals"]`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${FILES} .tug-changes-list-file-block').length === 0`,
           { timeoutMs: 8000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector('${FILES} [data-slot="session-changes-arc-totals"]') !== null`,
           ),
           "the totals row survives its own fold",
         ).toBe(true);
         // And back, so the rest of the file reads the list it expects.
-        await app.nativeClickAtElement(
+        await app.body("A").nativeClickAtElement(
           `${FILES} [data-slot="session-changes-arc-totals"]`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${FILES} .tug-changes-list-file-block').length > 0`,
           { timeoutMs: 8000 },
         );
@@ -728,7 +733,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // everything the fold itself authors, and no gap between the sections
         // — the three facts that make the fold read as one list rather than
         // as three strips that happen to be stacked.
-        const air = await app.evalJS<{
+        const air = await app.body("A").evalJS<{
           gap: string;
           heights: number[];
           sizes: number[];
@@ -801,11 +806,11 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
           arc_id: arcOwnerId,
           arc_name: ARC_NAME,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null`,
           { timeoutMs: 8000 },
         );
-        const fronted = await app.evalJS<{ first: string | null; expanded: string | null }>(
+        const fronted = await app.body("A").evalJS<{ first: string | null; expanded: string | null }>(
           `(() => {
              const rows = document.querySelectorAll(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"]`)});
              const first = rows[0] ?? null;
@@ -829,7 +834,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // constants, so the shade's width, the row's density and the atom's
         // padding can all move without this becoming a lie. A pixel of
         // tolerance: an odd width has to round somewhere.
-        const stack = await app.evalJS<{
+        const stack = await app.body("A").evalJS<{
           lead: number;
           tail: number;
         }>(
@@ -859,7 +864,7 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // ── The complement rule ───────────────────────────────────────────
         // Unbind on the fronted row, Bind on none of it — a row carrying both
         // at once would say the card can take on and put down the same arc.
-        const affordances = await readArcRowMenu(app, ROW);
+        const affordances = await readArcRowMenu(app.body("A"), ROW);
         expect(affordances.unbind.present).toBe(true);
         expect(affordances.bind.present).toBe(false);
 
@@ -867,8 +872,8 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // The fronting moves on the `unbind_arc_ok` broadcast, never on the
         // press — nothing here writes the binding store optimistically, so
         // this assertion is about the round trip.
-        await pressArcRowMenuItem(app, ROW, "unbind-arc");
-        await app.waitForCondition<boolean>(
+        await pressArcRowMenuItem(app.body("A"), ROW, "unbind-arc");
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) === null`,
           { timeoutMs: 15000 },
         );
@@ -877,13 +882,13 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // The row stays on screen when it stops being fronted — it moves into
         // the rest group, which hides nothing — so its verbs are reachable
         // without a fold click first.
-        await pressArcRowMenuItem(app, ROW, "bind-arc");
-        await app.waitForCondition<boolean>(
+        await pressArcRowMenuItem(app.body("A"), ROW, "bind-arc");
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null`,
           { timeoutMs: 15000 },
         );
         expect(
-          await app.evalJS<string | null>(
+          await app.body("A").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"]`)})?.getAttribute("data-arc") ?? null`,
           ),
         ).toBe(ARC_NAME);
@@ -896,15 +901,15 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         // register band under it is not drawn at all ([P08]). The band's job
         // was to say a thing the line above it could say itself.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ARCS_ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `(document.querySelector('${ARCS_ROW} [data-slot="tug-arc-lifecycle-note"]')?.textContent ?? "").trim() === "Ready to join to main"`,
           { timeoutMs: 30000 },
         );
-        const readyRow = await app.evalJS<{
+        const readyRow = await kindBody(app, "dashes").evalJS<{
           note: string;
           registers: number;
           phaseMarks: number;

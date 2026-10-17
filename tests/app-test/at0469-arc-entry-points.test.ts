@@ -55,7 +55,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -79,6 +79,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -180,15 +181,15 @@ async function openArcsRail(app: App): Promise<void> {
   await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
   await app.awaitEngineReady("A", { timeoutMs: 15000 });
   await app.dispatchControlAction("toggle-arcs");
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "dashes").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
     { timeoutMs: 20000 },
   );
 }
 
 /** Scroll a row into view and click it, the way the section's other tests do. */
-async function clickRow(app: App, row: string): Promise<void> {
-  await app.evalJS<null>(
+async function clickRow(page: BodyApp, row: string): Promise<void> {
+  await page.evalJS<null>(
     `(() => {
        const el = document.querySelector(${JSON.stringify(row)});
        if (el !== null) el.scrollIntoView({ block: "center" });
@@ -196,7 +197,7 @@ async function clickRow(app: App, row: string): Promise<void> {
      })()`,
   );
   await settle(250);
-  await app.nativeClickAtElement(row);
+  await page.nativeClickAtElement(row);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows one", () => {
@@ -215,17 +216,17 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
 
         // The held row waits for the binding to reach the aggregate — the atom
         // is the positive signal, and it is also what makes the row a door.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${arcRow(HELD)} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(arcRow(IDLE))}) !== null`,
           { timeoutMs: 30000 },
         );
 
         // ── What each row advertises about itself ──────────────────────────
-        const affordance = await app.evalJS<{ held: string | null; idle: string | null }>(
+        const affordance = await kindBody(app, "dashes").evalJS<{ held: string | null; idle: string | null }>(
           `(() => {
              const read = (sel) =>
                document.querySelector(sel)?.getAttribute("data-activatable") ?? null;
@@ -244,16 +245,16 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // The shade is closed to begin with: no join stands on these
         // arcs, so nothing has revealed itself.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           ),
         ).toBe(true);
 
         // ── The inert row does nothing ─────────────────────────────────────
-        await clickRow(app, arcRow(IDLE));
+        await clickRow(kindBody(app, "dashes"), arcRow(IDLE));
         await settle(600);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           ),
         ).toBe(true);
@@ -263,8 +264,8 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // This is the assertion the silent-dispatch defect would fail: an
         // action sent to the wrong responder scope produces no error, just a
         // shade that never comes up.
-        await clickRow(app, arcRow(HELD));
-        await app.waitForCondition<boolean>(
+        await clickRow(kindBody(app, "dashes"), arcRow(HELD));
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 15000 },
         );
@@ -293,7 +294,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // a *bound* diverged arc the engine will never touch, because this
         // repository's arcs have autoreplay off.
         bindArc(projectDir(), BEHIND, SID, scratch?.cli ?? {});
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${arcRow(BEHIND)} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
@@ -301,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // ── The verb is offered, on a bound row, naming its destination ────
         // A live Replay item IS the row's knowledge that it is behind: the
         // predicate reads the same divergence the line no longer prints.
-        const menu = await readArcRowMenu(app, arcRow(BEHIND));
+        const menu = await readArcRowMenu(kindBody(app, "dashes"), arcRow(BEHIND));
         note("at0469 behind-row menu", JSON.stringify(menu));
         expect(menu.replay.present).toBe(true);
         expect(menu.replay.disabled).toBe(false);
@@ -317,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // nothing any arc row prints — the line carries the arc's standing,
         // not the checkout's git bookkeeping — so success speaks here or it
         // does not speak at all.
-        await pressArcRowMenuItem(app, arcRow(BEHIND), "request-replay-arc");
+        await pressArcRowMenuItem(kindBody(app, "dashes"), arcRow(BEHIND), "request-replay-arc");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 30000 },
@@ -338,8 +339,10 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         let afterwards = { disabled: false, label: "" };
         const deadline = Date.now() + 30000;
         while (Date.now() < deadline) {
-          await openArcRowMenu(app, arcRow(BEHIND));
-          afterwards = await app.evalJS<{ disabled: boolean; label: string }>(
+          await openArcRowMenu(kindBody(app, "dashes"), arcRow(BEHIND));
+          // The row's menu opens in the overlay root of the page that holds
+          // the row — the Arcs card's body.
+          afterwards = await kindBody(app, "dashes").evalJS<{ disabled: boolean; label: string }>(
             `(() => {
                const el = document.querySelector('[data-slot="tug-editor-context-menu"] [data-item-action="request-replay-arc"]');
                return {
@@ -348,7 +351,7 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
                };
              })()`,
           );
-          await closeArcRowMenu(app);
+          await closeArcRowMenu(kindBody(app, "dashes"));
           if (afterwards.disabled) break;
           await settle(1000);
         }
@@ -389,25 +392,25 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // session id with no dependence on which card the rail is following, and
         // it is stamped with the shade's entry key, which is what routes the
         // answer into the shade's band instead of the corner lane.
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 15000 },
         );
         const shadeRow = `${SHEET} [data-slot="session-changes-arc-row"][data-arc="${CLASH}"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(shadeRow)}) !== null`,
           { timeoutMs: 30000 },
         );
 
         // The arc is behind its base, so the verb is live — the client cannot
         // know the replay will conflict, and it is not its business to guess.
-        const menu = await readArcRowMenu(app, shadeRow);
+        const menu = await readArcRowMenu(app.body("A"), shadeRow);
         note("at0469 clash-row menu", JSON.stringify(menu));
         expect(menu.replay.present).toBe(true);
         expect(menu.replay.disabled).toBe(false);
@@ -415,12 +418,12 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // The press runs a real replay that stops at the conflicting round and
         // touches nothing. Every fact on the row is byte-identical afterwards,
         // which is exactly why the answer has to arrive somewhere else.
-        await pressArcRowMenuItem(app, shadeRow, "request-replay-arc");
-        await app.waitForCondition<boolean>(
+        await pressArcRowMenuItem(app.body("A"), shadeRow, "request-replay-arc");
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHADE_NOTICE)}) !== null`,
           { timeoutMs: 20000 },
         );
-        const spoken = await app.evalJS<{ text: string; tone: string | null; channel: string | null }>(
+        const spoken = await app.body("A").evalJS<{ text: string; tone: string | null; channel: string | null }>(
           `(() => {
              const b = document.querySelector(${JSON.stringify(SHADE_NOTICE)});
              return {

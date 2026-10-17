@@ -34,7 +34,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp, note } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import { mkTextFixture } from "./_harness/fixtures";
+import { enforcedTimeout } from "./_harness/rpc";
 import { decodePngFile } from "./_harness/png";
 import {
   ORIGINAL,
@@ -60,8 +62,8 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       const app = await launchTugApp({ testName: "at0212-aside" });
       try {
         await seedTextCard(app, file);
-        await waitForEditor(app, "alpha");
-        await typeIntoEditor(app, "ASIDE-SENTINEL ");
+        await waitForEditor(await waitForBodyReady(app, "A"), "alpha");
+        await typeIntoEditor(app.body("A"), "ASIDE-SENTINEL ");
         await waitForSaveCell(app, "Edited");
         await settle();
 
@@ -98,14 +100,30 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       const app = await launchTugApp({ testName: "at0212-new-text-card" });
       try {
         await seedTextCard(app, file);
-        await waitForEditor(app, "alpha");
+        await waitForEditor(await waitForBodyReady(app, "A"), "alpha");
         await settle();
         await dispatchControl(app, "new-text-card");
         await settle();
-        await app.waitForCondition<boolean>(
-          `document.querySelectorAll('[data-slot="tug-text-card-editor"]').length >= 2`,
-          { timeoutMs: 15000 },
-        );
+        // Each Text card is its own body: count the editors page by page and
+        // sum them.
+        {
+          const budget = enforcedTimeout(15000);
+          const deadline = Date.now() + budget;
+          for (;;) {
+            let editors = 0;
+            for (const b of await app.bodies()) {
+              if (b.componentId !== "text" || b.state !== "ready" || b.cardId === null) continue;
+              editors += await app
+                .body(b.cardId)
+                .evalJS<number>(`document.querySelectorAll('[data-slot="tug-text-card-editor"]').length`);
+            }
+            if (editors >= 2) break;
+            if (Date.now() >= deadline) {
+              throw new Error(`fewer than two Text card editors within ${budget} ms (saw ${editors})`);
+            }
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
 
         // The masthead of a buffer that is NOT A FILE YET. Both lines were
         // wrong when the tier shipped: the second was empty, which on a fixed

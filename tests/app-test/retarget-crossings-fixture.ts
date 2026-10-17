@@ -82,6 +82,9 @@ export async function foldInterrupted(
   sampleMs: number = SAMPLE_MS,
 ): Promise<Reading> {
   const third = Math.abs(to - from) / 3;
+  // The frame, its crossing marks and the hold's targets under its card host
+  // are the shell's own.
+  // card-dom: shell
   await app.evalJS<null>(
     `(function () {
       var rec = (window.__at0685 = { samples: [], triggeredAt: null, triggeredHeight: null });

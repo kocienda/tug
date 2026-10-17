@@ -78,6 +78,7 @@ import {
   tugtool,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -225,15 +226,15 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
 
         // ── The section is there, and the arc's row is in it ─────────────
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
           { timeoutMs: 15000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const unbound = await app.evalJS<{
+        const unbound = await kindBody(app, "dashes").evalJS<{
           atomText: string;
           reviewTinted: boolean;
           reviewGlyphs: number;
@@ -319,12 +320,12 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLAN_ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
 
-        const meta = await app.evalJS<{
+        const meta = await kindBody(app, "dashes").evalJS<{
           phase: string | null;
           fraction: string;
           tracks: number;
@@ -372,11 +373,11 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // and step 8 done, so the closed rows are not a run of the first N.
         // Nothing pure can see this — the tooltip's fraction and the ticks
         // beside it have to agree ON SCREEN, which is [P03]'s whole promise.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SKIPPED_ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const skippedTicks = await app.evalJS<string[]>(
+        const skippedTicks = await kindBody(app, "dashes").evalJS<string[]>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(SKIPPED_ROW)});
              const cell = row
@@ -422,7 +423,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // the expectation with it, and so the claim is the UNIT's centring
         // rather than the track's. A pixel of tolerance: an odd width has to
         // round somewhere.
-        const stack = await app.evalJS<{
+        const stack = await kindBody(app, "dashes").evalJS<{
           lead: number;
           tail: number;
           fontSize: string;
@@ -511,7 +512,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // ── The ordering, in the DOM ──────────────────────────────────────
         // Both fixtures are unbound, so the stage rank decides: this arc is
         // `implementing` (a step is open on it), the other is `created`.
-        const order = await app.evalJS<string[]>(
+        const order = await kindBody(app, "dashes").evalJS<string[]>(
           `Array.from(
              document.querySelectorAll(${JSON.stringify(`${SECTION} [data-slot="arcs-row"]`)}),
            ).map((el) => el.getAttribute("data-arc"))`,
@@ -524,7 +525,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // A tooltip, so it has to be hovered — and it is read last, because a
         // Radix bubble does not close for a synthetic `pointerleave` and a
         // test that waited for it to would be waiting on nothing.
-        await app.evalJS<null>(
+        await kindBody(app, "dashes").evalJS<null>(
           `(function(){
              const cell = document
                .querySelector(${JSON.stringify(SKIPPED_ROW)})
@@ -534,11 +535,13 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
              return null;
            })()`,
         );
-        await app.waitForCondition<boolean>(
+        // The bubble mounts in the page the hover was dispatched in: the
+        // Arcs card's body.
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('.tug-tooltip-content') !== null`,
           { timeoutMs: 5000 },
         );
-        const closedTip = await app.getElementText(".tug-tooltip-content");
+        const closedTip = await kindBody(app, "dashes").getElementText(".tug-tooltip-content");
         note("at0407 withdrawn tip", closedTip);
         // Eight ticks and eight closed, agreeing on screen — a reader is never
         // told 7 of 8 beside eight filled ticks. This is [P03]'s whole promise
@@ -571,7 +574,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLANNED_ROW)}) !== null &&
            document.querySelector(${JSON.stringify(PLAIN_ROW)}) !== null`,
           { timeoutMs: 30000 },
@@ -601,8 +604,8 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
           phases: string[];
           facts: Array<{ key: string; tone: string; label: string }>;
         };
-        const planned = await app.evalJS<Row>(read(PLANNED_ROW));
-        const plain = await app.evalJS<Row>(read(PLAIN_ROW));
+        const planned = await kindBody(app, "dashes").evalJS<Row>(read(PLANNED_ROW));
+        const plain = await kindBody(app, "dashes").evalJS<Row>(read(PLAIN_ROW));
         note("at0407 planned row", JSON.stringify(planned));
         note("at0407 plain row", JSON.stringify(plain));
 
@@ -661,7 +664,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLAN_ROW)}) !== null &&
            document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
@@ -672,7 +675,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // fold draws it disabled rather than dropping it, so the column of
         // chevrons never goes ragged. `at0407-arc` was created and never
         // planned, so it is that row.
-        const cues = await app.evalJS<{
+        const cues = await kindBody(app, "dashes").evalJS<{
           planned: number;
           bare: number;
           bareDisabled: boolean | null;
@@ -710,20 +713,20 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // so the claim below is that neither moved rather than that both hold
         // some remembered constant.
         const focusedBefore = await app.getFocusedCardId();
-        const selectedBefore = await app.evalJS<string[]>(
+        const selectedBefore = await kindBody(app, "dashes").evalJS<string[]>(
           `Array.from(
              document.querySelectorAll(${JSON.stringify(`${SECTION} [data-selected="true"]`)}),
            ).map((el) => el.getAttribute("data-arc") ?? el.className)`,
         );
 
         // ── The press ────────────────────────────────────────────────────
-        await app.click(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").click(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`);
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${PLAN_ROW} [data-slot="arcs-steps"]`)}) !== null`,
           { timeoutMs: 10000 },
         );
 
-        const opened = await app.evalJS<{
+        const opened = await kindBody(app, "dashes").evalJS<{
           rows: Array<{ status: string | null; dot: string | null; text: string }>;
           expanded: string | null;
           ticks: string[];
@@ -790,7 +793,7 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // the claim that needs the real app, since the excusing happens in the
         // list's own pointer handling.
         const focusedAfter = await app.getFocusedCardId();
-        const selectedAfter = await app.evalJS<string[]>(
+        const selectedAfter = await kindBody(app, "dashes").evalJS<string[]>(
           `Array.from(
              document.querySelectorAll(${JSON.stringify(`${SECTION} [data-selected="true"]`)}),
            ).map((el) => el.getAttribute("data-arc") ?? el.className)`,
@@ -803,12 +806,12 @@ describe.skipIf(!SHOULD_RUN)("AT0407: the Arcs card", () => {
         // Structure, not appearance: an arc nobody has opened costs no ledger
         // DOM at all, which is why this is a presence claim rather than a
         // visibility one.
-        await app.click(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").click(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`);
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${PLAN_ROW} [data-slot="arcs-steps"]`)}) === null`,
           { timeoutMs: 10000 },
         );
-        const closedCue = await app.evalJS<string | null>(
+        const closedCue = await kindBody(app, "dashes").evalJS<string | null>(
           `document
              .querySelector(${JSON.stringify(`${PLAN_ROW} [data-slot="arcs-steps-fold"]`)})
              ?.getAttribute("aria-expanded") ?? null`,

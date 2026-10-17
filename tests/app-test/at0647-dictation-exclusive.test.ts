@@ -52,6 +52,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -142,15 +143,15 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(exists(SESSION_SUBMIT), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(exists(SESSION_MIC), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(SESSION_SUBMIT), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(SESSION_MIC), { timeoutMs: 8000 });
 
         // The rail, so there are two composers to arbitrate between.
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(exists(OVERVIEW_MIC), { timeoutMs: 10_000 });
+        await kindBody(app, "overview").waitForCondition<boolean>(exists(OVERVIEW_MIC), { timeoutMs: 10_000 });
         note(
           "geometry",
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(function(){
                var s = document.querySelector(${JSON.stringify(SESSION_MIC)}).getBoundingClientRect();
                var o = document.querySelector(${JSON.stringify(OVERVIEW_MIC)}).getBoundingClientRect();
@@ -162,23 +163,23 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         );
 
         // ── 1. The mic moves. ─────────────────────────────────────────────
-        await app.nativeClickAtElement(SESSION_MIC);
-        await app.waitForCondition<boolean>(modeIs(SESSION_MIC, "live"), {
+        await app.body("A").nativeClickAtElement(SESSION_MIC);
+        await app.body("A").waitForCondition<boolean>(modeIs(SESSION_MIC, "live"), {
           timeoutMs: 10_000,
         });
-        const firstId = await app.getElementAttribute(SESSION_MIC, "data-dictation-id");
+        const firstId = await app.body("A").getElementAttribute(SESSION_MIC, "data-dictation-id");
         expect((firstId ?? "").length).toBeGreaterThan(0);
 
         await domClick(app, OVERVIEW_MIC);
-        await app.waitForCondition<boolean>(modeIs(OVERVIEW_MIC, "live"), {
+        await kindBody(app, "overview").waitForCondition<boolean>(modeIs(OVERVIEW_MIC, "live"), {
           timeoutMs: 10_000,
         });
         // The one claim the host cannot make for us: the composer that lost the
         // mic knows it lost the mic.
-        await app.waitForCondition<boolean>(modeIs(SESSION_MIC, "idle"), {
+        await app.body("A").waitForCondition<boolean>(modeIs(SESSION_MIC, "idle"), {
           timeoutMs: 10_000,
         });
-        const secondId = await app.getElementAttribute(OVERVIEW_MIC, "data-dictation-id");
+        const secondId = await kindBody(app, "overview").getElementAttribute(OVERVIEW_MIC, "data-dictation-id");
         note("session id then overview id", `${firstId} → ${secondId}`);
         // A fresh id per start. Shared ids would make a superseded session's
         // late results indistinguishable from the live one's.
@@ -187,26 +188,26 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         // And the handle went with the claim: text for the Overview's id lands
         // in the Overview's field and nowhere else.
         await push(app, { id: secondId, kind: "final", text: "what changed today" });
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `${textOf(OVERVIEW_TEXT)} === "what changed today"`,
           { timeoutMs: 10_000 },
         );
         // The Session composer never saw it: the handle went with the claim.
         expect(
-          await app.evalJS<boolean>(holds(SESSION_EDITOR, "what changed today")),
+          await app.body("A").evalJS<boolean>(holds(SESSION_EDITOR, "what changed today")),
         ).toBe(false);
 
         // ── 2. App resign ends it, keeping the settled text. ──────────────
         await push(app, { id: secondId, kind: "volatile", text: " and yesterday" });
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `${textOf(OVERVIEW_TEXT)} === "what changed today and yesterday"`,
           { timeoutMs: 10_000 },
         );
         await app.simulateAppResign();
-        await app.waitForCondition<boolean>(modeIs(OVERVIEW_MIC, "idle"), {
+        await kindBody(app, "overview").waitForCondition<boolean>(modeIs(OVERVIEW_MIC, "idle"), {
           timeoutMs: 10_000,
         });
-        const afterResign = await app.evalJS<string>(textOf(OVERVIEW_TEXT));
+        const afterResign = await kindBody(app, "overview").evalJS<string>(textOf(OVERVIEW_TEXT));
         note("overview text after resign", afterResign);
         // Resign is an ordinary end that cannot round-trip to the recogniser, so
         // the tail is promoted rather than dropped — the words are there when
@@ -216,13 +217,13 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         // ── 3. Escape ends dictation and interrupts nothing ([P09]). ──────
         // Back in the Session composer, with no turn running — so the only
         // thing Escape has to act on is the mic.
-        await app.nativeClickAtElement(SESSION_MIC);
-        await app.waitForCondition<boolean>(modeIs(SESSION_MIC, "live"), {
+        await app.body("A").nativeClickAtElement(SESSION_MIC);
+        await app.body("A").waitForCondition<boolean>(modeIs(SESSION_MIC, "live"), {
           timeoutMs: 10_000,
         });
-        const thirdId = await app.getElementAttribute(SESSION_MIC, "data-dictation-id");
+        const thirdId = await app.body("A").getElementAttribute(SESSION_MIC, "data-dictation-id");
         await push(app, { id: thirdId, kind: "volatile", text: "never mind" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${textOf(SESSION_EDITOR)} === "never mind"`,
           { timeoutMs: 10_000 },
         );
@@ -230,8 +231,8 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         // The caret has to be in the field for the responder walk to start at
         // this composer, which is the real gesture: the user is mid-sentence and
         // changes their mind.
-        await app.nativeClickAtElement(SESSION_EDITOR);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(SESSION_EDITOR);
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              var field = document.querySelector(${JSON.stringify(SESSION_EDITOR)});
              return field !== null && document.activeElement !== null &&
@@ -241,16 +242,16 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         );
         await app.nativeKey("Escape");
 
-        await app.waitForCondition<boolean>(modeIs(SESSION_MIC, "idle"), {
+        await app.body("A").waitForCondition<boolean>(modeIs(SESSION_MIC, "idle"), {
           timeoutMs: 10_000,
         });
         // Nothing was settled, so nothing is kept — the whole sentence was
         // provisional and Escape is the user saying they did not mean it.
-        expect(await app.evalJS<boolean>(holds(SESSION_EDITOR, "never mind"))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(holds(SESSION_EDITOR, "never mind"))).toBe(false);
         // And no turn was interrupted, because none was started: an Escape that
         // reached `popInteractive` past a live mic would be the defect [P09]
         // orders the ladder to prevent.
-        expect(await app.evalJS<boolean>(exists(USER_TURN))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(USER_TURN))).toBe(false);
       } finally {
         await app.close();
       }

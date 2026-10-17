@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "inter-pane click — bag.focus identifies focused input before activation commits",
       async () => {
-        const app = await launchTugApp({
+        const app = await launchTugApp({ bodies: false,
           testName: "smoke-capture-phase-save-inter-pane",
         });
         try {
@@ -262,7 +262,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "intra-pane tab click — bag.focus identifies focused input before tab switch",
       async () => {
-        const app = await launchTugApp({
+        const app = await launchTugApp({ bodies: false,
           testName: "smoke-capture-phase-save-intra-pane",
         });
         try {
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "window blur (cmd-tab) — bag.focus identifies focused input via window-blur save",
       async () => {
-        const app = await launchTugApp({
+        const app = await launchTugApp({ bodies: false,
           testName: "smoke-capture-phase-save-window-blur",
           // Foreground: the subject is the resign that fires `window.blur`.
           // A background launch never activates the app, so `NSApp.deactivate()`

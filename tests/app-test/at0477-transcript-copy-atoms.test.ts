@@ -163,19 +163,19 @@ describe.skipIf(!SHOULD_RUN)("at0477 — a copied prompt keeps its atoms", () =>
             { kind: "atom", type: "file", label: BRIEF, value: BRIEF },
           ],
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_BODY)}).length === 1`,
           { timeoutMs: 12_000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(USER_COPY)}) !== null`,
           { timeoutMs: 8_000 },
         );
 
         // ---- A. The flavor every other app gets. --------------------------
         setPasteboard(SENTINEL);
-        await app.nativeClickAtElement(USER_COPY);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(USER_COPY);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(USER_COPY)}) !== null`,
           { timeoutMs: 4_000 },
         );
@@ -218,19 +218,19 @@ describe.skipIf(!SHOULD_RUN)("at0477 — a copied prompt keeps its atoms", () =>
         expect(sidecar?.atoms.map((a) => a.value)).toEqual([COMMAND, BRIEF]);
 
         // ---- C. A paste back into the composer rebuilds the chips. --------
-        await app.focusElement(COMPOSER);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").focusElement(COMPOSER);
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           cm.dispatchEvent(new ClipboardEvent("paste", {
             bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length === 2`,
           { timeoutMs: 8_000 },
         );
-        const pasted = await app.evalJS<{ atoms: string[]; text: string }>(
+        const pasted = await app.body("A").evalJS<{ atoms: string[]; text: string }>(
           composerProbe(),
         );
         note("at0477 composer after paste", JSON.stringify(pasted));
@@ -249,12 +249,12 @@ describe.skipIf(!SHOULD_RUN)("at0477 — a copied prompt keeps its atoms", () =>
         // clipboard: a chip is a chip whichever way the reader copied it.
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length === 0`,
           { timeoutMs: 8_000 },
         );
         setPasteboard(SENTINEL);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var body = document.querySelector(${JSON.stringify(USER_BODY)});
           var range = document.createRange();
           range.selectNodeContents(body);
@@ -298,19 +298,19 @@ describe.skipIf(!SHOULD_RUN)("at0477 — a copied prompt keeps its atoms", () =>
         ]);
 
         // And it pastes back as chips, exactly as the button's copy did.
-        await app.focusElement(COMPOSER);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").focusElement(COMPOSER);
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           cm.dispatchEvent(new ClipboardEvent("paste", {
             bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length === 2`,
           { timeoutMs: 8_000 },
         );
-        const chordPasted = await app.evalJS<{ atoms: string[]; text: string }>(
+        const chordPasted = await app.body("A").evalJS<{ atoms: string[]; text: string }>(
           composerProbe(),
         );
         note("at0477 composer after chord paste", JSON.stringify(chordPasted));

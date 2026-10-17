@@ -39,6 +39,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -116,23 +117,23 @@ function holdsWithNewest(n: number): string {
 }
 
 async function edge(app: App): Promise<Edge> {
-  return app.evalJS<Edge>(EDGE_JS);
+  return kindBody(app, "overview").evalJS<Edge>(EDGE_JS);
 }
 
 async function openWithPosts(app: App, count: number): Promise<void> {
   await app.nativeKey("o", ["cmd", "ctrl"]);
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
     { timeoutMs: 10_000 },
   );
   for (let id = 20; id < 20 + count; id++) {
     expect(await publish(app, wirePost(id))).toBe(true);
   }
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     holdsWithNewest(count),
     { timeoutMs: 10_000 },
   );
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "overview").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(JUMP)}).getAttribute("data-visible") === "false"`,
     { timeoutMs: 5_000 },
   );
@@ -157,7 +158,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
         // position that is no longer the bottom. The observer that would
         // re-pin has not run yet; that is the entire window the defect lived
         // in, so the event is dispatched inside it deliberately.
-        const raced = await app.evalJS<{ grew: number; top: number }>(
+        const raced = await kindBody(app, "overview").evalJS<{ grew: number; top: number }>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             var cells = el.querySelectorAll(${JSON.stringify(POST)});
@@ -178,7 +179,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
 
         // The observer gets its turn and re-pins — which it can only do if
         // the stale event left following engaged.
-        await app.waitForCondition<boolean>(EDGE_JS + ".atBottom === true", {
+        await kindBody(app, "overview").waitForCondition<boolean>(EDGE_JS + ".atBottom === true", {
           timeoutMs: 5_000,
         });
         const settled = await edge(app);
@@ -195,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
         // The claim underneath the affordance: following is genuinely still
         // on, so the next post keeps the edge.
         expect(await publish(app, wirePost(32))).toBe(true);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           holdsWithNewest(13),
           { timeoutMs: 10_000 },
         );
@@ -208,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
 
         // And the reader's own gesture still disengages — the guard reads
         // whose act a scroll was, it does not stop reading.
-        await app.evalJS<boolean>(
+        await kindBody(app, "overview").evalJS<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             el.scrollTop = Math.max(0, el.scrollTop - 400);
@@ -216,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
             return true;
           })()`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}).getAttribute("data-visible") === "true"`,
           { timeoutMs: 5_000 },
         );
@@ -254,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
         for (let id = 32; id <= 35; id++) {
           expect(await publish(app, wirePost(id))).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           holdsWithNewest(16),
           { timeoutMs: 10_000 },
         );
@@ -267,7 +268,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
         // The rebuild beat, verbatim: the event `applyRegionScrolls`
         // dispatches before it would write `scrollTop` itself, carrying the
         // stale pixel and the at-bottom meta.
-        const claimed = await app.evalJS<boolean>(
+        const claimed = await kindBody(app, "overview").evalJS<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             el.scrollTop = 0;
@@ -299,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
 
         // The other half of the contract: a position the reader chose is not
         // claimed, so the host's own write is what lands it.
-        await app.evalJS<boolean>(
+        await kindBody(app, "overview").evalJS<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             el.scrollTop = Math.max(0, el.scrollTop - 500);
@@ -307,7 +308,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
             return true;
           })()`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JUMP)}).getAttribute("data-visible") === "true"`,
           { timeoutMs: 5_000 },
         );
@@ -318,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)("at0371 — the Overview's follow-lock holds", () =
           "a chosen position saves no at-bottom claim, so it restores verbatim",
         ).toBeNull();
 
-        const unclaimed = await app.evalJS<boolean>(
+        const unclaimed = await kindBody(app, "overview").evalJS<boolean>(
           `(function () {
             var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
             var event = new CustomEvent("tug-region-scroll-set", {

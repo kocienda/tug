@@ -38,6 +38,7 @@ import {
   TEST_TIMEOUT_MS,
   scrollTo,
   standUp,
+  transcriptPage,
 } from "./eviction-fixture";
 
 describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", () => {
@@ -46,10 +47,11 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
     async () => {
       const app = await standUp("at0330-far-scroll");
       try {
+        const page = await transcriptPage(app);
         // Mid-transcript: rows must cover the viewport with no hole.
         for (const frac of [0.5, 0.85, 0.15]) {
           await scrollTo(app, frac);
-          const view = await app.evalJS<{
+          const view = await page.evalJS<{
             cells: number;
             contiguous: boolean;
             coversViewport: boolean;
@@ -96,7 +98,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
         // strip is present and must top the content, is asserted in
         // at0330-eviction-hidden-restore.
         await scrollTo(app, 0);
-        const top = await app.evalJS<{
+        const top = await page.evalJS<{
           hasLeading: boolean;
           firstCellTop: number;
           firstCellIndex: number;
@@ -131,9 +133,10 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
     async () => {
       const app = await standUp("at0330-selection-pin");
       try {
+        const page = await transcriptPage(app);
         await scrollTo(app, 0.9);
         // Select inside a row that is currently mounted near the bottom.
-        const picked = await app.evalJS<number>(`(function () {
+        const picked = await page.evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var cells = Array.prototype.slice.call(el.querySelectorAll("[data-tug-list-cell-index]"));
   var box = el.getBoundingClientRect();
@@ -156,7 +159,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
         await new Promise((r) => setTimeout(r, 300));
 
         await scrollTo(app, 0);
-        const held = await app.evalJS<{
+        const held = await page.evalJS<{
           mounted: boolean;
           collapsed: boolean;
           evicting: boolean;
@@ -185,8 +188,9 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
     async () => {
       const app = await standUp("at0330-expand-roundtrip");
       try {
+        const page = await transcriptPage(app);
         await scrollTo(app, 0.5);
-        const before = await app.evalJS<{ h: number; headers: number }>(
+        const before = await page.evalJS<{ h: number; headers: number }>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return {
@@ -201,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
         // block that sits offscreen cannot move `scrollHeight`: eviction holds
         // it at its placeholder's exact measured height (the pixel-identical
         // constraint), so the growth asserted below never appears.
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var box = el.getBoundingClientRect();
   var headers = [].slice.call(el.querySelectorAll('.tool-call-header[data-collapsed="true"]'));
@@ -212,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
   el.scrollTop += below[0].top - box.top - 40;
   return true;
 })()`);
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   var box = el.getBoundingClientRect();
@@ -223,10 +227,10 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
 })()`,
           { timeoutMs: 5000 },
         );
-        const before2 = await app.evalJS<number>(
+        const before2 = await page.evalJS<number>(
           `document.querySelector('${SCROLLER}').scrollHeight`,
         );
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var box = el.getBoundingClientRect();
   var target = [].slice.call(el.querySelectorAll('.tool-call-header[data-collapsed="true"]')).filter(function (h) {
@@ -240,11 +244,11 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
         // The expanded block's height reaches `scrollHeight` only once the
         // eviction ledger re-measures it, which a fixed sleep can miss — wait
         // for the growth instead of sampling at an arbitrary moment.
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `document.querySelector('${SCROLLER}').scrollHeight > ${before2}`,
           { timeoutMs: 8000 },
         );
-        const expanded = await app.evalJS<{ h: number; open: number }>(
+        const expanded = await page.evalJS<{ h: number; open: number }>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return {
@@ -256,13 +260,13 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — far scroll", (
         expect(expanded.open).toBeGreaterThan(0);
         expect(expanded.h).toBeGreaterThan(before.h);
 
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.querySelector('.tool-call-header:not([data-collapsed="true"]) [data-slot="tool-call-header-disclosure"]').click();
   return true;
 })()`);
         await new Promise((r) => setTimeout(r, 600));
-        const after = await app.evalJS<{ h: number; fallbacks: number }>(
+        const after = await page.evalJS<{ h: number; fallbacks: number }>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return {

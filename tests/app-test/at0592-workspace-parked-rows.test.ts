@@ -62,6 +62,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -70,11 +71,14 @@ const HOME = "at0592-home";
 const AWAY = "at0592-away";
 
 /**
- * "On screen", said out loud. Every visited workspace stays mounted ([B06]),
- * so the document holds one Workspaces card per visited workspace — all but
- * one inside a wrapper with no `data-space-shown`.
+ * "On screen" was once a selector scope: every visited workspace stays
+ * mounted ([B06]), and the shell's document held one Workspaces card per
+ * visited workspace, all but one inside a space layer with no
+ * `data-space-shown`. Each Workspaces card is now its own body, whose page
+ * holds that one card and no space layer, and `kindBody(app, "cards")` takes
+ * the visible one — so the scope is the body chosen, and the prefix is empty.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
+const SHOWN = "";
 
 /** A row inside a named workspace's block, wherever that block is drawn. */
 const rowIn = (spaceId: string): string =>
@@ -233,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)(
              && window.tugdeck.diag.getSpaces().spaces.length === 2`,
             { timeoutMs: 25_000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `${titlesIn(HOME)}.indexOf("ledger-notes.txt") !== -1`,
             { timeoutMs: 25_000 },
           );
@@ -262,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the move does not go where the card went",
           ).toBe(HOME);
 
-          const away = await app.evalJS<string[]>(titlesIn(AWAY));
+          const away = await kindBody(app, "cards").evalJS<string[]>(titlesIn(AWAY));
           note(`at0592 rows in the parked workspace: ${JSON.stringify(away)}`);
           expect(
             away,
@@ -277,7 +281,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Nothing about this card is mounted, so the close has to stand its
           // workspace up to reach a close guard at all; the assertion is the
           // outcome, not the route.
-          await app.evalJS<unknown>(
+          await kindBody(app, "cards").evalJS<unknown>(
             `(function () {
                var box = document.querySelector(
                  ${JSON.stringify(`${rowIn(AWAY)} .cards-row-close`)}
@@ -368,25 +372,33 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
+          // The deck is the shell's and the headers are the shown Workspaces
+          // card's, so each is waited on in its own page.
           await app.waitForCondition<boolean>(
-            `typeof window.tugdeck !== "undefined"
-             && document.querySelector(${JSON.stringify(filesHeaderIn(AWAY))}) !== null
+            `typeof window.tugdeck !== "undefined"`,
+            { timeoutMs: 25_000 },
+          );
+          await kindBody(app, "cards").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(filesHeaderIn(AWAY))}) !== null
              && document.querySelector(${JSON.stringify(filesHeaderIn(HOME))}) !== null`,
             { timeoutMs: 25_000 },
           );
           await settle();
 
           // ---- 1. The SHOWN workspace's own band header still does nothing.
-          const home0 = await app.evalJS<{ active: string; collapsed: string | null }>(
+          // The click and the fold are the card's, in its body; the active
+          // workspace is the shell's, read once the click has been delivered.
+          const homeCollapsed = await kindBody(app, "cards").evalJS<string | null>(
             `(function () {
                var h = document.querySelector(${JSON.stringify(filesHeaderIn(HOME))});
                h.click();
-               return {
-                 active: window.tugdeck.diag.getSpaces().activeSpaceId,
-                 collapsed: h.getAttribute("data-group-collapsed"),
-               };
+               return h.getAttribute("data-group-collapsed");
              })()`,
           );
+          const home0 = {
+            active: await app.evalJS<string>(`window.tugdeck.diag.getSpaces().activeSpaceId`),
+            collapsed: homeCollapsed,
+          };
           await settle();
           note(`at0592 click on the shown workspace's FILES header: ${JSON.stringify(home0)}`);
           expect(
@@ -399,7 +411,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe("false");
 
           // ---- 2. The other workspace's band header goes there. -----------
-          await app.evalJS<unknown>(
+          await kindBody(app, "cards").evalJS<unknown>(
             `(function () {
                var h = document.querySelector(${JSON.stringify(filesHeaderIn(AWAY))});
                if (h === null) throw new Error("no FILES header in the parked block");
@@ -415,15 +427,16 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The fold is untouched by the trip: going somewhere is not folding
           // the band that was clicked to get there.
-          const arrived = await app.evalJS<{ active: string; collapsed: string | null }>(
-            `(function () {
-               var h = document.querySelector(${JSON.stringify(filesHeaderIn(AWAY))});
-               return {
-                 active: window.tugdeck.diag.getSpaces().activeSpaceId,
-                 collapsed: h === null ? null : h.getAttribute("data-group-collapsed"),
-               };
-             })()`,
-          );
+          // AWAY is on screen now, so the shown Workspaces card is its own.
+          const arrived = {
+            active: await app.evalJS<string>(`window.tugdeck.diag.getSpaces().activeSpaceId`),
+            collapsed: await kindBody(app, "cards").evalJS<string | null>(
+              `(function () {
+                 var h = document.querySelector(${JSON.stringify(filesHeaderIn(AWAY))});
+                 return h === null ? null : h.getAttribute("data-group-collapsed");
+               })()`,
+            ),
+          };
           note(`at0592 after the click on the parked FILES header: ${JSON.stringify(arrived)}`);
           expect(arrived.active).toBe(AWAY);
           expect(

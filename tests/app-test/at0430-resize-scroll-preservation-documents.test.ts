@@ -45,6 +45,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { bodyOfKind, waitForBodyReady } from "./_harness/card-reach";
 import { chooseWidth } from "./fixtures/card-width";
 import { encodePdf } from "./fixtures/pdf";
 import {
@@ -89,8 +90,12 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(AFTER_LAND_MS);
 
-          const scroller = `${FRAME} .tug-pane-content`;
-          await app.waitForCondition<boolean>(
+          // The card is its own page: the pane's content box it scrolls in
+          // is the body's own, under the body's pane root. The pane frame,
+          // its width and its episode stamp stay the shell's.
+          const card = await waitForBodyReady(app, "A");
+          const scroller = `.body-pane-root[data-card-id="A"] .tug-pane-content`;
+          await card.waitForCondition<boolean>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(scroller)});
               return el !== null && el.scrollHeight > el.clientHeight + 200;
@@ -99,7 +104,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await armEpisodeWatch(app, FRAME);
 
-          await app.evalJS<null>(
+          await card.evalJS<null>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(scroller)});
               el.scrollTop = Math.floor((el.scrollHeight - el.clientHeight) * 0.4);
@@ -109,7 +114,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(300);
 
-          const before = await claimSubject(app, scroller);
+          const before = await claimSubject(card, scroller);
           const widthBefore = await paneWidth(app, FRAME);
           const episodesBefore = await episodeCount(app);
 
@@ -122,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(widthAfter).not.toBe(widthBefore);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBefore);
 
-          const after = await readSubject(app, scroller);
+          const after = await readSubject(card, scroller);
           expect(after).not.toBeNull();
           note(
             `plain flow: width ${widthBefore}→${widthAfter},` +
@@ -175,8 +180,10 @@ describe.skipIf(!SHOULD_RUN)(
             },
             focusCardId: "A",
           });
-          const editor = `${FRAME} [data-slot="tug-text-card-editor"] .cm-scroller`;
-          await app.waitForCondition<boolean>(
+          // The editor is in the card's body; the pane frame is the shell's.
+          const card = await waitForBodyReady(app, "A");
+          const editor = `[data-slot="tug-text-card-editor"] .cm-scroller`;
+          await card.waitForCondition<boolean>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(editor)});
               return el !== null && el.scrollHeight > el.clientHeight + 200;
@@ -186,7 +193,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           await armEpisodeWatch(app, FRAME);
 
-          await app.evalJS<null>(
+          await card.evalJS<null>(
             `(function () {
               var el = document.querySelector(${JSON.stringify(editor)});
               el.scrollTop = Math.floor((el.scrollHeight - el.clientHeight) * 0.4);
@@ -223,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)(
             }
             return null;
           })()`;
-          const before = await app.evalJS<{
+          const before = await card.evalJS<{
             text: string;
             delta: number;
             scrollTop: number;
@@ -238,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(widthAfter).not.toBe(widthBefore);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBefore);
 
-          const after = await app.evalJS<{
+          const after = await card.evalJS<{
             text: string;
             delta: number;
             scrollTop: number;
@@ -289,7 +296,10 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.dispatchControlAction("open-file", { path: file });
           const surface = '[data-slot="file-view-pdf"]';
-          await app.waitForCondition<boolean>(
+          // The opened file is a File View card in a body of its own; its
+          // pane is the shell's, found by the card's placeholder there.
+          const card = await bodyOfKind(app, "file-view");
+          await card.waitForCondition<boolean>(
             `document.querySelector('${surface} [data-pdf-page-status="rendered"]') !== null`,
             { timeoutMs: 30_000 },
           );
@@ -297,7 +307,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           const pdfFrame = await app.evalJS<string>(
             `(function () {
-              var pane = document.querySelector('${surface}').closest(".tug-pane");
+              var lid = document.querySelector('[data-body-placeholder][data-card-id=${JSON.stringify(card.cardId)}]');
+              var pane = lid === null ? null : lid.closest(".tug-pane");
               if (pane === null) throw new Error("the PDF is not in a pane");
               return '.tug-pane[data-pane-id="' + pane.getAttribute("data-pane-id") + '"]';
             })()`,
@@ -322,7 +333,7 @@ describe.skipIf(!SHOULD_RUN)(
             }
             return null;
           })()`;
-          await app.evalJS<null>(
+          await card.evalJS<null>(
             `(function () {
               var el = document.querySelector('${surface}');
               el.scrollTop = Math.floor((el.scrollHeight - el.clientHeight) * 0.35);
@@ -332,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await wait(500);
 
-          const before = await app.evalJS<{
+          const before = await card.evalJS<{
             page: number;
             fraction: number;
             scrollTop: number;
@@ -349,7 +360,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(widthAfter).not.toBe(widthBefore);
           expect(await episodeCount(app)).toBeGreaterThan(episodesBefore);
 
-          const after = await app.evalJS<{
+          const after = await card.evalJS<{
             page: number;
             fraction: number;
             scrollTop: number;

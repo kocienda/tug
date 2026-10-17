@@ -155,7 +155,7 @@ async function openDeck(
     `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   await app.seedDeckState({ state, focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  await app.body("L").waitForCondition<boolean>(
     `document.querySelector('${PLACES} .layout-places-target') !== null`,
     { timeoutMs: 8_000 },
   );
@@ -186,7 +186,7 @@ function pointerUps(app: App): Promise<number> {
 /** Press a target at its leading edge, half way down, and wait until the
  *  press has been handled. */
 async function press(app: App, selector: string): Promise<void> {
-  const point = await app.evalJS<{ x: number; y: number } | null>(
+  const point = await app.body("L").evalJS<{ x: number; y: number } | null>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(`${PLACES} ${selector}`)});
       if (el === null) return null;
@@ -216,7 +216,7 @@ describe.skipIf(!SHOULD_RUN)("at0660 — the miniature's parts take presses", ()
       try {
         await openDeck(app, fitDeck());
 
-        const targets = await app.evalJS<string[]>(
+        const targets = await app.body("L").evalJS<string[]>(
           `Array.prototype.map.call(
             document.querySelectorAll('${PLACES} .layout-places-target'),
             function (el) { return el.getAttribute("data-testid"); }

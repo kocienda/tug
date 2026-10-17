@@ -178,7 +178,7 @@ async function openCard(app: App): Promise<void> {
 
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -401,7 +401,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // That reverses the old claim, on purpose.
         const readRows = async (): Promise<string[]> =>
           JSON.parse(
-            await app.evalJS<string>(
+            await app.body("A").evalJS<string>(
               `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
                 SHELL_ROWS,
               )})).map((el) => el.textContent || ""))`,
@@ -412,6 +412,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // reads; a timeout falls through to the assertions, which say what
         // the card held instead.
         await app
+          .body("A")
           .waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})).some((el) => (el.textContent || "").includes("its session ended"))`,
             { timeoutMs: 10_000 },
@@ -423,7 +424,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
         // thing the next reader needs.
         note(`at0505 the card's shell rows: ${JSON.stringify(seen)}`);
         note(
-          `at0505 the card's DOM: ${await app.evalJS<string>(
+          `at0505 the card's DOM: ${await app.body("A").evalJS<string>(
             `JSON.stringify({
                cards: document.querySelectorAll('[data-card-id="A"]').length,
                transcriptRows: document.querySelectorAll('[data-card-id="A"] [data-slot^="session-transcript"]').length,
@@ -432,7 +433,7 @@ describe.skipIf(!SHOULD_RUN)("AT0505: a stage whose claude dies", () => {
           )}`,
         );
         note("at0505 the card after the kill", (await app.screenshot()).path);
-        const onThePicker = await app.evalJS<boolean>(
+        const onThePicker = await app.body("A").evalJS<boolean>(
           `document.querySelector('[data-card-id="A"] [data-slot="session-card-picker"]') !== null`,
         );
         expect(

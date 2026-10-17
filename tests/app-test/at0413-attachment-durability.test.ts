@@ -141,7 +141,7 @@ interface RawBag {
  * signalled through a window flag and polled.
  */
 async function dropPngOnEditor(app: App): Promise<void> {
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     `(function(){
       window.__at0409Dropped = false;
       var host = document.querySelector(${JSON.stringify(EDITOR_HOST_SELECTOR)});
@@ -177,7 +177,7 @@ async function bootSessionCard(app: App): Promise<void> {
   await app.seedDeckState({ state: SESSION_DECK_STATE, focusCardId: "A" });
   await new Promise<void>((r) => setTimeout(r, 1500));
   await app.bindSession("A");
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(`${EDITOR_HOST_SELECTOR} .cm-content`)}) !== null`,
     { timeoutMs: 10_000 },
   );
@@ -186,7 +186,8 @@ async function bootSessionCard(app: App): Promise<void> {
 /**
  * The live in-memory bag's single `attachmentBytes` entry, or `null` when
  * there is not exactly one. Forces a save first so the bag reflects the
- * store's current contents (the same `saveState` at0024 leans on).
+ * store's current contents (the same `saveState` at0024 leans on). Evaluated
+ * in the card's body, whose `window.tugdeck.saveState` saves that card.
  */
 const READ_LIVE_ENTRY = `(function(){
   window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
@@ -223,14 +224,14 @@ describe.skipIf(!SHOULD_RUN)(
             await dropPngOnEditor(appA);
 
             // The chip lands synchronously with its downsampled bytes.
-            await appA.waitForCondition<boolean>(
+            await appA.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(ATOM_IMG_SELECTOR)}) !== null`,
               { timeoutMs: 10_000 },
             );
 
             // The upload runs in the background; the path arrives when it
             // arrives. This is the one wait the durability story needs.
-            await appA.waitForCondition<boolean>(
+            await appA.body("A").waitForCondition<boolean>(
               `(function(){ var e = ${READ_LIVE_ENTRY}; return e !== null && e.hasPath; })()`,
               { timeoutMs: 20_000 },
             );
@@ -289,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)(
 
               // The chip survived the prune: a path-bearing entry is not an
               // orphan, even though its content arrived empty.
-              await appB.waitForCondition<boolean>(
+              await appB.body("A").waitForCondition<boolean>(
                 `document.querySelector(${JSON.stringify(ATOM_IMG_SELECTOR)}) !== null`,
                 { timeoutMs: 15_000 },
               );
@@ -297,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)(
               // And the bytes came back. A non-empty `content` is exactly
               // what `buildWirePayload` requires to ship a real image block
               // rather than a mention marker.
-              await appB.waitForCondition<boolean>(
+              await appB.body("A").waitForCondition<boolean>(
                 `(function(){ var e = ${READ_LIVE_ENTRY}; return e !== null && e.contentLength > 0; })()`,
                 { timeoutMs: 20_000 },
               );
@@ -360,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)(
               submitted_at_ms: Date.now(),
               client_entry_id: `${sessionId}-1`,
             };
-            await app.evalJS<null>(
+            await app.body("A").evalJS<null>(
               `(function(){
                 window.__at0409History = "pending";
                 fetch("/api/prompt-history", {
@@ -393,7 +394,7 @@ describe.skipIf(!SHOULD_RUN)(
             // `content` empty forever; real bytes are what make a recalled
             // prompt resubmittable, since `buildWirePayload` gates a real
             // image block on exactly `content.length > 0`.
-            const contentLength = await app.waitForCondition<number>(
+            const contentLength = await app.body("A").waitForCondition<number>(
               `(function(){
                 window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
                 var bag = window.__tug.getCardStateBag("A");

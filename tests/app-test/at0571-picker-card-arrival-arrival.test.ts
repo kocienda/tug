@@ -48,6 +48,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 import { pickerPanelNaturalHeight } from "./picker-sessions-fixture";
@@ -241,7 +242,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         //    through the same chrome arithmetic the deck used. This is the
         //    arc's whole claim in one comparison, and neither side of it is a
         //    number anybody wrote down. ──
-        const liveNatural = await pickerPanelNaturalHeight(app);
+        const liveNatural = await pickerPanelNaturalHeight(kindBody(app, "session"));
         const held = await heldFor(app, newcomer);
         note(
           "bid vs first report",

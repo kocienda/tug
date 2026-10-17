@@ -188,7 +188,7 @@ function replayStarted(cardId: CardId): Record<string, unknown> {
 
 /** Z5 — the submit button's `data-mode` (the matrix's Z5 column). */
 function submitButtonMode(app: App, cardId: CardId): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body(cardId).evalJS<string | null>(
     `(function(){
       var el = document.querySelector(
         '[data-card-id="${cardId}"] .tug-prompt-entry-submit-button');
@@ -199,7 +199,7 @@ function submitButtonMode(app: App, cardId: CardId): Promise<string | null> {
 
 /** Z2 — the status row's STATE-cell value text (the human-readable phase). */
 function stateCellLabel(app: App, cardId: CardId): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body(cardId).evalJS<string | null>(
     `(function(){
       var cell = document.querySelector(
         '[data-card-id="${cardId}"] [data-priority="state"] .session-telemetry-status-value');
@@ -210,7 +210,7 @@ function stateCellLabel(app: App, cardId: CardId): Promise<string | null> {
 
 /** Count of transcript ghost rows (queued, not-yet-sent user rows). */
 function ghostRowCount(app: App, cardId: CardId): Promise<number> {
-  return app.evalJS<number>(
+  return app.body(cardId).evalJS<number>(
     `document.querySelectorAll(
       '[data-card-id="${cardId}"] [data-slot="session-transcript-ghost-row"]').length`,
   );
@@ -218,7 +218,7 @@ function ghostRowCount(app: App, cardId: CardId): Promise<number> {
 
 /** The body text of each ghost row, in DOM (submit) order. */
 function ghostRowTexts(app: App, cardId: CardId): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body(cardId).evalJS<string[]>(
     `Array.from(document.querySelectorAll(
       '[data-card-id="${cardId}"] [data-slot="session-transcript-ghost-row"] [data-testid="session-card-transcript-user-body"]'
     )).map(function (el) { return (el.textContent || "").trim(); })`,
@@ -231,7 +231,7 @@ async function waitForGhostRowCount(
   cardId: CardId,
   n: number,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `document.querySelectorAll(
       '[data-card-id="${cardId}"] [data-slot="session-transcript-ghost-row"]').length === ${n}`,
     { timeoutMs: 5000 },
@@ -240,7 +240,7 @@ async function waitForGhostRowCount(
 
 /** Count of committed transcript user rows. */
 function committedUserRowCount(app: App, cardId: CardId): Promise<number> {
-  return app.evalJS<number>(
+  return app.body(cardId).evalJS<number>(
     `document.querySelectorAll(
       '[data-card-id="${cardId}"] [data-testid="session-card-transcript-user-body"]').length`,
   );
@@ -252,7 +252,7 @@ async function waitForSubmitMode(
   cardId: CardId,
   mode: string,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(
         '[data-card-id="${cardId}"] .tug-prompt-entry-submit-button');
@@ -278,7 +278,7 @@ async function mountAllCards(app: App): Promise<void> {
   }
   // Each card's Z2 status row paints once `SessionCardBody` mounts.
   for (const id of CARD_IDS) {
-    await app.waitForCondition<boolean>(
+    await app.body(id).waitForCondition<boolean>(
       `document.querySelector(
         '[data-card-id="${id}"] [data-slot="session-telemetry-status-row"]') !== null`,
       { timeoutMs: 8000 },
@@ -338,7 +338,7 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: FEED_CODE_OUTPUT,
             decoded: toolUse("A", "msg-A", "Bash"),
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var c = document.querySelector(
                 '[data-card-id="A"] [data-priority="state"] .session-telemetry-status-value');
@@ -406,7 +406,7 @@ describe.skipIf(!SHOULD_RUN)(
           // (LIFO), not the running turn. "queued-2" goes; "queued-1"
           // stays; the turn keeps running. (Esc invokes the identical
           // `peelNewest()` path — see `code-session-store.queue.test`.)
-          await app.click('[data-card-id="C"] .tug-prompt-entry-submit-button');
+          await app.body("C").click('[data-card-id="C"] .tug-prompt-entry-submit-button');
           await waitForGhostRowCount(app, "C", 1);
           expect(
             await ghostRowTexts(app, "C"),
@@ -418,7 +418,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe("stop");
 
           // C1 — the ghost row's ✕ un-sends that one queued message.
-          await app.click(
+          await app.body("C").click(
             '[data-card-id="C"] [data-slot="session-transcript-ghost-row"] ' +
               '[data-slot="tug-icon-button"]',
           );
@@ -434,7 +434,7 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: FEED_CODE_OUTPUT,
             decoded: wireError("D"),
           });
-          await app.waitForCondition<boolean>(
+          await app.body("D").waitForCondition<boolean>(
             `(function(){
               var c = document.querySelector(
                 '[data-card-id="D"] [data-priority="state"] .session-telemetry-status-value');

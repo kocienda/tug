@@ -135,7 +135,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await frameWidth(app, "pRail")).toBeCloseTo(PREFERRED, 0);
 
           // ── The moment: choose Five Up. ──────────────────────────────────
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await app.body("L").nativeClickAtElement(THREE_UP_TILE);
 
           // The rail's new width crosses by the settle FLIP rather than
           // cutting — the width is part of the arrangement signature.
@@ -173,13 +173,13 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("toggle-layout"), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LAYOUT_FRAME)}) !== null`,
             { timeoutMs: 5_000 },
           );
           await wait(AFTER_LAND_MS);
           expect(
-            await app.evalJS<number>(
+            await app.body("L").evalJS<number>(
               `document.querySelector(${JSON.stringify(LAYOUT_FRAME)})
                  .closest(".tug-pane").getBoundingClientRect().width`,
             ),
@@ -214,7 +214,7 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pRail")).toBeCloseTo(PREFERRED, 0);
 
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await app.body("L").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
           const grown = await frameWidth(app, "pRail");
           expect(grown).toBeCloseTo(predictedRailWidth(canvas, reachable), 0);
@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)(
             focusCardId: "A",
           });
           await wait(AFTER_LAND_MS);
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await app.body("L").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
 
           expect(await frameWidth(app, "pRail")).toBeCloseTo(CEILING, 0);
@@ -247,7 +247,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Idempotent: the answer is a function of the inputs, not of where
           // the rail happens to be standing, so re-asserting changes nothing.
-          await app.nativeClickAtElement(THREE_UP_TILE);
+          await app.body("L").nativeClickAtElement(THREE_UP_TILE);
           await wait(AFTER_LAND_MS);
           expect(await frameWidth(app, "pRail")).toBeCloseTo(CEILING, 0);
         } finally {

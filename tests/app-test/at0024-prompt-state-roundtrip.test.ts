@@ -313,7 +313,7 @@ async function setupPhaseA(
   // `getEmCardState` invokes the save callback synchronously and
   // returns the persisted shape — for the wrapper cards it
   // unwraps `perRoute[currentRoute]`.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var s = window.__tug.getEmCardState("A");
       return s !== null && s.text === ${JSON.stringify(SEED_TEXT)};
@@ -512,14 +512,14 @@ async function reseedFromDisk(
  */
 async function assertLiveState(app: App): Promise<void> {
   // Axis 1: live text equals seed.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var s = window.__tug.getEmCardState("A");
       return s !== null && s.text === ${JSON.stringify(SEED_TEXT)};
     })()`,
     { timeoutMs: 4000 },
   );
-  const liveText = await app.evalJS<string>(
+  const liveText = await app.body("A").evalJS<string>(
     `window.__tug.getEmCardState("A").text`,
   );
   expect(liveText, "axis text: live engine text must match seed").toBe(
@@ -530,7 +530,7 @@ async function assertLiveState(app: App): Promise<void> {
   // Reading via the contenteditable's `<img data-atom-label>` count is
   // robust against engine internals; the engine always renders one
   // image per atom.
-  const atomLabels = await app.evalJS<string[]>(
+  const atomLabels = await app.body("A").evalJS<string[]>(
     `(function(){
       var ed = document.querySelector('[data-card-id="A"] ${PROMPT_INPUT_SELECTOR}');
       if (!ed) return [];
@@ -577,7 +577,7 @@ async function assertLiveState(app: App): Promise<void> {
   // index maps deterministically to a doc-offset (1 char per
   // newline + line length). The assertion: the doc-offset at the
   // viewport top equals the bag's `scrollAnchor.topPos`.
-  const liveAnchor = await app.evalJS<{
+  const liveAnchor = await app.body("A").evalJS<{
     scrollTop: number;
     topLineIndex: number;
   }>(
@@ -602,8 +602,10 @@ async function assertLiveState(app: App): Promise<void> {
   // offset is the number of '\n' characters before that offset.
   // The bag's `scrollAnchor` rides inside the engine state under the
   // current `{ route, draft }` wrapper — read via the live in-memory
-  // bag (force a save first so the bag reflects post-restore state).
-  const anchorTopPos = await app.evalJS<number | null>(
+  // bag (force a save first so the bag reflects post-restore state). Read in
+  // the card's body, whose `window.tugdeck.saveState` saves that card and
+  // whose bag is the card's own.
+  const anchorTopPos = await app.body("A").evalJS<number | null>(
     `(function(){
       window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState();
       var bag = window.__tug.getCardStateBag("A");

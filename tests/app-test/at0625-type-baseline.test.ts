@@ -165,7 +165,7 @@ async function mountSkillHeader(app: Harness): Promise<void> {
 
   // The mono detail is the run the name is being measured against, so the
   // header is not ready until it is in the DOM.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(DETAIL_CODE)}) !== null`,
     { timeoutMs: 12_000 },
   );
@@ -173,12 +173,12 @@ async function mountSkillHeader(app: Harness): Promise<void> {
 
 /** Read the header's runs, and render the reading as one diagnostic line. */
 async function readHeader(app: Harness): Promise<RowBaselines> {
-  return JSON.parse(await app.evalJS<string>(rowBaselinesJS(HEADER))) as RowBaselines;
+  return JSON.parse(await app.body("A").evalJS<string>(rowBaselinesJS(HEADER))) as RowBaselines;
 }
 
 /** Read any row's runs. */
 async function readRow(app: Harness, selector: string): Promise<RowBaselines> {
-  return JSON.parse(await app.evalJS<string>(rowBaselinesJS(selector))) as RowBaselines;
+  return JSON.parse(await app.body("A").evalJS<string>(rowBaselinesJS(selector))) as RowBaselines;
 }
 
 /** The Z2 telemetry row's letterspaced legend — `[F05]`'s subject. */
@@ -356,7 +356,7 @@ async function mountCensusSurfaces(app: Harness): Promise<void> {
 
   // Wait for the last surface to arrive rather than sleeping: if the wake
   // chip is up, every block ingested before it is up too.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('${CARD} [data-slot="wake-trigger-chip"]') !== null &&
      document.querySelector(${JSON.stringify(ENDCAP_LABEL)}) !== null`,
     { timeoutMs: 15_000 },
@@ -447,7 +447,7 @@ describe.skipIf(!SHOULD_RUN)("AT0624: the tool-call header's type baseline", () 
       try {
         await mountSkillHeader(app);
 
-        const collapsedAttr = await app.evalJS<string | null>(
+        const collapsedAttr = await app.body("A").evalJS<string | null>(
           `(document.querySelector(${JSON.stringify(HEADER)}) || {getAttribute:function(){return null;}})
              .getAttribute("data-collapsed")`,
         );
@@ -477,15 +477,15 @@ describe.skipIf(!SHOULD_RUN)("AT0624: the tool-call header's type baseline", () 
         // Does a strut inside `-webkit-line-clamp`'s `display: -webkit-box`
         // still report a baseline? Read the opposite state and say so; the
         // answer bounds every later step that measures a collapsed header.
-        await app.click(DISCLOSURE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(DISCLOSURE);
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              var h = document.querySelector(${JSON.stringify(HEADER)});
              return h !== null && h.getAttribute("data-collapsed") !== ${JSON.stringify(collapsedAttr)};
            })()`,
           { timeoutMs: 6000 },
         );
-        const toggledAttr = await app.evalJS<string | null>(
+        const toggledAttr = await app.body("A").evalJS<string | null>(
           `document.querySelector(${JSON.stringify(HEADER)}).getAttribute("data-collapsed")`,
         );
         const toggled = await readHeader(app);
@@ -604,7 +604,7 @@ describe.skipIf(!SHOULD_RUN)("AT0624: the tool-call header's type baseline", () 
         // after the last glyph to absorb the track, and the flex container
         // centres the box the track widened.
         const track = JSON.parse(
-          await app.evalJS<string>(trackCompensationJS(ENDCAP_LABEL)),
+          await app.body("A").evalJS<string>(trackCompensationJS(ENDCAP_LABEL)),
         ) as TrackCompensation;
         note(
           track.found === true
@@ -646,7 +646,7 @@ describe.skipIf(!SHOULD_RUN)("AT0624: the tool-call header's type baseline", () 
 
         const ICON = `${CARD} [data-tool-use-id="tc-read"] .tug-atom-ref-icon`;
         const glyph = JSON.parse(
-          await app.evalJS<string>(`JSON.stringify((function(){
+          await app.body("A").evalJS<string>(`JSON.stringify((function(){
             var el = document.querySelector(${JSON.stringify(ICON)});
             if (el === null) return { found: false };
             var root = getComputedStyle(document.documentElement);
@@ -730,7 +730,7 @@ describe.skipIf(!SHOULD_RUN)("AT0624: the tool-call header's type baseline", () 
         await mountCensusSurfaces(app);
 
         const track = JSON.parse(
-          await app.evalJS<string>(trackCompensationJS(ENDCAP_LABEL)),
+          await app.body("A").evalJS<string>(trackCompensationJS(ENDCAP_LABEL)),
         ) as TrackCompensation;
         note(
           track.found === true
@@ -748,7 +748,7 @@ describe.skipIf(!SHOULD_RUN)("AT0624: the tool-call header's type baseline", () 
         // "did the nudge move the legend toward the rule or away from it"
         // and does not pretend to a tolerance it has not earned.
         const ink = JSON.parse(
-          await app.evalJS<string>(inkVsRuleJS(ENDCAP_LABEL, ENDCAP_RULE_FILL)),
+          await app.body("A").evalJS<string>(inkVsRuleJS(ENDCAP_LABEL, ENDCAP_RULE_FILL)),
         ) as InkVsRule;
         note(
           ink.found === true

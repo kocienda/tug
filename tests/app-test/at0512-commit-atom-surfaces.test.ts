@@ -222,7 +222,7 @@ async function writeMention(app: App): Promise<void> {
   });
   // The prose paints first; the label is a round trip to the git feed, so it
   // is waited for rather than read.
-  await app.waitForCondition<boolean>(
+  await app.body("S").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENTION_PILL)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -239,7 +239,7 @@ async function writeReceipt(app: App): Promise<void> {
     exitCode: 0,
     startedAtMs: 1_700_000_000_000,
   });
-  await app.waitForCondition<boolean>(
+  await app.body("S").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(RECEIPT_PILL)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -256,7 +256,7 @@ async function writeSentAtom(app: App): Promise<void> {
     text: `look at ${FFFC} again`,
     atoms: [{ kind: "atom", type: "commit", label: LABEL, value: HEAD_SHA }],
   });
-  await app.waitForCondition<boolean>(
+  await app.body("S").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SENT_PILL)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -410,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           note("at0512 sent user row", JSON.stringify(sent));
           expect(sent.label).toBe(LABEL);
           const sentAtom = JSON.parse(
-            await app.evalJS<string>(SENT_ATOM_JS),
+            await app.body("S").evalJS<string>(SENT_ATOM_JS),
           ) as { type: string; label: string; value: string } | null;
           note("at0512 sent atom attrs", JSON.stringify(sentAtom));
           // Without these a copy across the row loses the atom and pastes the
@@ -438,7 +438,7 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           // A post whose prose never names the sha, so the ref survives
           // `unmentionedRefs` and rides the trailing strip as a placed atom.
           await app.nativeKey("o", ["cmd", "ctrl"]);
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERVIEW_CARD)}) !== null`,
             { timeoutMs: 15_000 },
           );
@@ -455,7 +455,7 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
             ),
           ).toBe(true);
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERVIEW_PILL)}) !== null`,
             { timeoutMs: 15_000 },
           );
@@ -537,7 +537,7 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           persistInTestMode: true,
         });
         const readBaselines = async (): Promise<Baselines> =>
-          JSON.parse(await app.evalJS<string>(BASELINES_JS)) as Baselines;
+          JSON.parse(await app.body("S").evalJS<string>(BASELINES_JS)) as Baselines;
 
         try {
           await app.waitForCondition<boolean>(

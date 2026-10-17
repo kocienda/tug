@@ -57,6 +57,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -73,19 +74,19 @@ const PROJECT_DIR = "/tmp/at0614-project";
 const SESSION_NAME = "ledger walk";
 const SESSION_SYNOPSIS = "Reading the bindings ledger back at boot.";
 
-/**
- * "On screen", said out loud. Every visited workspace stays mounted ([B06]),
- * so the document holds one Workspaces card per visited workspace — all but
- * one inside a wrapper with no `data-space-shown`.
+/*
+ * "On screen" is which page is read. Every visited workspace stays mounted
+ * ([B06]), so the deck may hold one Workspaces card per visited workspace,
+ * each in its own body; `kindBody(app, "cards")` reads the one the user can
+ * see — HOME's. The selectors below run inside that body.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
 
 /** Any row inside a named workspace's block. */
 const rowIn = (spaceId: string): string =>
-  `${SHOWN}.cards-list .cards-row[data-cards-space-run="${spaceId}"]`;
+  `.cards-list .cards-row[data-cards-space-run="${spaceId}"]`;
 
 /** The parked card's row, IF it drew as a session row. */
-const SESSION_ROW = `${SHOWN}.cards-list [data-session-id="${PARKED_SESSION}"]`;
+const SESSION_ROW = `.cards-list [data-session-id="${PARKED_SESSION}"]`;
 
 const settle = (ms = 400): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -222,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)(
              && window.tugdeck.diag.getSpaces().spaces.length === 2`,
             { timeoutMs: 25_000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(rowIn(AWAY))}) !== null`,
             { timeoutMs: 25_000 },
           );
@@ -248,13 +249,13 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- 1. The ledger's answer arrives, as the boot frame's does. --
           await app.evalJS<unknown>(publishLedger);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
             { timeoutMs: 15_000 },
           );
           await settle();
 
-          const titles = await app.evalJS<string[]>(titlesIn(AWAY));
+          const titles = await kindBody(app, "cards").evalJS<string[]>(titlesIn(AWAY));
           note(`at0614 rows in the parked workspace: ${JSON.stringify(titles)}`);
           expect(
             titles,
@@ -262,7 +263,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toContain(SESSION_NAME);
 
           // ---- 2. The three faces of the defect, one assertion each. ------
-          const row = await app.evalJS<{
+          const row = await kindBody(app, "cards").evalJS<{
             sessionId: string | null;
             description: string | null;
             descriptionEmpty: string | null;

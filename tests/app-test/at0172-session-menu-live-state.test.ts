@@ -134,7 +134,7 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
         // ── 1. The AI item's live title ──
         // Fresh session: the chip reads Default, and the menu item says so too
         // rather than carrying only the static "AI Settings…" door label.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${chipModeExpr()} === "Default"`,
           { timeoutMs: 8000 },
         );
@@ -142,12 +142,12 @@ describe.skipIf(!SHOULD_RUN)("AT0172: Session-menu live-state validation", () =>
 
         // Focus the card so the key-card-scoped dispatch resolves it,
         // then fire the exact control action the menu item posts.
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("cycle-permission-mode"), null)`,
         );
         // default → acceptEdits is the cycle's first step.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${chipModeExpr()} === "Accept Edits"`,
           { timeoutMs: 8000 },
         );

@@ -98,6 +98,7 @@ import {
   tugtool,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -245,7 +246,7 @@ interface PlanRowReading {
 }
 
 const readPlanRows = (app: App): Promise<PlanRowReading[]> =>
-  app.evalJS<PlanRowReading[]>(
+  kindBody(app, "dashes").evalJS<PlanRowReading[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(PLAN_ROWS)})).map((row) => {
        const track = row.querySelector('[data-slot="tug-arc-track"]');
        const cell = track?.querySelector(
@@ -312,11 +313,11 @@ describe.skipIf(!SHOULD_RUN)(
           // Five rows: A's four arcs — three with plans, one with only a
           // brief — plus B's one. Every one of them is an arc that exists
           // without a branch, which is the planning phase made visible.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "dashes").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(PLAN_ROWS)}).length === 5`,
             { timeoutMs: 40000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "dashes").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(planRow(REVIEWED))}) !== null`,
             { timeoutMs: 20000 },
           );
@@ -328,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The `populated` flag counts both kinds; counting arcs alone would
           // render the empty state over rows that never mounted.
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "dashes").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(EMPTY)}).length`,
             ),
           ).toBe(0);
@@ -401,18 +402,18 @@ describe.skipIf(!SHOULD_RUN)(
           note("at0473 adopter worktree", adopter.worktree);
           // The plan stayed exactly where it was — nothing transplanted it.
           expect(existsSync(arcPlanPath(dirA(), ADOPTER))).toBe(true);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "dashes").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(PLAN_ROWS)}).length === 4`,
             { timeoutMs: 40000 },
           );
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "dashes").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(planRow(FRESH))}).length`,
             ),
           ).toBe(0);
           // And the work is not gone from the section — it moved to the row that
           // tells the truth about it, which carries the live step counter.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "dashes").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${SECTION} [data-slot="arcs-row"][data-arc="${ADOPTER}"]`)}) !== null`,
             { timeoutMs: 40000 },
           );
@@ -421,7 +422,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The TASKS reading first, so the switch has something to be a switch
           // FROM. The box is not the same one: a ARC reading takes STATE's
           // width and JOBS gives exactly that back ([D168]).
-          const tasksBox = await app.evalJS<{ label: string; width: number }>(
+          const tasksBox = await app.body("A").evalJS<{ label: string; width: number }>(
             `(() => {
              const cell = document.querySelector(${JSON.stringify(CELL)});
              return {
@@ -482,11 +483,11 @@ describe.skipIf(!SHOULD_RUN)(
             binaryRoot: CHECKOUT,
             env: projectA!.cli.env,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "ARC"`,
             { timeoutMs: 60000 },
           );
-          const atTheDoor = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
+          const atTheDoor = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, at the door", JSON.stringify(atTheDoor));
           expect(atTheDoor.label).toBe("ARC");
           expect(atTheDoor.text).not.toMatch(/\d+\/\d+/);
@@ -505,11 +506,11 @@ describe.skipIf(!SHOULD_RUN)(
             binaryRoot: CHECKOUT,
             env: projectA!.cli.env,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Cut"`,
             { timeoutMs: 60000 },
           );
-          const bare = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
+          const bare = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, no plan", JSON.stringify(bare));
           expect(bare.label).toBe("ARC");
           // No strip in this box: the cell is an instrument, and the whole
@@ -549,11 +550,11 @@ describe.skipIf(!SHOULD_RUN)(
             "arc-stage",
             "implement " + SID_A + " -",
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Executing"`,
             { timeoutMs: 60000 },
           );
-          const seated = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
+          const seated = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note(
             "at0473 Z2 as ARC, seated before step 1",
             JSON.stringify(seated),
@@ -574,12 +575,12 @@ describe.skipIf(!SHOULD_RUN)(
           // outside every tree git watches, so a run's whole ledger walk leaves
           // the worktree clean.
           writeFileSync(join(arc.worktree, "in-flight.txt"), "mid-round\n");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "1/3"`,
             { timeoutMs: 60000 },
           );
 
-          const arcBox = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
+          const arcBox = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC", JSON.stringify(arcBox));
           expect(arcBox.label).toBe("ARC");
           // **Numbers whenever there are numbers.** A declared step turns the
@@ -607,12 +608,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(arcBox.authored).toBe("17ch");
 
           // ── And the click opens the cockpit detail ────────────────────────
-          await app.click(CELL);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(CELL);
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
             { timeoutMs: 10000 },
           );
-          const placard = await app.evalJS<{
+          const placard = await app.body("A").evalJS<{
             text: string;
             rows: Array<{ text: string; status: string | null }>;
             blocks: number;
@@ -674,11 +675,11 @@ describe.skipIf(!SHOULD_RUN)(
             binaryRoot: CHECKOUT,
             env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "1/12"`,
             { timeoutMs: 60000 },
           );
-          const longBox = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
+          const longBox = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, twelve steps", JSON.stringify(longBox));
           expect(longBox.text).toBe("1/12");
 
@@ -702,14 +703,14 @@ describe.skipIf(!SHOULD_RUN)(
             binaryRoot: CHECKOUT,
             env: { ...projectA!.cli.env, TUG_SESSION_ID: SID_A },
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(() => {
                const rows = document.querySelectorAll(${JSON.stringify(`${ARC_PLACARD} [data-slot="arc-step"]`)});
                return rows.length === 16 && rows[15].getAttribute("data-status") === "in progress";
              })()`,
             { timeoutMs: 60000 },
           );
-          const reveal = await app.evalJS<{
+          const reveal = await app.body("A").evalJS<{
             scrollTop: number;
             scrollable: boolean;
             visible: boolean;
@@ -752,11 +753,11 @@ describe.skipIf(!SHOULD_RUN)(
             "arc-stage",
             "audit " + SID_A + " -",
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector(${JSON.stringify(`${CELL} [data-slot="session-telemetry-arc-value"]`)})?.textContent ?? "").trim() === "Auditing"`,
             { timeoutMs: 60000 },
           );
-          const audited = await app.evalJS<ArcCellProbe>(PROBE_ARC_CELL);
+          const audited = await app.body("A").evalJS<ArcCellProbe>(PROBE_ARC_CELL);
           note("at0473 Z2 as ARC, under audit", JSON.stringify(audited));
           expect(audited.text).toBe("Auditing");
           expect(audited.aria).toBe(`arc ${ARC_NAME}, in audit`);
@@ -764,13 +765,13 @@ describe.skipIf(!SHOULD_RUN)(
           // The placard is still up from the click above; a second click
           // would close it. Open it only if something closed it meanwhile.
           if (
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(ARC_PLACARD)}) === null`,
             )
           ) {
-            await app.click(CELL);
+            await app.body("A").click(CELL);
           }
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${ARC_PLACARD} [data-slot="tug-arc-track"][data-phase="audit"]`)}) !== null`,
             { timeoutMs: 10000 },
           );

@@ -7,9 +7,18 @@
  * Split out of `at0451-cards-multiselect.test.ts` when that file was cut into
  * `at0451-cards-multiselect-chords`, `-list` and `-escape` to keep each under
  * the 20 s budget.
+ *
+ * The slot, front-card and selection readers read the deck in the shell. The
+ * Cards list, its cursor and its filter field are the Cards card's DOM, in
+ * that card's own page (`kindBody(app, "cards")`), and the row and filter
+ * readers and clicks run there.
  */
 
-import { type App } from "./_harness";
+import { type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
+
+/** The page holding the Cards card's DOM. */
+const cardsPage = (app: App): BodyApp => kindBody(app, "cards");
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
@@ -119,14 +128,15 @@ export const FILTER_INPUT =
 
 /** How many rows the Cards list is showing — headers included. */
 export async function rowCount(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return cardsPage(app).evalJS<number>(
     `document.querySelectorAll(".cards-list .tug-list-view-cell").length`,
   );
 }
 
 /** Put the caret in the Cards section's filter field. */
 export async function clickFilterField(app: App): Promise<boolean> {
-  const box = await app.evalJS<{ x: number; y: number } | null>(
+  const page: BodyApp = cardsPage(app);
+  const box = await page.evalJS<{ x: number; y: number } | null>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
       if (el === null) return null;
@@ -135,19 +145,19 @@ export async function clickFilterField(app: App): Promise<boolean> {
     })()`,
   );
   if (box === null) return false;
-  await app.nativeClick(box, { activateFirst: false });
+  await page.nativeClick(box, { activateFirst: false });
   return true;
 }
 
 /** The Cards section's live filter query. */
 export async function filterQuery(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return cardsPage(app).evalJS<string>(
     `(document.querySelector(${JSON.stringify(FILTER_INPUT)})?.value ?? "")`,
   );
 }
 
 export async function cursorTitle(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return cardsPage(app).evalJS<string>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(CURSOR_ROW)});
       return el === null ? "" : (el.textContent || "");
@@ -190,7 +200,7 @@ export async function walkCursorTo(app: App, title: string): Promise<void> {
  */
 export async function focusCardsList(app: App): Promise<void> {
   await app.dispatchControlAction("toggle-cards");
-  await app.waitForCondition<boolean>(
+  await cardsPage(app).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
     { timeoutMs: 8_000 },
   );
@@ -199,7 +209,8 @@ export async function focusCardsList(app: App): Promise<void> {
 /** Click the Cards row whose text contains `title`, on its title text — never
  *  on a close box or a slot button, which act on the row rather than pick it. */
 export async function clickRowTitled(app: App, title: string): Promise<boolean> {
-  const box = await app.evalJS<{ x: number; y: number } | null>(
+  const page: BodyApp = cardsPage(app);
+  const box = await page.evalJS<{ x: number; y: number } | null>(
     `(function () {
       var rows = document.querySelectorAll(".cards-list .tug-list-view-cell");
       for (var i = 0; i < rows.length; i += 1) {
@@ -212,7 +223,7 @@ export async function clickRowTitled(app: App, title: string): Promise<boolean> 
     })()`,
   );
   if (box === null) return false;
-  await app.nativeClick(box, { activateFirst: false });
+  await page.nativeClick(box, { activateFirst: false });
   return true;
 }
 

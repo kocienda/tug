@@ -223,19 +223,19 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
             result: "success",
           },
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── Raise the changes sheet ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -251,7 +251,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         } catch (err) {
           note(
             "at0335 shade contents when the session rows did not appear",
-            await app.evalJS<unknown>(
+            await app.body("A").evalJS<unknown>(
               `(() => {
                  const sheet = document.querySelector(${JSON.stringify(SHEET)});
                  if (sheet === null) return "no sheet";

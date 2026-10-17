@@ -176,7 +176,7 @@ export async function overviewComposer(launch: Launch): Promise<void> {
 export async function overviewNoSwitch(launch: Launch): Promise<void> {
   const card = "row12-overview";
   const kind = cardKind("overview");
-  const plain = await launchTugApp({ testName: `${TEST_NAME}-overview-no-switch`, ...launch });
+  const plain = await launchTugApp({ testName: `${TEST_NAME}-overview-no-switch`, ...launch, bodies: false });
   try {
     await plain.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row12-seed"] }), focusCardId: card });
     // card-dom: shell
@@ -299,7 +299,7 @@ export async function sessionComposer(launch: Launch, part: "send" | "panel"): P
 /** Without the switch the Session card's composer mounts in the shell's own document and the host holds no body, not even a spare. */
 export async function sessionNoSwitch(launch: Launch): Promise<void> {
   const stubDir = stubDirectory();
-  const plain = await launchTugApp({ testName: `${TEST_NAME}-no-switch`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const plain = await launchTugApp({ testName: `${TEST_NAME}-no-switch`, ...launch, bodies: false, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await plain.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(plain, A, stubDir, 2);

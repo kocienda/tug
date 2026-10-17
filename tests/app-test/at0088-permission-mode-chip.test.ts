@@ -58,7 +58,7 @@ const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
  * omitted rather than dashed, so the mode never shifts position.
  */
 async function chipMode(app: App): Promise<string | null> {
-  return await app.evalJS<string | null>(
+  return await app.body("A").evalJS<string | null>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(CHIP_CONTENT)});
       if (el === null) return null;
@@ -99,7 +99,7 @@ describe.skipIf(!SHOULD_RUN)(
           // unknown state too, and headless claude is slow / may never emit a
           // `system_metadata` — the chip's behavior under test is the
           // client-side cycle + sheet, not the live mode value.)
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHIP_CONTENT)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -121,11 +121,11 @@ describe.skipIf(!SHOULD_RUN)(
           //    keystroke reaches the document listener normally. The synthetic
           //    event drives the exact same capture-phase pipeline
           //    (`matchKeybinding` → key-card dispatch).
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.evalJS<void>(
             `document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyP", key: "p", metaKey: true, ctrlKey: true, altKey: true, bubbles: true, cancelable: true }))`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var t = ${CHIP_MODE_EXPR};
               return t !== null && t !== ${JSON.stringify(initialMode)} &&
@@ -141,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)(
           //    open the sheet, choose the Auto segment (which moves the pending
           //    selection only), and commit with OK — so the full segment →
           //    selectValue → computeAiConfigCommit → setMode path runs.
-          await app.nativeClickAtElement(CHIP);
+          await app.body("A").nativeClickAtElement(CHIP);
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(AUTO_OPTION)}) !== null`,
             { timeoutMs: 4000 },
@@ -180,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(afterCycle);
 
           await app.nativeClickAtElement(SHEET_OK);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${CHIP_MODE_EXPR} === "Auto"`,
             { timeoutMs: 4000 },
           );

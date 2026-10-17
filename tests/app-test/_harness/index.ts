@@ -1188,12 +1188,12 @@ export class App {
    * Drive a run of steps in one evaluate and wait for the store to settle
    * once — see {@link client.driveSessionBatch}. The way to seed a transcript.
    */
-  driveSessionBatch(
+  async driveSessionBatch(
     cardId: string,
     actions: readonly client.SessionDriveAction[],
     opts?: EvalJsOptions,
   ): Promise<void> {
-    return client.driveSessionBatch(this as HarnessCaller, cardId, actions, opts);
+    return client.driveSessionBatch(await this.pageOf(cardId), cardId, actions, opts);
   }
 
   /**
@@ -2467,7 +2467,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     ...(opts.persistInTestMode ? { TUGAPP_PERSIST_IN_TEST_MODE: "1" } : {}),
     ...(opts.restoreInTestMode ? { TUGAPP_RESTORE_IN_TEST_MODE: "1" } : {}),
     ...(opts.keepSetup ? { TUGAPP_TEST_KEEP_SETUP: "1" } : {}),
-    ...(opts.bodies ? { TUG_BODY_VIEWS: "1" } : {}),
+    ...(opts.bodies !== false ? { TUG_BODY_VIEWS: "1" } : {}),
     ...opts.env,
     TUGAPP_TEST_SOCKET: socketPath,
     TUG_INSTANCE_ID: instanceId,

@@ -39,7 +39,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp } from "./_harness";
+import { enforcedTimeout, launchTugApp, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -99,6 +99,27 @@ const textCardShowsJS = (needle: string) => `(function(){
   return Array.from(document.querySelectorAll(${JSON.stringify(TEXT_CARD)}))
     .some(function(el){ return (el.textContent || "").indexOf(${JSON.stringify(needle)}) !== -1; });
 })()`;
+
+/**
+ * Wait until any open Text card shows `needle`. Each Text card is its own
+ * body, so "any" is asked of every Text card's page in turn.
+ */
+async function waitAnyTextCardShows(app: App, needle: string, opts: { timeoutMs: number }): Promise<void> {
+  const budget = enforcedTimeout(opts.timeoutMs);
+  const deadline = Date.now() + budget;
+  for (;;) {
+    for (const b of await app.bodies()) {
+      if (b.componentId !== "text" || b.cardId === null || (b.state !== "bound" && b.state !== "ready")) continue;
+      const shows = await app
+        .body(b.cardId)
+        .evalJS<boolean>(textCardShowsJS(needle))
+        .catch(() => false);
+      if (shows) return;
+    }
+    if (Date.now() >= deadline) throw new Error(`no Text card showed ${JSON.stringify(needle)} within ${budget} ms`);
+    await Bun.sleep(50);
+  }
+}
 
 const countJS = (selector: string) =>
   `document.querySelectorAll(${JSON.stringify(selector)}).length`;
@@ -182,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // 3. Clicking it opens the file it names…
           await app.click(newerRow);
-          await app.waitForCondition<boolean>(textCardShowsJS("the-newer-file-body"), {
+          await waitAnyTextCardShows(app, "the-newer-file-body", {
             timeoutMs: 20_000,
           });
           // …and so does the older one, which is no longer the newest and is
@@ -201,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 10_000 },
           );
           await app.click(olderRow);
-          await app.waitForCondition<boolean>(textCardShowsJS("the-older-file-body"), {
+          await waitAnyTextCardShows(app, "the-older-file-body", {
             timeoutMs: 20_000,
           });
 

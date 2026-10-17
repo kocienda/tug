@@ -77,7 +77,7 @@ async function push(app: App, event: Record<string, unknown>): Promise<void> {
 
 /** The document as the user reads it. */
 function docText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(EDITOR)}).textContent || "")`,
   );
 }
@@ -101,14 +101,14 @@ describe.skipIf(!SHOULD_RUN)("AT0646: dictation lands in the Session composer", 
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(exists(SUBMIT), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(SUBMIT), { timeoutMs: 8000 });
 
         // ── 1. The mic is there, and it is before Submit. ──────────────────
-        await app.waitForCondition<boolean>(exists(MIC), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(MIC), { timeoutMs: 8000 });
         // Document order inside the trailing row, which is what the eye reads
         // left to right. `compareDocumentPosition`'s FOLLOWING bit (4) is set
         // when the mic comes first.
-        const micBeforeSubmit = await app.evalJS<boolean>(
+        const micBeforeSubmit = await app.body("A").evalJS<boolean>(
           `(function(){
             var row = document.querySelector(${JSON.stringify(TRAILING)});
             var mic = document.querySelector(${JSON.stringify(MIC)});
@@ -120,60 +120,60 @@ describe.skipIf(!SHOULD_RUN)("AT0646: dictation lands in the Session composer", 
         );
         expect(micBeforeSubmit).toBe(true);
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `document.querySelector(${JSON.stringify(MIC)}).getAttribute("data-mode")`,
           ),
         ).toBe("idle");
 
         // ── 2. A press goes live, and names its session. ───────────────────
-        await app.nativeClickAtElement(MIC);
+        await app.body("A").nativeClickAtElement(MIC);
         // The host's no-audio `ready` is what moves this to `live` ([P01]); a
         // `starting` that never advanced would mean the press did not reach the
         // host at all.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MIC)}).getAttribute("data-mode") === "live"`,
           { timeoutMs: 10_000 },
         );
-        const sessionId = await app.getElementAttribute(MIC, "data-dictation-id");
+        const sessionId = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         note("dictation session id", String(sessionId));
         expect(typeof sessionId).toBe("string");
         expect((sessionId ?? "").length).toBeGreaterThan(0);
         // The toggle state, for anybody who cannot see that the glyph became a
         // wave.
-        expect(await app.getElementAttribute(MIC, "aria-pressed")).toBe("true");
+        expect(await app.body("A").getElementAttribute(MIC, "aria-pressed")).toBe("true");
 
         // ── 3. Provisional, then settled. ─────────────────────────────────
         await push(app, { id: sessionId, kind: "volatile", text: "hello wor" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)}).textContent || "") === "hello wor"`,
           { timeoutMs: 10_000 },
         );
         // The mark is the whole of "the machine has not committed to this yet".
-        expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(true);
+        expect(await app.body("A").evalJS<boolean>(exists(VOLATILE))).toBe(true);
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(VOLATILE)}).textContent || "")`,
           ),
         ).toBe("hello wor");
 
         await push(app, { id: sessionId, kind: "final", text: "hello world" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)}).textContent || "") === "hello world"`,
           { timeoutMs: 10_000 },
         );
         // Settled text is ordinary draft content from here on, so nothing is
         // marked. A mark surviving a `final` would tell the user their own words
         // are still provisional.
-        expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(VOLATILE))).toBe(false);
 
         // ── 4. Closing keeps every word. ──────────────────────────────────
         await push(app, { id: sessionId, kind: "volatile", text: " again" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)}).textContent || "") === "hello world again"`,
           { timeoutMs: 10_000 },
         );
-        await app.nativeClickAtElement(MIC);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(MIC);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MIC)}).getAttribute("data-mode") === "idle"`,
           { timeoutMs: 10_000 },
         );
@@ -183,36 +183,36 @@ describe.skipIf(!SHOULD_RUN)("AT0646: dictation lands in the Session composer", 
         // and a finish keeps the recogniser's reading of what it already heard.
         // Escape is the one gesture that would have dropped it.
         expect(afterClose).toBe("hello world again");
-        expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(VOLATILE))).toBe(false);
         // And nothing was sent. This is the claim that makes the feature safe
         // to use mid-thought ([B03]).
-        expect(await app.evalJS<boolean>(exists(USER_TURN))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(USER_TURN))).toBe(false);
 
         // ── 5. [P08] in the app: the next session opens on its own line. ───
         // The draft is non-empty and the caret is at its end (the settle left it
         // there), so the append rule applies and the padding is what keeps the
         // new sentence off the end of the old one.
-        await app.nativeClickAtElement(MIC);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(MIC);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MIC)}).getAttribute("data-mode") === "live"`,
           { timeoutMs: 10_000 },
         );
-        const secondId = await app.getElementAttribute(MIC, "data-dictation-id");
+        const secondId = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         // A fresh id per start, which is what makes the previous session's late
         // events land nowhere.
         expect(secondId).not.toBe(sessionId);
 
         await push(app, { id: secondId, kind: "volatile", text: "and again" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)}).textContent || "").indexOf("and again") !== -1`,
           { timeoutMs: 10_000 },
         );
         // CodeMirror draws each line as its own element, so the padding reads as
         // a second line rather than as a newline in the text content.
-        const lines = await app.evalJS<number>(
+        const lines = await app.body("A").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(`${EDITOR} .cm-line`)}).length`,
         );
-        const secondLine = await app.evalJS<string>(
+        const secondLine = await app.body("A").evalJS<string>(
           `(function(){
              var lines = document.querySelectorAll(${JSON.stringify(`${EDITOR} .cm-line`)});
              return lines.length < 2 ? "" : (lines[1].textContent || "");

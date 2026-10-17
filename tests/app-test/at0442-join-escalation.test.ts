@@ -73,6 +73,7 @@ import {
   seedScratchSession,
   type JoinScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -151,7 +152,7 @@ afterAll(() => {
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 async function runCommand(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType(line);
   await settle();
   await app.nativeKey("Escape");
@@ -204,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
 
         // The aggregate has composed the arc once the Arcs card lists it.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );

@@ -16,7 +16,8 @@
  * @module tests/app-test/eviction-fixture
  */
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { cardPage, waitForBodyReady } from "./_harness/card-reach";
 import type { SessionDriveAction } from "./_harness/client";
 import { sessionCardShape } from "./_harness/shapes";
 
@@ -27,6 +28,12 @@ export const FEED_CODE_OUTPUT = 0x40;
 export const SID = "at0330-A";
 export const TURNS = 60;
 export const SCROLLER = '[data-tug-scroll-key="session-card-transcript"]';
+
+/** The page holding card A's transcript: its body, or the shell for a card
+ *  that is not one. Every transcript reach below runs there. */
+export function transcriptPage(app: App): Promise<App | BodyApp> {
+  return cardPage(app, "A");
+}
 
 export function replyText(n: number): string {
   return [
@@ -109,13 +116,14 @@ export async function standUp(testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  const page = await waitForBodyReady(app, "A");
+  await page.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
   );
   await app.bindSession("A", { tugSessionId: SID });
   await app.awaitEngineReady("A", { timeoutMs: 20_000 });
   await seedTurns(app, TURNS);
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
     { timeoutMs: 30_000 },
   );
@@ -128,7 +136,7 @@ export async function standUp(testName: string): Promise<App> {
  * says what it found, which a bare `TimeoutError` would not.
  */
 export async function settleOn(
-  app: App,
+  app: App | BodyApp,
   script: string,
   opts: { timeoutMs: number; pollMs?: number },
 ): Promise<boolean> {
@@ -142,7 +150,7 @@ export async function settleOn(
 
 /** Scroll to a fraction of the range and let the window settle. */
 export async function scrollTo(app: App, frac: number): Promise<void> {
-  await app.evalJS<number>(`(function () {
+  await (await transcriptPage(app)).evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * ${frac});
   return el.scrollTop;
@@ -154,7 +162,7 @@ export async function scrollTo(app: App, frac: number): Promise<void> {
  *  rests at the bottom. The list publishes no item count. */
 export async function readRowCount(app: App): Promise<number> {
   await scrollTo(app, 1);
-  return app.evalJS<number>(`(function () {
+  return (await transcriptPage(app)).evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var max = -1;
   el.querySelectorAll("[data-tug-list-cell-index]").forEach(function (c) {
@@ -169,7 +177,7 @@ export async function readRowCount(app: App): Promise<number> {
  *  also records whether `data-evict-stale` was ever seen, so a drain that
  *  starts and ends between two polls is still witnessed. */
 export async function startMountSampler(app: App): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+  await (await transcriptPage(app)).evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var s = { peak: 0, sawStale: false, done: false };
   window.__at0330Sampler = s;
@@ -187,7 +195,7 @@ export async function startMountSampler(app: App): Promise<void> {
 
 /** Stop the sampler and read what it saw. */
 export async function stopMountSampler(app: App): Promise<{ peak: number; sawStale: boolean }> {
-  return app.evalJS(`(function () {
+  return (await transcriptPage(app)).evalJS(`(function () {
   var s = window.__at0330Sampler;
   s.done = true;
   return { peak: s.peak, sawStale: s.sawStale };
@@ -206,7 +214,7 @@ export async function stopMountSampler(app: App): Promise<{ peak: number; sawSta
  * over the scrollport's top edge, so `elementFromPoint` there answers the pin.
  */
 export async function rememberTopLine(app: App): Promise<{ delta: number; text: string } | null> {
-  return app.evalJS(`(function () {
+  return (await transcriptPage(app)).evalJS(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var deck = document.getElementById("deck-container");
   var f = deck.getBoundingClientRect().width / deck.offsetWidth;
@@ -232,7 +240,7 @@ export async function rememberTopLine(app: App): Promise<{ delta: number; text: 
 
 /** The remembered element's delta now, in layout px; null once it has left the document. */
 export async function readTopLine(app: App): Promise<number | null> {
-  return app.evalJS(`(function () {
+  return (await transcriptPage(app)).evalJS(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var node = window.__at0330Line;
   if (!node || !el.contains(node)) return null;
@@ -243,14 +251,16 @@ export async function readTopLine(app: App): Promise<number | null> {
 }
 
 /** Switch eviction off, wait for the whole transcript to mount, and read
- *  the fully-mounted document's height: the exactness reference. */
+ *  the fully-mounted document's height: the exactness reference. The lab
+ *  flag is the page's own, so it is flipped in the page the transcript is in. */
 export async function readFullHeight(app: App, scroller = SCROLLER): Promise<number> {
-  await app.evalJS<boolean>(
+  const page = await transcriptPage(app);
+  await page.evalJS<boolean>(
     `(window.__tug.setTranscriptEvictionDisabled(true), true)`,
   );
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `!document.querySelector('${scroller}').hasAttribute("data-evict-active")`,
     { timeoutMs: 20_000, pollMs: 250 },
   );
-  return app.evalJS<number>(`document.querySelector('${scroller}').scrollHeight`);
+  return page.evalJS<number>(`document.querySelector('${scroller}').scrollHeight`);
 }

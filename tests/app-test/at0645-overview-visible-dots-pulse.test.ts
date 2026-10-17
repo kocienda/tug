@@ -49,6 +49,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -195,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
             }),
           )})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -210,12 +211,12 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
 
         // ---- The Overview, filled with that session's posts. ------------
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
         await app.evalJS<unknown>(resolveSessions());
-        const published = await app.evalJS<number>(`(function(){
+        const published = await kindBody(app, "overview").evalJS<number>(`(function(){
           var n = 0;
           for (var i = 0; i < ${POST_COUNT}; i++) {
             var ok = window.__tug.publishOverviewPost(JSON.stringify({
@@ -235,7 +236,7 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
         // Held, and rendered at the live edge: the column follows its newest
         // post, so post ${POST_COUNT - 1}'s chip is mounted once the commit
         // that holds them all has landed.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function(){
              var m = ${MARKS_JS};
              return m.posts === ${POST_COUNT}
@@ -255,8 +256,8 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
             && m.visible.length > 1
             && JSON.stringify(m.breathing) === JSON.stringify(m.visible);
         })()`;
-        await app.waitForCondition<boolean>(breathesInView, { timeoutMs: 15_000 });
-        const pinned = await app.evalJS<Marks>(MARKS_JS);
+        await kindBody(app, "overview").waitForCondition<boolean>(breathesInView, { timeoutMs: 15_000 });
+        const pinned = await kindBody(app, "overview").evalJS<Marks>(MARKS_JS);
         note("at0645 pinned to the newest post", pinned);
         expect(pinned.posts).toBe(POST_COUNT);
         // Every citation on screen breathes — not one of them, all of them —
@@ -273,7 +274,7 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
         // Each breathing dot is one figure: its three loops on one clock.
         expect(pinned.spreads).toEqual([0]);
 
-        const census = await app.evalJS<{
+        const census = await kindBody(app, "overview").evalJS<{
           longRunning: number;
           byName: Record<string, number>;
         }>(
@@ -296,18 +297,18 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
         expect(census.byName["tugx-progress-pulsing-dot-emit-fade"]).toBe(shown);
 
         // ---- Scrolled to the top: the dots coming into view pulse. -------
-        await app.evalJS<null>(`(function(){
+        await kindBody(app, "overview").evalJS<null>(`(function(){
           document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop = 0;
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function(){
              var m = ${MARKS_JS};
              return m.visible[0] === 0 && ${breathesInView};
            })()`,
           { timeoutMs: 15_000 },
         );
-        const scrolled = await app.evalJS<Marks>(MARKS_JS);
+        const scrolled = await kindBody(app, "overview").evalJS<Marks>(MARKS_JS);
         note("at0645 scrolled to the top", scrolled);
         // The posts that were out of view now breathe, every one on screen…
         expect(scrolled.breathing).toEqual(scrolled.visible);

@@ -143,6 +143,7 @@ async function bodyOf(app: App, card: string): Promise<BodyViewSnapshot | null> 
 
 /** Arm a per-animation-frame sampler of the frame's and the placeholder's rects. */
 async function armSampler(app: App, card: string): Promise<void> {
+  // card-dom: shell
   await app.evalJS<null>(
     `(function () {
       var rec = (window.__row02 = { samples: [], stop: false });
@@ -171,6 +172,7 @@ async function armSampler(app: App, card: string): Promise<void> {
 }
 
 async function readSampler(app: App): Promise<Sample[]> {
+  // card-dom: shell
   return app.evalJS<Sample[]>(`(function () { var r = window.__row02; r.stop = true; return r.samples; })()`);
 }
 

@@ -114,7 +114,7 @@ function partEdges(
   app: App,
   rowSelector: string,
 ): Promise<Record<string, { left: number; right: number } | null>> {
-  return app.evalJS(
+  return app.body("W").evalJS(
     `(function () {
        var row = document.querySelector(${JSON.stringify(rowSelector)});
        var out = {};
@@ -159,7 +159,7 @@ describe.skipIf(!SHOULD_RUN)("at0658 — an unconnected Session card's row", () 
           tugSessionId: "at0658-A",
           projectDir: project,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("W").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CONNECTED)}) !== null && ` +
             `document.querySelector(${JSON.stringify(UNCONNECTED)}) !== null`,
           { timeoutMs: 20_000 },
@@ -201,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("at0658 — an unconnected Session card's row", () 
         }
 
         // ---- 2. The name. ----------------------------------------------
-        const title = await app.evalJS<string>(
+        const title = await app.body("W").evalJS<string>(
           `document.querySelector(${JSON.stringify(
             `${UNCONNECTED} .tug-list-row-title`,
           )}).textContent`,
@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("at0658 — an unconnected Session card's row", () 
           tugSessionId: "at0658-B",
           projectDir: project,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("W").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(UNCONNECTED)}) === null && ` +
             `document.querySelectorAll(${JSON.stringify(CONNECTED)}).length === 2`,
           { timeoutMs: 20_000 },

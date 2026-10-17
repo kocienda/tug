@@ -76,6 +76,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { cardPage } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -87,6 +88,9 @@ const SHOWN_LAYER = "[data-space-layer][data-space-shown]";
 const HIDDEN_LAYER = "[data-space-layer]:not([data-space-shown])";
 const SHOWN_FRAMES = `${SHOWN_LAYER} .tug-pane[data-pane-id]`;
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
+/** The Workspaces card of the shown workspace (one), and of the hidden one (two). */
+const SHOWN_CARDS = "at0641-c1";
+const HIDDEN_CARDS = "at0641-c2";
 
 /** The probe loop leg 4 installs. Named so a leaked one is recognisable. */
 const PROBE_CLASS = "at0641-probe-spin";
@@ -330,6 +334,7 @@ const PROBE_REMOVE = `(function () {
 })()`;
 
 async function activate(app: App, spaceId: string): Promise<void> {
+  // card-dom: shell — the workspace switch is the shell's deck verb.
   await app.evalJS<null>(
     `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(spaceId)} }), null)`,
   );
@@ -414,6 +419,9 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(0);
 
           // ---- 3. Focus cannot land in it. --------------------------------
+          // The layers are the shell's: a hidden layer and what stands in it
+          // are read in the shell's document.
+          // card-dom: shell
           const focus = await app.evalJS<FocusReading>(FOCUS_READ);
           note(`at0641 focus: ${JSON.stringify(focus)}`);
           expect(
@@ -444,15 +452,21 @@ describe.skipIf(!SHOULD_RUN)(
           ).toEqual(["running"]);
 
           // ---- 5. A broadcast is answered once. ---------------------------
+          // Each Workspaces card is a body of its own, and its confirm rises in
+          // its own page: the shown one's (`at0641-c1`, workspace one's) is
+          // waited on, and the count is taken over both cards' pages.
           await app.dispatchControlAction("delete-space");
-          await app.waitForCondition<boolean>(
+          await app.body(SHOWN_CARDS).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
             { timeoutMs: 15_000 },
           );
           await settle(300);
-          const confirms = await app.evalJS<number>(
-            `document.querySelectorAll(${JSON.stringify(CONFIRM)}).length`,
-          );
+          let confirms = 0;
+          for (const id of [SHOWN_CARDS, HIDDEN_CARDS]) {
+            confirms += await (await cardPage(app, id)).evalJS<number>(
+              `document.querySelectorAll(${JSON.stringify(CONFIRM)}).length`,
+            );
+          }
           const spaces = await app.evalJS<number>(
             `window.tugdeck.diag.getSpaces().spaces.length`,
           );
@@ -463,7 +477,7 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(1);
           expect(spaces, "the confirm is a question, not a receipt").toBe(2);
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await app.body(SHOWN_CARDS).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,
             { timeoutMs: 8_000 },
           );

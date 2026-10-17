@@ -200,14 +200,14 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The prose paints first; the verdict is a round trip to the git
           // feed, so the pill is waited for rather than read.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `JSON.parse(${PILL_IDENTITY_JS}).text === ${JSON.stringify(LABEL)}`,
             { timeoutMs: 20_000 },
           );
 
           // ---- A. The pill carries its own identity. ---------------------
           const pill = JSON.parse(
-            await app.evalJS<string>(PILL_IDENTITY_JS),
+            await app.body("A").evalJS<string>(PILL_IDENTITY_JS),
           ) as {
             found: boolean;
             text: string;
@@ -227,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- B. Select the mention and ⌘C. ------------------------------
           setPasteboard(SENTINEL);
-          await app.evalJS<null>(`(function(){
+          await app.body("A").evalJS<null>(`(function(){
             var el = document.querySelector(${JSON.stringify(MENTION)});
             var range = document.createRange();
             // The whole paragraph, so the copy is the mention IN ITS SENTENCE —
@@ -284,8 +284,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(sidecar?.text).not.toContain(LABEL);
 
           // ---- C. A paste into the composer rebuilds the pill. ------------
-          await app.focusElement(COMPOSER);
-          await app.evalJS<null>(`(function(){
+          await app.body("A").focusElement(COMPOSER);
+          await app.body("A").evalJS<null>(`(function(){
             var cm = document.querySelector(${JSON.stringify(COMPOSER)});
             // An EMPTY clipboardData — the shape of the real gesture inside
             // Tug.app, where everything the paste needs is on the pasteboard
@@ -295,11 +295,11 @@ describe.skipIf(!SHOULD_RUN)(
             }));
             return null;
           })()`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length === 1`,
             { timeoutMs: 8_000 },
           );
-          const pasted = await app.evalJS<{ atoms: string[]; text: string }>(
+          const pasted = await app.body("A").evalJS<{ atoms: string[]; text: string }>(
             COMPOSER_PROBE_JS,
           );
           note("at0526 composer after paste", JSON.stringify(pasted));

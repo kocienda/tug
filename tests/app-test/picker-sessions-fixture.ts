@@ -200,7 +200,12 @@ export const PICKER_RESUME_ROW =
 /** How many `session-resume` rows the list is showing. */
 export const PICKER_RESUME_COUNT = `document.querySelectorAll(${JSON.stringify(PICKER_RESUME_ROW)}).length`;
 
-/** The slice of the harness `App` this module drives. */
+/**
+ * The slice of the harness `App` / `BodyApp` this module drives: the page
+ * holding the picker, which is the Session card's own sheet — pass its body
+ * (`app.body(id)`, or `kindBody(app, "session")` for a card opened rather
+ * than seeded), not the shell.
+ */
 export interface PickerDriver {
   evalJS<T>(script: string): Promise<T>;
   waitForCondition<T>(

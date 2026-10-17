@@ -155,7 +155,7 @@ describe.skipIf(!SHOULD_RUN)(
             // `data-default-ring` on Done underneath it, which painted two
             // rings at once; the list left the walk and Done is now both marks
             // in one ([#shade-focus], at0399).
-            const ring = await app.evalJS<{ keyView: boolean; outline: boolean }>(
+            const ring = await app.body("D").evalJS<{ keyView: boolean; outline: boolean }>(
               `(function(){
                 var b = document.querySelector('[data-testid="session-history-done"]');
                 if (!b) return { keyView: false, outline: false };
@@ -179,17 +179,17 @@ describe.skipIf(!SHOULD_RUN)(
             // shade owns the default while it is open ([P17]). Named, not a
             // bare boolean — Changes has no Done and keeps the composer's
             // default, so the stand-down is History's alone.
-            await app.nativeClickAtElement(
+            await app.body("D").nativeClickAtElement(
               '[data-card-id="D"] .tug-prompt-entry .cm-content',
             );
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `(function(){
                 var s = document.querySelector('[data-card-id="D"] .tug-entry-shell');
                 return s !== null && s.hasAttribute("data-entry-keyboard");
               })()`,
               { timeoutMs: 3_000 },
             );
-            const standDown = await app.evalJS<{
+            const standDown = await app.body("D").evalJS<{
               shadeOpen: boolean;
               submitOutline: boolean;
               doneRing: boolean;
@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(standDown.doneRing).toBe(true);
 
             // The plain-sheet History has no resize grabber.
-            const hasGrabber = await app.evalJS<boolean>(
+            const hasGrabber = await app.body("D").evalJS<boolean>(
               `document.querySelector('[data-card-id="D"] .tug-sheet-shade-grabber') !== null`,
             );
             expect(hasGrabber).toBe(false);
@@ -256,7 +256,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
 
             // The expanded area names the committer (identity + email).
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `(function(){
                 var meta = document.querySelector(${JSON.stringify(
                   `${ROW} .tug-history-list-commit-meta`,
@@ -320,7 +320,7 @@ describe.skipIf(!SHOULD_RUN)(
             // With no submit of its own the field now defers to the surface's
             // pane-scoped default button, the same contract `TugTextEditor`
             // keeps.
-            await app.nativeClickAtElement(
+            await app.body("D").nativeClickAtElement(
               '[data-card-id="D"] [data-testid="session-history-filter"] input',
             );
             await app.waitForCondition<boolean>(

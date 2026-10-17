@@ -40,13 +40,14 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp } from "./_harness";
+import { launchTugApp, type App } from "./_harness";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -80,10 +81,10 @@ const ROW_IDS = `Array.prototype.map.call(
 
 /** Type into the filter field the way a keystroke does (React sees a change). */
 function typeFilter(
-  app: { evalJS<T>(s: string): Promise<T> },
+  app: App,
   text: string,
 ): Promise<null> {
-  return app.evalJS<null>(`(function(){
+  return kindBody(app, "jots").evalJS<null>(`(function(){
     var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
     if (!el) throw new Error("jots filter input not found");
     el.focus();
@@ -120,36 +121,36 @@ describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {
           );
           await app.dispatchControlAction("toggle-cards");
           await app.dispatchControlAction("toggle-jots");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "jots").waitForCondition<boolean>(
             `${ROW_COUNT} === ${JOTS.length}`,
             { timeoutMs: 5_000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "jots").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(FILTER_INPUT)}) !== null`,
             { timeoutMs: 5_000 },
           );
 
           // (A) Typing narrows to the matching rows, each carrying a mark.
           await typeFilter(app, MATCHING_FRAGMENT);
-          await app.waitForCondition<boolean>(`${ROW_COUNT} === 2`, {
+          await kindBody(app, "jots").waitForCondition<boolean>(`${ROW_COUNT} === 2`, {
             timeoutMs: 5_000,
           });
-          expect(await app.evalJS<string[]>(ROW_IDS)).toEqual([
+          expect(await kindBody(app, "jots").evalJS<string[]>(ROW_IDS)).toEqual([
             "s-zebra",
             "s-zebra2",
           ]);
-          expect(await app.evalJS<number>(MARK_COUNT)).toBe(2);
+          expect(await kindBody(app, "jots").evalJS<number>(MARK_COUNT)).toBe(2);
 
           // (B) Filtered to zero: the "No matches" body shows, and the field is
           // still mounted, still visible, and still hit-testable.
           await typeFilter(app, ABSENT_FRAGMENT);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "jots").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(NO_MATCHES)}) !== null`,
             { timeoutMs: 5_000 },
           );
-          expect(await app.evalJS<number>(ROW_COUNT)).toBe(0);
+          expect(await kindBody(app, "jots").evalJS<number>(ROW_COUNT)).toBe(0);
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "jots").evalJS<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
                 if (el === null) return false;
@@ -165,47 +166,47 @@ describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {
           // its query matched nothing would lock the user out of the state it
           // just created.
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "jots").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(FILTER_INPUT)}).disabled`,
             ),
           ).toBe(false);
 
           // (C) Escape clears the filter in place: rows come back, the section
           // stays expanded, and the Jots card stays open.
-          await app.evalJS<null>(`(function(){
+          await kindBody(app, "jots").evalJS<null>(`(function(){
             var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
             el.focus();
             el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
             return null;
           })()`);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "jots").waitForCondition<boolean>(
             `${ROW_COUNT} === ${JOTS.length}`,
             { timeoutMs: 5_000 },
           );
           // The card is still standing — a filter narrowing to nothing must
           // never read as the card having gone away.
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "jots").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(JOTS_CARD)}) !== null`,
             ),
           ).toBe(true);
 
           // (D) The ✕ clears a fresh filter and restores every row.
           await typeFilter(app, MATCHING_FRAGMENT);
-          await app.waitForCondition<boolean>(`${ROW_COUNT} === 2`, {
+          await kindBody(app, "jots").waitForCondition<boolean>(`${ROW_COUNT} === 2`, {
             timeoutMs: 5_000,
           });
-          await app.evalJS<null>(`(function(){
+          await kindBody(app, "jots").evalJS<null>(`(function(){
             var btn = document.querySelector(${JSON.stringify(FILTER_CLEAR)});
             if (!btn) throw new Error("clear button not found");
             btn.click();
             return null;
           })()`);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "jots").waitForCondition<boolean>(
             `${ROW_COUNT} === ${JOTS.length}`,
             { timeoutMs: 5_000 },
           );
-          expect(await app.evalJS<number>(MARK_COUNT)).toBe(0);
+          expect(await kindBody(app, "jots").evalJS<number>(MARK_COUNT)).toBe(0);
 
           // (F) A card with no items at all disables its filter and drops
           // it from the keyboard walk. The focusable attribute is the walk's
@@ -221,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {
             disabled: boolean;
             registered: boolean;
           }> =>
-            app.evalJS(`(function(){
+            kindBody(app, "cards").evalJS(`(function(){
               var el = document.querySelector(${JSON.stringify(CARDS_FILTER_INPUT)});
               if (el === null) throw new Error("cards filter input not found");
               return {
@@ -235,10 +236,10 @@ describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {
             registered: true,
           });
 
-          await app.evalJS<null>(
+          await kindBody(app, "cards").evalJS<null>(
             `(document.querySelector(${JSON.stringify(CARDS_ROW_CLOSE)}).click(), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector('[data-testid="cards-empty"]') !== null`,
             { timeoutMs: 8_000 },
           );

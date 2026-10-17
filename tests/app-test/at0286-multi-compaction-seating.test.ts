@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Every boundary is a session-meta marker, not a turn: no
           // `.tug-transcript-entry` ancestor (no `Opus …` / `#a` header).
-          const attributed = await app.evalJS<number>(
+          const attributed = await app.body("A").evalJS<number>(
             `Array.from(document.querySelectorAll(${JSON.stringify(DIVIDER)}))` +
               `.filter((el) => el.closest(".tug-transcript-entry") !== null).length`,
           );
@@ -168,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)(
           // would: scroll through and accumulate.
           let sweptText = "";
           for (let s = 0; s <= 8; s += 1) {
-            await app.evalJS<number>(`(function () {
+            await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('[data-card-id="A"] [data-tug-scroll-key="session-card-transcript"]');
   if (el === null) return -1;
   el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * ${s / 8});

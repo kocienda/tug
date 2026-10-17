@@ -197,12 +197,12 @@ describe.skipIf(!SHOULD_RUN)(
           // The verdict is a round trip to the git feed, so the pill is waited
           // for. Everything after this point is the streaming the pill has to
           // survive.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${HOSTS} ${PILL}`)}) !== null`,
             { timeoutMs: 15_000 },
           );
 
-          const installed = await app.evalJS<string>(INSTALL_PROBE_JS);
+          const installed = await app.body("A").evalJS<string>(INSTALL_PROBE_JS);
           expect(installed).toBe("ok");
 
           // The paragraph streams in around a pill that is already there.
@@ -231,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(probe!.blanks).toBe(0);
 
           // And the settled state is still the settled state.
-          const settled = await app.evalJS<string>(
+          const settled = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(HOSTS)})?.textContent || "").trim()`,
           );
           expect(settled).toBe(LABEL);

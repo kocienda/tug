@@ -41,6 +41,7 @@ import {
   seedTugbankForLaunch,
   tugbankRead,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -86,7 +87,7 @@ function sessionDeck() {
 }
 
 async function domOrder(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return kindBody(app, "cards").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(ROWS)}))
       .map(function(el){ return el.getAttribute("data-session-id"); })`,
   );
@@ -118,7 +119,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           await app.bindSession("C");
 
           await app.dispatchControlAction("toggle-cards");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 3`,
             { timeoutMs: 5_000 },
           );
@@ -143,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
             y: Math.round(aBounds.y + 4),
           });
 
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `(function(){
               var els = Array.from(document.querySelectorAll(${JSON.stringify(ROWS)}));
               return els.length === 3 && els[0].getAttribute("data-session-id") === "test-session-C";
@@ -179,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // A session bound AFTER the reorder lands at the BOTTOM, leaving the
           // arranged set intact.
           await app.bindSession("D");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 4`,
             { timeoutMs: 5_000 },
           );
@@ -221,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           await app.bindSession("B");
 
           await app.dispatchControlAction("toggle-cards");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 2`,
             { timeoutMs: 5_000 },
           );
@@ -230,13 +231,13 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // now that the card fills the rail. The row is grabbed at its middle,
           // so an unclamped translate puts its BOTTOM half a row past the
           // container; the clamp is what keeps it inside.
-          const wrap = await app.getElementBounds(WRAP);
+          const wrap = await kindBody(app, "cards").getElementBounds(WRAP);
           await app.nativeDragElementWithoutRelease(rowSel("test-session-A"), {
             x: Math.round(wrap.x + wrap.width / 2),
             y: Math.round(wrap.y + wrap.height - 2),
           });
 
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(DRAGGING)}) !== null`,
             { timeoutMs: 3_000 },
           );
@@ -244,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // The dragged row's bottom must not escape the list container's
           // bottom (a couple px of slack for the drag's scale transform / sub-
           // pixel rounding). Before the clamp it followed the pointer out.
-          const escaped = await app.evalJS<number>(
+          const escaped = await kindBody(app, "cards").evalJS<number>(
             `(function(){
               var d = document.querySelector(${JSON.stringify(DRAGGING)});
               var w = document.querySelector(${JSON.stringify(WRAP)});
@@ -289,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           await app.bindSession("B");
 
           await app.dispatchControlAction("toggle-cards");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(ROWS)}).length === 2`,
             { timeoutMs: 5_000 },
           );
@@ -299,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // frame is a divider that stops short — and it can be held off by
           // list padding or by a reserved scrollbar gutter, neither of which
           // any end-state screenshot distinguishes from the other.
-          const edges = await app.evalJS<{
+          const edges = await kindBody(app, "cards").evalJS<{
             leading: number;
             trailing: number;
             tapeInset: number;

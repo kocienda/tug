@@ -167,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the tiling", () => {
             x: Math.round(seam.x + seam.width / 2),
             y: 20,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `(function () {
               var r = document.querySelector(${JSON.stringify(frame("p1"))})
                 .getBoundingClientRect();

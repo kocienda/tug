@@ -123,7 +123,7 @@ async function chord(
 
 /** Total painted ranges across both find highlight registries. */
 async function paintedCount(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("A").evalJS<number>(
     `(() => {
       let n = 0;
       for (const name of ['transcript-find-match', 'transcript-find-active']) {
@@ -136,7 +136,7 @@ async function paintedCount(app: App): Promise<number> {
 }
 
 async function waitForPaintedCount(app: App, expected: number): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(() => {
       let n = 0;
       for (const name of ['transcript-find-match', 'transcript-find-active']) {
@@ -151,7 +151,7 @@ async function waitForPaintedCount(app: App, expected: number): Promise<void> {
 
 /** The text of the single active match, or "" when nothing is active. */
 async function activeMatchText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `(() => {
       const hl = CSS.highlights.get('transcript-find-active');
       if (!hl) return "";
@@ -163,7 +163,7 @@ async function activeMatchText(app: App): Promise<string> {
 
 /** Which transcript row (list cell index) holds the active match. */
 async function activeMatchRow(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("A").evalJS<number>(
     `(() => {
       const hl = CSS.highlights.get('transcript-find-active');
       if (!hl) return -1;
@@ -228,7 +228,7 @@ const queryFieldHasCaret = `(() => {
  * line backspaced the text but left the newline after it standing.
  */
 async function clearComposer(app: App): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await new Promise((r) => setTimeout(r, 200));
   for (let i = 0; i < COMPOSER_CLEAR_KEYSTROKES; i++) {
     await app.nativeKey("Backspace");
@@ -238,7 +238,7 @@ async function clearComposer(app: App): Promise<void> {
   }
   // The entry root's `data-empty` bridge is the designed emptiness probe — an
   // empty editor still renders placeholder text into `textContent`.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('${CARD} [data-slot="tug-prompt-entry"]')?.getAttribute("data-empty") === "true"`,
     { timeoutMs: 4000 },
   );
@@ -252,7 +252,7 @@ async function seedSession(app: App): Promise<void> {
     { timeoutMs: 15_000 },
   );
   await app.bindSession("A", { tugSessionId: SID });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('${CARD} [data-slot="session-telemetry-status-row"]') !== null`,
     { timeoutMs: 8000 },
   );
@@ -276,7 +276,7 @@ async function seedSession(app: App): Promise<void> {
       result: "success",
     }));
   }
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelectorAll('${CARD} [data-tug-list-cell-index]').length >= 4`,
     { timeoutMs: 10_000 },
   );
@@ -292,26 +292,26 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
 
         // The bar is not mounted until asked for.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(FIND_BAR)}) === null`,
           ),
           "the find bar starts closed",
         ).toBe(true);
 
         // --- 1. ⌘F opens it with the caret in the query field. ---
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(queryFieldHasCaret, {
+        await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
           timeoutMs: 8000,
         });
 
         // It docks between the transcript view slot and Z2 — the [D97]
         // geometry: below the slot's bottom edge, above the status bar.
-        const geometry = await app.evalJS<{
+        const geometry = await app.body("A").evalJS<{
           slotBottom: number;
           barTop: number;
           barBottom: number;
@@ -343,7 +343,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
 
         // --- 2. ⌘G advances, ⇧⌘G retreats — from the query field. ---
         await chord(app, "KeyG", "g", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
             const hl = CSS.highlights.get('transcript-find-active');
             if (!hl) return false;
@@ -358,7 +358,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           { timeoutMs: 6000 },
         );
         await chord(app, "KeyG", "g", { meta: true, shift: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
             const hl = CSS.highlights.get('transcript-find-active');
             if (!hl) return false;
@@ -377,17 +377,17 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         //         button's twin and advances the match; back in the composer
         //         it is submit again and the match does not move. ---
         await app.nativeKey("Enter");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${activeRowExpr} !== ${firstRow}`,
           { timeoutMs: 6000 },
         );
         await app.nativeKey("Enter", ["shift"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${activeRowExpr} === ${firstRow}`,
           { timeoutMs: 6000 },
         );
 
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await app.nativeType("not a search");
         await app.nativeKey("Enter");
         await new Promise((r) => setTimeout(r, 800));
@@ -395,8 +395,8 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           await activeMatchRow(app),
           "Return in the composer is the composer's; it must not walk the search",
         ).toBe(firstRow);
-        await app.nativeClickAtElement(FIND_INPUT);
-        await app.waitForCondition<boolean>(queryFieldHasCaret, {
+        await app.body("A").nativeClickAtElement(FIND_INPUT);
+        await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
           timeoutMs: 8000,
         });
 
@@ -405,35 +405,35 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         //        inside" — a toggle that declined to fire there would be
         //        unreachable by the gesture everyone actually makes. ---
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) === null`,
           { timeoutMs: 8000 },
         );
         await waitForPaintedCount(app, 0);
 
         // …and from the composer too, both directions.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) === null`,
           { timeoutMs: 8000 },
         );
 
         // --- 4. Escape closes and dissolves; ⌘G while closed is inert. ---
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(queryFieldHasCaret, {
+        await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
           timeoutMs: 8000,
         });
         await waitForPaintedCount(app, 2);
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) === null`,
           { timeoutMs: 8000 },
         );
@@ -447,18 +447,18 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         ).toBe(0);
 
         // --- 5. A second ⌘F resumes the query, pre-filled and selected. ---
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(queryFieldHasCaret, {
+        await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
           timeoutMs: 8000,
         });
         expect(
           (
-            await app.evalJS<string>(
+            await app.body("A").evalJS<string>(
               `(document.querySelector(${JSON.stringify(FIND_INPUT)})?.textContent || "").trim()`,
             )
           ),
@@ -474,24 +474,24 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         await waitForPaintedCount(app, 2);
 
         // --- 6. Find and Changes are mutually exclusive — one at a time. ---
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyC", "c", { meta: true, ctrl: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${CARD} .session-view-slot[data-active-view="changes"]') !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) === null`,
           { timeoutMs: 8000 },
         );
 
         // …and back the other way: ⌘F leaves Changes.
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${CARD} .session-view-slot[data-active-view="changes"]') === null`,
           { timeoutMs: 8000 },
         );
@@ -503,7 +503,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         //        in a CM6 caret belongs to the editor, empty or not — the
         //        emptiness-conditioned handoff is one of the three ambient
         //        mechanisms the mode division deleted. ---
-        await app.waitForCondition<boolean>(queryFieldHasCaret, {
+        await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
           timeoutMs: 8000,
         });
         // The reopen seeded the remembered query SELECTED, but clear it
@@ -513,7 +513,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // An empty CM6 doc renders its placeholder widget, so the placeholder's
         // presence is the emptiness probe — `textContent` would read the
         // placeholder's own text and never be "".
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_INPUT)} + " .cm-placeholder") !== null`,
           { timeoutMs: 4000 },
         );
@@ -530,7 +530,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // a seat allocation, not a dense sequence; the chips keep their
         // numbers for the routes that still render them.
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `Array.from(document.querySelectorAll('${CARD} [data-tug-focus-key]'))
                .map(e => e.getAttribute('data-tug-focus-key'))
                .filter(k => k.indexOf(${JSON.stringify(`${CYCLE_GROUP}:`)}) === 0)
@@ -612,7 +612,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<boolean>(queryFieldHasCaret),
+          await app.body("A").evalJS<boolean>(queryFieldHasCaret),
           "a walked-to text stop parks — the ring, not the caret",
         ).toBe(false);
         await app.nativeKey("Tab");
@@ -623,7 +623,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // …and nothing was typed on the way out: the placeholder still stands,
         // which it would not if a tab character had landed in the doc.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(FIND_INPUT)} + " .cm-placeholder") !== null`,
           ),
           "Tab out of a tabbed-into query field moves without typing into it",
@@ -643,11 +643,11 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         //        because Escape at a cycle stop belongs to the cycle (it
         //        ascends out of it), which is the language working, not a gap.
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) === null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
             const el = document.querySelector(${JSON.stringify(EDITOR)});
             return el !== null && el.contains(document.activeElement);
@@ -666,7 +666,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         await app.nativeKey("Tab");
         await new Promise((r) => setTimeout(r, 400));
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `(() => {
               const el = document.querySelector(${JSON.stringify(EDITOR)});
               return el !== null && el.contains(document.activeElement);
@@ -682,7 +682,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // Escape at the parked editor stop grants the caret back where the
         // ring stands — no detour through a resting-focus default.
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
             const el = document.querySelector(${JSON.stringify(EDITOR)});
             return el !== null && el.contains(document.activeElement);
@@ -695,13 +695,13 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // keyboard the entry would have stood down and DOM focus would sit on
         // a stop or the key sink, so "the caret is still here" is the whole
         // assertion.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await app.nativeType("x");
         await new Promise((r) => setTimeout(r, 200));
         await app.nativeKey("Tab");
         await new Promise((r) => setTimeout(r, 600));
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `(() => {
               const el = document.querySelector(${JSON.stringify(EDITOR)});
               return el !== null && el.contains(document.activeElement);
@@ -723,13 +723,13 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
       try {
         await seedSession(app);
 
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await chord(app, "KeyF", "f", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIND_BAR)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(queryFieldHasCaret, {
+        await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
           timeoutMs: 8000,
         });
 
@@ -737,7 +737,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         //         outside the composer's pane, so a font bound to that pane
         //         never reached it and it silently rendered at the substrate's
         //         own default beside a composer the user had set smaller. ---
-        const fontSizes = await app.evalJS<{ find: string; composer: string } | null>(
+        const fontSizes = await app.body("A").evalJS<{ find: string; composer: string } | null>(
           `(function(){
             var find = document.querySelector(${JSON.stringify(FIND_INPUT)});
             var composer = document.querySelector(${JSON.stringify(EDITOR)});
@@ -785,10 +785,10 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         const SUBMIT = ".tug-prompt-entry-submit-button";
         const NEXT = '[aria-label="Find next"]';
 
-        await app.waitForCondition<boolean>(keyViewIn(FIND_BAR), {
+        await app.body("A").waitForCondition<boolean>(keyViewIn(FIND_BAR), {
           timeoutMs: 8000,
         });
-        await app.waitForCondition<boolean>(ringed(FIND_BAR, NEXT), {
+        await app.body("A").waitForCondition<boolean>(ringed(FIND_BAR, NEXT), {
           timeoutMs: 6000,
         });
         expect(
@@ -797,8 +797,8 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         ).toBe(false);
 
         // Back to the composer and the two swap roles.
-        await app.nativeClickAtElement(EDITOR);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(EDITOR);
+        await app.body("A").waitForCondition<boolean>(
           keyViewIn(`${CARD} [data-slot="tug-prompt-entry"]`),
           { timeoutMs: 8000 },
         );
@@ -806,7 +806,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           timeoutMs: 6000,
         });
         expect(
-          await app.evalJS<boolean>(ringed(FIND_BAR, NEXT)),
+          await app.body("A").evalJS<boolean>(ringed(FIND_BAR, NEXT)),
           "the keyboard left the query field, so Find Next gives up the ring",
         ).toBe(false);
 
@@ -818,14 +818,14 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         //         the way out of the field is ⌥⇥ (park) or Tab (the walk),
         //         never a bare arrow.
         for (const direction of ["Down", "Up"] as const) {
-          await app.nativeClickAtElement(FIND_INPUT);
-          await app.waitForCondition<boolean>(queryFieldHasCaret, {
+          await app.body("A").nativeClickAtElement(FIND_INPUT);
+          await app.body("A").waitForCondition<boolean>(queryFieldHasCaret, {
             timeoutMs: 8000,
           });
           // Empty — the exact state the deleted policy keyed on.
           await app.nativeKey("a", ["cmd"]);
           await app.nativeKey("Backspace");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(FIND_INPUT)} + " .cm-placeholder") !== null`,
             { timeoutMs: 4000 },
           );
@@ -834,7 +834,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           // Give a would-be walk a beat to move, then assert nothing did.
           await new Promise((r) => setTimeout(r, 400));
           expect(
-            await app.evalJS<boolean>(queryFieldHasCaret),
+            await app.body("A").evalJS<boolean>(queryFieldHasCaret),
             `${direction} in an empty query field keeps the caret — a caret owns its arrows`,
           ).toBe(true);
           expect(

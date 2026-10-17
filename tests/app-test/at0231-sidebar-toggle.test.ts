@@ -49,6 +49,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
+import { hasBodyOfKind, kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -59,7 +60,10 @@ const TEST_TIMEOUT_MS = 60_000;
 const RAIL_PANE_SELECTOR = `[data-testid="layout-card-section"]`;
 
 async function railPaneExists(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
+  // A hidden rail takes its card's body with it; `kindBody` would wait for
+  // one that never comes, so a missing body is asked of the host first.
+  if (!(await hasBodyOfKind(app, "layout"))) return false;
+  return kindBody(app, "layout").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(RAIL_PANE_SELECTOR)}) !== null`,
   );
 }
@@ -90,17 +94,14 @@ describe.skipIf(!SHOULD_RUN)(
             expect(await railPaneExists(app)).toBe(false);
 
             await dispatch(app, "toggle-layout");
-            await app.waitForCondition<boolean>(
+            await kindBody(app, "layout").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(RAIL_PANE_SELECTOR)}) !== null`,
               { timeoutMs: 3_000 },
             );
             expect(await railPaneExists(app)).toBe(true);
 
             await dispatch(app, "toggle-layout");
-            await app.waitForCondition<boolean>(
-              `document.querySelector(${JSON.stringify(RAIL_PANE_SELECTOR)}) === null`,
-              { timeoutMs: 3_000 },
-            );
+            await waitForNoBodyOfKind(app, "layout", { timeoutMs: 3_000 });
             expect(await railPaneExists(app)).toBe(false);
           } finally {
             await app.close();
@@ -132,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // Hidden → show and activate.
             await dispatch(app, "toggle-layout");
-            await app.waitForCondition<boolean>(
+            await kindBody(app, "layout").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(RAIL_PANE_SELECTOR)}) !== null`,
               { timeoutMs: 3_000 },
             );
@@ -158,10 +159,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // Showing and active → hide.
             await dispatch(app, "toggle-layout");
-            await app.waitForCondition<boolean>(
-              `document.querySelector(${JSON.stringify(RAIL_PANE_SELECTOR)}) === null`,
-              { timeoutMs: 3_000 },
-            );
+            await waitForNoBodyOfKind(app, "layout", { timeoutMs: 3_000 });
             expect(await railPaneExists(app)).toBe(false);
           } finally {
             await app.close();

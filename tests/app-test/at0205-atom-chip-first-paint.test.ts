@@ -96,7 +96,7 @@ interface ChipRect {
 }
 
 async function readChipRect(app: App): Promise<ChipRect> {
-  return app.evalJS<ChipRect>(
+  return app.body("A").evalJS<ChipRect>(
     `(function(){
       var img = document.querySelector(${JSON.stringify(ATOM_IMG_SELECTOR)});
       var r = img.getBoundingClientRect();
@@ -213,7 +213,7 @@ function fractionDiffering(a: LabelRegion, b: LabelRegion): number {
  * signalled through `window.__at0205Dropped` and polled.
  */
 async function dropPngOnEditor(app: App): Promise<void> {
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     `(function(){
       window.__at0205Dropped = false;
       var host = document.querySelector(${JSON.stringify(EDITOR_HOST_SELECTOR)});
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.seedDeckState({ state: SESSION_DECK_STATE, focusCardId: "A" });
             await new Promise<void>((r) => setTimeout(r, 1500));
             await app.bindSession("A");
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(`${EDITOR_HOST_SELECTOR} .cm-content`)}) !== null`,
               { timeoutMs: 10_000 },
             );
@@ -283,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // First chip bake of the session: real PNG file drop.
             await dropPngOnEditor(app);
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(ATOM_IMG_SELECTOR)}) !== null`,
               { timeoutMs: 5_000 },
             );
@@ -291,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)(
             // beat for the compositor to commit — the first-raster
             // window is what this test exists to observe, so no long
             // settle that would let a late font swap slip past.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var img = document.querySelector(${JSON.stringify(ATOM_IMG_SELECTOR)});
                 if (img === null) return false;
@@ -328,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)(
             // programmatic "jiggle") and require the label to be
             // detectable afterwards. Guards the threshold: if this
             // fails, the detector is broken, not the chip.
-            await app.evalJS<void>(
+            await app.body("A").evalJS<void>(
               `(function(){
                 var img = document.querySelector(${JSON.stringify(ATOM_IMG_SELECTOR)});
                 img.style.visibility = "hidden";

@@ -161,7 +161,7 @@ export async function bindRealTranscripts(
         tugSessionId,
         projectDir: seeded.projectDir,
       });
-      await (await contentPage(app, cardId, opts.bodies === true)).waitForCondition<boolean>(
+      await (await contentPage(app, cardId, opts.bodies !== false)).waitForCondition<boolean>(
         `document.querySelector('[data-card-id="${cardId}"] [data-testid="session-card-transcript"]') !== null && ` +
           `document.querySelector('[data-card-id="${cardId}"] .session-card-picker-form') === null`,
         { timeoutMs: BOUND_MS[size] },
@@ -292,8 +292,8 @@ export async function bindAndSettle(
 ): Promise<BoundTranscripts> {
   const bound = await bindRealTranscripts(app, cardIds, opts);
   try {
-    await awaitTranscriptsSettled(app, bound.cards, opts.bodies === true);
-    const census = await transcriptCensus(app, bound.cards, opts.bodies === true);
+    await awaitTranscriptsSettled(app, bound.cards, opts.bodies !== false);
+    const census = await transcriptCensus(app, bound.cards, opts.bodies !== false);
     note(
       `${opts.label} transcripts (${opts.size}): ` +
         census.cards

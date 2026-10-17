@@ -70,6 +70,7 @@ import {
   scrollToTop,
   wirePost,
 } from "./overview-window-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: following it", () => {
   test(
@@ -78,7 +79,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
       const app = await launchTugApp({ testName: "at0728-overview-window-follow" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TRANSCRIPT)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -87,23 +88,23 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
         // starts from.
         for (let id = 0; id < POST_COUNT; id++) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(window.__tug.overviewPosts() || []).length === ${POST_COUNT}`,
           { timeoutMs: 30_000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `!document.querySelector(${JSON.stringify(TRANSCRIPT)}).hasAttribute("data-window-stale")`,
           { timeoutMs: 30_000 },
         );
 
         // ── Follow: back to the edge, and a new post keeps it.
-        await scrollToTop(app, 1e9);
-        await app.waitForCondition<boolean>(
+        await scrollToTop(kindBody(app, "overview"),1e9);
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   return el.scrollHeight - el.scrollTop - el.clientHeight <= 2;
@@ -111,17 +112,17 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
           { timeoutMs: 5_000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(POST_COUNT)))})`,
           ),
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(`${CELL} .overview-post-body`)}))
             .some(function (b) { return (b.textContent || "").indexOf("Post ${POST_COUNT}:") === 0; })`,
           { timeoutMs: 10_000 },
         );
         await new Promise((r) => setTimeout(r, 500));
-        const followed = await column(app);
+        const followed = await column(kindBody(app, "overview"));
         note("after a new post while following", JSON.stringify(followed));
         expect(followed.scrollHeight - followed.scrollTop - followed.clientHeight).toBeLessThanOrEqual(2);
 
@@ -137,33 +138,33 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
         let released = false;
         try {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(heldPost)))})`,
             ),
           ).toBe(true);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `(window.__tug.overviewPosts() || []).some(function (p) { return p.body.indexOf("Post ${heldPost}:") === 0; })`,
             { timeoutMs: 10_000 },
           );
           const delivered = await app.evalJS<number>(`window.__tug.deliverHeldUnderGate()`);
           expect(delivered).toBeGreaterThanOrEqual(1);
           await new Promise((r) => setTimeout(r, 300));
-          expect(await app.evalJS<boolean>(heldMounted), "no cell for the held post while held").toBe(false);
+          expect(await kindBody(app, "overview").evalJS<boolean>(heldMounted), "no cell for the held post while held").toBe(false);
           expect(await app.evalJS<boolean>(`window.__tug.releaseMotion(${handle})`)).toBe(true);
           released = true;
         } finally {
           if (!released) await app.evalJS<boolean>(`window.__tug.releaseMotion(${handle})`);
         }
-        await app.waitForCondition<boolean>(heldMounted, { timeoutMs: 10_000 });
+        await kindBody(app, "overview").waitForCondition<boolean>(heldMounted, { timeoutMs: 10_000 });
         await new Promise((r) => setTimeout(r, 500));
-        const afterHeld = await column(app);
+        const afterHeld = await column(kindBody(app, "overview"));
         note("after a post published under a held gate", JSON.stringify(afterHeld));
         expect(afterHeld.scrollHeight - afterHeld.scrollTop - afterHeld.clientHeight).toBeLessThanOrEqual(2);
 
         // ── Width change: a reader up in history, halfway into a post, stays
         // on that line while every post re-wraps and its height drains above
         // them. The column's own width is written, as a rail resize would.
-        await scrollToTop(app, Math.round((afterHeld.scrollHeight - afterHeld.clientHeight) * 0.5));
+        await scrollToTop(kindBody(app, "overview"),Math.round((afterHeld.scrollHeight - afterHeld.clientHeight) * 0.5));
         const readTopJs = (n: number): string => `(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
@@ -171,10 +172,10 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
     .filter(function (c) { return postNumber(c) === ${n}; })[0];
   return cell === undefined ? null : cell.getBoundingClientRect().top - el.getBoundingClientRect().top;
 })()`;
-        const reading = await column(app);
+        const reading = await column(kindBody(app, "overview"));
         expect(reading.firstVisible).toBeGreaterThanOrEqual(0);
         // Put the scrollport top halfway into that post.
-        await app.evalJS<boolean>(`(function () {
+        await kindBody(app, "overview").evalJS<boolean>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var cell = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}))
@@ -185,9 +186,9 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
   return true;
 })()`);
         await new Promise((r) => setTimeout(r, 400));
-        const readTop = await app.evalJS<number | null>(readTopJs(reading.firstVisible));
+        const readTop = await kindBody(app, "overview").evalJS<number | null>(readTopJs(reading.firstVisible));
         expect(readTop, "the post being read is mounted").not.toBeNull();
-        const widths = await app.evalJS<{ before: number; after: number }>(`(function () {
+        const widths = await kindBody(app, "overview").evalJS<{ before: number; after: number }>(`(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var before = el.clientWidth;
   el.style.width = Math.round(before * 0.7) + "px";
@@ -197,13 +198,13 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: follow
         expect(widths.before - widths.after).toBeGreaterThan(50);
         // The drain starts on the observer's delivery; give it a beat to begin.
         await new Promise((r) => setTimeout(r, 300));
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `!document.querySelector(${JSON.stringify(TRANSCRIPT)}).hasAttribute("data-window-stale")`,
           { timeoutMs: 30_000 },
         );
         // The hold rides the settle tail past drain end.
         await new Promise((r) => setTimeout(r, 900));
-        const heldTop = await app.evalJS<number | null>(readTopJs(reading.firstVisible));
+        const heldTop = await kindBody(app, "overview").evalJS<number | null>(readTopJs(reading.firstVisible));
         note(
           "width change",
           JSON.stringify({ post: reading.firstVisible, widths, readTop, heldTop }),

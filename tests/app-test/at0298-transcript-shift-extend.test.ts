@@ -251,7 +251,7 @@ const READ_SELECTION = `(function(){
 function readSelection(
   app: Awaited<ReturnType<typeof launchTugApp>>,
 ): Promise<SelectionState> {
-  return app.evalJS<SelectionState>(READ_SELECTION);
+  return app.body("A").evalJS<SelectionState>(READ_SELECTION);
 }
 
 /** Word boundary set mirrored from `selection-extension.ts`. */
@@ -289,7 +289,7 @@ describe.skipIf(!SHOULD_RUN)(
           await openFixtureSession(app, seeded);
           await waitForTranscriptSettled(app);
 
-          const probe = await app.evalJS<ProbeLine | string>(findProbeScript());
+          const probe = await app.body("A").evalJS<ProbeLine | string>(findProbeScript());
           if (typeof probe === "string") {
             throw new Error(`no usable probe text in the transcript: ${probe}`);
           }
@@ -307,7 +307,7 @@ describe.skipIf(!SHOULD_RUN)(
           ): Promise<{ x: number; y: number }> => {
             let previous: HitPoint | null = null;
             for (let attempt = 0; attempt < 12; attempt++) {
-              const measured = await app.evalJS<HitPoint | string>(
+              const measured = await app.body("A").evalJS<HitPoint | string>(
                 pointForOffsetScript(line.offsets[name]!),
               );
               if (typeof measured !== "string" && measured.hitsProbe) {

@@ -39,6 +39,7 @@ import {
   scrollTo,
   settleOn,
   standUp,
+  transcriptPage,
 } from "./eviction-fixture";
 
 describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping", () => {
@@ -47,6 +48,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping"
     async () => {
       const app = await standUp("at0330-page-by-entry");
       try {
+        const page = await transcriptPage(app);
         const readState = (): Promise<{
           top: number;
           flush: number;
@@ -56,7 +58,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping"
           active: boolean;
           fallbacks: number;
         }> =>
-          app.evalJS(`(function () {
+          page.evalJS(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var box = el.getBoundingClientRect();
   var flush = 9999;
@@ -93,9 +95,11 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping"
         // adapters for a fixed list that excludes the turn steps (silent
         // no-op), and a native key needs the window to be key, which a
         // background app-test window is not. Dispatching the KeyboardEvent
-        // on `document` enters the same capture listener a real chord does.
+        // on `document` enters the same capture listener a real chord does —
+        // the card's body's document, whose own chain holds the card and its
+        // key-card scope.
         const chord = (code: string, key: string): Promise<void> =>
-          app.evalJS<void>(`(function () {
+          page.evalJS<void>(`(function () {
   document.dispatchEvent(new KeyboardEvent("keydown", {
     key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)},
     ctrlKey: true, metaKey: true,
@@ -108,7 +112,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping"
         // estimated jump's post-commit correction moves it again first.
         const landed = (from: number): Promise<boolean> =>
           settleOn(
-            app,
+            page,
             `(function () {
   var el = document.querySelector('${SCROLLER}');
   var box = el.getBoundingClientRect();
@@ -194,8 +198,9 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping"
     async () => {
       const app = await standUp("at0330-hide-show");
       try {
+        const page = await transcriptPage(app);
         await scrollTo(app, 0.5);
-        const before = await app.evalJS<{
+        const before = await page.evalJS<{
           h: number;
           cells: number;
           fallbacks: number;
@@ -213,31 +218,31 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — turn stepping"
         // Hide the scroller the way an inactive card tab is hidden. Every
         // observed cell fires a 0×0 ResizeObserver entry, and the width
         // invalidator sees width 0 — both must leave the ledger alone.
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   document.querySelector('${SCROLLER}').style.display = "none";
   return true;
 })()`);
         await new Promise((r) => setTimeout(r, 600));
 
         // While hidden, the held window must not balloon to a full mount.
-        const hidden = await app.evalJS<number>(`(function () {
+        const hidden = await page.evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   return el.querySelectorAll("[data-tug-list-cell-index]").length;
 })()`);
         expect(hidden).toBeLessThan(TURNS * 2);
 
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   document.querySelector('${SCROLLER}').style.display = "";
   return true;
 })()`);
         // The reveal re-measures; a fixed sleep samples mid-settle and reads a
         // transient height. Wait for the geometry to come back to rest.
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `Math.abs(document.querySelector('${SCROLLER}').scrollHeight - ${before.h}) <= 2`,
           { timeoutMs: 8000 },
         );
 
-        const after = await app.evalJS<{
+        const after = await page.evalJS<{
           h: number;
           fallbacks: number;
           evicting: boolean;

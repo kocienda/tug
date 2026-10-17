@@ -190,7 +190,7 @@ interface RowWidths {
  * row moved.
  */
 const widths = (app: App): Promise<RowWidths> =>
-  app.evalJS<RowWidths>(
+  app.body("A").evalJS<RowWidths>(
     `(() => {
        const cells = {};
        for (const p of ${JSON.stringify(PRIORITIES)}) {
@@ -223,14 +223,14 @@ const widths = (app: App): Promise<RowWidths> =>
   );
 
 const readingText = (app: App): Promise<string> =>
-  app.evalJS<string>(
+  app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(VALUE)})?.textContent ?? "").trim()`,
   );
 
 /** Wait for the ARC face to say a given word. The cell reads TASKS for a
  *  beat after a bind, so every reading is preceded by one of these. */
 const awaitReading = (app: App, text: string): Promise<boolean> =>
-  app.waitForCondition<boolean>(
+  app.body("A").waitForCondition<boolean>(
     `(document.querySelector(${JSON.stringify(VALUE)})?.textContent ?? "").trim()
        === ${JSON.stringify(text)}`,
     { timeoutMs: 30000 },
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         );
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
@@ -277,7 +277,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
           `document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}).length === 2`,
           { timeoutMs: 30000 },
         );
-        const markedBefore = await app.evalJS<number>(
+        const markedBefore = await app.body("A").evalJS<number>(
           `(() => {
              const dots = Array.from(document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}));
              dots.forEach((el) => { el.dataset.at0484Before = "1"; });
@@ -297,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
 
         // The instrument's SHAPE, taken once — it does not change with the
         // reading, and asserting it four times would say nothing new.
-        const shape = await app.evalJS<{
+        const shape = await app.body("A").evalJS<{
           children: number;
           first: string | null;
           middle: string | null;
@@ -331,7 +331,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         // status. Identity is the assertion that does not depend on catching
         // motion mid-cycle; the phases are compared too, whenever both dots
         // are actually breathing when the read lands.
-        const pair = await app.evalJS<{
+        const pair = await app.body("A").evalJS<{
           count: number;
           inherited: number;
           progress: ReadonlyArray<number | null>;
@@ -396,7 +396,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         // arc is up, so it spilled out from under a rule that stayed put.
         // The budget is the CELL's `min-width` now and both rows stretch to
         // it, which cannot come apart ([D168]).
-        const stacks = await app.evalJS<
+        const stacks = await app.body("A").evalJS<
           ReadonlyArray<{ priority: string; rule: number; value: number; cell: number; overflow: number }>
         >(
           `Array.from(document.querySelectorAll(${JSON.stringify(`${CARD} [data-slot="tug-status-cell"]`)})).map((el) => {
@@ -470,7 +470,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
 
         // ── Unbinding gives the width back ───────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 3);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(VALUE)}) === null`,
           { timeoutMs: 30000 },
         );

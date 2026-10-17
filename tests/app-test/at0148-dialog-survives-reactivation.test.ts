@@ -74,14 +74,15 @@ function controlRequestForward(): Record<string, unknown> {
   };
 }
 
+// Every selector these two are asked about is in card A, so they read A's body.
 function hasAttr(app: App, selector: string, attr: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `(function(){var el=document.querySelector(${JSON.stringify(selector)});return el!==null && el.hasAttribute(${JSON.stringify(attr)});})()`,
   );
 }
 
 function exists(app: App, selector: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) !== null`,
   );
 }
@@ -107,7 +108,7 @@ async function presentPermission(app: App): Promise<void> {
     feedId: FEED_CODE_OUTPUT,
     decoded: controlRequestForward(),
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(DIALOG)}) !== null`,
     { timeoutMs: 6000 },
   );
@@ -120,8 +121,10 @@ async function assertDialogModalSeeded(app: App, when: string): Promise<void> {
     await hasAttr(app, CARD_ROOT, "data-inline-dialog-pending"),
     `${when}: card carries the scrim signal`,
   ).toBe(true);
+  // The trap is the card's own focus context, so its mode is read in the
+  // card's body.
   expect(
-    await app.evalJS<boolean>(
+    await app.body("A").evalJS<boolean>(
       `document.documentElement.hasAttribute("data-focus-mode")`,
     ),
     `${when}: a trapped focus mode is current`,
@@ -157,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)(
           await presentPermission(app);
           // On open the dialog is modal and Allow is seeded — the baseline the
           // round-trip must preserve.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){var el=document.querySelector(${JSON.stringify(ALLOW)});return el!==null && el.hasAttribute("data-key-view-kbd");})()`,
             { timeoutMs: 4000 },
           );

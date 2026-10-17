@@ -20,11 +20,12 @@
  *
  * Two cards resume generated transcripts through the genuine
  * `spawn_session(resume)` chain (the at0192 vehicle), with fixtures large
- * enough that each reveal is real work. A `MutationObserver` installed
- * before the spawns logs every change of the gate's presence and the
- * first appearance of each card's list region with the gate's state at
- * that moment; its callback runs in the task of the commit that mounted
- * the list, so what it reads is what the reveal ran under.
+ * enough that each reveal is real work. `MutationObserver`s installed
+ * before the spawns log every change of the gate's presence (in the
+ * shell, where the app-modal lives) and the first appearance of each
+ * card's list region (in that card's body), all on one wall clock; a
+ * mount's callback runs in the task of the commit that mounted the list,
+ * and the gate's state at that moment is read off the gate's log.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -39,7 +40,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import { claudeProjectDir } from "./_harness/claude-home";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -157,23 +158,41 @@ interface Ev {
   gate: boolean;
 }
 
-const INSTALL_RECORDER = `(function(){
-  var cards = ${JSON.stringify(CARDS)};
+/**
+ * The gate's recorder, in the shell: the gate is an app-modal at the deck
+ * root. Times are wall-clock (`timeOrigin + now`), so they order against
+ * the mount times each card's body records on its own page.
+ */
+const INSTALL_GATE_RECORDER = `(function(){
   var log = [];
-  var seen = {};
+  var stamp = function(){ return performance.timeOrigin + performance.now(); };
   var gateUp = function(){ return document.querySelector(${JSON.stringify(GATE)}) !== null; };
   var last = gateUp();
-  log.push({ t: performance.now(), kind: "gate", gate: last });
+  log.push({ t: stamp(), kind: "gate", gate: last });
   var check = function(){
     var now = gateUp();
-    if (now !== last) { log.push({ t: performance.now(), kind: "gate", gate: now }); last = now; }
-    for (var i = 0; i < cards.length; i++) {
-      var id = cards[i];
-      if (seen[id]) continue;
-      if (document.querySelector('[data-card-id="' + id + '"] [data-slot="tug-list-view"]') !== null) {
-        seen[id] = true;
-        log.push({ t: performance.now(), kind: "mount", card: id, gate: now });
-      }
+    if (now !== last) { log.push({ t: stamp(), kind: "gate", gate: now }); last = now; }
+  };
+  check();
+  var mo = new MutationObserver(check);
+  mo.observe(document.body, { subtree: true, childList: true });
+  window.__at0720 = { log: log, stop: function(){ mo.disconnect(); } };
+  return null;
+})()`;
+
+/**
+ * A card's recorder, in that card's body: its list mounts there. Logs the
+ * list's first appearance, in the task of the commit that mounted it, on
+ * the same wall clock as the gate's recorder.
+ */
+const installMountRecorder = (card: string): string => `(function(){
+  var log = [];
+  var seen = false;
+  var check = function(){
+    if (seen) return;
+    if (document.querySelector('[data-card-id=${JSON.stringify(card)}] [data-slot="tug-list-view"]') !== null) {
+      seen = true;
+      log.push({ t: performance.timeOrigin + performance.now(), kind: "mount", card: ${JSON.stringify(card)} });
     }
   };
   check();
@@ -188,6 +207,27 @@ const mounted = (card: string) =>
   `window.__at0720.log.some(function(e){ return e.kind === "mount" && e.card === ${JSON.stringify(card)}; })`;
 const gateDown = `document.querySelector(${JSON.stringify(GATE)}) === null`;
 
+/** Wait until the host holds `cardId`'s body ready, so its page can be reached. */
+async function waitForBodyReady(app: App, cardId: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if ((await app.bodies()).some((b) => b.cardId === cardId && b.state === "ready")) return;
+    if (Date.now() >= deadline) throw new Error(`card ${cardId}'s body was not ready within ${timeoutMs} ms`);
+    await Bun.sleep(50);
+  }
+}
+
+/**
+ * The gate's state at each mount, read off the gate's own log: the last
+ * gate event at or before the mount. What the single-page recorder read
+ * synchronously in the mount's task, read here across the two pages' logs.
+ */
+function gateAt(gateLog: readonly Ev[], t: number): boolean {
+  let state = false;
+  for (const e of gateLog) if (e.t <= t) state = e.gate;
+  return state;
+}
+
 describe.skipIf(!SHOULD_RUN)("at0720 — the restore gate holds through each card's reveal", () => {
   test(
     "every first list mount lands under the gate, and the gate closes once both cards have settled",
@@ -201,7 +241,12 @@ describe.skipIf(!SHOULD_RUN)("at0720 — the restore gate holds through each car
             { timeoutMs: 30_000 },
           );
         }
-        await app.evalJS<null>(INSTALL_RECORDER);
+        // card-dom: shell
+        await app.evalJS<null>(INSTALL_GATE_RECORDER);
+        for (const id of CARDS) {
+          await waitForBodyReady(app, id, 30_000);
+          await app.body(id).evalJS<null>(installMountRecorder(id));
+        }
 
         await app.evalJS<null>(
           `(function(){ ${CARDS.map(
@@ -209,10 +254,19 @@ describe.skipIf(!SHOULD_RUN)("at0720 — the restore gate holds through each car
               `window.__tug.spawnSessionResume(${JSON.stringify(c)}, ${JSON.stringify({ tugSessionId: SIDS[i], projectDir })});`,
           ).join(" ")} return null; })()`,
         );
-        await app.waitForCondition<boolean>(`${mounted("R1")} && ${mounted("R2")}`, { timeoutMs: 60_000 });
+        for (const id of CARDS) {
+          await app.body(id).waitForCondition<boolean>(mounted(id), { timeoutMs: 60_000 });
+        }
         await app.waitForCondition<boolean>(gateDown, { timeoutMs: 20_000 });
-        const log = await app.evalJS<Ev[]>(readLog);
+        const gateLog = await app.evalJS<Ev[]>(readLog);
         await app.evalJS<null>("(window.__at0720.stop(), null)");
+        const mountLog: Ev[] = [];
+        for (const id of CARDS) {
+          const own = await app.body(id).evalJS<Ev[]>(readLog);
+          await app.body(id).evalJS<null>("(window.__at0720.stop(), null)");
+          mountLog.push(...own.map((e) => ({ ...e, gate: gateAt(gateLog, e.t) })));
+        }
+        const log = [...gateLog, ...mountLog].sort((a, b) => a.t - b.t);
         note("gate and mount log (ms)", log.map((e) => ({ ...e, t: Math.round(e.t) })));
 
         const mounts = Object.fromEntries(log.filter((e) => e.kind === "mount").map((e) => [e.card as string, e]));

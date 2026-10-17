@@ -51,6 +51,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -99,7 +100,7 @@ const settle = (ms = 200): Promise<unknown> =>
 
 /** Type a command into the card's prompt and submit it. */
 async function runCommand(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   await app.nativeType(line);
   await settle();
   // Dismiss the slash completion popup so Enter submits rather than accepting.
@@ -127,19 +128,16 @@ async function openCard(app: App): Promise<void> {
   // controller does, so a row there is the proof, and it is observable from
   // outside the card.
   await app.dispatchControlAction("toggle-arcs");
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "dashes").waitForCondition<boolean>(
     `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARCS[2]}"]') !== null`,
     { timeoutMs: 30000 },
   );
   await app.dispatchControlAction("toggle-arcs");
-  await app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
-    { timeoutMs: 8000 },
-  );
+  await waitForNoBodyOfKind(app, "dashes", { timeoutMs: 8000 });
 }
 
 const namesIn = (app: App): Promise<string[]> =>
-  app.evalJS<string[]>(
+  app.body("A").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
        .map((el) => el.getAttribute("data-arc"))`,
   );
@@ -159,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
 
         // ── The sheet lists the project's arcs ──────────────────────────
         await runCommand(app, "/arc-bind");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 10000 },
         );
@@ -175,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         // Counted by ROW, not by element: `TugArcAtom` is a seat around a
         // `ArcSigil` whose default slot is the same word, so a row holds two
         // of them and an element count would say six where there are three.
-        const identity = await app.evalJS<{ atomRows: number; workers: number }>(
+        const identity = await app.body("A").evalJS<{ atomRows: number; workers: number }>(
           `(() => ({
              atomRows: Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
                .filter((row) => row.querySelector('[data-slot="tug-arc-atom"]') !== null).length,
@@ -189,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
 
         // ── Escape dismisses, and the binding is untouched ────────────────
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) === null`,
           { timeoutMs: 8000 },
         );
@@ -203,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         // The seeded cursor is the card's own arc — there is none here, so it
         // rests on the first row, and one Down moves to the second.
         await runCommand(app, "/arc-bind");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 10000 },
         );
@@ -229,11 +227,11 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         // The same eyebrow grammar the Arcs card and the shade lead with, which is
         // the fact this picker exists to weigh: somebody is on that one.
         await runCommand(app, "/arc-bind");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-arc-lifecycle-worker"]`)}).length === 1`,
           { timeoutMs: 15000 },
         );
-        const heldRow = await app.evalJS<string | null>(
+        const heldRow = await app.body("A").evalJS<string | null>(
           `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="tug-arc-lifecycle-worker"]`)})
              ?.closest('[data-slot="arc-picker-row"]')?.getAttribute("data-arc") ?? null`,
         );
@@ -242,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0421: the /arc-bind picker", () => {
         expect(chipText(heldRow!)).toBe(bound);
         // And it is the row the picker marks as this card's own.
         expect(
-          await app.evalJS<string | null>(
+          await app.body("A").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(`${PICKER_ROWS} [data-slot="arc-picker-current"]`)})
                ?.closest('[data-slot="arc-picker-row"]')?.getAttribute("data-arc") ?? null`,
           ),

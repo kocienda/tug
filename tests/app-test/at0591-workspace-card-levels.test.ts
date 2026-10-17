@@ -70,13 +70,14 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type BodyApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -84,11 +85,14 @@ const TEST_TIMEOUT_MS = 180_000;
 const SPACE = "at0591-space";
 
 /**
- * "On screen", said out loud. Every visited workspace stays mounted, so the
- * document holds one Workspaces card per visited workspace — all but one
- * inside a wrapper with no `data-space-shown` and no boxes.
+ * "On screen" was once a selector scope: every visited workspace stays
+ * mounted, and the shell's document held one Workspaces card per visited
+ * workspace, all but one inside a space layer with no `data-space-shown`.
+ * Each Workspaces card is now its own body, whose page holds that one card
+ * and no space layer, and `kindBody(app, "cards")` takes the visible one —
+ * so the scope is the body chosen, and the prefix is empty.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
+const SHOWN = "";
 
 const CELL = `${SHOWN}.cards-list .tug-list-view-cell`;
 const SPACE_HEADER_CELL = `${CELL}[data-tug-list-cell-kind="space-header"]`;
@@ -116,8 +120,8 @@ const ONELINE_CONTENT = `${SHOWN}.cards-oneline[data-cards-row-id] .tug-list-row
 /**
  * The workspace header ROW, and the two things a rename can move.
  *
- * The menu and the field are portaled to the canvas's overlay root, outside
- * every space layer, so neither selector carries the `SHOWN` scope.
+ * The menu and the field are portaled to the overlay root of the card's page
+ * — its body — so neither selector carries the `SHOWN` scope.
  */
 const SPACE_HEADER_ROW = `${SHOWN}.cards-space-header`;
 const VERBS_BUTTON = `${SHOWN}[data-testid="cards-space-verbs-button"]`;
@@ -199,8 +203,8 @@ const TO_SRGB = `function (css) {
   return "rgb(" + d[0] + ", " + d[1] + ", " + d[2] + ")";
 }`;
 
-function bgOf(app: App, selector: string): Promise<string> {
-  return app.evalJS<string>(
+function bgOf(page: BodyApp,selector: string): Promise<string> {
+  return page.evalJS<string>(
     `(function () {
        var toSrgb = ${TO_SRGB};
        var el = document.querySelector(${JSON.stringify(selector)});
@@ -210,8 +214,8 @@ function bgOf(app: App, selector: string): Promise<string> {
   );
 }
 
-function leftOf(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+function leftOf(page: BodyApp,selector: string): Promise<number> {
+  return page.evalJS<number>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(selector)});
        if (el === null) throw new Error("no element: " + ${JSON.stringify(selector)});
@@ -478,14 +482,14 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SPACE_HEADER_CELL)}) !== null
              && document.querySelector(${JSON.stringify(GROUP_HEADER_CELL)}) !== null
              && document.querySelector(${JSON.stringify(SUBROW_GLYPH)}) !== null`,
             { timeoutMs: 25_000 },
           );
           await app.bindSession("S", { tugSessionId: "at0591-S" });
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SESSION_CONTENT)}) !== null`,
             { timeoutMs: 20_000 },
           );
@@ -495,9 +499,9 @@ describe.skipIf(!SHOULD_RUN)(
           // An ORDERING, not a value: the rows are the baseline every theme
           // shares, and what has to hold is that the container sits nearer it
           // than the thing it contains.
-          const rowBg = parseChannels(await bgOf(app, PANE_ROW_CELL));
-          const spaceBg = parseChannels(await bgOf(app, SPACE_HEADER_CELL));
-          const groupBg = parseChannels(await bgOf(app, GROUP_HEADER_CELL));
+          const rowBg = parseChannels(await bgOf(kindBody(app, "cards"),PANE_ROW_CELL));
+          const spaceBg = parseChannels(await bgOf(kindBody(app, "cards"),SPACE_HEADER_CELL));
+          const groupBg = parseChannels(await bgOf(kindBody(app, "cards"),GROUP_HEADER_CELL));
           const spaceLift = distance(spaceBg, rowBg);
           const groupLift = distance(groupBg, rowBg);
           note(
@@ -530,7 +534,7 @@ describe.skipIf(!SHOULD_RUN)(
           // background — so the prohibition is checked against the colour the
           // rule DECLARES, which is the thing the inversion could collide
           // with, and the cascade is left for its own arc.
-          const probe = await app.evalJS<Record<string, string>>(
+          const probe = await kindBody(app, "cards").evalJS<Record<string, string>>(
             `(function () {
                var row = document.querySelector(
                  ${JSON.stringify(`${SHOWN}.cards-list [data-cards-space-run]`)}
@@ -557,7 +561,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The accent resolved over the card well, which is what the rule
           // would paint if it won its cascade.
           const dropBg = parseChannels(
-            await app.evalJS<string>(
+            await kindBody(app, "cards").evalJS<string>(
               `(function () {
                  var toSrgb = ${TO_SRGB};
                  var el = document.querySelector(${JSON.stringify(SPACE_HEADER_CELL)});
@@ -586,10 +590,10 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(4);
 
           // ---- 3. Indent ordering, rung by rung. -------------------------
-          const spaceLeft = await leftOf(app, SPACE_GLYPH);
-          const groupLeft = await leftOf(app, GROUP_GLYPH);
-          const paneLeft = await leftOf(app, PANE_GLYPH);
-          const subrowLeft = await leftOf(app, SUBROW_GLYPH);
+          const spaceLeft = await leftOf(kindBody(app, "cards"),SPACE_GLYPH);
+          const groupLeft = await leftOf(kindBody(app, "cards"),GROUP_GLYPH);
+          const paneLeft = await leftOf(kindBody(app, "cards"),PANE_GLYPH);
+          const subrowLeft = await leftOf(kindBody(app, "cards"),SUBROW_GLYPH);
           note(
             `at0591 indent: space=${spaceLeft.toFixed(1)} ` +
               `group=${groupLeft.toFixed(1)} pane=${paneLeft.toFixed(1)} ` +
@@ -627,9 +631,9 @@ describe.skipIf(!SHOULD_RUN)(
           // would pull the two kinds apart by the step, on top of the slot
           // they already differ by. The raw edges are noted either way, so a
           // later arc that closes the slot gap can read what it was.
-          const sessionLeft = await leftOf(app, SESSION_CONTENT);
-          const onelineLeft = await leftOf(app, ONELINE_CONTENT);
-          const pads = await app.evalJS<string[]>(
+          const sessionLeft = await leftOf(kindBody(app, "cards"),SESSION_CONTENT);
+          const onelineLeft = await leftOf(kindBody(app, "cards"),ONELINE_CONTENT);
+          const pads = await kindBody(app, "cards").evalJS<string[]>(
             `[
                ${JSON.stringify(SESSION_CONTENT)},
                ${JSON.stringify(ONELINE_CONTENT)},
@@ -653,7 +657,7 @@ describe.skipIf(!SHOULD_RUN)(
           // it a two-file edit and this leg the thing that refuses the tune.
           // What it still catches is a rule that reaches one level or none,
           // and leg 3 above is what keeps the step from being nothing at all.
-          const twoLevelStep = await app.evalJS<string>(
+          const twoLevelStep = await kindBody(app, "cards").evalJS<string>(
             `(function(){
                var s = getComputedStyle(document.body);
                var inset = parseFloat(
@@ -679,7 +683,7 @@ describe.skipIf(!SHOULD_RUN)(
           // two-term declaration — so the header rendered at exactly the size
           // of its rows and the level said nothing. An ORDERING, not a value:
           // both numbers are tuned, and what has to hold is which is smaller.
-          const typeSizes = await app.evalJS<{ group: number; row: number }>(
+          const typeSizes = await kindBody(app, "cards").evalJS<{ group: number; row: number }>(
             `(function () {
                var px = function (sel) {
                  var el = document.querySelector(sel);
@@ -726,7 +730,7 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SPACE_HEADER_ROW)}) !== null
              && document.querySelector(${JSON.stringify(GROUP_HEADER_CELL)}) !== null`,
             { timeoutMs: 25_000 },
@@ -738,7 +742,7 @@ describe.skipIf(!SHOULD_RUN)(
           // that grows pushes everything under it down, which is the thing a
           // reader actually sees.
           const heightOf = (): Promise<number> =>
-            app.evalJS<number>(
+            kindBody(app, "cards").evalJS<number>(
               `(function () {
                  var el = document.querySelector(${JSON.stringify(SPACE_HEADER_ROW)});
                  if (el === null) throw new Error("no workspace header");
@@ -746,7 +750,7 @@ describe.skipIf(!SHOULD_RUN)(
                })()`,
             );
           const belowTop = (): Promise<number> =>
-            app.evalJS<number>(
+            kindBody(app, "cards").evalJS<number>(
               `(function () {
                  var el = document.querySelector(${JSON.stringify(GROUP_HEADER_CELL)});
                  if (el === null) throw new Error("no group header");
@@ -757,13 +761,15 @@ describe.skipIf(!SHOULD_RUN)(
           const atRest = await heightOf();
           const belowAtRest = await belowTop();
 
-          await app.nativeClickAtElement(VERBS_BUTTON);
-          await app.waitForCondition<boolean>(
+          // The verbs menu portals to the overlay root of the page that holds
+          // the card — the card's body.
+          await kindBody(app, "cards").nativeClickAtElement(VERBS_BUTTON);
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="rename-space"]') !== null`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement('[data-item-action="rename-space"]');
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement('[data-item-action="rename-space"]');
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 8_000 },
           );
@@ -773,11 +779,11 @@ describe.skipIf(!SHOULD_RUN)(
           // that just opened is untouched by it — at0578 carries the same
           // note for the same reason.
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(".tug-menu-content") === null`,
             { timeoutMs: 8_000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 4_000 },
           );
@@ -787,7 +793,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           await app.nativeType("Levels");
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -847,7 +853,7 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(SPACE_HEADER_CELL)}).length === 2
              && document.querySelector(${JSON.stringify(EMPTY_ROW)}) !== null`,
             { timeoutMs: 25_000 },
@@ -855,7 +861,7 @@ describe.skipIf(!SHOULD_RUN)(
           await settle();
 
           // ---- 1. Exactly one, saying `None`, inside its workspace's block.
-          const empty = await app.evalJS<{
+          const empty = await kindBody(app, "cards").evalJS<{
             count: number;
             text: string;
             run: string | null;
@@ -889,7 +895,7 @@ describe.skipIf(!SHOULD_RUN)(
           // written to the rail's measure, so `scrollWidth` past
           // `clientWidth` is a defect wherever it comes from and not only
           // here.
-          const sideways = await app.evalJS<{
+          const sideways = await kindBody(app, "cards").evalJS<{
             scrollWidth: number;
             clientWidth: number;
             overflowX: string;
@@ -919,13 +925,13 @@ describe.skipIf(!SHOULD_RUN)(
           // one ArrowDown has to reach the NEXT workspace's header, because
           // the row between them is inert ([P06]).
           await app.dispatchControlAction("toggle-cards");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             { timeoutMs: 8_000 },
           );
           await app.nativeKey("Home");
           await settle(150);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `(function () {
                var row = document.querySelector(${JSON.stringify(CURSOR_ROW)});
                return row !== null &&
@@ -935,7 +941,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.nativeKey("ArrowDown");
           await settle(150);
-          const landed = await app.evalJS<string | null>(
+          const landed = await kindBody(app, "cards").evalJS<string | null>(
             `(function () {
                var row = document.querySelector(${JSON.stringify(CURSOR_ROW)});
                if (row === null) return null;
@@ -956,7 +962,7 @@ describe.skipIf(!SHOULD_RUN)(
           // from `data-cards-space-run` in the DOM, which the row wears, so an
           // empty workspace has somewhere to aim a card at — the whole of what
           // [B07] is for.
-          const carry = await app.evalJS<Carry>(
+          const carry = await kindBody(app, "cards").evalJS<Carry>(
             carryScript(
               `${SHOWN}.cards-list .cards-row[data-cards-space-run="${FULL}"]`,
               EMPTY_ROW,
@@ -989,7 +995,7 @@ describe.skipIf(!SHOULD_RUN)(
           // primitive's teardown rather than of the `None` row. The reading is
           // recorded so a later arc has the measurement rather than a
           // suspicion.
-          const after = await app.evalJS<Record<string, unknown>>(
+          const after = await kindBody(app, "cards").evalJS<Record<string, unknown>>(
             `(function () {
                var empty = document.querySelector(${JSON.stringify(EMPTY_ROW)});
                var header = document.querySelector(
@@ -1035,7 +1041,7 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(SPACE_HEADER_CELL)}).length === ${CROWD}`,
             { timeoutMs: 25_000 },
           );
@@ -1046,7 +1052,7 @@ describe.skipIf(!SHOULD_RUN)(
           // scroller is the card, not the list: the list is `inline` with
           // `overflow: visible`, which is also why every cell is mounted and
           // the reveal can be one `scrollIntoView`.
-          const scrolled = await app.evalJS<{
+          const scrolled = await kindBody(app, "cards").evalJS<{
             scrollHeight: number;
             clientHeight: number;
           }>(
@@ -1064,8 +1070,8 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(scrolled.clientHeight);
           await settle(200);
 
-          const cardBox = await app.evalJS<Box>(boxOf(CARD_ROOT));
-          const headerBefore = await app.evalJS<Box>(
+          const cardBox = await kindBody(app, "cards").evalJS<Box>(boxOf(CARD_ROOT));
+          const headerBefore = await kindBody(app, "cards").evalJS<Box>(
             boxOf(`${SHOWN}.cards-space-header[data-cards-space-id="${CROWD_LAST}"]`),
           );
           note(
@@ -1080,18 +1086,20 @@ describe.skipIf(!SHOULD_RUN)(
           // The Window menu's own wire, which is the path the report came in
           // on: it reaches this card through `cardsSpaceVerbRequest` rather
           // than through any surface of the card itself.
+          // The confirm opens in the overlay root of the card's own page — its
+          // body — so it and the card's box are read in one viewport.
           await app.dispatchControlAction("delete-space");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
             { timeoutMs: 15_000 },
           );
           await settle(300);
 
           // ---- 1. The reveal. ---------------------------------------------
-          const headerAfter = await app.evalJS<Box>(
+          const headerAfter = await kindBody(app, "cards").evalJS<Box>(
             boxOf(`${SHOWN}.cards-space-header[data-cards-space-id="${CROWD_LAST}"]`),
           );
-          const cardAfter = await app.evalJS<Box>(boxOf(CARD_ROOT));
+          const cardAfter = await kindBody(app, "cards").evalJS<Box>(boxOf(CARD_ROOT));
           note(
             `at0591 after the confirm: card=${JSON.stringify(cardAfter)} ` +
               `header=${JSON.stringify(headerAfter)}`,
@@ -1107,7 +1115,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- 2. The arrow. ----------------------------------------------
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(POPOVER_ARROW)}).length`,
             ),
             "exactly one arrow, so the popover names the row it is asking about",
@@ -1116,7 +1124,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- 3. The collision boundary. ---------------------------------
           // What the boundary buys: a shift can move the popover within the
           // card, and can never carry it out onto a neighbouring card.
-          const popover = await app.evalJS<Box>(boxOf(CONFIRM));
+          const popover = await kindBody(app, "cards").evalJS<Box>(boxOf(CONFIRM));
           note(`at0591 confirm box: ${JSON.stringify(popover)}`);
           expect(popover.left, "the popover's leading edge is inside the card").toBeGreaterThanOrEqual(
             cardAfter.left - 1,
@@ -1126,7 +1134,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,
             { timeoutMs: 8_000 },
           );

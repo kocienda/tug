@@ -46,6 +46,7 @@ import {
   standUp,
   startMountSampler,
   stopMountSampler,
+  transcriptPage,
 } from "./eviction-fixture";
 
 describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () => {
@@ -54,11 +55,12 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
     async () => {
       const app = await standUp("at0330-reflow-drain");
       try {
+        const page = await transcriptPage(app);
         const rowCount = await readRowCount(app);
         await scrollTo(app, 0.5);
         // Put a row's top edge on the scrollport top, so "where the reader
         // is" is a whole row whose offset can be read before and after.
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var portTop = el.getBoundingClientRect().top;
   var cells = [].slice.call(el.querySelectorAll("[data-tug-list-cell-index]"));
@@ -69,7 +71,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
 })()`);
         await new Promise((r) => setTimeout(r, 500));
         const readTop = (index: number | null) =>
-          app.evalJS<{ index: number; offset: number; w: number; fallbacks: number }>(`(function () {
+          page.evalJS<{ index: number; offset: number; w: number; fallbacks: number }>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var portTop = el.getBoundingClientRect().top;
   var want = ${index === null ? "null" : index};
@@ -99,7 +101,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
         // write opens no resize episode, so the drain's own restore
         // target is what holds the reader.
         const setWidth = (w: number): Promise<number> =>
-          app.evalJS<number>(`(function () {
+          page.evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.style.flex = "0 0 auto";
   el.style.width = "${w}px";
@@ -116,7 +118,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
         for (const w of burstWidths) {
           lastClientWidth = await setWidth(w);
         }
-        const midBurst = await app.evalJS<{ active: boolean; w: number }>(
+        const midBurst = await page.evalJS<{ active: boolean; w: number }>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return { active: el.hasAttribute("data-evict-active"), w: el.clientWidth };
@@ -133,7 +135,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
         // Rest past the settle interval, then let the drain re-measure
         // every stale row. The exactness below holds after the drain, not
         // before it: until then stale heights stand in for unmounted rows.
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return window.__at0330Sampler.sawStale &&
@@ -146,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
         await new Promise((r) => setTimeout(r, 1000));
         const sampled = await stopMountSampler(app);
         const after = await readTop(before.index);
-        const settled = await app.evalJS<{ h: number; active: boolean }>(`(function () {
+        const settled = await page.evalJS<{ h: number; active: boolean }>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   return { h: el.scrollHeight, active: el.hasAttribute("data-evict-active") };
 })()`);
@@ -178,6 +180,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
     async () => {
       const app = await standUp("at0330-reflow-line");
       try {
+        const page = await transcriptPage(app);
         await scrollTo(app, 0.4);
         // Put the scrollport top just inside a reply's list item. The reply's
         // paragraph sits above it in the same row and re-wraps at the new
@@ -187,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
         // The placement repeats until the item rests where it was put: the
         // first write lands against rows still settling their heights.
         const place = (): Promise<number | null> =>
-          app.evalJS<number | null>(`(function () {
+          page.evalJS<number | null>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var portTop = el.getBoundingClientRect().top;
   var li = window.__at0330Line;
@@ -200,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
   el.scrollTop = Math.round(el.scrollTop + li.getBoundingClientRect().top - portTop + 3);
   return li.getBoundingClientRect().top - portTop;
 })()`);
-        await app.evalJS<boolean>(`(delete window.__at0330Line, true)`);
+        await page.evalJS<boolean>(`(delete window.__at0330Line, true)`);
         let rest: number | null = null;
         for (let pass = 0; pass < 4; pass += 1) {
           expect(await place(), "a list item below the scrollport top to read from").not.toBeNull();
@@ -210,19 +213,19 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — reflow", () =>
         }
         expect(rest, "the item rests just above the scrollport top").not.toBeNull();
         expect(Math.abs(rest! + 3)).toBeLessThanOrEqual(1);
-        const before = { delta: rest!, text: await app.evalJS<string>(`(window.__at0330Line.textContent || "").slice(0, 40)`) };
-        const w = await app.evalJS<number>(`document.querySelector('${SCROLLER}').clientWidth`);
+        const before = { delta: rest!, text: await page.evalJS<string>(`(window.__at0330Line.textContent || "").slice(0, 40)`) };
+        const w = await page.evalJS<number>(`document.querySelector('${SCROLLER}').clientWidth`);
 
         // A direct width write opens no resize episode: the drain's own hold
         // is what keeps the reader.
         await startMountSampler(app);
-        await app.evalJS<number>(`(function () {
+        await page.evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.style.flex = "0 0 auto";
   el.style.width = "${Math.round(w * 0.55)}px";
   return el.clientWidth;
 })()`);
-        await app.waitForCondition<boolean>(
+        await page.waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${SCROLLER}');
   return window.__at0330Sampler.sawStale && !el.hasAttribute("data-evict-stale");

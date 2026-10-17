@@ -198,21 +198,21 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
       try {
         await standUpSession(app, "A", SID, sessionDeckShape(["A"]));
         await seedMixedTurns(app, TURNS);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${SEL.card} [data-tug-list-cell-index]').length > 4`,
           { timeoutMs: 60_000 },
         );
 
         await openFindBar(app);
-        const typed = await markTrace(app);
+        const typed = await markTrace(app.body("A"));
         await app.nativeType(PROBE);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(SEL.chip)})?.textContent || "") !== ""`,
           { timeoutMs: 20_000 },
         );
         // The query's own reveal must be over before the walk starts, or the
         // first ⌘G supersedes it and the walk's first terminal is its.
-        await awaitGestureReveal(app, typed, PROBE);
+        await awaitGestureReveal(app.body("A"),typed, PROBE);
 
         const firstChip = await readChip(app);
         const total = Number(firstChip.split(" of ")[1] ?? "0");
@@ -227,9 +227,9 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
         let wrapped = false;
         const landedOffsets = new Set<number>();
         for (let step = 0; step < total + 1; step += 1) {
-          const mark = await markTrace(app);
-          await chord(app, "KeyG", "g", { meta: true });
-          const terminal = await awaitRevealTerminal(app, mark, 12_000);
+          const mark = await markTrace(app.body("A"));
+          await chord(app.body("A"), "KeyG", "g", { meta: true });
+          const terminal = await awaitRevealTerminal(app.body("A"), mark, 12_000);
           if (terminal === null) {
             failures.push(`step ${step}: the reveal never reported a terminal event`);
             continue;
@@ -245,7 +245,7 @@ describe.skipIf(!SHOULD_RUN)("AT0603: every ⌘G step lands where the chip says"
             );
           }
           const samples = await sampleReveal(app, 300);
-          const gesture = await lastGesture(app, mark);
+          const gesture = await lastGesture(app.body("A"), mark);
           const last10 = tail(samples);
 
           // 1. The active text satisfies the query.

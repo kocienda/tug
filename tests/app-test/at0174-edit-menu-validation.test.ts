@@ -124,7 +124,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "no editing surface focused: Copy / Select All / Find all disabled",
     async () => {
-      const app = await launchTugApp({ testName: "at0174-static" });
+      const app = await launchTugApp({ bodies: false, testName: "at0174-static" });
       try {
         await app.enableDeckTrace(true);
         // A static label card has no text-editing responder, so nothing
@@ -159,7 +159,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "text input focused: Cut/Copy/Paste/Select All enable; Find stays off",
     async () => {
-      const app = await launchTugApp({ testName: "at0174-textinput", foreground: true });
+      const app = await launchTugApp({ bodies: false, testName: "at0174-textinput", foreground: true });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: paneOf("gallery-input"), focusCardId: "A" });
@@ -209,7 +209,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "CM6 editor: Undo tracks history depth and goes dark on canvas deselect",
     async () => {
-      const app = await launchTugApp({ testName: "at0174-cm6undo" });
+      const app = await launchTugApp({ bodies: false, testName: "at0174-cm6undo" });
       try {
         await app.enableDeckTrace(true);
         // One pane hosting the CM6 prompt-entry editor, positioned to
@@ -301,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "native input: Undo rides the web view's NSUndoManager, cleared on blur",
     async () => {
-      const app = await launchTugApp({ testName: "at0174-nativeundo", foreground: true });
+      const app = await launchTugApp({ bodies: false, testName: "at0174-nativeundo", foreground: true });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: paneOf("gallery-input"), focusCardId: "A" });

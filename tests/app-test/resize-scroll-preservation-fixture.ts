@@ -11,7 +11,7 @@
  * @module tests/app-test/resize-scroll-preservation-fixture
  */
 
-import type { App } from "./_harness";
+import type { App, BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -152,9 +152,13 @@ export async function waitForEpisodesClosed(app: App, frame: string): Promise<vo
  * than a restatement of the mechanism. A block's top edge moves only when
  * content ABOVE it changes height, which is exactly the displacement the
  * episode exists to absorb.
+ *
+ * `page` is the page the scroller is in: the card's body
+ * (`app.body("A")`) for a scroller inside the card, the shell for one that
+ * is the pane's own. The same holds for every scroller reading below.
  */
-export async function claimSubject(app: App, scroller: string): Promise<Anchor> {
-  const anchor = await app.evalJS<Anchor | null>(
+export async function claimSubject(page: App | BodyApp, scroller: string): Promise<Anchor> {
+  const anchor = await page.evalJS<Anchor | null>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(scroller)});
       if (el === null) return null;
@@ -183,10 +187,10 @@ export async function claimSubject(app: App, scroller: string): Promise<Anchor> 
 
 /** Where the claimed subject sits now, or null if it has left the document. */
 export async function readSubject(
-  app: App,
+  page: App | BodyApp,
   scroller: string,
 ): Promise<{ delta: number; scrollTop: number } | null> {
-  return app.evalJS<{ delta: number; scrollTop: number } | null>(
+  return page.evalJS<{ delta: number; scrollTop: number } | null>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(scroller)});
       var node = window.__at0430subject;
@@ -204,13 +208,13 @@ export const paneWidth = (app: App, frame: string): Promise<number> =>
     `Math.round(document.querySelector(${JSON.stringify(frame)}).getBoundingClientRect().width)`,
   );
 
-export const displacements = (app: App, scroller: string): Promise<number> =>
-  app.evalJS<number>(
+export const displacements = (page: App | BodyApp, scroller: string): Promise<number> =>
+  page.evalJS<number>(
     `Number(document.querySelector(${JSON.stringify(scroller)}).getAttribute("data-scroll-displacements"))`,
   );
 
-export const isAtBottom = (app: App, scroller: string): Promise<boolean> =>
-  app.evalJS<boolean>(
+export const isAtBottom = (page: App | BodyApp, scroller: string): Promise<boolean> =>
+  page.evalJS<boolean>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(scroller)});
       return el.scrollTop + el.clientHeight >= el.scrollHeight - 2;

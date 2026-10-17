@@ -126,7 +126,7 @@ function receiptText(arc: string): string {
 
 /** How many Joins stand on finished rows naming `arc` right now. */
 function joinsFor(app: App, arc: string): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("A").evalJS<number>(
     `Array.from(document.querySelectorAll(${JSON.stringify(FINISH_ROW)}))
        .filter(function (row) {
          return (row.textContent || "").indexOf(${JSON.stringify(arc)}) !== -1;
@@ -174,12 +174,12 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
             startedAtMs: 1_700_000_000_000,
           });
         }
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('${CARD} [data-slot="arc-finish-line"]').length === 2`,
           { timeoutMs: 30000 },
         );
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(FINISH_JOIN)}).length`,
           ),
           "a finished arc with no standing offer is the quiet line it has always been",
@@ -196,18 +196,18 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         // room reveals itself (at0445's subject). Close it: this file's two
         // surfaces are both in the transcript the close returns to, and
         // closing costs nothing.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 240000 },
         );
         // Let the entry finish arriving before closing it. The reveal and the
         // landing mode come up together, and a toggle sent into the middle of
         // that is a race rather than a gesture.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") === "active"`,
           { timeoutMs: 30000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           { timeoutMs: 30000 },
         );
@@ -215,13 +215,13 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         // The ROUTE is what says the card left the room. The shade's own node
         // outlives the leaving by however long its exit takes, and under the
         // harness's suppressed motion that is not a duration worth waiting on.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,
           { timeoutMs: 30000 },
         );
 
         // ── The receipt grows a Join, for its own arc only ───────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(FINISH_JOIN)}).length === 1`,
           { timeoutMs: 30000 },
         );
@@ -236,11 +236,11 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         note("at0560 receipt", (await app.screenshot()).path);
 
         // ── The composer says what is being waited for ───────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLACEHOLDER)}) !== null`,
           { timeoutMs: 20000 },
         );
-        const placeholder = await app.evalJS<string>(
+        const placeholder = await app.body("A").evalJS<string>(
           `((document.querySelector(${JSON.stringify(PLACEHOLDER)})?.textContent) || "").trim()`,
         );
         note("at0560 placeholder", placeholder);
@@ -250,17 +250,17 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         // The full click sequence, which is what the button's own handler
         // conditions on. Where the room ends up is the claim, and the route
         // is what carries it.
-        await app.click(FINISH_JOIN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(FINISH_JOIN);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") === "active"`,
           { timeoutMs: 20000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 30000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           ),
           "the room it opens is the armed one, and the landing is still the user's press",
@@ -268,7 +268,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: a standing offer on an open card", () => {
         // Nothing landed: the offer is still standing, which is what the row's
         // own Join still being there says.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(FINISH_JOIN)}).length`,
           ),
           "the button routed, it did not spend the offer",

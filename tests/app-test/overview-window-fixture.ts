@@ -5,9 +5,13 @@
  * Split out of `at0728-overview-window.test.ts` when that file was cut into
  * `at0728-overview-window-read`, `-follow` and `-relaunch` to keep each under
  * the 20 s budget.
+ *
+ * Every reader and driver here takes the page holding the Overview card —
+ * its body (`kindBody(app, "overview")`); the transcript is not in the
+ * shell's document.
  */
 
-import { type App } from "./_harness";
+import { type App, type BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 240_000;
@@ -44,8 +48,8 @@ export const POST_NUMBER_JS = `function (cell) {
   return m === null ? -1 : Number(m[1]);
 }`;
 
-export async function scrollToTop(app: App, top: number): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+export async function scrollToTop(page: BodyApp | App, top: number): Promise<void> {
+  await page.evalJS<boolean>(`(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   el.scrollTop = ${top};
   el.dispatchEvent(new Event("scroll"));
@@ -62,14 +66,14 @@ export async function scrollToTop(app: App, top: number): Promise<void> {
  * it waits on that rather than on {@link scrollToTop}'s fixed beat (fifty
  * beats of 400 ms were most of the file's time).
  */
-export async function scrollToTopCovered(app: App, top: number): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+export async function scrollToTopCovered(page: BodyApp | App, top: number): Promise<void> {
+  await page.evalJS<boolean>(`(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   el.scrollTop = ${top};
   el.dispatchEvent(new Event("scroll"));
   return true;
 })()`);
-  await app.waitForCondition<boolean>(`(${COLUMN_JS}).covered`, { timeoutMs: 5_000 });
+  await page.waitForCondition<boolean>(`(${COLUMN_JS}).covered`, { timeoutMs: 5_000 });
 }
 
 /** The geometry of the column as it stands. */
@@ -113,8 +117,8 @@ export const COLUMN_JS = `(function () {
   };
 })()`;
 
-export async function column(app: App): Promise<Column> {
-  return app.evalJS<Column>(COLUMN_JS);
+export async function column(page: BodyApp | App): Promise<Column> {
+  return page.evalJS<Column>(COLUMN_JS);
 }
 
 /** The fully-mounted reference: every post's height, and the column's fixed parts. */
@@ -127,12 +131,12 @@ export interface Reference {
 }
 
 /** Sweep the column top to bottom, measuring every post's cell as it mounts. */
-export async function measureReference(app: App, col: Column): Promise<Reference> {
-  await app.evalJS<boolean>(`(window.__at0728Heights = {}, true)`);
+export async function measureReference(page: BodyApp | App, col: Column): Promise<Reference> {
+  await page.evalJS<boolean>(`(window.__at0728Heights = {}, true)`);
   const step = Math.max(100, Math.floor(col.clientHeight / 2));
   for (let top = 0; top <= col.scrollHeight; top += step) {
-    await scrollToTopCovered(app, top);
-    await app.evalJS<boolean>(`(function () {
+    await scrollToTopCovered(page, top);
+    await page.evalJS<boolean>(`(function () {
   var postNumber = ${POST_NUMBER_JS};
   document.querySelectorAll(${JSON.stringify(CELL)}).forEach(function (c) {
     var n = postNumber(c);
@@ -141,7 +145,7 @@ export async function measureReference(app: App, col: Column): Promise<Reference
   return true;
 })()`);
   }
-  return app.evalJS<Reference>(`(function () {
+  return page.evalJS<Reference>(`(function () {
   var el = document.querySelector(${JSON.stringify(TRANSCRIPT)});
   var cs = getComputedStyle(el);
   var heights = [];

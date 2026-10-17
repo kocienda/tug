@@ -64,6 +64,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -119,7 +120,7 @@ interface DocumentReading {
 const readDocuments = (
   app: Awaited<ReturnType<typeof launchTugApp>>,
 ): Promise<DocumentReading[]> =>
-  app.evalJS<DocumentReading[]>(
+  app.body("A").evalJS<DocumentReading[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(DOCUMENTS)})).map((row) => ({
        role: row.getAttribute("data-role"),
        review: row.getAttribute("data-review"),
@@ -144,7 +145,7 @@ interface DocumentMetric {
 const readDocumentMetrics = (
   app: Awaited<ReturnType<typeof launchTugApp>>,
 ): Promise<DocumentMetric[]> =>
-  app.evalJS<DocumentMetric[]>(
+  app.body("A").evalJS<DocumentMetric[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(DOCUMENTS)})).map((row) => {
        const title = row.querySelector('[data-slot="session-arc-document-title"]');
        const facts = row.querySelector('[data-slot="session-arc-document-facts"]');
@@ -177,7 +178,7 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
           projectDir: projectDir(),
         });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
@@ -191,19 +192,19 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         });
 
         // ── Raise the changes shade ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // ── An arc that is only a brief is still an arc, and it fronts ─────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROW}[data-branchless="true"]`)}) !== null`,
           { timeoutMs: 40000 },
         );
@@ -217,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
 
         // None of the branch-shaped affordances stand: there is no branch.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-fold"]`)}).length`,
           ),
         ).toBe(0);
@@ -228,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
           arcPlanPath(projectDir(), ARC_NAME),
           fixturePlanDocument(2),
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DOCUMENTS)}).length === 2`,
           { timeoutMs: 40000 },
         );
@@ -244,10 +245,10 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         // carrying the brief's heading is the file, opened, and nothing else
         // in the deck could be showing it.
         const briefPath = arcBriefPath(projectDir(), ARC_NAME);
-        await app.nativeClickAtElement(
+        await app.body("A").nativeClickAtElement(
           `${ROW} [data-slot="session-arc-document"][data-role="brief"]`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "text").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll('[data-slot="text-card"]'))
              .some((card) => (card.textContent ?? "").includes(${JSON.stringify(BRIEF_TITLE)}))`,
           { timeoutMs: 20000 },
@@ -258,11 +259,11 @@ describe.skipIf(!SHOULD_RUN)("AT0479: the arc's documents on the shade", () => {
         // Cutting the branch moves the arc to an arc row; the documents do
         // not move, because they were never inside the worktree.
         createArc(projectDir(), ARC_NAME, "at0479 strip", scratch!.cli);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROW} [data-slot="session-changes-arc-fold"]`)}) !== null`,
           { timeoutMs: 40000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DOCUMENTS)}).length === 2`,
           { timeoutMs: 40000 },
         );

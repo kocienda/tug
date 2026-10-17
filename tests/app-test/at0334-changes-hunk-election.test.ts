@@ -174,7 +174,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         });
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: sessionCardShape({ width: 1000, height: 760 }), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.bindSession("A", {
@@ -202,19 +202,19 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
             result: "success",
           },
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── Raise the changes sheet ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -223,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         // Everything below depends on this: an unattributed row is passed no
         // election at all, so not one of these affordances would render.
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(FILE_ROW)}) !== null`,
             { timeoutMs: 30000 },
           );
@@ -234,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
           // path was not dirty.
           note(
             "at0334 shade contents when no session row appeared",
-            await app.evalJS<unknown>(
+            await app.body("A").evalJS<unknown>(
               `(() => {
                  const sheet = document.querySelector(${JSON.stringify(SHEET)});
                  if (sheet === null) return "no sheet";
@@ -258,14 +258,14 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         // recompute can re-render the list between finding the cue and hitting
         // it, and re-clicking while still collapsed cannot toggle it shut.
         const isExpanded = async (): Promise<boolean> =>
-          app.evalJS<boolean>(
+          app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${FILE_ROW}[data-expanded="true"]`,
             )}) !== null`,
           );
         for (let attempt = 0; attempt < 4; attempt += 1) {
           if (await isExpanded()) break;
-          await app.nativeClickAtElement(
+          await app.body("A").nativeClickAtElement(
             `${FILE_ROW} [data-slot="tug-changes-list-fold"]`,
           );
           await settle(500);
@@ -274,19 +274,19 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
 
         // ── One box per hunk, all checked ─────────────────────────────────
         // A file with no election lands whole, and every box says so.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BOXES)}).length === 3`,
           { timeoutMs: 25000 },
         );
         const checkedCount = async (): Promise<number> =>
-          app.evalJS<number>(
+          app.body("A").evalJS<number>(
             `Array.from(document.querySelectorAll(${JSON.stringify(BOXES)}))
                .filter((el) => el.getAttribute("aria-checked") === "true").length`,
           );
         expect(await checkedCount()).toBe(3);
         // No badge while the file lands whole — a count here would be noise.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${FILE_ROW} [data-testid="tug-changes-list-file-partial"]`,
             )}) === null`,
@@ -300,31 +300,31 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
           `${FILE_ROW} [data-slot="diff-hunk"]:nth-of-type(${index + 1}) ` +
           `[data-testid="tug-changes-list-hunk-elect"]`;
         const uncheckAt = async (index: number): Promise<void> => {
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(boxIn(index))})
                .scrollIntoView({ block: "center" }), true`,
           );
           await settle(300);
-          await app.nativeClickAtElement(boxIn(index));
+          await app.body("A").nativeClickAtElement(boxIn(index));
         };
         await uncheckAt(1);
         // The box is controlled by the persisted election, so it only flips
         // once the write has gone to the ledger and come back through the
         // composed snapshot. A box that stays checked here means the round
         // trip broke, not that the click missed.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BOXES)})[1]
              ?.getAttribute("aria-checked") === "false"`,
           { timeoutMs: 15000 },
         );
 
         const badgeText = async (): Promise<string | null> =>
-          app.evalJS<string | null>(
+          app.body("A").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(
               `${FILE_ROW} [data-testid="tug-changes-list-file-partial"]`,
             )})?.textContent ?? null`,
           );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(
             `${FILE_ROW} [data-testid="tug-changes-list-file-partial"]`,
           )}) !== null`,
@@ -335,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
 
         // ── HV3: the last elected hunk is protected, and says why ─────────
         await uncheckAt(2);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(BOXES)}))
              .filter((el) => el.getAttribute("aria-checked") === "true").length === 1`,
           { timeoutMs: 15000 },
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         // `title` — so it has to be hovered to exist. The disabled checkbox
         // swallows the pointer, which is exactly why the trigger is the
         // wrapper span around it.
-        const survivorDisabled = await app.evalJS<boolean | null>(
+        const survivorDisabled = await app.body("A").evalJS<boolean | null>(
           `(() => {
              const box = Array.from(
                document.querySelectorAll(${JSON.stringify(BOXES)}),
@@ -356,7 +356,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         );
         expect(survivorDisabled).toBe(true);
 
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(function(){
              const el = document.querySelector(
                '[data-testid="tug-changes-list-hunk-elect-locked"]',
@@ -366,11 +366,11 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
              return null;
            })()`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-slot="tug-tooltip"]') !== null`,
           { timeoutMs: 5000 },
         );
-        const survivorReason = await app.getElementText('[data-slot="tug-tooltip"]');
+        const survivorReason = await app.body("A").getElementText('[data-slot="tug-tooltip"]');
         expect(survivorReason).toContain("At least one hunk must land");
         note("at0334 protected-hunk tooltip", survivorReason);
 
@@ -381,13 +381,13 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         writeMarkers(3, "rewritten");
         writeFileSync(scratchPath, "at0334 scratch\n");
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(
             `${FILE_ROW} [data-testid="tug-changes-list-file-stale-election"]`,
           )}) !== null`,
           { timeoutMs: 30000 },
         );
-        const stale = await app.evalJS<{
+        const stale = await app.body("A").evalJS<{
           text: string | null;
           partialGone: boolean;
           allChecked: boolean;
@@ -412,7 +412,7 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         );
         expect(stale.text).toBe("stale election");
         // The badge's explanation is a TugTooltip, so it has to be hovered.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(function(){
              const el = document.querySelector(${JSON.stringify(
                `${FILE_ROW} [data-testid="tug-changes-list-file-stale-election"]`,
@@ -422,11 +422,11 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
              return null;
            })()`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('.tug-tooltip-content') !== null`,
           { timeoutMs: 5000 },
         );
-        const staleReason = await app.getElementText(".tug-tooltip-content");
+        const staleReason = await app.body("A").getElementText(".tug-tooltip-content");
         expect(staleReason).toContain("no longer in it");
         // The count is gone: there is nothing coherent to count.
         expect(stale.partialGone).toBe(true);

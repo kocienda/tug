@@ -186,14 +186,14 @@ const EDITOR_STOP_RINGED = `(function(){
  */
 async function engageAndTabToRoute(app: App): Promise<void> {
   await app.nativeKey("Tab", ["alt"]);
-  await app.waitForCondition<boolean>(`${CYCLING} === "true"`, { timeoutMs: 6000 });
-  await app.waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
+  await app.body("A").waitForCondition<boolean>(`${CYCLING} === "true"`, { timeoutMs: 6000 });
+  await app.body("A").waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
   expect(
-    await app.evalJS<boolean>(EDITOR_FOCUSED),
+    await app.body("A").evalJS<boolean>(EDITOR_FOCUSED),
     "engaging the mode parks the editor stop — ring, no caret",
   ).toBe(false);
   await app.nativeKey("Tab");
-  await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+  await app.body("A").waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
 }
 
 // Whether a status-cell detail surface is currently open. The Z2 status
@@ -247,11 +247,11 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
 
         // The connected body is up: the submit button mounts and is authored
         // into the cycle scope (a registered focusable).
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SUBMIT)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SUBMIT)});
             return el !== null && el.hasAttribute("data-tug-focusable");
@@ -261,10 +261,10 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
 
         // (1) Put the caret in the editor (base mode). The card is not cycling
         // and the submit holds no key view.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await new Promise((resolve) => setTimeout(resolve, 150));
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("false");
-        expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("false");
+        expect(await app.body("A").evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
 
         // (2) Empty editor → ⌥⇥ rings the editor's stop, Tab wraps to the route.
         // The submit is disabled (its
@@ -276,30 +276,30 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         // route → Claude Code: the Session and Project chips left the code route
         // with the Z4B diet (their names read in the pane title bar instead).
-        await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         // Claude Code → AI: Mode / Model / Effort merged into this one chip.
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         // AI → mic. The mic is the toolbar's one unconditional stop: unlike the
         // submit it is never disabled, so an empty composer still stops here.
-        await app.waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         // mic → STATE (the disabled submit is skipped). Each Z2 cell is its own leaf stop, so Tab steps
         // cell-to-cell through the rest of the row.
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_CONTEXT), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_CONTEXT), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TASKS), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TASKS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         // JOBS → the fold control, the last thing in the Z2 row ([B03]).
-        await app.waitForCondition<boolean>(FOLD_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(FOLD_HAS_KEY_VIEW, { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         // fold → editor. JOBS is the row's last cell: the BTW cell went away
         // with the Z2 diet, and `/btw` reaches its placard by being asked rather
@@ -307,22 +307,22 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // to the masthead, which is pane chrome and takes no card-cycle stop.
         // Arriving by engine movement PARKS the stop ([P12]): the ring lands on
         // the editor's stop and the caret does not.
-        await app.waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
         // Tab from the parked stop keeps walking the cycle and wraps to the
         // FIRST stop — the route group, leftmost in the toolbar row. The stop
         // has no caret to indent for.
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // ⌥⇥ off → back to the editor caret.
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
-        await app.waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
 
         // Type into the editor so the submit becomes actionable (and thus a
         // cycle stop).
         await app.nativeType("hello");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SUBMIT)});
             return el !== null && el.closest(${JSON.stringify(`${CARD} [data-slot="tug-prompt-entry"]`)})
@@ -342,49 +342,49 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // ends there (Tab is the editor's again — it indents); the empty-editor
         // wrap back to the route was pinned in (2).
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(ROUTE_HAS_KEY_VIEW)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(ROUTE_HAS_KEY_VIEW)).toBe(false);
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // submit → the five cells, each its own leaf stop ([P10] revised):
         // STATE → TIME → CONTEXT → TASKS → JOBS. Each carries the leaf key
         // view (and the blue ring) in turn — no arrow-roving. The fold
         // control follows JOBS at the row's trailing edge ([B03]).
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(hasKeyView(Z2_STATE))).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(hasKeyView(Z2_STATE))).toBe(false);
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_CONTEXT), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_CONTEXT), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TASKS), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TASKS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_JOBS), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(FOLD_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(FOLD_HAS_KEY_VIEW, { timeoutMs: 6000 });
         await app.nativeKey("Tab");
         // fold → editor: the control is the last leaf before it. Under KBF mode
         // the landing PARKS the stop rather than granting it ([P12]) — the ring
         // lands on the editor's stop and the caret does not, because arriving by
         // engine movement is a request to move the ring, not to type. Return or
         // any printable character grants the caret from here.
-        await app.waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(EDITOR_STOP_RINGED, { timeoutMs: 6000 });
         expect(
-          await app.evalJS<boolean>(EDITOR_FOCUSED),
+          await app.body("A").evalJS<boolean>(EDITOR_FOCUSED),
           "a stop arrived at by movement is parked — no caret",
         ).toBe(false);
 
         // (5) ⌥⇥ from the parked stop exits cycling and the resting landing
         // puts the caret back in the editor, draft intact.
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
-        await app.waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
 
         // (6) A status-cell popover opened from a Z2 cell must not be read as a
         // cycle exit ([P10]). Re-enter, Tab to TIME, Return to open its popover,
@@ -400,27 +400,27 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // and one more since the Z5 mic joined the row (Spec S06).
         // The fold control sits after JOBS, so it is not on this path.
         for (let i = 0; i < 6; i++) await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         // Return opens the TIME cell's popover (the cell `<button>` activates).
         await app.nativeKey("Return");
         await app.waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });
         // While the popover is open the card's cycle scope is covered but still
         // on the stack — the card reads as cycling, NOT exited.
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("true");
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
         // Escape closes the popover. The ring returns to the TIME cell, the card
         // is still cycling, and DOM focus did not fall back to the editor.
         await app.nativeKey("Escape");
         await app.waitForCondition<boolean>(`${POPOVER_OPEN} === false`, { timeoutMs: 6000 });
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("true");
-        expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
+        expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
 
         // (7) Comprehensive rule: USING THE MOUSE EXITS CYCLING. From step 6
         // (still cycling, cycle is the top mode), a CLICK on the editor ends the
         // cycle and returns the caret — no ⌥⇥ needed.
-        await app.nativeClickAtElement(EDITOR);
-        await app.waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
-        await app.waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
+        await app.body("A").nativeClickAtElement(EDITOR);
+        await app.body("A").waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
 
         // (8) The mouse-exit rule also fires for a click on a Z4B chip: re-enter
         // cycling, then a CLICK on the AI chip exits the cycle (a mouse click
@@ -428,9 +428,9 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // restores the prompt-entry caret (the cycle has exited — no keyboard key
         // view — so close-focus falls to the editor, not the chip).
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(`${CYCLING} === "true"`, { timeoutMs: 6000 });
-        await app.nativeClickAtElement(AI_CHIP);
-        await app.waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${CYCLING} === "true"`, { timeoutMs: 6000 });
+        await app.body("A").nativeClickAtElement(AI_CHIP);
+        await app.body("A").waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
       } catch (err) {
         // A walk failure says only which stop was expected; the useful fact is
         // which stop the ring actually reached.
@@ -475,13 +475,13 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // Seed an effort-capable model so the EFFORT chip is enabled and
         // joins the Tab cycle (a disabled chip drops out — see helper).
         await app.ingestSessionMetadata("A", effortModelCapabilities());
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SUBMIT)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // Caret in the editor (base mode).
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await new Promise((resolve) => setTimeout(resolve, 150));
 
         // ---- Phase 1: a disabled stop is skipped --------------------------------
@@ -493,28 +493,28 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await engageAndTabToRoute(app);
         // route→Claude Code→AI (2 Tabs).
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(SUBMIT_HAS_KEY_VIEW)).toBe(false);
 
         // ArrowUp from the Z2 row seams back to the toolbar (its first member,
         // the route group) — and NOT to the editor, which is excluded from the
         // grid.
         await app.nativeKey("ArrowUp");
-        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
-        expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
 
         // Exit, type so the full toolbar (incl. submit) is live.
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
-        await app.waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${CYCLING} === "false"`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(EDITOR_FOCUSED, { timeoutMs: 6000 });
         await app.nativeType("hello");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){var el=document.querySelector(${JSON.stringify(SUBMIT)});return el!==null && el.closest(${JSON.stringify(`${CARD} [data-slot="tug-prompt-entry"]`)})?.getAttribute("data-empty")==="false";})()`,
           { timeoutMs: 6000 },
         );
@@ -525,41 +525,41 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // Tab to the AI chip (a leaf), then Left/Right ring the toolbar.
         // route→Claude Code→AI (2 Tabs).
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // Right off the last toolbar member wraps the closed ring back to the
         // row's first — the route group, now that the fold seat has moved
         // down into Z2 ([B03]).
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // Left reverses (route → submit, the ring's other edge).
         await app.nativeKey("ArrowLeft");
-        await app.waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(SUBMIT_HAS_KEY_VIEW, { timeoutMs: 6000 });
 
         // The cross-row seam: Down from a toolbar chip enters the status row; Up
         // returns to the toolbar. Arrow back to the AI chip first.
         await app.nativeKey("ArrowLeft"); // submit → mic
-        await app.waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(DICTATE), { timeoutMs: 6000 });
         await app.nativeKey("ArrowLeft"); // mic → AI
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowDown");
         // Down from a toolbar chip enters the Z2 row at its first member —
         // STATE — and Right from there is TIME. The fold control is the
         // row's LAST member ([B03]).
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_TIME), { timeoutMs: 6000 });
         await app.nativeKey("ArrowUp");
-        await app.waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(ROUTE_HAS_KEY_VIEW, { timeoutMs: 6000 });
         // Across the whole arrow sequence the caret never landed in the editor
         // and the card never left cycling (no dead-end, no beep).
-        expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("true");
+        expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") {
@@ -585,14 +585,14 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         );
         await app.bindSession("A");
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(AI_CHIP)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // Caret in the editor, then ⌥⇥ + Tab to the route: engaging rings the
         // editor's own stop, and the first Tab out of it wraps to the route.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await new Promise((resolve) => setTimeout(resolve, 150));
         await engageAndTabToRoute(app);
 
@@ -600,9 +600,9 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // close-focus and the cycle is preserved underneath).
         // route→Claude Code→AI (2 Tabs).
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Return");
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET_OPTION)}) !== null`,
@@ -610,7 +610,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         );
         // The sheet (a nested trap) covers the cycle scope but the card is STILL
         // cycling — opening a picker is not an exit.
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("true");
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
 
         // Return commits the sheet's default (OK). Under the card's chosen
         // disposition (`SESSION_CYCLE_PICKER_COMMIT_DISPOSITION = "retain"`) committing
@@ -622,13 +622,13 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
           `document.querySelector(${JSON.stringify(SHEET_OPTION)}) === null`,
           { timeoutMs: 6000 },
         );
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         expect(
-          await app.evalJS<string | null>(CYCLING),
+          await app.body("A").evalJS<string | null>(CYCLING),
           "committing a cycle-stop picker keeps the card cycling (retain)",
         ).toBe("true");
         expect(
-          await app.evalJS<boolean>(hasKeyView(AI_CHIP)),
+          await app.body("A").evalJS<boolean>(hasKeyView(AI_CHIP)),
           "the ring returns to the originating chip (retain)",
         ).toBe(true);
       } catch (err) {
@@ -656,14 +656,14 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         );
         await app.bindSession("A");
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(Z2_STATE)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // Caret in the editor, then ⌥⇥ + Tab to the route: engaging rings the
         // editor's own stop, and the first Tab out of it wraps to the route.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await new Promise((resolve) => setTimeout(resolve, 150));
         await engageAndTabToRoute(app);
 
@@ -671,25 +671,25 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // toolbar leaves — then ArrowDown seams from the toolbar straight to the
         // Z2 row's first member — STATE — independent of which stops are live.
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(CLAUDE_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("ArrowDown");
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
 
         // Space OPENS the STATE popover (the cell button activates).
         await app.nativeKey(" ");
         await app.waitForCondition<boolean>(POPOVER_OPEN, { timeoutMs: 6000 });
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("true");
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
 
         // A SECOND Space CLOSES it (space-dismiss): the popover dismisses, the ring
         // returns to the STATE cell, the card stays cycling, and DOM focus does not
         // fall back to the editor.
         await app.nativeKey(" ");
         await app.waitForCondition<boolean>(`${POPOVER_OPEN} === false`, { timeoutMs: 6000 });
-        await app.waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
-        expect(await app.evalJS<string | null>(CYCLING)).toBe("true");
-        expect(await app.evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
+        await app.body("A").waitForCondition<boolean>(hasKeyView(Z2_STATE), { timeoutMs: 6000 });
+        expect(await app.body("A").evalJS<string | null>(CYCLING)).toBe("true");
+        expect(await app.body("A").evalJS<boolean>(EDITOR_FOCUSED)).toBe(false);
 
         // There is no second stop to check the toggle against any more: the
         // BEAT label was the other one, and it retired with the Z2 strip when

@@ -237,22 +237,22 @@ async function searchFromLiveEdge(
   app: App,
   probe: string,
 ): Promise<Record<string, unknown> | null> {
-  await app.evalJS<number>(`(function () {
+  await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLL}');
   el.scrollTop = el.scrollHeight;
   return el.scrollTop;
 })()`);
-  await waitFrames(app);
+  await waitFrames(app.body("A"));
   await openFindBar(app);
-  const mark = await markTrace(app);
+  const mark = await markTrace(app.body("A"));
   await app.nativeType(probe);
-  return awaitGestureReveal(app, mark, probe);
+  return awaitGestureReveal(app.body("A"), mark, probe);
 }
 
 /** Escape ends the search; wait until the bar is gone. */
 async function endSearch(app: App): Promise<void> {
   await app.nativeKey("Escape");
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SEL.findInput)}) === null`,
     { timeoutMs: 8000 },
   );
@@ -300,7 +300,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every counted match paints where it can be
         // arc's record, and this fixture carries none. (That the folded record
         // is not projected is pinned in `session-boundary-projection.test.ts`,
         // at the layer that can state it as a function over data.)
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${SEL.card} [data-boundary="join"]') !== null &&
            document.querySelector('${SEL.card} [data-slot="commit-receipt-block"]') !== null &&
            document.querySelector('${SEL.card} [data-slot="join-receipt-block"]') !== null &&
@@ -313,7 +313,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every counted match paints where it can be
         note(`multi-tool reveal terminal: ${JSON.stringify(multiTerminal)}`);
         await new Promise((r) => setTimeout(r, PAST_FLASH_MS));
         const multiChip = await readChip(app);
-        const multi = await app.evalJS<Painted[]>(PAINT_CENSUS_EXPR);
+        const multi = await app.body("A").evalJS<Painted[]>(PAINT_CENSUS_EXPR);
         note(`multi-tool chip: ${JSON.stringify(multiChip)}`);
         note(`multi-tool paint census: ${JSON.stringify(multi)}`);
         // Five occurrences: the probe appears twice in the first command and
@@ -336,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every counted match paints where it can be
         const receiptTerminal = await searchFromLiveEdge(app, RECEIPT_PROBE);
         note(`receipt reveal terminal: ${JSON.stringify(receiptTerminal)}`);
         const receiptChip = await readChip(app);
-        const receipts = await app.evalJS<Painted[]>(PAINT_CENSUS_EXPR);
+        const receipts = await app.body("A").evalJS<Painted[]>(PAINT_CENSUS_EXPR);
         const receiptReveal = await readReveal(app);
         note(`receipt chip: ${JSON.stringify(receiptChip)}`);
         note(`receipt paint census: ${JSON.stringify(receipts)}`);
@@ -358,13 +358,13 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every counted match paints where it can be
         // ── A match past a collapsed header's clamp is shown ──────────────
         const clampTerminal = await searchFromLiveEdge(app, CLAMP_PROBE);
         note(`clamp reveal terminal: ${JSON.stringify(clampTerminal)}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var s = ${CLAMP_STATE_EXPR}; return s !== null && s.unclamped; })()`,
           { timeoutMs: 10_000 },
         );
         // Past the landing flash.
         await new Promise((r) => setTimeout(r, PAST_FLASH_MS));
-        const state = await app.evalJS<ClampState | null>(CLAMP_STATE_EXPR);
+        const state = await app.body("A").evalJS<ClampState | null>(CLAMP_STATE_EXPR);
         note(`clamped-header active match: ${JSON.stringify(state)}`);
         expect(state, "an active range inside the header clamp").not.toBeNull();
         if (state === null) return;
@@ -381,7 +381,7 @@ describe.skipIf(!SHOULD_RUN)("AT0494: every counted match paints where it can be
 
         // Leaving find puts the clamp back.
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${SEL.card} .tool-call-header-clamp[data-tugx-find-unclamp]') === null`,
           { timeoutMs: 8000 },
         );

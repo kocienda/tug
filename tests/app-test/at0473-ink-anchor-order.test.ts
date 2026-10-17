@@ -189,7 +189,7 @@ afterAll(() => {
 });
 
 async function inkFacts(app: App): Promise<InkFacts> {
-  return app.evalJS<InkFacts>(`window.__tug.inkRestoreFacts("A")`);
+  return app.body("A").evalJS<InkFacts>(`window.__tug.inkRestoreFacts("A")`);
 }
 
 async function awaitDeck(app: App): Promise<void> {
@@ -202,11 +202,11 @@ async function awaitDeck(app: App): Promise<void> {
 
 /** Submit one `/shell <cmd>` and block until its row settles with an exit. */
 async function execAndSettle(app: App, cmd: string, expectedIndex: number): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   await app.nativeType(`/shell ${cmd}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
       if (rows.length !== ${expectedIndex + 1}) return false;
@@ -264,7 +264,7 @@ describe.skipIf(!SHOULD_RUN)("AT0473: restored ink seats where it was written", 
 
           // Poll the STORE: the restore must be settled AND the replay must
           // have landed its turns, or the ordering question is premature.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
                if (typeof window.__tug === "undefined") return false;
                try {

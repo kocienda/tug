@@ -151,7 +151,7 @@ afterAll(() => {
 
 /** The transcript's participant sequence, in document order. */
 async function participantOrder(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("A").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(ENTRIES)}))
        .map(function(el){ return el.getAttribute("data-participant") || ""; })`,
   );
@@ -162,7 +162,7 @@ async function participantOrder(app: App): Promise<string[]> {
 async function shellRowFacts(
   app: App,
 ): Promise<Array<{ command: string; output: string; footer: string }>> {
-  return app.evalJS<Array<{ command: string; output: string; footer: string }>>(
+  return app.body("A").evalJS<Array<{ command: string; output: string; footer: string }>>(
     `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})).map(function(row){
        var cmd = row.querySelector(".shell-exchange-command-text");
        var out = row.querySelector(".tugx-term-content");
@@ -185,11 +185,11 @@ async function execAndSettle(
   line: string,
   expectedIndex: number,
 ): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   await app.nativeType(line);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
       if (rows.length !== ${expectedIndex + 1}) return false;
@@ -278,27 +278,27 @@ describe.skipIf(!SHOULD_RUN)(
           // click unmounts its terminal body, a second click brings it back.
           const FIRST_DISCLOSURE = `${CARD} [data-slot="session-transcript-shell-row"] [data-slot="tool-call-header-disclosure"]`;
           const firstRowTermCount = () =>
-            app.evalJS<number>(
+            app.body("A").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]
                  .querySelectorAll('[data-slot="terminal-content"]').length`,
             );
           expect(
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(FIRST_DISCLOSURE)}) !== null`,
             ),
             "shell block has the header expand/collapse chevron",
           ).toBe(true);
           expect(await firstRowTermCount(), "output visible before collapse").toBe(1);
-          await app.click(FIRST_DISCLOSURE);
+          await app.body("A").click(FIRST_DISCLOSURE);
           await new Promise((r) => setTimeout(r, 150));
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]
                .querySelectorAll('[data-slot="terminal-content"]').length === 0`,
             { timeoutMs: 4000 },
           );
-          await app.click(FIRST_DISCLOSURE);
+          await app.body("A").click(FIRST_DISCLOSURE);
           await new Promise((r) => setTimeout(r, 150));
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]
                .querySelectorAll('[data-slot="terminal-content"]').length === 1`,
             { timeoutMs: 4000 },
@@ -326,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The replayed Claude turn and the four restored exchanges must
           // both land — then hold the identical interleave.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var shells = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
               var entries = document.querySelectorAll(${JSON.stringify(ENTRIES)});

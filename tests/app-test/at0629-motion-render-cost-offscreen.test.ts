@@ -196,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
 
         // ---- The population, counted inside the bench card. --------------
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length === ${BENCH_COUNT}`,
           { timeoutMs: 30_000 },
         );
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         const ruleOn = await app.evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen()`,
         );
-        const figuresOn = await app.evalJS<ListFigures>(listFigures(LIST_CARD));
+        const figuresOn = await app.body(LIST_CARD).evalJS<ListFigures>(listFigures(LIST_CARD));
         const restRuleOn = await rest(app, "__at0629restRuleOn");
         note("at0629 list bench, rule on", {
           ...restRuleOn,
@@ -273,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         const ruleOffList = await app.evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen(false)`,
         );
-        const figuresOff = await app.evalJS<ListFigures>(listFigures(LIST_CARD));
+        const figuresOff = await app.body(LIST_CARD).evalJS<ListFigures>(listFigures(LIST_CARD));
         const restRuleOff = await rest(app, "__at0629restRuleOff");
         note("at0629 list bench, rule off", {
           ...restRuleOff,
@@ -289,11 +289,11 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // rule off. Noted for the same reason. The rows have to have earned
         // their stamp first, which the cell observer does on measurement.
         await seatListBench(app, SKIP_CARD, "gallery-motion-bench-dot-list-skip");
-        await app.waitForCondition<boolean>(
+        await app.body(SKIP_CARD).waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(`${listBench(SKIP_CARD)} .tug-list-view-cell[data-cv-ready]`)}).length === ${BENCH_COUNT}`,
           { timeoutMs: 15_000 },
         );
-        const figuresSkip = await app.evalJS<ListFigures & { skipped: number }>(
+        const figuresSkip = await app.body(SKIP_CARD).evalJS<ListFigures & { skipped: number }>(
           `(function(){
              var f = ${listFigures(SKIP_CARD)};
              f.skipped = document.querySelectorAll(${JSON.stringify(`${listBench(SKIP_CARD)} .tug-list-view-cell[data-cv-skipped]`)}).length;
@@ -329,16 +329,16 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
           `window.__tugMotion.offscreen().paused > 0`,
           { timeoutMs: 8_000 },
         );
-        const firstMarkedBefore = await app.evalJS<boolean>(`(function(){
+        const firstMarkedBefore = await app.body(LIST_CARD).evalJS<boolean>(`(function(){
           var roots = document.querySelectorAll(${JSON.stringify(listDots(LIST_CARD))});
           return roots[0].hasAttribute("data-tug-offscreen");
         })()`);
-        await app.evalJS<unknown>(`(function(){
+        await app.body(LIST_CARD).evalJS<unknown>(`(function(){
           var s = document.querySelector(${JSON.stringify(listScroller(LIST_CARD))});
           s.scrollTop = s.scrollHeight;
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body(LIST_CARD).waitForCondition<boolean>(
           `(function(){
              var roots = document.querySelectorAll(${JSON.stringify(listDots(LIST_CARD))});
              var first = roots[0], last = roots[roots.length - 1];
@@ -348,7 +348,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
            })()`,
           { timeoutMs: 8_000 },
         );
-        const figuresScrolled = await app.evalJS<ListFigures>(listFigures(LIST_CARD));
+        const figuresScrolled = await app.body(LIST_CARD).evalJS<ListFigures>(listFigures(LIST_CARD));
         note("at0629 list bench, scrolled to the foot", {
           firstMarkedBefore,
           figures: figuresScrolled,

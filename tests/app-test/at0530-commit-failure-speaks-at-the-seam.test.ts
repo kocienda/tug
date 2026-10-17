@@ -179,7 +179,7 @@ async function waitForScratchDirt(timeoutMs = 60_000): Promise<string> {
 
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType(`/shell ${command}`);
   await settle(150);
   await app.nativeKey("Enter", ["cmd"]);
@@ -187,13 +187,13 @@ async function shell(app: App, command: string): Promise<void> {
 
 /** Raise the Changes shade in commit mode: type, dismiss the popup, ⌘⏎. */
 async function openCommitShade(app: App): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType("/commit");
   await settle();
   await app.nativeKey("Escape");
   await settle();
   await app.nativeKey("Return", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(COMMIT_SHEET)}) !== null &&
      document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`,
     { timeoutMs: 20_000 },
@@ -242,17 +242,17 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
         note(`at0530 the scratch repo's dirt: ${JSON.stringify(await waitForScratchDirt())}`);
 
         await openCommitShade(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CLAIM_ALL)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.nativeClickAtElement(CLAIM_ALL);
+        await app.body("A").nativeClickAtElement(CLAIM_ALL);
 
         // The gate, not a row count, is the readiness signal: `data-land-blocked`
         // is absent exactly when `canLandIgnoringMessage` holds, which is where
         // the attributed file count is read. Waiting on it means a press below
         // can only be refused by git, never by the gate.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              const b = document.querySelector(${JSON.stringify(COMMIT_BUTTON)});
              return b !== null && !b.hasAttribute("data-land-blocked");
@@ -260,12 +260,12 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
           { timeoutMs: 30_000 },
         );
         note(
-          `at0530 the shade's file rows: ${await app.evalJS<number>(
+          `at0530 the shade's file rows: ${await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(FILE_ROW)}).length`,
           )}`,
         );
 
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType(SUBJECT);
         await settle(1_500);
 
@@ -277,15 +277,15 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
         // `git add --` inside `stage_and_commit`, whose stderr is the string
         // the cause table matches on.
         writeFileSync(lockPath(), "");
-        await app.nativeClickAtElement(COMMIT_BUTTON);
+        await app.body("A").nativeClickAtElement(COMMIT_BUTTON);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ERROR_NOTICE)}) !== null`,
           { timeoutMs: 30_000 },
         );
         rmSync(lockPath(), { force: true });
 
-        const notice = await app.evalJS<string>(
+        const notice = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(ERROR_NOTICE)})?.textContent ?? "")`,
         );
         note(`at0530 the notice in the shade: ${JSON.stringify(notice)}`);
@@ -298,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
         // And git's own words are kept — inside the fold, which is closed until
         // somebody asks. Opening it is what proves the evidence is really there
         // rather than paraphrased away.
-        const evidence = await app.evalJS<string>(
+        const evidence = await app.body("A").evalJS<string>(
           `(function(){
              const d = document.querySelector(${JSON.stringify(ERROR_NOTICE)} + ' details');
              if (d === null) return "(no fold)";
@@ -318,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
         // back in under the notice; a rect read on the way there is the
         // animation's, not the layout's.
         await settle(1_500);
-        const boxes = await app.evalJS<{
+        const boxes = await app.body("A").evalJS<{
           shadeTop: number;
           shadeBottom: number;
           noticeTop: number;
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
           "the notice's bottom is at or above the shade's bottom edge",
         ).toBe(true);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(COMMIT_SHEET)}) !== null`,
           ),
           "the mode re-entered — the shade is back with the failure",
@@ -365,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
         ).toBe(true);
 
         // 3. Z5 wears the word while the refusal stands.
-        const label = await app.evalJS<string>(
+        const label = await app.body("A").evalJS<string>(
           `document.querySelector(${JSON.stringify(COMMIT_BUTTON)})?.getAttribute("aria-label") ?? "(no button)"`,
         );
         note(`at0530 the land button's label with a failure standing: ${JSON.stringify(label)}`);
@@ -379,8 +379,8 @@ describe.skipIf(!SHOULD_RUN)("AT0530: a commit failure speaks inside the shade",
           gitSubject(projectDir()),
           "nothing was committed while the lock was held",
         ).not.toBe(SUBJECT);
-        await app.nativeClickAtElement(RETRY);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(RETRY);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(NOTICE)}) === null`,
           { timeoutMs: 30_000 },
         );

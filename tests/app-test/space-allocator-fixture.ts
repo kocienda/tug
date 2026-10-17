@@ -11,6 +11,7 @@
  */
 
 import { type App } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import { DEFAULT_OVERVIEW_WIDTH_PX } from "../../tugdeck/src/lib/overview-measure";
 import {
   IMPOSITION_GAP_PX,
@@ -204,7 +205,7 @@ export async function seedTwoRails(
     },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await (await waitForBodyReady(app, "L")).waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
     { timeoutMs: 8_000 },
   );
@@ -220,7 +221,7 @@ export async function seedFixture(
     state: deckShape(paneWidth, railWidth),
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await (await waitForBodyReady(app, "L")).waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
     { timeoutMs: 8_000 },
   );

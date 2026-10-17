@@ -166,28 +166,28 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
             projectDir: projectDir(),
           });
           await app.awaitEngineReady("A", { timeoutMs: 15000 });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
             { timeoutMs: 8000 },
           );
 
           // ── The shade counts the push before it happens ──────────────────
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/commit");
           await settle();
           await app.nativeKey("Escape"); // dismiss the completion popup
           await settle();
           await app.nativeKey("Return", ["cmd"]);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
             { timeoutMs: 8000 },
           );
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(AHEAD)}) !== null`,
             { timeoutMs: 10000 },
           );
-          const aheadText = await app.evalJS<string>(
+          const aheadText = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(AHEAD)})?.textContent ?? "").trim()`,
           );
           note(`shade ahead badge: ${aheadText}`);
@@ -195,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
           // The badge and its Push travel together — a count with no act beside
           // it is a number the reader can do nothing about.
           expect(
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(SHADE_PUSH)}) !== null`,
             ),
           ).toBe(true);
@@ -207,16 +207,16 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
           // ── Push ─────────────────────────────────────────────────────────
           await app.nativeKey("Escape"); // leave the shade for the composer
           await settle();
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/push");
           await settle();
-          await app.nativeClickAtElement(SUBMIT_BTN);
+          await app.body("A").nativeClickAtElement(SUBMIT_BTN);
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RECEIPT)}) !== null`,
             { timeoutMs: 30000 },
           );
-          const receiptText = await app.evalJS<string>(
+          const receiptText = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(RECEIPT)})?.textContent ?? "")`,
           );
           note(`push receipt: ${receiptText.slice(0, 200)}`);
@@ -232,22 +232,22 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
           // ── The badge spends itself ──────────────────────────────────────
           // The push bumped the aggregate; the next recompute reads `ahead: 0`
           // and the affordance goes without anybody dismissing it.
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/commit");
           await settle();
           await app.nativeKey("Escape");
           await settle();
           await app.nativeKey("Return", ["cmd"]);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
             { timeoutMs: 8000 },
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(AHEAD)}) === null`,
             { timeoutMs: 15000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(SHADE_PUSH)}) === null`,
             ),
           ).toBe(true);
@@ -268,11 +268,11 @@ describe.skipIf(!SHOULD_RUN)("AT0616: /push leaves a durable receipt", () => {
             tugSessionId: SID,
             projectDir: projectDir(),
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RECEIPT)}) !== null`,
             { timeoutMs: 30000 },
           );
-          const restored = await app.evalJS<string>(
+          const restored = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(RECEIPT)})?.textContent ?? "")`,
           );
           // The same bytes, because the summary is formatted server-side once

@@ -94,7 +94,7 @@ afterAll(() => {
 
 /** Every shell row's text, in transcript order. */
 async function shellRowText(app: App): Promise<string[]> {
-  const raw = await app.evalJS<string>(
+  const raw = await app.body("A").evalJS<string>(
     `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
       SHELL_ROWS,
     )})).map((el) => el.textContent || ""))`,

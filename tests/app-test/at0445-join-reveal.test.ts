@@ -93,6 +93,7 @@ import { realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -190,14 +191,14 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
 
 /** Whether the shade is up right now. */
 function shadeUp(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
   );
 }
 
 /** An arc's register word on the Arcs card right now, or null if it has none. */
 function registerWord(app: App, arc: string): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return kindBody(app, "dashes").evalJS<string | null>(
     // Read off the ROW rather than off the register band. A ready arc says so
     // in the lifecycle line's own words and draws no band at all, so the band
     // is not the element that always carries the reading — the row is.
@@ -212,33 +213,49 @@ async function registerReaches(
   word: string,
   timeoutMs: number,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "dashes").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(arcRow(arc))})?.getAttribute("data-join-word") === ${JSON.stringify(word)}`,
     { timeoutMs },
   );
 }
 
 /**
- * An in-page recorder over the whole run, installed once the Arcs card lists
- * the arcs. A MutationObserver rather than a poll from outside, so a value
- * that appears and is superseded between two reads still counts:
+ * In-page recorders over the whole run, installed once the Arcs card lists
+ * the arcs. MutationObservers rather than a poll from outside, so a value
+ * that appears and is superseded between two reads still counts. The shade
+ * is in the Session card's body and the rows are in the Arcs card's, so each
+ * page records its own half:
  *
- *  - `quiet`: every register word the unbound arc's row ever wore, so "never
- *    piloted" is a claim about the whole run rather than about a window
- *    sampled at its end;
- *  - `bound`: every word the bound arc's row wore since the last reset, which
- *    is how the base move's re-reconcile is seen to have run;
- *  - `sheetSeen`: whether the shade mounted at any moment while `armSheet`
- *    was set.
+ *  - `quiet` (Arcs card): every register word the unbound arc's row ever
+ *    wore, so "never piloted" is a claim about the whole run rather than
+ *    about a window sampled at its end;
+ *  - `bound` (Arcs card): every word the bound arc's row wore since the last
+ *    reset, which is how the base move's re-reconcile is seen to have run;
+ *  - `sheetSeen` (Session card): whether the shade mounted at any moment
+ *    while `armSheet` was set.
  */
-const RECORDER_INSTALL = `(function () {
-  var r = (window.__at0445 = { armSheet: false, sheetSeen: false, bound: [], quiet: [] });
+const SHEET_RECORDER_INSTALL = `(function () {
+  var r = (window.__at0445 = { armSheet: false, sheetSeen: false });
+  r.tick = function () {
+    if (r.armSheet && document.querySelector(${JSON.stringify(SHEET)}) !== null) r.sheetSeen = true;
+  };
+  r.obs = new MutationObserver(r.tick);
+  r.obs.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["data-join-word"],
+  });
+  r.tick();
+  return null;
+})()`;
+const ROW_RECORDER_INSTALL = `(function () {
+  var r = (window.__at0445 = { bound: [], quiet: [] });
   function word(sel) {
     var el = document.querySelector(sel);
     return el === null ? null : el.getAttribute("data-join-word");
   }
   r.tick = function () {
-    if (r.armSheet && document.querySelector(${JSON.stringify(SHEET)}) !== null) r.sheetSeen = true;
     var b = word(${JSON.stringify(arcRow(ARC))});
     if (b !== null && r.bound[r.bound.length - 1] !== b) r.bound.push(b);
     var q = word(${JSON.stringify(arcRow(QUIET_ARC))});
@@ -261,14 +278,19 @@ interface Recording {
   quiet: string[];
 }
 
-const readRecording = (app: App): Promise<Recording> =>
-  app.evalJS<Recording>(
-    `(function () { var r = window.__at0445; return { sheetSeen: r.sheetSeen, bound: r.bound.slice(), quiet: r.quiet.slice() }; })()`,
+const readRecording = async (app: App): Promise<Recording> => {
+  const sheet = await app.body("A").evalJS<{ sheetSeen: boolean }>(
+    `(function () { var r = window.__at0445; return { sheetSeen: r.sheetSeen }; })()`,
   );
+  const rows = await kindBody(app, "dashes").evalJS<{ bound: string[]; quiet: string[] }>(
+    `(function () { var r = window.__at0445; return { bound: r.bound.slice(), quiet: r.quiet.slice() }; })()`,
+  );
+  return { sheetSeen: sheet.sheetSeen, bound: rows.bound, quiet: rows.quiet };
+};
 
 /** Whether the Changes segment is wearing the standing-join dot. */
 function offerDot(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(ROUTE_GROUP)})?.hasAttribute("data-join-offer") ?? false`,
   );
 }
@@ -299,11 +321,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // from without touching either arc. The shade is a view swap inside
         // the card, so the two do not contend.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 40000 },
         );
-        await app.evalJS<null>(RECORDER_INSTALL);
+        await app.body("A").evalJS<null>(SHEET_RECORDER_INSTALL);
+        await kindBody(app, "dashes").evalJS<null>(ROW_RECORDER_INSTALL);
 
         // Nothing has been revealed yet, and nothing is worn: the precondition
         // that makes every assertion below about the offer rather than about
@@ -329,7 +352,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // grows the bound worker's atom, which is the deck seeing the ledger
         // row the pilot will read. The atom is the positive signal — an absent
         // Bind would also be true of a row that never rendered.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${arcRow(ARC)} [data-slot="tug-arc-lifecycle-worker"]') !== null`,
           { timeoutMs: 30000 },
         );
@@ -338,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
 
         // The reveal. No gesture, no mark, no declaration — a reconciled arc
         // on a bound card, and the room it is waiting in opens itself.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 60000 },
         );
@@ -351,18 +374,18 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // whether a landing is active, and the shade came up through the same
         // coupling ⌃⌘C rides. A shade raised without the mode is the
         // half-switched card, and it is what this pins the absence of.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") === "active"`,
           { timeoutMs: 20000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           ),
           "the composer is the join's, so its ⬆ is the control that lands",
         ).toBe(true);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(SUBMIT)}) === null`,
           ),
           "and the prompt's Submit is not what is sitting under the cursor",
@@ -373,11 +396,11 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // the branch description. The whole point of the provenance note is
         // that "quietly" stops here, at the one moment somebody is about to
         // agree to it.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANDS_AS)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const landsAs = await app.evalJS<string>(
+        const landsAs = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(LANDS_AS)})?.textContent || "")`,
         );
         note(`at0445 lands-as: ${JSON.stringify(landsAs)}`);
@@ -416,11 +439,11 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           ],
           { cwd: scratch, binaryRoot: cli.binaryRoot, env: cli.env },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANDS_AS_NOTE)}) === null`,
           { timeoutMs: 30000 },
         );
-        const repainted = await app.evalJS<string>(
+        const repainted = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(LANDS_AS)})?.textContent || "")`,
         );
         note(`at0445 lands-as (repainted): ${JSON.stringify(repainted)}`);
@@ -447,12 +470,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // route in one press. Nothing durable is written, which is the
         // machinery this file exists to pin the absence of.
         await app.dispatchControlAction("toggle-changes-view");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 15000 },
         );
         expect(
-          await app.evalJS<string | null>(
+          await app.body("A").evalJS<string | null>(
             `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") ?? null`,
           ),
           "and the card is back on the Prompt route, mode and shade together",
@@ -486,15 +509,18 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         // reveal effect, which runs on the commit that carries the new offer.
         // If the row never visibly leaves `ready`, the watch falls back to the
         // full fifteen seconds this file always held it for.
-        await app.evalJS<null>(
-          `(window.__at0445.armSheet = true, window.__at0445.sheetSeen = false, window.__at0445.bound = [], window.__at0445.tick(), null)`,
+        await app.body("A").evalJS<null>(
+          `(window.__at0445.armSheet = true, window.__at0445.sheetSeen = false, window.__at0445.tick(), null)`,
+        );
+        await kindBody(app, "dashes").evalJS<null>(
+          `(window.__at0445.bound = [], window.__at0445.tick(), null)`,
         );
         const baseMovedAt = Date.now();
         writeFileSync(join(scratch, "base-move.txt"), "at0445 the base moved\n");
         git(scratch, "add", "-A");
         git(scratch, "commit", "-m", "at0445: the base moves under a closed shade");
         await registerReaches(app, ARC, "ready", 240000);
-        const reRan = await app
+        const reRan = await kindBody(app, "dashes")
           .waitForCondition<boolean>(
             `(function () {
               var b = window.__at0445.bound;
@@ -518,7 +544,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           quietWatch.sheetSeen || (await shadeUp(app)),
           "a base move under an unchanged arc head re-reconciles in silence",
         ).toBe(false);
-        await app.evalJS<null>(`(window.__at0445.armSheet = false, null)`);
+        await app.body("A").evalJS<null>(`(window.__at0445.armSheet = false, null)`);
         expect(
           await offerDot(app),
           "and the offer is still worn, because it is still standing",
@@ -539,12 +565,12 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
         );
         commitRound(scratch, ARC, "at0445(round): work the user has not been asked about", cli);
         await registerReaches(app, ARC, "ready", 300000);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 90000 },
         );
         note(`at0445 ${at()} re-revealed: new work summoned the room again`);
-        const drafted = await app.evalJS<string>(
+        const drafted = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(LANDS_AS)})?.textContent || "")`,
         );
         note(`at0445 lands-as (drafted): ${JSON.stringify(drafted)}`);
@@ -580,7 +606,7 @@ describe.skipIf(!SHOULD_RUN)("AT0445: a ready arc summons the shade", () => {
           "and its row promises no check it will never run",
         ).toBeNull();
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(`${LANE} [data-slot="session-changes-arc-row"][data-arc="${QUIET_ARC}"] [data-slot="session-changes-arc-lands-as"]`)}) === null`,
           ),
           "and no row in the revealed shade offers to land the arc nobody is working",

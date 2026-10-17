@@ -212,11 +212,11 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // The path is inert until the filesystem confirms it.
         const SPAN = `[data-card-id="A"] code[data-tug-annotation="file-path"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
           { timeoutMs: 12_000 },
         );
-        const stampedPath = await app.evalJS<string | null>(
+        const stampedPath = await app.body("A").evalJS<string | null>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SPAN)});
             return el === null ? null : el.getAttribute('data-path');
@@ -226,8 +226,8 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         expect(stampedPath?.endsWith(`/${FILE_NAME}`)).toBe(true);
 
         // --- one insert item, and it mints the chip --------------------
-        await app.evalJS<boolean>(revealJS(SPAN));
-        await app.nativeRightClickAtElement(SPAN);
+        await app.body("A").evalJS<boolean>(revealJS(SPAN));
+        await app.body("A").nativeRightClickAtElement(SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // And the click that opened this menu selected the whole path, not
         // the sub-word WebKit picks out of it — the menu names the file, so
         // the highlight under it names the file too.
-        const spanText = await app.evalJS<string>(
+        const spanText = await app.body("A").evalJS<string>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SPAN)});
             return el === null ? "" : (el.textContent || "");
@@ -273,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // The prompt carries a file chip whose value is the canonical
         // path — an object, not the path spelled out.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (cm === null) return false;
@@ -282,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
           { timeoutMs: 8000 },
         );
         const chip = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify((function(){
               var img = document.querySelector(${JSON.stringify(PROMPT_INPUT)} + ' img[data-atom-type="file"]');
               if (img === null) return {};
@@ -298,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // an absolute path, and the whole path is right there in the value.
         expect(chip.label).toBe(FILE_NAME);
 
-        const literal = await app.evalJS<boolean>(
+        const literal = await app.body("A").evalJS<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             return cm !== null && (cm.textContent || '').indexOf(${JSON.stringify(
@@ -311,8 +311,8 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // --- and Copy as Atom puts that same object on the clipboard ----
         // The half a unit test cannot reach: the sidecar has to survive the
         // real pasteboard and come back through the paste side as a chip.
-        await app.evalJS<boolean>(revealJS(SPAN));
-        await app.nativeRightClickAtElement(SPAN);
+        await app.body("A").evalJS<boolean>(revealJS(SPAN));
+        await app.body("A").nativeRightClickAtElement(SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
           { timeoutMs: 4000 },
@@ -362,8 +362,8 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // pasteboard and none of it is in the event, because WebKit hides a
         // private type from the DOM event. The editor reads the bridge, which
         // is the route a real ⌘V takes. Same driver as at0474.
-        await app.focusElement(PROMPT_INPUT);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").focusElement(PROMPT_INPUT);
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
           cm.dispatchEvent(new ClipboardEvent("paste", {
             bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
@@ -373,12 +373,12 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // Two chips now: the one the insert minted and the one the paste
         // rebuilt from the sidecar. Both name the same file.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PROMPT_INPUT)} + ' img[data-atom-type="file"]').length === 2`,
           { timeoutMs: 8000 },
         );
         const pastedValues = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify(Array.prototype.map.call(
               document.querySelectorAll(${JSON.stringify(PROMPT_INPUT)} + ' img[data-atom-type="file"]'),
               function(el){ return el.getAttribute('data-atom-value'); },
@@ -445,21 +445,21 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         const CHIP_HOST =
           `[data-card-id="A"] [data-slot="tug-atom-markdown-body"] .tug-atom-chip-host`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP_HOST)}) !== null`,
           { timeoutMs: 15_000 },
         );
 
         // The chip names a file, so it wears the file annotation — carrying
         // the address the relative value never had on its own.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_HOST)});
             return el !== null && el.getAttribute('data-tug-annotation') === 'file-path';
           })()`,
           { timeoutMs: 8000 },
         );
-        const stampedPath = await app.evalJS<string | null>(
+        const stampedPath = await app.body("A").evalJS<string | null>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_HOST)});
             return el === null ? null : el.getAttribute('data-path');
@@ -470,8 +470,8 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // And the menu is the file's own — the same four items a path in
         // prose offers, over the standard editing block.
-        await app.evalJS<boolean>(revealJS(CHIP_HOST));
-        await app.nativeRightClickAtElement(CHIP_HOST);
+        await app.body("A").evalJS<boolean>(revealJS(CHIP_HOST));
+        await app.body("A").nativeRightClickAtElement(CHIP_HOST);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -554,14 +554,14 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         await ingest(replayComplete());
 
         const CMD_SPAN = `[data-card-id="A"] code.tugx-annotation[data-slash-command="${KNOWN_CMD}"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CMD_SPAN)}) !== null`,
           { timeoutMs: 12_000 },
         );
 
         // --- the control: an inline-code span with no registry entry ---
         const PLAIN_SPAN = `[data-card-id="A"] .session-card-transcript-code-body code:not(.tugx-annotation)`;
-        const plainIsTheUnknownCommand = await app.evalJS<boolean>(
+        const plainIsTheUnknownCommand = await app.body("A").evalJS<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(PLAIN_SPAN)});
             return el !== null && (el.textContent || '').indexOf(${JSON.stringify(
@@ -572,8 +572,8 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         expect(plainIsTheUnknownCommand).toBe(true);
 
         await clearSelection();
-        await app.evalJS<boolean>(revealJS(PLAIN_SPAN));
-        await app.nativeRightClickAtElement(PLAIN_SPAN);
+        await app.body("A").evalJS<boolean>(revealJS(PLAIN_SPAN));
+        await app.body("A").nativeRightClickAtElement(PLAIN_SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy"]') !== null`,
           { timeoutMs: 4000 },
@@ -591,15 +591,15 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // --- the command: one entity, so the whole of it is taken -------
         await clearSelection();
-        await app.evalJS<boolean>(revealJS(CMD_SPAN));
-        await app.nativeRightClickAtElement(CMD_SPAN);
+        await app.body("A").evalJS<boolean>(revealJS(CMD_SPAN));
+        await app.body("A").nativeRightClickAtElement(CMD_SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-command"]') !== null`,
           { timeoutMs: 4000 },
         );
         // Not the sub-word WebKit picked out of it: the entire span, which
         // is the thing every item in this menu acts on.
-        const commandText = await app.evalJS<string>(
+        const commandText = await app.body("A").evalJS<string>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CMD_SPAN)});
             return el === null ? "" : (el.textContent || "");
@@ -682,7 +682,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         const CODE_MARK = `[data-card-id="A"] code[data-tug-annotation="file-path"]`;
         const RUN_MARK = `[data-card-id="A"] span[data-tugx-wrapped][data-tug-annotation="file-path"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CODE_MARK)}) !== null && document.querySelector(${JSON.stringify(RUN_MARK)}) !== null`,
           { timeoutMs: 12_000 },
         );
@@ -712,7 +712,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // annotation, so it matches no rule and looks exactly as it always
         // has. Code tone and the rule are separate channels.
         const PLAIN = `[data-card-id="A"] .session-card-transcript-code-body code:not([data-tug-annotation])`;
-        const plainIsTheIdentifier = await app.evalJS<boolean>(
+        const plainIsTheIdentifier = await app.body("A").evalJS<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(PLAIN)});
             return el !== null && (el.textContent || '') === 'AnnotationContext';
@@ -774,21 +774,21 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // pill is what the portal mounts once it does.
         const SPAN = `[data-card-id="A"] [data-tug-annotation="commit-sha"]`;
         const PILL = `${SPAN} [data-slot="tug-commit-atom"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PILL)}) !== null`,
           { timeoutMs: 15_000 },
         );
         // The prose spelled ten characters; the mark shows the label's eight,
         // with the word the pill supplies.
-        const shown = await app.evalJS<string>(
+        const shown = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(PILL)}).textContent || "").trim()`,
         );
         note(`at0346 commit pill: ${shown}`);
         expect(shown).toBe(COMMIT_LABEL);
 
         // --- the insert mints a commit chip ----------------------------
-        await app.evalJS<boolean>(revealJS(SPAN));
-        await app.nativeRightClickAtElement(SPAN);
+        await app.body("A").evalJS<boolean>(revealJS(SPAN));
+        await app.body("A").nativeRightClickAtElement(SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
@@ -810,7 +810,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // `data-tug-entity-selected` or the mark reads as a fragment of
         // itself under a menu about the whole commit.
         const selectedFace = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify((function(){
               var span = document.querySelector(${JSON.stringify(SPAN)});
               var pill = document.querySelector(${JSON.stringify(PILL)});
@@ -836,12 +836,12 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         await app.nativeClick(insertPoint as { x: number; y: number });
 
         const CHIP = `${PROMPT_INPUT} img[data-atom-type="commit"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
           { timeoutMs: 8000 },
         );
         const chip = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify((function(){
               var img = document.querySelector(${JSON.stringify(CHIP)});
               if (img === null) return {};
@@ -866,15 +866,15 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // table as custom properties, the chip is the Canvas renderer reading
         // it as numbers, and the whole point of the table is that they cannot
         // answer differently.
-        const pillHeight = await app.evalJS<number>(
+        const pillHeight = await app.body("A").evalJS<number>(
           `Math.round(document.querySelector(${JSON.stringify(PILL)}).getBoundingClientRect().height)`,
         );
         note(`at0346 bake ${chip.height}px vs pill ${pillHeight}px`);
         expect(chip.height).toBe(pillHeight);
 
         // --- and Copy as Atom puts that same object on the pasteboard ---
-        await app.evalJS<boolean>(revealJS(SPAN));
-        await app.nativeRightClickAtElement(SPAN);
+        await app.body("A").evalJS<boolean>(revealJS(SPAN));
+        await app.body("A").nativeRightClickAtElement(SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
           { timeoutMs: 4000 },
@@ -908,15 +908,15 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // The paste rebuilds the chip from the sidecar, the same route a real
         // ⌘V takes — an empty `clipboardData`, because WebKit hides a private
         // type from the DOM event.
-        await app.focusElement(PROMPT_INPUT);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").focusElement(PROMPT_INPUT);
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
           cm.dispatchEvent(new ClipboardEvent("paste", {
             bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(CHIP)}).length === 2`,
           { timeoutMs: 8000 },
         );

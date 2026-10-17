@@ -136,11 +136,11 @@ afterAll(() => {
  */
 async function shellUntil(app: App, command: string, marker: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(prompt);
+  await app.body("A").nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
        .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
     { timeoutMs: 60_000 },
@@ -149,7 +149,7 @@ async function shellUntil(app: App, command: string, marker: string): Promise<vo
 
 /** Every shell row's text, in transcript order. */
 async function shellRowText(app: App): Promise<string[]> {
-  const raw = await app.evalJS<string>(
+  const raw = await app.body("A").evalJS<string>(
     `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
       SHELL_ROWS,
     )})).map((el) => el.textContent || ""))`,
@@ -292,12 +292,12 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // resume itself, and pressing it is the only gesture required. No CLI
         // verb is typed here, because the point of the change is that the
         // user never has to.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RESUME_BUTTON)}) !== null`,
           { timeoutMs: 30_000 },
         );
         note("at0476 card with the Resume button", (await app.screenshot()).path);
-        await app.nativeClickAtElement(RESUME_BUTTON);
+        await app.body("A").nativeClickAtElement(RESUME_BUTTON);
 
         // The record is the reading, and it is a **moving target**: the press
         // clears the stop and asks for the stopped stage again, and the runner
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         let grew = false;
         const quietUntil = Date.now() + 6_000;
         while (!grew && Date.now() < quietUntil) {
-          grew = await app.evalJS<boolean>(
+          grew = await app.body("A").evalJS<boolean>(
             `document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}).length > ${before}`,
           );
           if (!grew) await new Promise((r) => setTimeout(r, 100));
@@ -378,7 +378,7 @@ describe.skipIf(!SHOULD_RUN)("AT0476: an interrupted arc says so on the card", (
         // options — used to inherit the padding of the shape that has rows
         // under it, so the offer sat high in its own frame. The layout the
         // primitive derives is what says which shape this is.
-        const framing = await app.evalJS<string>(
+        const framing = await app.body("A").evalJS<string>(
           `(() => {
             const root = document.querySelector(${JSON.stringify(
               `${CARD} .arc-receipt-resume`,

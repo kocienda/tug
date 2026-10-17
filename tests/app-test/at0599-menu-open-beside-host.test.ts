@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
 
           const HEADER_REF = '[data-card-id="A"] [data-slot="read-tool-block-path"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${HEADER_REF}') !== null`,
             { timeoutMs: 8000 },
           );
@@ -191,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await app.getActiveCardId()).toBe("H");
 
           const before = await textCardIds(app);
-          await app.nativeRightClickAtElement(HEADER_REF);
+          await app.body("A").nativeRightClickAtElement(HEADER_REF);
           await app.waitForCondition<boolean>(
             `document.querySelector('[data-item-action="open-file"]') !== null`,
             { timeoutMs: 3000 },

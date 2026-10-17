@@ -122,12 +122,12 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
         );
         await app.bindSession("A");
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP_VALUE)}) !== null`,
           { timeoutMs: 8000 },
         );
         await app.ingestSessionMetadata("A", capabilities());
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
             return el !== null && el.textContent.indexOf("Opus 5.5") === 0;
@@ -135,7 +135,7 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
           { timeoutMs: 6000 },
         );
 
-        await app.click(CHIP);
+        await app.body("A").click(CHIP);
         await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
 
         // ---- 1. Collapsed: the front rank only ---------------------------

@@ -85,7 +85,7 @@ async function mountLongRead(app: Harness): Promise<void> {
     hasOlder: false,
   });
 
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(`${HEADER} .tug-atom-ref`)}) !== null &&
      document.querySelector(${JSON.stringify(`${HEADER} .tool-call-header-timing`)}) !== null`,
     { timeoutMs: 12_000 },
@@ -109,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)("AT0722: a long header chip ellipsizes", () => {
         await mountLongRead(app);
 
         const reading = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(function(){
                var h = document.querySelector(${JSON.stringify(HEADER)});
                var chip = h.querySelector(".tug-atom-ref");

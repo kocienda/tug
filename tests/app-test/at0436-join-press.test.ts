@@ -153,17 +153,17 @@ afterAll(() => {
 const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, ms));
 
 async function raiseShade(app: App): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType("/commit");
   await settle();
   await app.nativeKey("Escape");
   await settle();
   await app.nativeKey("Return", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
     { timeoutMs: 8000 },
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(LANE)}) !== null`,
     { timeoutMs: 40000 },
   );
@@ -241,10 +241,10 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // is free, so nothing here types `/arc-join` — reaching the arc by
         // name is at0441's route, and it would open by name the very mode the
         // binding is supposed to be proving it can open.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           { timeoutMs: 60000 },
         );
@@ -254,19 +254,19 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // account is not — a clean join resolves nothing and files no account,
         // so waiting on one here would wait forever. The register's `ready`
         // reads the candidate itself, which is the readiness fact.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CANDIDATE)}) !== null`,
           { timeoutMs: 180000 },
         );
 
         // A message of the user's own, so the press clears the gate on its
         // merits rather than on whatever the arc's draft happens to hold.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
         await app.nativeType("at0436: land this arc");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 5000 },
         );
@@ -308,30 +308,30 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
         // window runs no rAF, so a one-or-two-frame presentation is not
         // reliably observable; what is durable — that the row is the bespoke
         // receipt and that there is exactly one of it — is what is asserted.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length === 1`,
           { timeoutMs: 30000 },
         );
-        const receiptText = await app.evalJS<string>(
+        const receiptText = await app.body("A").evalJS<string>(
           `document.querySelector(${JSON.stringify(JOIN_RECEIPT)})?.textContent ?? ""`,
         );
         expect(receiptText, "the receipt names the arc it landed").toContain(ARC);
         // The message is the commit's, so it is on the commit receipt rather
         // than on the boundary's bar — the boundary counts the arc, and the
         // entry named for the commit carries the commit ([B01], [B02]).
-        const commitText = await app.evalJS<string>(
+        const commitText = await app.body("A").evalJS<string>(
           `document.querySelector(${JSON.stringify(JOIN_COMMIT_RECEIPT)})?.textContent ?? ""`,
         );
         expect(commitText, "and the message the user pressed with").toContain(
           "land this arc",
         );
 
-        await app.evalJS<null>(`(window.__tug.refreshInkRestore("A"), null)`);
+        await app.body("A").evalJS<null>(`(window.__tug.refreshInkRestore("A"), null)`);
         // The ledger answer is a round trip; give it room to arrive and then
         // assert the count did not move. Waiting for a NON-event needs a real
         // wait, so this dwells rather than polling for a condition.
         await settle(4000);
-        const facts = await app.evalJS<{ shellTurns: number; commands: string[] }>(
+        const facts = await app.body("A").evalJS<{ shellTurns: number; commands: string[] }>(
           `window.__tug.inkRestoreFacts("A")`,
         );
         note(`at0436 ink after restore refresh: ${JSON.stringify(facts)}`);
@@ -340,7 +340,7 @@ describe.skipIf(!SHOULD_RUN)("AT0436: the Join press reaches the wire", () => {
           "one landing, one ink turn — the live row and the restored row are the same turn",
         ).toBe(1);
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(JOIN_RECEIPT)}).length`,
           ),
           "and still exactly one receipt row on screen",

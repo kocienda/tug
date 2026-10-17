@@ -67,6 +67,7 @@ import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import { mkTempTugbank, rmTempTugbank, seedTugbankForLaunch } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -129,13 +130,13 @@ async function mastheadText(app: App): Promise<string> {
  * text once the WHOLE line has landed is a document nothing was inserted into.
  */
 async function typeLine(app: App, text: string, replace = false): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   // Select-all before typing so the second line overwrites the first — one
   // gesture instead of a separate delete whose emptied-doc state is awkward to
   // wait on.
   if (replace) await app.nativeKey("a", ["cmd"]);
   await app.nativeType(text);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     // Trimmed: the leading edge of the composer can carry a stray space from a
     // select-all-then-type gesture. The atom count below is what actually
     // decides the claim — an inserted chip renders as its own element, and
@@ -169,7 +170,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Bound, not resumed: the composer and the beat are what this pins,
           // and neither needs a live agent behind them.
           await app.bindSession("A", { tugSessionId: SID, projectDir });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(PROMPT)}) !== null`,
             { timeoutMs: 20_000 },
           );
@@ -203,14 +204,14 @@ describe.skipIf(!SHOULD_RUN)(
           //    land in one and not the other — the claim is only pinned where
           //    it is asserted.
           await app.dispatchControlAction("toggle-cards");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CARDS_ROW)}) !== null`,
             { timeoutMs: 10_000 },
           );
           // No goal line in the rail either, and no word standing in for one.
           expect(await count(app, CARDS_INTENT)).toBe(0);
           expect(
-            await app.evalJS<string>(
+            await kindBody(app, "cards").evalJS<string>(
               `(document.querySelector(${JSON.stringify(CARDS_ROW)})
                  || { innerText: "" }).innerText`,
             ),

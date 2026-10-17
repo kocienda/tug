@@ -46,7 +46,8 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -145,9 +146,13 @@ interface MarkReading {
   label: string;
 }
 
-/** One mark, read whole — every attribute this file asserts, from one beat. */
-const readMark = (app: App, selector: string): Promise<MarkReading> =>
-  app.evalJS<MarkReading>(
+/**
+ * One mark, read whole — every attribute this file asserts, from one beat.
+ * Read in the page that holds it: the masthead's in the shell (the pane title
+ * bar), the Cards row's in the Workspaces card's body.
+ */
+const readMark = (page: App | BodyApp, selector: string): Promise<MarkReading> =>
+  page.evalJS<MarkReading>(
     `(() => {
        const mark = document.querySelector(${JSON.stringify(selector)});
        if (mark === null) {
@@ -174,18 +179,26 @@ const readMark = (app: App, selector: string): Promise<MarkReading> =>
      })()`,
   );
 
-const count = (app: App, selector: string): Promise<number> =>
-  app.evalJS<number>(
+const count = (page: App | BodyApp, selector: string): Promise<number> =>
+  page.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 
-/** Wait until BOTH hosts have drawn a mark, so every reading is one beat. */
-const awaitBothMarks = (app: App): Promise<boolean> =>
-  app.waitForCondition<boolean>(
-    `document.querySelector(${JSON.stringify(MASTHEAD_MARK)}) !== null &&
-     document.querySelector(${JSON.stringify(CARDS_MARK)}) !== null`,
+/**
+ * Wait until BOTH hosts have drawn a mark, so every reading is one beat. The
+ * two hosts are two pages — the masthead in the shell, the Cards row in the
+ * Workspaces card's body — so each is waited on in its own.
+ */
+const awaitBothMarks = async (app: App): Promise<boolean> => {
+  await app.waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(MASTHEAD_MARK)}) !== null`,
     { timeoutMs: 30000 },
   );
+  return kindBody(app, "cards").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(CARDS_MARK)}) !== null`,
+    { timeoutMs: 30000 },
+  );
+};
 
 describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
   test(
@@ -209,14 +222,14 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         await app.dispatchControlAction("toggle-cards");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
 
         // ── Before any binding, neither host draws anything ───────────────
         expect(await count(app, MASTHEAD_MARK)).toBe(0);
-        expect(await count(app, CARDS_MARK)).toBe(0);
+        expect(await count(kindBody(app, "cards"), CARDS_MARK)).toBe(0);
         expect(await count(app, MASTHEAD_ARC_RUN)).toBe(0);
 
         // ── A declared run over a longer plan ─────────────────────────────
@@ -227,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         await awaitBothMarks(app);
 
         const masthead = await readMark(app, MASTHEAD_MARK);
-        const cardsRow = await readMark(app, CARDS_MARK);
+        const cardsRow = await readMark(kindBody(app, "cards"), CARDS_MARK);
         note("at0483 implement · masthead", JSON.stringify(masthead));
         note("at0483 implement · cards row", JSON.stringify(cardsRow));
         for (const reading of [masthead, cardsRow]) {
@@ -256,7 +269,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         );
 
         const briefMasthead = await readMark(app, MASTHEAD_MARK);
-        const briefCards = await readMark(app, CARDS_MARK);
+        const briefCards = await readMark(kindBody(app, "cards"), CARDS_MARK);
         note("at0483 brief · masthead", JSON.stringify(briefMasthead));
         note("at0483 brief · cards row", JSON.stringify(briefCards));
         for (const reading of [briefMasthead, briefCards]) {
@@ -280,7 +293,7 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
         );
 
         const stopped = await readMark(app, MASTHEAD_MARK);
-        const stoppedCards = await readMark(app, CARDS_MARK);
+        const stoppedCards = await readMark(kindBody(app, "cards"), CARDS_MARK);
         note("at0483 stopped · masthead", JSON.stringify(stopped));
         note("at0483 stopped · cards row", JSON.stringify(stoppedCards));
         for (const reading of [stopped, stoppedCards]) {
@@ -298,9 +311,14 @@ describe.skipIf(!SHOULD_RUN)("AT0483: the compact arc register", () => {
 
         // ── Unbind takes both marks away ──────────────────────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
+        // Two pages, waited on one after the other: the masthead's mark in
+        // the shell, then the Cards row's in the standing Workspaces card.
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length === 0 &&
-           document.querySelectorAll(${JSON.stringify(CARDS_MARK)}).length === 0`,
+          `document.querySelectorAll(${JSON.stringify(MASTHEAD_MARK)}).length === 0`,
+          { timeoutMs: 30000 },
+        );
+        await kindBody(app, "cards").waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(CARDS_MARK)}).length === 0`,
           { timeoutMs: 30000 },
         );
         expect(await count(app, MASTHEAD_ARC_RUN)).toBe(0);

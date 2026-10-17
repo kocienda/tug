@@ -35,6 +35,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import {
   AFTER_LAND_MS,
@@ -70,7 +71,8 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
       try {
         await seed(app);
         await app.evalJS<null>(`(${addSessionCard}, null)`);
-        await app.waitForCondition<boolean>(
+        // The picker is in the new Session card's body — the deck's only one.
+        await kindBody(app, "session").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -85,7 +87,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         const leavingRect = (await paneRects(app, [leaving ?? ""]))[leaving ?? ""];
         const leavingHeight = leavingRect.height;
 
-        const samples = await census(app, cancelPicker);
+        const samples = await census(app, cancelPicker, kindBody(app, "session"));
         const order = beatOrder(samples);
         const depart = beatFrames(samples, "depart");
         const room = beatFrames(samples, "room");

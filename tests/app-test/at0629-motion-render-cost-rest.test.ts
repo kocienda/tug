@@ -198,13 +198,13 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
 
         // ---- The population, counted inside the bench card. --------------
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length === ${BENCH_COUNT}`,
           { timeoutMs: 30_000 },
         );
 
         // ---- The probe armed itself off the registry's rising edge. ------
-        const armed = await app.evalJS<{
+        const armed = await app.body("B").evalJS<{
           armed: boolean;
           holds: number;
           budgetMs: number;
@@ -263,7 +263,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // doctrine's invariant is stated in, and it has to read under the
         // at-rest budget or the gauge cannot tell a resident deck from a
         // broken one.
-        const split = await app.evalJS<{ on: number; off: number }>(`(function(){
+        const split = await app.body("B").evalJS<{ on: number; off: number }>(`(function(){
           var s = ${SPLIT_DOTS};
           return { on: s.on.length, off: s.off.length };
         })()`);
@@ -271,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(split.on).toBeGreaterThan(0);
         expect(split.off).toBeGreaterThan(0);
         expect(split.on + split.off).toBe(BENCH_COUNT);
-        const pausedOff = await app.evalJS<number>(`(function(){
+        const pausedOff = await app.body("B").evalJS<number>(`(function(){
           var s = ${SPLIT_DOTS};
           var n = 0;
           for (var i = 0; i < s.off.length; i++) {
@@ -282,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         })()`);
         expect(pausedOff).toBeGreaterThan(0);
         const restResident = await rest(app, "__at0629restResident");
-        const resumedOff = await app.evalJS<number>(`(function(){
+        const resumedOff = await app.body("B").evalJS<number>(`(function(){
           var s = ${SPLIT_DOTS};
           var n = 0;
           for (var i = 0; i < s.off.length; i++) {
@@ -383,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
           // down: the count is the census's fact, the ratio is the claim.
           expect(group.count).toBe(group.figures * 3);
         }
-        const weldAfterBisect = await app.evalJS<{
+        const weldAfterBisect = await app.body("B").evalJS<{
           spreads: number[];
           running: number;
         }>(`(function(){
@@ -422,12 +422,12 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
             }),
           )})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.focusElement(COMPOSER);
-        await app.evalJS<null>(`(function(){
+        await app.body("A").focusElement(COMPOSER);
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           var dt = new DataTransfer();
           dt.setData("text/plain", ${JSON.stringify(CHIP_VALUE)});
@@ -437,15 +437,15 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
           { timeoutMs: 8_000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LAYER_HOST)}) !== null`,
           { timeoutMs: 8_000 },
         );
-        const chipDot = await app.evalJS<{
+        const chipDot = await app.body("A").evalJS<{
           hosts: number;
           dots: number;
           state: string | null;
@@ -484,7 +484,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // change the component's own state: a dot still carries
         // `data-breathing`, because the demotion is a CSS answer to a CSS
         // contract and React never hears about it ([L06], [P09]).
-        const demoted = await app.evalJS<{
+        const demoted = await app.body("B").evalJS<{
           attribute: boolean;
           breathing: number;
           longRunning: number;
@@ -506,7 +506,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(demoted.longRunning).toBe(0);
         expect(demoted.running).toBe(0);
 
-        const undemoted = await app.evalJS<{
+        const undemoted = await app.body("B").evalJS<{
           attribute: boolean;
           longRunning: number;
         }>(`(function(){

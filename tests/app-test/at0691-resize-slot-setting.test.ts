@@ -72,7 +72,7 @@ async function storedRule(app: App): Promise<string | null> {
 
 /** Which segment of the row wears the selection. */
 async function activeTile(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("L").evalJS<string | null>(
     `document.querySelector('[data-testid="layout-card-resize"] [data-state="active"]')?.getAttribute("data-choice-value") ?? null`,
   );
 }

@@ -206,7 +206,7 @@ describe.skipIf(!SHOULD_RUN)(
             `${STATE_TEXT}.indexOf("Unanswered") === -1`,
             { timeoutMs: 6000 },
           );
-          expect(await app.evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);
+          expect(await app.body("A").evalJS<boolean>(COMPOSER_ACCEPTS_TEXT)).toBe(true);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

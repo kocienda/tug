@@ -167,7 +167,7 @@ interface Rect {
 }
 
 async function rectOf(app: App, selector: string): Promise<Rect | null> {
-  return JSON.parse(await app.evalJS<string>(rectJS(selector))) as Rect | null;
+  return JSON.parse(await app.body("A").evalJS<string>(rectJS(selector))) as Rect | null;
 }
 
 /**
@@ -206,12 +206,12 @@ interface Placement {
 }
 
 async function placement(app: App): Promise<Placement> {
-  return JSON.parse(await app.evalJS<string>(PLACEMENT_JS)) as Placement;
+  return JSON.parse(await app.body("A").evalJS<string>(PLACEMENT_JS)) as Placement;
 }
 
 /** Scroll events counted so far. */
 function scrolls(app: App): Promise<number> {
-  return app.evalJS<number>(`window.__at0626scrolls`);
+  return app.body("A").evalJS<number>(`window.__at0626scrolls`);
 }
 
 /**
@@ -222,13 +222,13 @@ function scrolls(app: App): Promise<number> {
  */
 async function scrollAndSettle(app: App, mutate: string): Promise<void> {
   const before = await scrolls(app);
-  await app.evalJS<boolean>(`(function(){
+  await app.body("A").evalJS<boolean>(`(function(){
     var el = document.querySelector(${JSON.stringify(SCROLLER)});
     if (el === null) return false;
     ${mutate}
     return true;
   })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `window.__at0626scrolls > ${before}`,
     { timeoutMs: 8_000 },
   );
@@ -238,7 +238,7 @@ async function scrollAndSettle(app: App, mutate: string): Promise<void> {
 const menuPresentJS = `document.querySelector(${JSON.stringify(MENU)}) !== null`;
 
 async function menuPresent(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(menuPresentJS);
+  return app.body("A").evalJS<boolean>(menuPresentJS);
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -292,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)(
           }
           await ingest(replayComplete(FILLER_TURNS + 1));
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(SCROLLER)});
               return el !== null && el.scrollHeight > el.clientHeight + 400;
@@ -301,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           note(
             "at0626 transcript geometry",
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector(${JSON.stringify(SCROLLER)});
               var host = document.querySelector('${CARD} [data-testid="session-card-transcript"]');
               return {
@@ -316,7 +316,7 @@ describe.skipIf(!SHOULD_RUN)(
             })())`),
           );
 
-          await app.evalJS<boolean>(INSTALL_SCROLL_COUNTER);
+          await app.body("A").evalJS<boolean>(INSTALL_SCROLL_COUNTER);
 
           // --- case 1: a small scroll leaves the menu alone ----------------
 
@@ -329,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)(
           // annotator has seen the row. The wait holds the scroller at the top
           // until the row is there, which is what a hand on the wheel does.
           await scrollAndSettle(app, `el.scrollTop = 0;`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(SCROLLER)});
               if (el === null) return false;
@@ -355,8 +355,8 @@ describe.skipIf(!SHOULD_RUN)(
             "the path has room above it to scroll into",
           ).toBe(true);
 
-          await app.nativeRightClickAtElement(PATH_SPAN);
-          await app.waitForCondition<boolean>(menuPresentJS, { timeoutMs: 8_000 });
+          await app.body("A").nativeRightClickAtElement(PATH_SPAN);
+          await app.body("A").waitForCondition<boolean>(menuPresentJS, { timeoutMs: 8_000 });
 
           const menuBefore = await rectOf(app, MENU);
           const spanBefore = await rectOf(app, PATH_SPAN);
@@ -408,7 +408,7 @@ describe.skipIf(!SHOULD_RUN)(
             Math.ceil((spanAfter as Rect).height) +
             8;
           await scrollAndSettle(app, `el.scrollTop = el.scrollTop + ${past};`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -426,7 +426,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // And it stays closed with the transcript run to its end.
           await scrollAndSettle(app, `el.scrollTop = el.scrollHeight;`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -439,7 +439,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // An empty composer: no selection to sample and no entity under the
           // press, so the menu is about the surface and takes no referent.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
             { timeoutMs: 20_000 },
           );
@@ -448,14 +448,14 @@ describe.skipIf(!SHOULD_RUN)(
           // that there is nothing here to select. `textContent` cannot say
           // it: the placeholder is a widget inside `.cm-content`.
           expect(
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(`${COMPOSER} .cm-placeholder`)}) !== null`,
             ),
             "the composer is empty, so the press has nothing to select",
           ).toBe(true);
 
-          await app.nativeRightClickAtElement(COMPOSER);
-          await app.waitForCondition<boolean>(menuPresentJS, { timeoutMs: 8_000 });
+          await app.body("A").nativeRightClickAtElement(COMPOSER);
+          await app.body("A").waitForCondition<boolean>(menuPresentJS, { timeoutMs: 8_000 });
           const surfaceMenu = await rectOf(app, MENU);
           expect(surfaceMenu, "the bare press opened a menu").not.toBeNull();
 

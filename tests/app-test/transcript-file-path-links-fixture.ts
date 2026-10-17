@@ -12,7 +12,7 @@
  */
 
 import { resolve } from "node:path";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, type BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
@@ -37,22 +37,26 @@ export type Harness = Awaited<ReturnType<typeof launchTugApp>>;
  * Open the annotation's context menu with a trusted native right-click
  * and wait for `action`'s item to mount. Synthetic events don't fire the
  * menu's real activation path, so the gestures here are native.
+ *
+ * `page` is the card's page (`app.body("A")`): the annotation is in its
+ * transcript, and the menu portals into the same document.
  */
 export async function openAnnotationMenu(
-  app: Harness,
+  page: Harness | BodyApp,
   selector: string,
   action: string,
 ): Promise<void> {
-  await app.nativeRightClickAtElement(selector);
-  await app.waitForCondition<boolean>(
+  await page.nativeRightClickAtElement(selector);
+  await page.waitForCondition<boolean>(
     `document.querySelector('[data-item-action="' + ${JSON.stringify(action)} + '"]') !== null`,
     { timeoutMs: 3000 },
   );
 }
 
-/** Trusted native-click the open menu's item with `data-item-action === action`. */
-export async function activateMenuItem(app: Harness, action: string): Promise<void> {
-  const point = await app.evalJS<{ x: number; y: number } | null>(
+/** Trusted native-click the open menu's item with `data-item-action === action`,
+ *  in `page`, the page the menu opened in. */
+export async function activateMenuItem(page: Harness | BodyApp, action: string): Promise<void> {
+  const point = await page.evalJS<{ x: number; y: number } | null>(
     `(() => {
       const item = document.querySelector('[data-item-action="' + ${JSON.stringify(action)} + '"]');
       if (item === null) return null;
@@ -61,7 +65,7 @@ export async function activateMenuItem(app: Harness, action: string): Promise<vo
     })()`,
   );
   if (point === null) throw new Error(`menu item ${action} not found`);
-  await app.nativeClick(point);
+  await page.nativeClick(point);
 }
 
 export const userMsg = (text: string) => ({

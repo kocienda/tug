@@ -207,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
         const stubs = await bindStreamingStubs(app, [CARD], stubDir, texts.length, 1, (i) => texts[i]);
         expect(await app.evalJS<boolean>(watchScript())).toBe(true);
         await startStreams(app, stubs);
-        await app.waitForCondition<boolean>(
+        await app.body(CARD).waitForCondition<boolean>(
           `(function(){
             var entry = document.querySelector('[data-card-id="${CARD}"] [data-slot="tug-prompt-entry"]');
             return entry !== null && entry.getAttribute("data-phase") !== "streaming";

@@ -219,34 +219,34 @@ describe.skipIf(!SHOULD_RUN)("AT0478: the fit an arc was verified at", () => {
         await app.spawnSessionResume("A", { tugSessionId: SID, projectDir: projectDir() });
         await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape");
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANE)}) !== null`,
           { timeoutMs: 30000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIT_MARK)}) !== null`,
           { timeoutMs: 30000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIT_NOTE)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const mark = await app.evalJS<{ text: string; tone: string }>(
+        const mark = await app.body("A").evalJS<{ text: string; tone: string }>(
           `(() => {
              const el = document.querySelector(${JSON.stringify(FIT_MARK)});
              const note = document.querySelector(${JSON.stringify(FIT_NOTE)});

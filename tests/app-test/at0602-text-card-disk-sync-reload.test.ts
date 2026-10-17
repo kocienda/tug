@@ -82,7 +82,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
 
         // Park the viewport at a real mid-document offset, then read WHICH
         // line sits at the viewport top and how far down its row starts.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
         );
         const readTop = `(function(){
@@ -97,11 +97,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           }
           return null;
         })()`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
           { timeoutMs: 6000 },
         );
-        const before = await app.evalJS<{
+        const before = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -111,13 +111,13 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // The only gesture in this scenario: a write from outside the app.
         const started = Date.now();
         fs.writeFileSync(file, "EXTERNAL-WRITER LINE\n" + TALL_CONTENT, "utf8");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
           { timeoutMs: 20_000 },
         );
         note(`at0602 event-to-reload: ${Date.now() - started}ms`);
 
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -129,7 +129,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
 
         // And the disk content really is in the buffer.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           `window.__tug.getFocusedCardId()`,
         );
         expect(focused, "focus sits on the other card").toBe("B");
-        const visible = await app.evalJS<boolean>(
+        const visible = await app.body("A").evalJS<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             if (host === null) return false;
@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         expect(visible, "card A is on screen with a laid-out editor").toBe(true);
 
         // Park A's viewport and read which line sits at its top.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
         );
         const readTop = `(function(){
@@ -252,11 +252,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           }
           return null;
         })()`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
           { timeoutMs: 6000 },
         );
-        const before = await app.evalJS<{
+        const before = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -265,12 +265,12 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
 
         // The only gesture: a write from outside the app, with focus still on B.
         fs.writeFileSync(file, "EXTERNAL-WRITER LINE\n" + TALL_CONTENT, "utf8");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
           { timeoutMs: 20_000 },
         );
 
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -291,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         ).toBe("B");
 
         // And the disk content really is in the buffer.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");

@@ -166,7 +166,7 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
 
 /** Whether the shade is up right now. */
 function shadeUp(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
   );
 }
@@ -262,7 +262,7 @@ async function toggleFolded(app: App, want: boolean): Promise<void> {
  * glyph.
  */
 function whatIsOverTheControl(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `(function () {
        var control = document.querySelector(${JSON.stringify(CONTROL)});
        if (control === null) return "no control";
@@ -309,7 +309,7 @@ function clearStaleAppModal(app: App): Promise<string> {
 
 /** Z2's ARC cell reading, flattened. */
 function arcCellReading(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `((document.querySelector(${JSON.stringify(ARC_VALUE)})?.textContent) || "").trim()`,
   );
 }
@@ -341,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         expect(await shadeUp(app), "nothing is revealed yet").toBe(false);
         // The watch for claim 1 starts here, before the bind, so the moment
         // the offer arrives — the moment a reveal would fire — is inside it.
-        await app.evalJS<null>(RECORDER_INSTALL);
+        await app.body("A").evalJS<null>(RECORDER_INSTALL);
         await app.evalJS<null>(`(window.__at0559.armSheet = true, window.__at0559.tick(), null)`);
 
         // The real `arc bind` verb: the pilot works from the LEDGER row, so a
@@ -379,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // And Z2's ARC cell takes the register's own word rather than
         // composing a second one ([B08]) — capitalized, because the cell sets
         // a WORD beside STATE's `Ready` and the register sets prose.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `((document.querySelector(${JSON.stringify(ARC_VALUE)})?.textContent) || "").trim() === "Ready"`,
           { timeoutMs: 60000 },
         );
@@ -407,7 +407,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // ── The unfold spends the offer ──────────────────────────────────
         // Through the control itself, which is the gesture the deferred entry
         // is waiting on ([B06]) and the door the claim above just measured.
-        await app.click(`${CONTROL} button`);
+        await app.body("A").click(`${CONTROL} button`);
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,
           { timeoutMs: 8000 },
@@ -419,7 +419,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
            })()`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 60000 },
         );
@@ -428,12 +428,12 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // Armed, not merely open: the Changes route is active and the Z5 is
         // the control that lands. The passive reveal goes through the one
         // path ([D152]), so the room it opens is the same one ⌃⌘C opens.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="changes"]')?.getAttribute("data-state") === "active"`,
           { timeoutMs: 20000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
           ),
           "the composer is the join's, so its ⬆ is the control that lands",
@@ -446,7 +446,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // from Prompt once Prompt has been seen.
         await app.evalJS<null>(`(window.__at0559.armRoute = true, window.__at0559.tick(), null)`);
         await app.dispatchControlAction("toggle-changes-view");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,
           { timeoutMs: 20000 },
         );
@@ -456,7 +456,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // not been re-entered.
         await settle(REVEAL_TAIL_MS);
         const spentWatch = await readRecording(app);
-        const resting = await app.evalJS<boolean>(
+        const resting = await app.body("A").evalJS<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,
         );
         expect(

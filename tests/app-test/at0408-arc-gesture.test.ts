@@ -46,6 +46,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -96,7 +97,7 @@ const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 /** Type a command into the card's prompt and submit it. */
 async function runCommand(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   await app.nativeType(line);
   await settle();
   // Dismiss the slash completion popup so Enter submits rather than accepting.
@@ -136,15 +137,12 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
         // the snapshot has composed this project's arcs. Typing before that
         // would send `/arc-bind <known>` down the CREATE path.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${KNOWN_ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
-          { timeoutMs: 8000 },
-        );
+        await waitForNoBodyOfKind(app, "dashes", { timeoutMs: 8000 });
 
         // ── A known name binds, with no shell row behind it ───────────────
         await runCommand(app, `/arc-bind ${KNOWN_ARC}`);
@@ -153,11 +151,11 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
           { timeoutMs: 15000 },
         );
         // The bind is a CONTROL frame: silent, no transcript ink.
-        expect(await app.evalJS<number>(count(SHELL_ROWS))).toBe(0);
+        expect(await app.body("A").evalJS<number>(count(SHELL_ROWS))).toBe(0);
 
         // ── An unknown name is created, with a receipt ────────────────────
         await runCommand(app, `/arc-bind ${MADE_ARC}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              var rows = document.querySelectorAll(${JSON.stringify(SHELL_ROWS)});
              if (rows.length !== 1) return false;
@@ -166,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
            })()`,
           { timeoutMs: 40000 },
         );
-        const receipt = await app.evalJS<string>(
+        const receipt = await app.body("A").evalJS<string>(
           `(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)})[0]?.textContent ?? "").trim()`,
         );
         expect(receipt).toContain(`tugtool arc create ${MADE_ARC}`);
@@ -188,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
         );
         expect(caution).toContain("arc name");
         // Still exactly the one create; the refusal ran no command.
-        expect(await app.evalJS<number>(count(SHELL_ROWS))).toBe(1);
+        expect(await app.body("A").evalJS<number>(count(SHELL_ROWS))).toBe(1);
 
         // ── Bare `/arc-bind` picks, and does not open the shade ──────────
         // Showing every arc and offering no way to choose one was the old
@@ -200,7 +198,7 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8000 },
         );
-        expect(await app.evalJS<number>(count(SHEET))).toBe(0);
+        expect(await app.body("A").evalJS<number>(count(SHEET))).toBe(0);
       } finally {
         await app.close();
         rmTempTugbank(tugbankPath);

@@ -204,7 +204,7 @@ async function writeMention(app: App): Promise<void> {
     feedId: CODE_OUTPUT_FEED,
     decoded: asstText("m1", `It landed as \`${WRITTEN_SHA}\`.`),
   });
-  await app.waitForCondition<boolean>(
+  await app.body("W").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENTION_PILL)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -221,7 +221,7 @@ async function writeReceipt(app: App): Promise<void> {
     exitCode: 0,
     startedAtMs: 1_700_000_000_000,
   });
-  await app.waitForCondition<boolean>(
+  await app.body("W").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(RECEIPT_PILL)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -259,7 +259,7 @@ async function writeSentSession(app: App): Promise<void> {
   // The row paints optimistically and settles as the store and the citation
   // resolver catch up, remounting the chip on the way; the press waits for a
   // chip that has stayed put across several polls rather than the first one.
-  await app.waitForCondition<boolean>(
+  await app.body("W").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(SENT_CHIP)});
       if (el === null || el !== window.__at0520chip) {
@@ -274,7 +274,7 @@ async function writeSentSession(app: App): Promise<void> {
   );
   note(
     "at0520 sent row",
-    await app.evalJS<string>(
+    await app.body("W").evalJS<string>(
       `JSON.stringify((function(){
         var bodies = document.querySelectorAll(${JSON.stringify(USER_BODY)});
         var chip = document.querySelector(${JSON.stringify(SENT_CHIP)});

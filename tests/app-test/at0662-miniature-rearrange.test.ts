@@ -129,7 +129,7 @@ async function openDeck(
     `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
   );
   await app.seedDeckState({ state, focusCardId: "A" });
-  await app.waitForCondition<boolean>(
+  await app.body("L").waitForCondition<boolean>(
     `document.querySelector('${PLACES} .layout-places-target') !== null`,
     { timeoutMs: 8_000 },
   );
@@ -152,7 +152,7 @@ async function rectOf(
   app: App,
   selector: string,
 ): Promise<{ left: number; top: number; width: number; height: number }> {
-  const rect = await app.evalJS<{
+  const rect = await app.body("L").evalJS<{
     left: number;
     top: number;
     width: number;
@@ -205,7 +205,7 @@ async function drag(app: App, from: Point, to: Point): Promise<void> {
 function dragMarks(
   app: App,
 ): Promise<{ drag: boolean; zone: boolean; carrying: string | null }> {
-  return app.evalJS(
+  return app.body("L").evalJS(
     `(function () {
       var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
       var canvas = document.querySelector("[data-carrying]");
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
         expect(members, "B goes first").toEqual(["p2", "p1"]);
 
         // (d) The lower rail member to the top of the rail goes first.
-        const rail = await app.evalJS<{ left: number; top: number; width: number }>(
+        const rail = await app.body("L").evalJS<{ left: number; top: number; width: number }>(
           `(function () {
             var r = document.querySelector('${PLACES} .layout-places-rail[data-side="right"]').getBoundingClientRect();
             return { left: r.left, top: r.top, width: r.width };

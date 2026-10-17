@@ -114,7 +114,7 @@ function capabilities() {
 
 /** The chip's whole composite face. */
 async function chipValue(app: App): Promise<string | null> {
-  return await app.evalJS<string | null>(
+  return await app.body("A").evalJS<string | null>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
       return el ? el.textContent.trim() : null;
@@ -124,7 +124,8 @@ async function chipValue(app: App): Promise<string | null> {
 
 /** The sheet's readout, whitespace-normalized (it is several spans). */
 async function readout(app: App): Promise<string | null> {
-  return await app.evalJS<string | null>(
+  // The sheet is card-hosted, so it stands in the card's body.
+  return await app.body("A").evalJS<string | null>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(READOUT)});
       return el ? el.textContent.replace(/\\s+/g, " ").trim() : null;
@@ -148,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         );
         await app.bindSession("A");
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP_VALUE)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -156,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         // The account default supports all five levels and no override is set,
         // so the composite is the full triple.
         await app.ingestSessionMetadata("A", capabilities());
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
             return el !== null && el.textContent.trim() === "Opus 5 · High · Default";
@@ -166,33 +167,33 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         const before = await chipValue(app);
 
         // ---- 1. Cancel is free ------------------------------------------
-        await app.click(CHIP);
-        await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
+        await app.body("A").click(CHIP);
+        await app.body("A").waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
 
         // Move two channels, then abandon the transaction.
-        await app.click(MODEL_ROW("sonnet"));
-        await app.click(SEGMENT(MODE_ROW, "plan"));
+        await app.body("A").click(MODEL_ROW("sonnet"));
+        await app.body("A").click(SEGMENT(MODE_ROW, "plan"));
         expect(
           await chipValue(app),
           "the chip must not move while the sheet is open",
         ).toBe(before);
 
-        await app.click(CANCEL);
-        await app.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
+        await app.body("A").click(CANCEL);
+        await app.body("A").waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
         expect(
           await chipValue(app),
           "Cancel commits nothing — two moved channels, zero frames",
         ).toBe(before);
 
         // ---- 2. The channels are coupled --------------------------------
-        await app.click(CHIP);
-        await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
+        await app.body("A").click(CHIP);
+        await app.body("A").waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
 
         // Take the pending effort UP one notch, to a level sonnet does not
         // offer. The track is the sheet's second focus stop, so Tab off the
         // model list rings it and ArrowRight steps the thumb.
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(EFFORT_THUMB)});
             return el !== null && el.hasAttribute("data-key-view-kbd");
@@ -200,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
           { timeoutMs: 4000 },
         );
         await app.nativeKey("ArrowRight");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(READOUT)});
             return el !== null && el.textContent.indexOf("Extra-High") >= 0;
@@ -211,8 +212,8 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         // Pick sonnet, which does not offer Extra-High: the stranded pending
         // level clamps DOWN to the nearest level sonnet does offer rather than
         // being promoted to a bigger thinking budget than was asked for.
-        await app.click(MODEL_ROW("sonnet"));
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(MODEL_ROW("sonnet"));
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(READOUT)});
             return el !== null && el.textContent.indexOf("Sonnet") >= 0;
@@ -225,10 +226,10 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         ).toBe("Sonnet 4.6 · High · Default");
 
         // ---- 3. OK lands the whole diff at once -------------------------
-        await app.click(SEGMENT(MODE_ROW, "plan"));
-        await app.click(OK);
-        await app.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(SEGMENT(MODE_ROW, "plan"));
+        await app.body("A").click(OK);
+        await app.body("A").waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
             return el !== null && el.textContent.trim() === "Sonnet 4.6 · High · Plan";
@@ -237,10 +238,10 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         );
 
         // ---- 4. A model with no effort at all disables the channel ------
-        await app.click(CHIP);
-        await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
-        await app.click(MODEL_ROW("haiku"));
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(CHIP);
+        await app.body("A").waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
+        await app.body("A").click(MODEL_ROW("haiku"));
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(EFFORT_TRACK)});
             return el !== null && el.getAttribute("aria-disabled") === "true";
@@ -251,8 +252,8 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
           await readout(app),
           "with no level to report the readout drops the effort token entirely",
         ).toBe("Haiku 4.5 · Plan");
-        await app.click(CANCEL);
-        await app.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
+        await app.body("A").click(CANCEL);
+        await app.body("A").waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") {
@@ -279,7 +280,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         await app.bindSession("A");
         await app.awaitEngineReady("A");
         await app.ingestSessionMetadata("A", capabilities());
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP_VALUE)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -288,18 +289,18 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         // OK. The retired `/model` and `/effort` pickers were two more sheets;
         // typing their names now lands here.
         for (const name of ["ai", "model", "effort", "mode"]) {
-          await app.nativeClickAtElement(PROMPT_INPUT);
+          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("run-card-command", { name: ${JSON.stringify(name)} }), null)`,
           );
-          await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
-          const channels = await app.evalJS<number>(
+          await app.body("A").waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
+          const channels = await app.body("A").evalJS<number>(
             `[${JSON.stringify(MODEL_LIST)}, ${JSON.stringify(EFFORT_TRACK)}, ${JSON.stringify(MODE_ROW)}]
               .filter(function(s){ return document.querySelector(s) !== null; }).length`,
           );
           expect(channels, `/${name} opens the three-channel mixer`).toBe(3);
-          await app.click(CANCEL);
-          await app.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
+          await app.body("A").click(CANCEL);
+          await app.body("A").waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
         }
       } catch (err) {
         const tail = app.tailLog(200);
@@ -327,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         await app.bindSession("A");
         await app.awaitEngineReady("A");
         await app.ingestSessionMetadata("A", capabilities());
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(CHIP_VALUE)});
             return el !== null && el.textContent.trim() === "Opus 5 · High · Default";
@@ -337,15 +338,15 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         const before = await chipValue(app);
 
         await app.nativeKey("i", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 6000 });
 
         // Move a channel first: the toggle-off is a DISMISSAL, so the pending
         // change must die with the sheet exactly as Cancel would kill it.
-        await app.click(SEGMENT(MODE_ROW, "plan"));
+        await app.body("A").click(SEGMENT(MODE_ROW, "plan"));
 
         // Same chord again — the door closes the way it opened.
         await app.nativeKey("i", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 6000 });
         expect(
           await chipValue(app),
           "a toggle-off commits nothing, the same as Cancel",
@@ -354,7 +355,7 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         // And it re-opens, so a full cycle leaves nothing latched — and opens
         // on the session's own values, not the abandoned pending ones.
         await app.nativeKey("i", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 6000 });
         expect(
           await readout(app),
           "the re-opened sheet reads the session, not the dismissed transaction",

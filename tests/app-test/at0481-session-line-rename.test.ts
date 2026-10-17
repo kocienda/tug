@@ -163,7 +163,7 @@ describe.skipIf(!SHOULD_RUN)("at0481 — a rename names the line", () => {
           expect(before.name, "the line is untitled before the rename").toBeNull();
           expect(before.tag).toBe(TAG);
 
-          await app.nativeClickAtElement(PROMPT);
+          await app.body("A").nativeClickAtElement(PROMPT);
           await app.nativeType(`/rename ${RENAME}`);
           await new Promise((r) => setTimeout(r, 150));
           await app.nativeKey("Enter", ["cmd"]);

@@ -155,7 +155,7 @@ async function openCard(app: App): Promise<void> {
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(prompt);
+  await app.body("A").nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -163,7 +163,7 @@ async function shell(app: App, command: string): Promise<void> {
 
 /** Every wheel-attributed notice row's text, in transcript order. */
 async function wheelNotices(app: App): Promise<string[]> {
-  const raw = await app.evalJS<string>(
+  const raw = await app.body("A").evalJS<string>(
     `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
       NOTICE_ROWS,
     )})).filter((el) => el.getAttribute("data-notice-origin") === "wheel")
@@ -174,7 +174,7 @@ async function wheelNotices(app: App): Promise<string[]> {
 
 /** Wait until a wheel notice whose text contains `marker` is on the card. */
 async function waitForWheelNotice(app: App, marker: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `Array.from(document.querySelectorAll(${JSON.stringify(NOTICE_ROWS)}))
        .filter((el) => el.getAttribute("data-notice-origin") === "wheel")
        .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
@@ -210,7 +210,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
         // because the document lints as a plan, then implement once the review
         // stage has ended a turn.
         await shell(app, `${cli} arc run ${ARC_NAME}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(STAGE_DIVIDERS)}))
              .some((el) => (el.textContent || "").indexOf("implement") !== -1)`,
           { timeoutMs: STAGE_WAIT_MS },
@@ -252,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)("AT0480: the arc compacts a seated implement stage"
 
         // Whether claude honored the compaction is claude's call, and gates
         // nothing — on a plan this small it usually declines.
-        const honored = await app.evalJS<string>(
+        const honored = await app.body("A").evalJS<string>(
           `String(document.querySelectorAll(${JSON.stringify(
             `${CARD} [data-boundary="compaction"]`,
           )}).length)`,

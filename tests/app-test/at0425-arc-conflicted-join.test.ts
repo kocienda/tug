@@ -75,6 +75,7 @@ import {
   type ArcScratchRepo,
 } from "./arc-fixture";
 import { pressArcRowMenuItem, readArcRowMenu } from "./arc-row-menu-fixture";
+import { kindBody, waitForNoBodyOfKind } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -165,7 +166,7 @@ afterAll(() => {
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 async function runCommand(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType(line);
   await settle();
   // Dismiss the slash completion popup so Enter submits rather than accepting.
@@ -199,28 +200,25 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
 
         // The aggregate has composed the arc once the Arcs card lists it.
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector('${ARCS_CARD} [data-slot="arcs-row"][data-arc="${ARC}"]') !== null`,
           { timeoutMs: 30000 },
         );
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(ARCS_CARD)}) === null`,
-          { timeoutMs: 8000 },
-        );
+        await waitForNoBodyOfKind(app, "dashes", { timeoutMs: 8000 });
 
         // ── The incident's state, reconstructed for real ──────────────────
         // Unbound card, join aimed by name. The mode enters, the shade rises,
         // and the arc entry already carries the answer: `conflicted`.
         await runCommand(app, `/arc-join ${ARC}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(ROUTE_GROUP)} + ' [data-state="active"]');
             return el !== null && el.getAttribute("data-choice-value") === "changes";
           })()`,
           { timeoutMs: 12000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null
              && document.querySelector(${JSON.stringify(ROW)})?.getAttribute("data-fronted") === "true"`,
           { timeoutMs: 12000 },
@@ -234,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // Fronted-but-unbound offers Bind — fronting is about what is being
         // landed, the binding about what the card works. The incident read
         // this pairing as a contradiction; it is the designed state.
-        expect((await readArcRowMenu(app, ROW)).bind.present).toBe(true);
+        expect((await readArcRowMenu(app.body("A"), ROW)).bind.present).toBe(true);
         // The conflict names its file.
         expect(
           await app.evalJS<string>(
@@ -338,10 +336,10 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         let midTurn: Awaited<ReturnType<typeof readArcRowMenu>> | null = null;
         for (let attempt = 0; attempt < 3 && midTurn === null; attempt += 1) {
           await app.driveSession("A", { op: "send", text: "hold the turn open" });
-          await app.waitForCondition<boolean>(turnLive, { timeoutMs: 10_000 });
-          const reading = await readArcRowMenu(app, ROW);
-          if (await app.evalJS<boolean>(turnLive)) midTurn = reading;
-          await app.waitForCondition<boolean>(turnOver, { timeoutMs: 120_000 });
+          await app.body("A").waitForCondition<boolean>(turnLive, { timeoutMs: 10_000 });
+          const reading = await readArcRowMenu(app.body("A"), ROW);
+          if (await app.body("A").evalJS<boolean>(turnLive)) midTurn = reading;
+          await app.body("A").waitForCondition<boolean>(turnOver, { timeoutMs: 120_000 });
         }
         if (midTurn === null) throw new Error("no reading of the row's verbs fell wholly inside a live turn");
         expect(midTurn.discard.disabled, "a live turn holds the discard").toBe(true);
@@ -359,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // idle-state story, and Bind below would otherwise be read against a
         // live turn.
         expect(
-          (await readArcRowMenu(app, ROW)).discard.disabled,
+          (await readArcRowMenu(app.body("A"), ROW)).discard.disabled,
           "and the hold lifts with the turn",
         ).toBe(false);
 
@@ -368,12 +366,12 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // fronting: this row is already fronted and unbound, which is the
         // designed state the incident misread as a contradiction. What the
         // bind changes is which complement the row carries.
-        await pressArcRowMenuItem(app, ROW, "bind-arc");
+        await pressArcRowMenuItem(app.body("A"), ROW, "bind-arc");
         let bound = false;
         const boundBy = Date.now() + 20_000;
         while (Date.now() < boundBy && !bound) {
           await settle(500);
-          bound = (await readArcRowMenu(app, ROW)).unbind.present;
+          bound = (await readArcRowMenu(app.body("A"), ROW)).unbind.present;
         }
         expect(bound, "bind_arc_ok flipped the row's complement to Unbind").toBe(true);
         note("Bind round-tripped: the row now offers Unbind");

@@ -71,6 +71,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -285,7 +286,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
       });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -306,13 +307,13 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
           project_dir: REPO_ROOT,
         };
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
           ),
         ).toBe(true);
 
         // ---- 1. Reserved: the path resolves, the sessions do not yet. ----
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var body = document.querySelector(${JSON.stringify(BODY)});
             return body !== null
@@ -320,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
           })()`,
           { timeoutMs: 25_000 },
         );
-        const pending = await app.evalJS<Runs>(RUNS_JS);
+        const pending = await kindBody(app, "overview").evalJS<Runs>(RUNS_JS);
         note("while the ledger is being asked", JSON.stringify(pending));
         // Neither session run is marked — and crucially neither is a
         // `file-path`, which is what the path scan would have made of a
@@ -340,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
         // Waited on the CHIP rather than on the mark: the mark is the
         // annotator's layout pass, the chip is the React commit that follows
         // it, and asserting between the two is a race the mark always wins.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var body = document.querySelector(${JSON.stringify(BODY)});
             return body !== null
@@ -348,7 +349,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
           })()`,
           { timeoutMs: 15_000 },
         );
-        const settled = await app.evalJS<Runs>(RUNS_JS);
+        const settled = await kindBody(app, "overview").evalJS<Runs>(RUNS_JS);
         note("after the ledger answered", JSON.stringify(settled));
 
         // The held session is a citation, carrying the FULL id however the
@@ -378,7 +379,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
       const app = await launchTugApp({ testName: "at0368-overview-post-atom" });
       try {
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -409,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
           },
         ]) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
             ),
           ).toBe(true);
@@ -417,13 +418,13 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
 
         // The atoms mount inert and ask the ledger; this is the ledger
         // answering, through the production handler.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelectorAll(
             ${JSON.stringify(`${CARD} .overview-post-refs .tug-session-identity`)}).length === 2`,
           { timeoutMs: 15_000 },
         );
         await app.evalJS<unknown>(resolveNamedSessions());
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var runs = document.querySelectorAll(
               ${JSON.stringify(`${CARD} .overview-post-refs .tug-session-identity-name`)});
@@ -432,7 +433,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
           { timeoutMs: 15_000 },
         );
 
-        const posts = await app.evalJS<Post[]>(POSTS_JS);
+        const posts = await kindBody(app, "overview").evalJS<Post[]>(POSTS_JS);
         note("post atoms", JSON.stringify(posts));
         expect(posts.length, "one strip per post").toBe(2);
 

@@ -104,11 +104,11 @@ describe.skipIf(!SHOULD_RUN)("at0474 — a pasted slash command chips", () => {
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.focusElement(COMPOSER);
+        await app.body("A").focusElement(COMPOSER);
 
         // ---- A. The native pasteboard, with an atomless sidecar. ----------
         //
@@ -126,19 +126,19 @@ describe.skipIf(!SHOULD_RUN)("at0474 — a pasted slash command chips", () => {
 
         // An EMPTY clipboardData is the shape of the real gesture: everything
         // the paste needs is on the pasteboard and none of it is in the event.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           cm.dispatchEvent(new ClipboardEvent("paste", {
             bubbles: true, cancelable: true, clipboardData: new DataTransfer(),
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length === 1`,
           { timeoutMs: 8_000 },
         );
 
-        const native = await app.evalJS<{ atoms: string[]; text: string }>(
+        const native = await app.body("A").evalJS<{ atoms: string[]; text: string }>(
           composerProbe(),
         );
         note("at0474 native-route paste", JSON.stringify(native));
@@ -155,7 +155,7 @@ describe.skipIf(!SHOULD_RUN)("at0474 — a pasted slash command chips", () => {
         // only for a command that would occupy the document's first position.
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(COMPOSER)});
             return cm.querySelectorAll('img:not(.cm-widgetBuffer)').length === 0
@@ -164,7 +164,7 @@ describe.skipIf(!SHOULD_RUN)("at0474 — a pasted slash command chips", () => {
           { timeoutMs: 8_000 },
         );
 
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           var dt = new DataTransfer();
           dt.setData("text/plain", ${JSON.stringify(PASTED)});
@@ -174,12 +174,12 @@ describe.skipIf(!SHOULD_RUN)("at0474 — a pasted slash command chips", () => {
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(COMPOSER)} + ' img:not(.cm-widgetBuffer)').length === 1`,
           { timeoutMs: 8_000 },
         );
 
-        const inEvent = await app.evalJS<{ atoms: string[]; text: string }>(
+        const inEvent = await app.body("A").evalJS<{ atoms: string[]; text: string }>(
           composerProbe(),
         );
         note("at0474 in-event paste", JSON.stringify(inEvent));

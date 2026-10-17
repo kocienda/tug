@@ -49,6 +49,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { enforcedTimeout } from "./_harness/rpc";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -123,13 +124,13 @@ afterAll(() => {
  * waiting on an outcome that was never asked for.
  */
 async function submit(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   await app.nativeType(line);
   await new Promise((r) => setTimeout(r, 200));
   // The command name becomes a chip atom, so the composer's text is the ARGS
   // alone — that tail is what proves the keystrokes landed here.
   const args = line.slice(line.indexOf(" ") + 1);
-  const typed = await app.evalJS<string>(
+  const typed = await app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(PROMPT)}) || {}).textContent || ""`,
   );
   if (!typed.includes(args)) {
@@ -142,7 +143,7 @@ async function submit(app: App, line: string): Promise<void> {
  *  settled — the lifecycle dot leaves `in_flight`. */
 async function runRefs(app: App, line: string, expectedIndex: number): Promise<void> {
   await submit(app, line);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var rows = document.querySelectorAll(${JSON.stringify(REFS_ROWS)});
       if (rows.length !== ${expectedIndex + 1}) return false;
@@ -166,7 +167,7 @@ async function refsRunFacts(
   lines: string[];
 }> {
   return JSON.parse(
-    await app.evalJS<string>(`JSON.stringify((function(){
+    await app.body("A").evalJS<string>(`JSON.stringify((function(){
       var row = document.querySelectorAll(${JSON.stringify(REFS_ROWS)})[${index}];
       if (!row) return { command: "", summary: "", phase: "", paths: [], lines: [] };
       var cmd = row.querySelector(".refs-result-command-text");
@@ -190,12 +191,48 @@ async function refsRunFacts(
   };
 }
 
-/** Every open Text card's editor text. */
+/** The card ids of every Text card the host holds a body for: each is its own page. */
+async function textCardIds(app: App): Promise<string[]> {
+  return (await app.bodies())
+    .filter((b) => b.componentId === "text" && b.cardId !== null && (b.state === "bound" || b.state === "ready"))
+    .map((b) => b.cardId as string);
+}
+
+/** Every open Text card's editor text, read card by card in each card's body. */
 async function editorTexts(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
-    `Array.from(document.querySelectorAll(${JSON.stringify(EDITOR)}))
-       .map(function(el){ return el.textContent || ""; })`,
-  );
+  const texts: string[] = [];
+  for (const id of await textCardIds(app)) {
+    texts.push(
+      ...(await app.body(id).evalJS<string[]>(
+        `Array.from(document.querySelectorAll(${JSON.stringify(EDITOR)}))
+           .map(function(el){ return el.textContent || ""; })`,
+      )),
+    );
+  }
+  return texts;
+}
+
+/**
+ * Wait until the open Text cards' editor texts satisfy `holds` — the
+ * cross-page form of a `waitForCondition` over every editor, since each Text
+ * card is its own body. Timeout scaled as `waitForCondition`'s is.
+ */
+async function waitForEditorTexts(
+  app: App,
+  holds: (texts: string[]) => boolean,
+  opts: { timeoutMs: number },
+): Promise<void> {
+  const budget = enforcedTimeout(opts.timeoutMs);
+  const deadline = Date.now() + budget;
+  for (;;) {
+    // A body still loading may not answer yet; that is "not yet", not a verdict.
+    const texts = await editorTexts(app).catch(() => null);
+    if (texts !== null && holds(texts)) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`the Text card editors did not reach the expected state within ${budget} ms (read ${JSON.stringify(texts)})`);
+    }
+    await Bun.sleep(100);
+  }
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -254,25 +291,21 @@ describe.skipIf(!SHOULD_RUN)(
           // An out-of-range number is reported and skipped, not silently
           // dropped — the numbers are addresses, not positions.
           await submit(app, "/ref 99");
-          await app.waitForCondition<boolean>(
+          // The Session card's pane bulletin is in its own body.
+          await app.body("A").waitForCondition<boolean>(
             `Array.from(document.querySelectorAll('[data-sonner-toast]'))
                .some(function(e){ return (e.textContent || "").indexOf("No ref 99") !== -1; })`,
             { timeoutMs: 10_000 },
           );
           expect(
-            await app.evalJS<number>(
-              `document.querySelectorAll(${JSON.stringify(EDITOR)}).length`,
-            ),
+            (await editorTexts(app)).length,
             "a spec that resolves to nothing opens nothing",
           ).toBe(0);
 
           // A range opens EVERY ref it names. Opening a card re-seats the
           // first responder, so the whole spec travels as one dispatch.
           await submit(app, "/ref 1-2");
-          await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(EDITOR)}).length === 2`,
-            { timeoutMs: 20_000 },
-          );
+          await waitForEditorTexts(app, (texts) => texts.length === 2, { timeoutMs: 20_000 });
           const markerFor = (file: string): string =>
             file.endsWith("alpha.ts")
               ? "const a = 1;"
@@ -301,18 +334,15 @@ describe.skipIf(!SHOULD_RUN)(
           // the span rather than the whole line ([P10], [P14]): the needle
           // sits at columns 3..12 of `// spinnaker …` in every fixture file.
           expect(
-            await app.evalJS<string | null>(
+            await app.body("A").evalJS<string | null>(
               `(document.querySelector(${JSON.stringify(LAST_ROW)}) || {}).getAttribute
                  ? document.querySelector(${JSON.stringify(LAST_ROW)}).getAttribute("data-columns")
                  : null`,
             ),
             "a search ref carries its match span, 0-based and half-open",
           ).toBe("3,12");
-          await app.click(LAST_ROW);
-          await app.waitForCondition<boolean>(
-            `document.querySelectorAll(${JSON.stringify(EDITOR)}).length === 3`,
-            { timeoutMs: 20_000 },
-          );
+          await app.body("A").click(LAST_ROW);
+          await waitForEditorTexts(app, (texts) => texts.length === 3, { timeoutMs: 20_000 });
 
           // --- Maker ▸ Reload: the ledger restores the latest run --------
           await app.appReload();
@@ -328,7 +358,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
 
           // Latest-only: exactly ONE block comes back, and it is the search.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(REFS_ROWS)}).length === 1`,
             { timeoutMs: 20_000 },
           );
@@ -348,12 +378,9 @@ describe.skipIf(!SHOULD_RUN)(
           // And the restored refs are what `/ref` resolves against — the
           // block on screen would be a lie if its numbers opened nothing.
           await submit(app, "/ref 1");
-          await app.waitForCondition<boolean>(
-            `(function(){
-               var eds = Array.from(document.querySelectorAll(${JSON.stringify(EDITOR)}));
-               return eds.length === 1
-                 && (eds[0].textContent || "").indexOf("spinnaker") !== -1;
-             })()`,
+          await waitForEditorTexts(
+            app,
+            (eds) => eds.length === 1 && eds[0].indexOf("spinnaker") !== -1,
             { timeoutMs: 20_000 },
           );
 
@@ -423,17 +450,17 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest({ type: "turn_complete", seq: 0, msg_id: "m1", result: "success" });
 
           const GREP = `${CARD} [data-slot="grep-tool-block"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(GREP)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          await app.click(`${GREP} [data-slot="tool-call-header-disclosure"]`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(`${GREP} [data-slot="tool-call-header-disclosure"]`);
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(
                ${JSON.stringify(`${GREP} [data-slot="search-result-match"]`)}) !== null`,
             { timeoutMs: 10_000 },
           );
-          const annotated = await app.evalJS<number>(
+          const annotated = await app.body("A").evalJS<number>(
             `document.querySelectorAll(
                ${JSON.stringify(`${GREP} [data-slot="search-result-match"][data-tug-annotation]`)}).length`,
           );
@@ -472,7 +499,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // What the row DRAWS. The line is 2,206 chars with two hits 1,000
           // apart; the row shows two windows and the elisions between them.
-          const drawn = await app.evalJS<string>(
+          const drawn = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(
               `${REFS_ROWS} [data-slot="search-result-match"] .tugx-search-linetext`,
             )}) || {}).textContent || ""`,
@@ -482,7 +509,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the row is an excerpt, not a 2,206-char line",
           ).toBeLessThan(200);
           expect(drawn).toContain("spinnaker");
-          const elisions = await app.evalJS<number>(
+          const elisions = await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(
               `${REFS_ROWS} [data-slot="search-result-elision"]`,
             )}).length`,
@@ -491,7 +518,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // BOTH hits paint — an excerpt that showed only the first match
           // would be answering a different question than the one asked.
-          const hits = await app.evalJS<string[]>(
+          const hits = await app.body("A").evalJS<string[]>(
             `Array.from(document.querySelectorAll(${JSON.stringify(
               `${REFS_ROWS} .tugx-search-hit`,
             )})).map(function(m){ return m.textContent || ""; })`,
@@ -501,7 +528,7 @@ describe.skipIf(!SHOULD_RUN)(
           // And the span the row hands the editor still names the LINE: the
           // first hit sits at chars 100..109, not at its offset inside the
           // window that draws it.
-          const columns = await app.evalJS<string | null>(
+          const columns = await app.body("A").evalJS<string | null>(
             `(document.querySelector(${JSON.stringify(
               `${REFS_ROWS} [data-slot="search-result-match"]`,
             )}) || {}).getAttribute
@@ -546,15 +573,15 @@ describe.skipIf(!SHOULD_RUN)(
 
           await submit(app, "/search spinnaker");
           const CANCEL = `${REFS_ROWS} [data-slot="refs-result-cancel"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CANCEL)}) !== null`,
             { timeoutMs: 20_000 },
           );
-          await app.click(CANCEL);
+          await app.body("A").click(CANCEL);
 
           // The block settles as interrupted, keeping what it had found —
           // a cancel is a stop, not a discard.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var strip = document.querySelector(
                 ${JSON.stringify(`${REFS_ROWS} [data-phase]`)});

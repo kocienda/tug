@@ -133,12 +133,12 @@ describe.skipIf(!SHOULD_RUN)(
           // mount. Before any capability lands the active model's effort
           // support is unknown → the composite carries no effort token, and
           // the chip does not hide.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHIP_CONTENT)}) !== null`,
             { timeoutMs: 8000 },
           );
           expect(
-            await app.evalJS<boolean>(hasAnyEffortTokenExpr()),
+            await app.body("A").evalJS<boolean>(hasAnyEffortTokenExpr()),
             "no effort token before capabilities land",
           ).toBe(false);
 
@@ -148,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)(
           // high effort). A supported session is never blank — only an
           // unsupported model shows `-`.
           await app.ingestSessionMetadata("A", effortCapabilities(null));
-          await app.waitForCondition<boolean>(hasEffortTokenExpr("High"), {
+          await app.body("A").waitForCondition<boolean>(hasEffortTokenExpr("High"), {
             timeoutMs: 6000,
           });
 
@@ -156,8 +156,8 @@ describe.skipIf(!SHOULD_RUN)(
           // bottom-right edge, below the window's clickable region for a
           // CGEvent, so we drive its real `onClick` directly — the
           // DOM-driven-chip app-test pattern).
-          await app.click(CHIP);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(CHIP);
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EFFORT_THUMB)}) !== null`,
             { timeoutMs: 4000 },
           );
@@ -169,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)(
           // off the model list rings it; the thumb rests on the effective
           // default ("High"), two notches below "Max".
           await app.nativeKey("Tab");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(EFFORT_THUMB)});
               return el !== null && el.hasAttribute("data-key-view-kbd");
@@ -178,7 +178,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.nativeKey("ArrowRight");
           await app.nativeKey("ArrowRight");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(READOUT)});
               return el !== null && el.textContent.indexOf("Max") >= 0;
@@ -186,11 +186,11 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 4000 },
           );
           expect(
-            await app.evalJS<boolean>(hasEffortTokenExpr("High")),
+            await app.body("A").evalJS<boolean>(hasEffortTokenExpr("High")),
             "the chip must not move before OK",
           ).toBe(true);
-          await app.click(OK_BUTTON);
-          await app.waitForCondition<boolean>(hasEffortTokenExpr("Max"), {
+          await app.body("A").click(OK_BUTTON);
+          await app.body("A").waitForCondition<boolean>(hasEffortTokenExpr("Max"), {
             timeoutMs: 4000,
           });
 
@@ -202,12 +202,12 @@ describe.skipIf(!SHOULD_RUN)(
             model: "haiku",
             ipc_version: 2,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `!${hasAnyEffortTokenExpr()}`,
             { timeoutMs: 4000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
             ),
             "chip stays present (never hides)",
@@ -265,11 +265,11 @@ describe.skipIf(!SHOULD_RUN)(
             model: "claude-opus-4-8[1m]",
             ipc_version: 2,
           });
-          await app.waitForCondition<boolean>(hasEffortTokenExpr("High"), {
+          await app.body("A").waitForCondition<boolean>(hasEffortTokenExpr("High"), {
             timeoutMs: 6000,
           });
           expect(
-            await app.evalJS<boolean>(hasEffortTokenExpr("High")),
+            await app.body("A").evalJS<boolean>(hasEffortTokenExpr("High")),
             "resumed opus session → effort repopulates to the default High",
           ).toBe(true);
         } catch (err) {

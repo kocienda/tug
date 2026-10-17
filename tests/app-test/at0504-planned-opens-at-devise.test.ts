@@ -223,7 +223,7 @@ async function openCard(app: App, sid: string): Promise<void> {
 
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);

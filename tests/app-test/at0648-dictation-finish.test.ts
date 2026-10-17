@@ -143,8 +143,8 @@ const holds = (selector: string, text: string): string =>
 
 /** Put the caret in the Session composer and wait until the DOM agrees. */
 async function focusComposer(app: App): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
-  await app.waitForCondition<boolean>(
+  await app.body("A").nativeClickAtElement(EDITOR);
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
        var field = document.querySelector(${JSON.stringify(EDITOR)});
        return field !== null && document.activeElement !== null &&
@@ -170,36 +170,36 @@ describe.skipIf(!SHOULD_RUN)("AT0648: ⌘D, focus-out, and the finish", () => {
           `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
         );
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(exists(SUBMIT), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(exists(MIC), { timeoutMs: 8000 });
-        await app.waitForCondition<boolean>(exists(OTHER_FIELD), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(SUBMIT), { timeoutMs: 8000 });
+        await app.body("A").waitForCondition<boolean>(exists(MIC), { timeoutMs: 8000 });
+        await app.body("B").waitForCondition<boolean>(exists(OTHER_FIELD), { timeoutMs: 8000 });
 
         // ── 1. ⌘D starts from the caret, and ⌘D again keeps the words. ────
         await focusComposer(app);
         await app.nativeKey("d", ["cmd"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
-        const firstId = await app.getElementAttribute(MIC, "data-dictation-id");
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
+        const firstId = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         expect((firstId ?? "").length).toBeGreaterThan(0);
 
         // Nothing settled: every word below is still the recogniser's guess, so
         // an end that truncated would leave an empty draft.
         await push(app, { id: firstId, kind: "volatile", text: "one small step" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${textOf(EDITOR)} === "one small step"`,
           { timeoutMs: 10_000 },
         );
         await app.nativeKey("d", ["cmd"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
-        const afterChord = await app.evalJS<string>(textOf(EDITOR));
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
+        const afterChord = await app.body("A").evalJS<string>(textOf(EDITOR));
         note("after the closing chord", afterChord);
         // The claim the feature exists for: the sentence the user was in the
         // middle of survives the gesture that means "I am done talking".
         expect(afterChord).toBe("one small step");
         // The mark goes with the session — what is left is ordinary draft text.
-        expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(VOLATILE))).toBe(false);
         // And nothing was sent. A chord that submitted would be a different
         // feature wearing this one's key.
-        expect(await app.evalJS<boolean>(exists(USER_TURN))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(USER_TURN))).toBe(false);
 
         // ── 2. ⌘D with the caret nowhere does nothing. ────────────────────
         // The chord is dispatched in-page, in the same task as the chain move
@@ -213,51 +213,51 @@ describe.skipIf(!SHOULD_RUN)("AT0648: ⌘D, focus-out, and the finish", () => {
             null)`,
         );
         await focusComposer(app);
-        expect(await app.evalJS<boolean>(modeIs(MIC, "idle"))).toBe(true);
+        expect(await app.body("A").evalJS<boolean>(modeIs(MIC, "idle"))).toBe(true);
 
         // ── 3. Escape is still the one cancel ([B05]). ────────────────────
         await app.nativeKey("d", ["cmd"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
-        const secondId = await app.getElementAttribute(MIC, "data-dictation-id");
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
+        const secondId = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         await push(app, { id: secondId, kind: "volatile", text: " scratch that" });
-        await app.waitForCondition<boolean>(holds(EDITOR, "scratch that"), {
+        await app.body("A").waitForCondition<boolean>(holds(EDITOR, "scratch that"), {
           timeoutMs: 10_000,
         });
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
         // The misheard phrase goes; the draft the user already had stays. That
         // asymmetry is the whole reason Escape is kept as a truncation.
-        expect(await app.evalJS<boolean>(holds(EDITOR, "scratch that"))).toBe(false);
-        expect(await app.evalJS<boolean>(holds(EDITOR, "one small step"))).toBe(true);
+        expect(await app.body("A").evalJS<boolean>(holds(EDITOR, "scratch that"))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(holds(EDITOR, "one small step"))).toBe(true);
 
         // ── 4. Focus leaving the entry shell ends it, keeping the words. ──
         await app.nativeKey("d", ["cmd"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
-        const thirdId = await app.getElementAttribute(MIC, "data-dictation-id");
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
+        const thirdId = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         await push(app, { id: thirdId, kind: "volatile", text: " and a giant leap" });
-        await app.waitForCondition<boolean>(holds(EDITOR, "giant leap"), {
+        await app.body("A").waitForCondition<boolean>(holds(EDITOR, "giant leap"), {
           timeoutMs: 10_000,
         });
         // A real focus change into another card's field — the `focusout` whose
         // `relatedTarget` is outside the entry shell root ([B02]). The mic is
         // itself inside that shell, which is why the listener is not on the
         // editor ([F05]).
-        await app.nativeClickAtElement(OTHER_FIELD);
-        await app.waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
-        const afterBlur = await app.evalJS<string>(textOf(EDITOR));
+        await app.body("B").nativeClickAtElement(OTHER_FIELD);
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
+        const afterBlur = await app.body("A").evalJS<string>(textOf(EDITOR));
         note("after focus left the composer", afterBlur);
         // Walking away is an ordinary end, so it keeps the words the same way
         // the chord does — this is the note the user wrote the arc for.
         expect(afterBlur.indexOf("and a giant leap")).not.toBe(-1);
-        expect(await app.evalJS<boolean>(exists(USER_TURN))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(USER_TURN))).toBe(false);
 
         // ── 5. A `final` during `finishing` still lands. ──────────────────
         await focusComposer(app);
         await app.nativeKey("d", ["cmd"]);
-        await app.waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
-        const fourthId = await app.getElementAttribute(MIC, "data-dictation-id");
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "live"), { timeoutMs: 10_000 });
+        const fourthId = await app.body("A").getElementAttribute(MIC, "data-dictation-id");
         await push(app, { id: fourthId, kind: "volatile", text: " for mankine" });
-        await app.waitForCondition<boolean>(holds(EDITOR, "for mankine"), {
+        await app.body("A").waitForCondition<boolean>(holds(EDITOR, "for mankine"), {
           timeoutMs: 10_000,
         });
 
@@ -271,7 +271,7 @@ describe.skipIf(!SHOULD_RUN)("AT0648: ⌘D, focus-out, and the finish", () => {
         // yet and still reads `live`. What proves the window was open is the
         // text: a deck that had closed the span on the click would have nowhere
         // to put the correction, and the misheard guess would survive.
-        const phaseAtPush = await app.evalJS<string>(
+        const phaseAtPush = await app.body("A").evalJS<string>(
           `(function(){
              var mic = document.querySelector(${JSON.stringify(MIC)});
              if (mic === null) return "no-mic";
@@ -291,16 +291,16 @@ describe.skipIf(!SHOULD_RUN)("AT0648: ⌘D, focus-out, and the finish", () => {
         // the assertions below would be passing for the wrong reason.
         expect(phaseAtPush).not.toBe("idle");
 
-        await app.waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
-        const afterFinish = await app.evalJS<string>(textOf(EDITOR));
+        await app.body("A").waitForCondition<boolean>(modeIs(MIC, "idle"), { timeoutMs: 10_000 });
+        const afterFinish = await app.body("A").evalJS<string>(textOf(EDITOR));
         note("after the finish settled", afterFinish);
         // The recogniser's correction arrived after the user said they were
         // done, which is exactly when a recogniser finalizes — and it is in the
         // draft rather than the guess it replaced.
         expect(afterFinish.indexOf("for mankind")).not.toBe(-1);
         expect(afterFinish.indexOf("for mankine")).toBe(-1);
-        expect(await app.evalJS<boolean>(exists(VOLATILE))).toBe(false);
-        expect(await app.evalJS<boolean>(exists(USER_TURN))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(VOLATILE))).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(exists(USER_TURN))).toBe(false);
       } finally {
         await app.close();
       }

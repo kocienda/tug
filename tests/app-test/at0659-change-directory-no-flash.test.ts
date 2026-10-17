@@ -18,7 +18,9 @@
  * Once per animation frame the recorder notes whether the card's transcript
  * is mounted, how many entries it holds, whether its text still carries the
  * pre-move conversation's word, whether the `Directory changed` divider is
- * there, and which tug session the card is bound to. A frame that lacks the
+ * there — in the card's body, where its transcript is — and a second
+ * recorder in the shell notes which tug session the deck has the card bound
+ * to. A frame that lacks the
  * word — an empty card, or a card showing anything but the carried turn — is
  * a flash frame, and any one of them fails the file. The census of those
  * frames (where they start relative to the re-bind, how long they last) is
@@ -143,7 +145,7 @@ afterAll(() => {
   }
 });
 
-/** One painted frame, as the recorder saw it. */
+/** One painted frame of the card, as the body's recorder saw it. */
 interface Frame {
   /** `performance.now()` at the frame, relative to the keystroke. */
   t: number;
@@ -151,26 +153,49 @@ interface Frame {
   entries: number;
   word: boolean;
   divider: boolean;
+}
+
+/** One shell frame: the tug session the deck has the card bound to. */
+interface SidFrame {
+  /** `performance.now()` at the frame, relative to the keystroke, on the shell's clock. */
+  t: number;
   sid: string;
 }
 
-/** Arm the recorder. It runs until `__at0659.stop` is set. */
+/**
+ * Arm the card's recorder, in the card's body: its transcript is there. It
+ * runs until `__at0659.stop` is set.
+ */
 const ARM = `(() => {
   const rec = { frames: [], stop: false, sentAt: performance.now() };
   window.__at0659 = rec;
   const tick = (now) => {
     const tr = document.querySelector(${JSON.stringify(TRANSCRIPT)});
     const text = tr?.textContent ?? "";
-    let sid = "";
-    try { sid = window.__tug.cardLineFacts("A").tugSessionId; } catch { sid = "?"; }
     rec.frames.push({
       now,
       mounted: tr !== null,
       entries: document.querySelectorAll(${JSON.stringify(ENTRY)}).length,
       word: text.includes(${JSON.stringify(WORD)}),
       divider: document.querySelector(${JSON.stringify(DIVIDER)}) !== null,
-      sid,
     });
+    if (!rec.stop && rec.frames.length < 20000) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return true;
+})()`;
+
+/**
+ * Arm the binding's recorder, in the shell: the deck owns which session the
+ * card is bound to. It runs until `__at0659sid.stop` is set.
+ */
+const ARM_SID = `(() => {
+  const rec = { frames: [], stop: false, sentAt: performance.now() };
+  window.__at0659sid = rec;
+  const tick = (now) => {
+    let sid = "";
+    try { sid = window.__tug.cardLineFacts("A").tugSessionId; } catch { sid = "?"; }
+    rec.frames.push({ now, sid });
     if (!rec.stop && rec.frames.length < 20000) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -188,16 +213,22 @@ const carriedThenDivider = (): string => `(() => {
   return word !== -1 && word < all.indexOf(text);
 })()`;
 
-/** Stop the recorder and read its frames back, timed from the keystroke. */
-async function collect(app: App): Promise<Frame[]> {
-  return app.evalJS<Frame[]>(`(() => {
+/** Stop both recorders and read their frames back, each timed from the keystroke on its own page's clock. */
+async function collect(app: App): Promise<{ frames: Frame[]; sids: SidFrame[] }> {
+  const frames = await app.body("A").evalJS<Frame[]>(`(() => {
     const rec = window.__at0659;
     rec.stop = true;
     return rec.frames.map((f) => ({
       t: Math.round((f.now - rec.sentAt) * 10) / 10,
-      mounted: f.mounted, entries: f.entries, word: f.word, divider: f.divider, sid: f.sid,
+      mounted: f.mounted, entries: f.entries, word: f.word, divider: f.divider,
     }));
   })()`);
+  const sids = await app.evalJS<SidFrame[]>(`(() => {
+    const rec = window.__at0659sid;
+    rec.stop = true;
+    return rec.frames.map((f) => ({ t: Math.round((f.now - rec.sentAt) * 10) / 10, sid: f.sid }));
+  })()`);
+  return { frames, sids };
 }
 
 /** Each run of consecutive flash frames, with the frames either side of it. */
@@ -241,19 +272,20 @@ describe.skipIf(!SHOULD_RUN)("AT0659: /cd never shows an empty card", () => {
         await app.spawnSessionResume("A", { tugSessionId: PARENT_SID, projectDir: dirA });
         // The replay is what draws the card, and it lands before claude's own
         // connect settles, which this file does not wait for (as at0192).
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(TRANSCRIPT)})?.textContent ?? "").includes(${JSON.stringify(WORD)})`,
           { timeoutMs: 30_000 },
         );
 
         // Type the command and dismiss its completion popup, then arm the
         // recorder immediately before the one key that sends it.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await app.nativeType(`/cd ${dirB}`);
         await new Promise((r) => setTimeout(r, 200));
         await app.nativeKey("Escape");
         await new Promise((r) => setTimeout(r, 200));
-        await app.evalJS<boolean>(ARM);
+        await app.body("A").evalJS<boolean>(ARM);
+        await app.evalJS<boolean>(ARM_SID);
         await app.nativeKey("Return", ["cmd"]);
 
         await app.waitForCondition<boolean>(
@@ -263,12 +295,12 @@ describe.skipIf(!SHOULD_RUN)("AT0659: /cd never shows an empty card", () => {
            } catch { return false; } })()`,
           { timeoutMs: 60_000 },
         );
-        await app.waitForCondition<boolean>(carriedThenDivider(), { timeoutMs: 60_000 });
+        await app.body("A").waitForCondition<boolean>(carriedThenDivider(), { timeoutMs: 60_000 });
         // A few more frames past the settle, so a late re-mount is caught too.
         await new Promise((r) => setTimeout(r, 750));
-        const frames = await collect(app);
+        const { frames, sids } = await collect(app);
 
-        const rebind = frames.find((f) => f.sid !== PARENT_SID && f.sid !== "?");
+        const rebind = sids.find((f) => f.sid !== PARENT_SID && f.sid !== "?");
         const settled = frames.find((f) => f.word && f.divider);
         const runs = flashRuns(frames);
         note(

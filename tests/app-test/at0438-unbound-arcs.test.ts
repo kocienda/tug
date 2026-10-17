@@ -44,7 +44,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -65,6 +65,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -112,8 +113,9 @@ afterAll(() => {
 
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
-const count = (app: App, selector: string): Promise<number> =>
-  app.evalJS<number>(
+/** How many of `selector` the page holds: a card's body, for a card's rows. */
+const count = (page: App | BodyApp, selector: string): Promise<number> =>
+  page.evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(selector)}).length`,
   );
 
@@ -132,9 +134,9 @@ async function pressUntil(
   const predicate = `document.querySelector(${JSON.stringify(expected)}) !== null`;
   for (let i = 0; i < attempts; i += 1) {
     await settle();
-    await pressArcRowMenuItem(app, row, "bind-arc");
+    await pressArcRowMenuItem(kindBody(app, "dashes"), row, "bind-arc");
     try {
-      await app.waitForCondition<boolean>(predicate, { timeoutMs: 3000 });
+      await kindBody(app, "dashes").waitForCondition<boolean>(predicate, { timeoutMs: 3000 });
       return;
     } catch {
       note(`at0438 bind press did not land (attempt ${i + 1})`);
@@ -173,17 +175,17 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         // card a followed card — without it Bind correctly refuses ([L31]).
         await app.dispatchControlAction("toggle-arcs");
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_ROW)}) !== null`,
           { timeoutMs: 20000 },
         );
 
         // ── Unbound: the verbs on the eyebrow, no worker, no cluster ──────
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const unbound = await app.evalJS<{
+        const unbound = await kindBody(app, "dashes").evalJS<{
           atom: string;
           eyebrowButtons: number;
           workers: number;
@@ -213,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         // fact about focus rather than about this row — so what is asserted
         // here is that the verb is offered and that a blocked one says why
         // ([L31]), never a bare disabled word.
-        const unboundMenu = await readArcRowMenu(app, ROW);
+        const unboundMenu = await readArcRowMenu(kindBody(app, "dashes"), ROW);
         note("at0438 unbound menu", JSON.stringify(unboundMenu));
         expect(unboundMenu.bind.present).toBe(true);
         if (unboundMenu.bind.disabled) {
@@ -226,21 +228,21 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         expect(unboundMenu.replay.label).toContain("already current with");
         // The verb row under the block offers the same binding verb, in the
         // same word, beside the rest of the set.
-        const unboundVerbs = await app.evalJS<string[]>(VERB_KINDS);
+        const unboundVerbs = await kindBody(app, "dashes").evalJS<string[]>(VERB_KINDS);
         note("at0438 unbound verbs", JSON.stringify(unboundVerbs));
         expect(unboundVerbs).toContain("bind");
         expect(unboundVerbs).not.toContain("unbind");
         // And the session is NOT working it, so no title cluster on its row.
-        expect(await count(app, PROGRESS)).toBe(0);
+        expect(await count(kindBody(app, "cards"), PROGRESS)).toBe(0);
         note("at0438 arcs card, unbound register", (await app.screenshot()).path);
 
         // ── Bind: the row STAYS and the worker's atom takes the eyebrow ───
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc bind ${ARC_NAME}`);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const bound = await app.evalJS<{
+        const bound = await kindBody(app, "dashes").evalJS<{
           rows: number;
           eyebrowButtons: number;
           boundFlag: string | null;
@@ -291,11 +293,11 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
         // doors now offer Unbind in Bind's place, the binding verb in the
         // word every arc surface reads it in.
         expect(bound.eyebrowButtons).toBe(0);
-        const boundMenu = await readArcRowMenu(app, ROW);
+        const boundMenu = await readArcRowMenu(kindBody(app, "dashes"), ROW);
         note("at0438 bound menu", JSON.stringify(boundMenu));
         expect(boundMenu.bind.present).toBe(false);
         expect(boundMenu.unbind.present).toBe(true);
-        const boundVerbs = await app.evalJS<string[]>(VERB_KINDS);
+        const boundVerbs = await kindBody(app, "dashes").evalJS<string[]>(VERB_KINDS);
         note("at0438 bound verbs", JSON.stringify(boundVerbs));
         expect(boundVerbs).toContain("unbind");
         expect(boundVerbs).not.toContain("bind");
@@ -307,9 +309,9 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
           "the eyebrow's first and last children sit the same distance in",
         ).toBeLessThanOrEqual(1);
         // The band did not move: always on is the whole point.
-        expect(await count(app, SECTION)).toBe(1);
+        expect(await count(kindBody(app, "dashes"), SECTION)).toBe(1);
         // And the session's Cards row grew its title cluster.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 30000 },
         );
@@ -317,27 +319,28 @@ describe.skipIf(!SHOULD_RUN)("AT0438: the always-on Arcs card", () => {
 
         // ── Unbind: the worker's atom leaves the eyebrow ──────────────────
         await shellAndSettle(app, `${tugtoolPath(CHECKOUT)} arc unbind`, 1);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WORKER)}) === null`,
           { timeoutMs: 30000 },
         );
-        expect(await count(app, PROGRESS)).toBe(0);
-        expect(await count(app, ROW)).toBe(1);
+        expect(await count(kindBody(app, "cards"), PROGRESS)).toBe(0);
+        expect(await count(kindBody(app, "dashes"), ROW)).toBe(1);
 
         // ── Bind again, through the row's own menu ────────────────────────
         // The press sends `bind_arc`; the register flips because
         // `bound_session` moved in the aggregate, not because the click did
         // anything local.
         await pressUntil(app, ROW, WORKER);
-        expect(await count(app, SECTION)).toBe(1);
-        expect(await count(app, ROW)).toBe(1);
-        expect(await count(app, WORKER)).toBe(1);
+        expect(await count(kindBody(app, "dashes"), SECTION)).toBe(1);
+        expect(await count(kindBody(app, "dashes"), ROW)).toBe(1);
+        expect(await count(kindBody(app, "dashes"), WORKER)).toBe(1);
 
         // The verbs unmounted under the pointer. Focus must not be stranded
         // on a detached node: an element removed from the document still
         // answers `document.activeElement` in WebKit for a beat, and a ring
         // on a node nobody can reach is how a "dead" keyboard starts.
-        const focus = await app.evalJS<{
+        // Read in the Arcs card's page, where the press and the verbs were.
+        const focus = await kindBody(app, "dashes").evalJS<{
           connected: boolean;
           slot: string | null;
         }>(

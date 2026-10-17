@@ -124,6 +124,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { bodyOfKind, kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { testTmpDir } from "./_harness/test-cleanup";
 import {
@@ -325,23 +326,23 @@ async function rects(app: App, paneIds: string[]): Promise<Record<string, Rect>>
  * invisible to the overflow reading, and exactly the failure a height constant
  * one pixel too small produces. Negative slack is the panel hanging past the
  * frame's bottom edge.
+ *
+ * The panel is in the Session card's body and the frame is the shell's, so
+ * `bottomSlack` compares the two edges in screen coordinates, each mapped
+ * from its own page (as `panelFit` in `picker-card-arrival-fixture.ts` does).
  */
 async function panelMeasure(app: App): Promise<{
   natural: number;
   overflow: number;
   bottomSlack: number;
 } | null> {
-  return app.evalJS<{
-    natural: number;
-    overflow: number;
-    bottomSlack: number;
-  } | null>(
+  const body = await bodyOfKind(app, "session");
+  const own = await body.evalJS<{ natural: number; overflow: number } | null>(
     `(function () {
       var el = document.querySelector(${JSON.stringify(SHEET_PANEL)});
       if (el === null) return null;
       var cs = getComputedStyle(el);
       var px = function (v) { return parseFloat(v) || 0; };
-      var frame = el.closest('.tug-pane');
       return {
         natural:
           el.scrollHeight +
@@ -350,12 +351,24 @@ async function panelMeasure(app: App): Promise<{
           px(cs.marginTop) +
           px(cs.marginBottom),
         overflow: el.scrollHeight - el.clientHeight,
-        bottomSlack:
-          frame === null
-            ? -1
-            : frame.getBoundingClientRect().bottom -
-              el.getBoundingClientRect().bottom,
       };
+    })()`,
+  );
+  if (own === null) return null;
+  const frameSel = await paneOfCard(app, body.cardId);
+  if (frameSel === null) return { ...own, bottomSlack: -1 };
+  const frame = await app.getElementScreenBounds(frameSel);
+  const panel = await body.getElementScreenBounds(SHEET_PANEL);
+  return { ...own, bottomSlack: frame.y + frame.height - (panel.y + panel.height) };
+}
+
+/** The selector of the shell's pane frame holding `cardId`'s body, or null. */
+async function paneOfCard(app: App, cardId: string): Promise<string | null> {
+  return app.evalJS<string | null>(
+    `(function () {
+      var lid = document.querySelector('[data-body-placeholder][data-card-id=${JSON.stringify(cardId)}]');
+      var pane = lid === null ? null : lid.closest('.tug-pane');
+      return pane === null ? null : '.tug-pane[data-pane-id="' + pane.getAttribute("data-pane-id") + '"]';
     })()`,
   );
 }
@@ -435,30 +448,34 @@ function bandBeneath(frames: Record<string, Rect>): number {
  * panel has to fit inside, which is the same box `panelMeasure`'s
  * `bottomSlack` reads and the one a height constant a pixel too small
  * overruns.
+ *
+ * The pane and its title bar are the shell's; the sheet's header and action
+ * row are in the Session card's body (card `B`, the one in `p2`). Each edge is
+ * read in screen coordinates from its own page.
  */
 async function pickerEdges(app: App): Promise<{
   headerBelowTitleBar: number;
   actionsAbovePaneBottom: number;
 } | null> {
-  return app.evalJS<{
-    headerBelowTitleBar: number;
-    actionsAbovePaneBottom: number;
-  } | null>(
-    `(function () {
-      var pane = document.querySelector('.tug-pane[data-pane-id="p2"]');
-      if (pane === null) return null;
-      var bar = pane.querySelector('[data-testid="tug-pane-title-bar"]');
-      var header = pane.querySelector('.tug-sheet-header');
-      var actions = pane.querySelector('.tug-sheet-actions');
-      if (bar === null || header === null || actions === null) return null;
-      return {
-        headerBelowTitleBar:
-          header.getBoundingClientRect().top - bar.getBoundingClientRect().bottom,
-        actionsAbovePaneBottom:
-          pane.getBoundingClientRect().bottom - actions.getBoundingClientRect().bottom,
-      };
-    })()`,
+  const paneSel = '.tug-pane[data-pane-id="p2"]';
+  const barSel = `${paneSel} [data-testid="tug-pane-title-bar"]`;
+  const shellHas = await app.evalJS<boolean>(
+    `document.querySelector(${JSON.stringify(paneSel)}) !== null && document.querySelector(${JSON.stringify(barSel)}) !== null`,
   );
+  if (!shellHas) return null;
+  const body = app.body("B");
+  const bodyHas = await body.evalJS<boolean>(
+    `document.querySelector('.tug-sheet-header') !== null && document.querySelector('.tug-sheet-actions') !== null`,
+  );
+  if (!bodyHas) return null;
+  const pane = await app.getElementScreenBounds(paneSel);
+  const bar = await app.getElementScreenBounds(barSel);
+  const header = await body.getElementScreenBounds(".tug-sheet-header");
+  const actions = await body.getElementScreenBounds(".tug-sheet-actions");
+  return {
+    headerBelowTitleBar: header.y - (bar.y + bar.height),
+    actionsAbovePaneBottom: pane.y + pane.height - (actions.y + actions.height),
+  };
 }
 
 /**
@@ -473,9 +490,9 @@ async function pickerEdges(app: App): Promise<{
  */
 async function assertFitAtListCap(app: App): Promise<void> {
   if (fixture === null) throw new Error("the picker sessions fixture was not seeded");
-  await pointPickerAt(app, fixture);
+  await pointPickerAt(kindBody(app, "session"), fixture);
   await wait(AFTER_LAND_MS);
-  const natural = await pickerPanelNaturalHeight(app);
+  const natural = await pickerPanelNaturalHeight(kindBody(app, "session"));
   const full = await panelMeasure(app);
   const edges = await pickerEdges(app);
   const claimed = await reservations(app);
@@ -535,7 +552,8 @@ async function raisePicker(app: App): Promise<void> {
   await app.nativeClickAtElement(
     '[data-pane-id="p2"] [data-testid="tug-pane-title-bar"]',
   );
-  await app.waitForCondition<boolean>(
+  // The picker is in the Session card's body.
+  await kindBody(app, "session").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
     { timeoutMs: 8_000 },
   );
@@ -671,7 +689,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         //    the bid come down with the sheet ([B02]), and the card falls back
         //    into the share the hand gave it. ──
         await app.bindSession("B");
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -795,7 +813,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         //    dropping the declaration takes nothing away from it. Under the
         //    old ceiling this was the moment the card jumped. ──
         await app.bindSession("B");
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -896,7 +914,8 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
         );
-        await app.waitForCondition<boolean>(
+        // The picker is in the new Session card's body — the deck's only one.
+        await kindBody(app, "session").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -921,7 +940,7 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         //    the app measured off that panel before it committed the pane, and
         //    the panel the user is now looking at reports the same number
         //    through the same arithmetic ([P02], [P04]). ──
-        const oneRowPanel = await pickerPanelNaturalHeight(app);
+        const oneRowPanel = await pickerPanelNaturalHeight(kindBody(app, "session"));
         const oneRowHeld =
           (await reservations(app))?.[newcomer ?? ""] ??
           (await pins(app))?.[newcomer ?? ""] ??
@@ -948,9 +967,9 @@ describe.skipIf(!SHOULD_RUN)("AT0569 — an unbound Session card stands at least
         if (fixture === null) {
           throw new Error("the picker sessions fixture was not seeded");
         }
-        await pointPickerAt(app, fixture);
+        await pointPickerAt(kindBody(app, "session"), fixture);
         await wait(AFTER_LAND_MS);
-        const cappedPanel = await pickerPanelNaturalHeight(app);
+        const cappedPanel = await pickerPanelNaturalHeight(kindBody(app, "session"));
         const cappedHeld = (await reservations(app))?.[newcomer ?? ""] ?? -1;
         note(
           `list at its cap: panel natural ${(cappedPanel ?? -1).toFixed(1)}px, the deck holds ${cappedHeld.toFixed(1)}px for the member`,

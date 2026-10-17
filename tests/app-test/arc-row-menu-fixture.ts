@@ -21,11 +21,19 @@
  * The menu portals to `document.body`, so its items are queried globally
  * rather than under the row. That is not a leak in the selector: only one row
  * menu is ever open, because opening one dismisses the rest.
+ *
+ * Every helper takes the page that holds the row: the row, its verbs and its
+ * menu's portal all live in the card's own document — the Arcs card's body
+ * (`kindBody(app, "dashes")`) or the Session card's (`app.body(id)`) for a
+ * shade lane row — never in the shell's.
  */
 
 import { expect } from "bun:test";
 
-import type { App } from "./_harness";
+import type { App, BodyApp } from "./_harness";
+
+/** The page a row lives in: the card's body, or the shell for a card that is not one. */
+type RowPage = App | BodyApp;
 
 /** One of the verbs the row menu can dispatch. */
 export type ArcRowMenuAction =
@@ -49,8 +57,8 @@ export const arcRowVerb = (row: string, action: ArcRowMenuAction): string =>
   `${row} [data-slot="arc-verb"][data-verb="${VERB_FOR[action]}"]`;
 
 /** Whether `row` is a Changes shade lane row — verbs in place, no menu. */
-async function isLaneRow(app: App, row: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+async function isLaneRow(page: RowPage, row: string): Promise<boolean> {
+  return page.evalJS<boolean>(
     `document.querySelector(${JSON.stringify(row)})?.matches('[data-slot="session-changes-arc-row"]') === true`,
   );
 }
@@ -80,12 +88,12 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
  * makes the retry a retry rather than a double-open.
  */
 export async function openArcRowMenu(
-  app: App,
+  page: RowPage,
   row: string,
   attempts = 5,
 ): Promise<void> {
   for (let i = 0; i < attempts; i += 1) {
-    await app.evalJS<null>(
+    await page.evalJS<null>(
       `(() => {
          const el = document.querySelector(${JSON.stringify(row)});
          if (el !== null) el.scrollIntoView({ block: "center" });
@@ -93,9 +101,9 @@ export async function openArcRowMenu(
        })()`,
     );
     await settle(250);
-    await app.nativeRightClickAtElement(row);
+    await page.nativeRightClickAtElement(row);
     try {
-      await app.waitForCondition<boolean>(
+      await page.waitForCondition<boolean>(
         `document.querySelector(${JSON.stringify(ARC_ROW_MENU)}) !== null`,
         { timeoutMs: 3000 },
       );
@@ -117,15 +125,15 @@ export async function openArcRowMenu(
  * document body, which is exactly what the menu's own capture-phase
  * outside-press listener is watching for.
  */
-export async function closeArcRowMenu(app: App): Promise<void> {
-  await app.evalJS<null>(
+export async function closeArcRowMenu(page: RowPage): Promise<void> {
+  await page.evalJS<null>(
     `(function(){
       document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
       document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
       return null;
     })()`,
   );
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(ARC_ROW_MENU)}) === null`,
     { timeoutMs: 5000 },
   );
@@ -158,9 +166,9 @@ export interface ArcRowMenuState {
  * together. A lane row is read in place; an Arcs card row's menu is opened
  * once, read, and closed.
  */
-export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuState> {
-  if (await isLaneRow(app, row)) {
-    return app.evalJS<ArcRowMenuState>(
+export async function readArcRowMenu(page: RowPage, row: string): Promise<ArcRowMenuState> {
+  if (await isLaneRow(page, row)) {
+    return page.evalJS<ArcRowMenuState>(
       `(() => {
          const read = (sel) => {
            const el = document.querySelector(sel);
@@ -185,8 +193,8 @@ export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuS
        })()`,
     );
   }
-  await openArcRowMenu(app, row);
-  const state = await app.evalJS<ArcRowMenuState>(
+  await openArcRowMenu(page, row);
+  const state = await page.evalJS<ArcRowMenuState>(
     `(() => {
        const read = (sel) => {
          const el = document.querySelector(sel);
@@ -204,7 +212,7 @@ export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuS
        };
      })()`,
   );
-  await closeArcRowMenu(app);
+  await closeArcRowMenu(page);
   return state;
 }
 
@@ -216,14 +224,14 @@ export async function readArcRowMenu(app: App, row: string): Promise<ArcRowMenuS
  * so there is no close here to pair with the open.
  */
 export async function pressArcRowMenuItem(
-  app: App,
+  page: RowPage,
   row: string,
   action: ArcRowMenuAction,
 ): Promise<void> {
-  if (await isLaneRow(app, row)) {
+  if (await isLaneRow(page, row)) {
     const verb = arcRowVerb(row, action);
     expect(
-      await app.evalJS<boolean>(
+      await page.evalJS<boolean>(
         `(() => {
            const el = document.querySelector(${JSON.stringify(verb)});
            if (el === null) return false;
@@ -234,16 +242,16 @@ export async function pressArcRowMenuItem(
       `arc-row-menu: ${action} is not on this row`,
     ).toBe(true);
     await settle(250);
-    await app.nativeClickAtElement(verb);
+    await page.nativeClickAtElement(verb);
     return;
   }
-  await openArcRowMenu(app, row);
+  await openArcRowMenu(page, row);
   const item = arcRowMenuItem(action);
   expect(
-    await app.evalJS<boolean>(
+    await page.evalJS<boolean>(
       `document.querySelector(${JSON.stringify(item)}) !== null`,
     ),
     `arc-row-menu: ${action} is not on this row's menu`,
   ).toBe(true);
-  await app.nativeClickAtElement(item);
+  await page.nativeClickAtElement(item);
 }

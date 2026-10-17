@@ -75,7 +75,7 @@ async function rowStates(app: App): Promise<string[]> {
 }
 
 async function userRowCount(app: App): Promise<number> {
-  return app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length`);
+  return app.body("A").evalJS<number>(`document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length`);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation restore", () => {
@@ -96,13 +96,13 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
         await buildTurn(app, 1);
         await buildTurn(app, 2);
         await buildTurn(app, 3);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 3`,
           { timeoutMs: 8000 },
         );
 
         // Open /rewind via the real submit path.
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/rewind");
         await new Promise((r) => setTimeout(r, 200));
         await app.nativeKey("Escape");
@@ -173,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
         });
 
         // The discarded turn (3) dropped; turns 1 + 2 kept; sheet dismissed.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 2`,
           { timeoutMs: 6000 },
         );

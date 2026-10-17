@@ -57,6 +57,7 @@ import {
   wait,
   type Box,
 } from "./miniature-live-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () => {
   test(
@@ -68,31 +69,33 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
 
         // Where the drag is about to happen, in canvas terms — and where the
         // drawing stands, so the two can be compared in one scale.
-        const boxes = await app.evalJS<{
-          canvas: Box;
-          mini: Box;
-        }>(
-          `(function () {
-            var toBox = function (el) {
-              var r = el.getBoundingClientRect();
+        // The canvas is the shell's and the drawing is in the Layout card's
+        // body: each box is read in its own page, and every comparison below
+        // is an offset within one page or a width, so the pages' origins
+        // never meet.
+        const boxes = {
+          canvas: await app.evalJS<Box>(
+            `(function () {
+              var r = document.querySelector("[data-deck-canvas-background]").getBoundingClientRect();
               return { left: r.left, top: r.top, width: r.width, height: r.height };
-            };
-            // The drawing's PADDING box, which is the containing block an
-            // absolutely positioned child is placed and sized against — its
-            // border box would be off by the 1px frame.
-            var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
-            var box = mini.getBoundingClientRect();
-            return {
-              canvas: toBox(document.querySelector("[data-deck-canvas-background]")),
-              mini: {
+            })()`,
+          ),
+          mini: await kindBody(app, "layout").evalJS<Box>(
+            `(function () {
+              // The drawing's PADDING box, which is the containing block an
+              // absolutely positioned child is placed and sized against — its
+              // border box would be off by the 1px frame.
+              var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
+              var box = mini.getBoundingClientRect();
+              return {
                 left: box.left + mini.clientLeft,
                 top: box.top + mini.clientTop,
                 width: mini.clientWidth,
                 height: mini.clientHeight,
-              },
-            };
-          })()`,
-        );
+              };
+            })()`,
+          ),
+        };
         // The drawing's fractions are taken against its PADDING box, which is
         // what an absolutely positioned child is placed in.
         const scaleX = boxes.mini.width / boxes.canvas.width;
@@ -107,27 +110,33 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
         );
         await app.nativeDragElementWithoutRelease(titleBar("p1"), target);
 
-        const held = await app.evalJS<{
-          drag: Box | null;
-          ghost: Box | null;
-          indicator: Box | null;
-          zone: Box | null;
-        }>(
-          `(function () {
-            var toBox = function (el) {
+        // The dragged frame and the drop indicator are the shell's; the
+        // ghost and the zone are drawn in the Layout card's body.
+        const TO_BOX_JS = `function (el) {
               if (el === null) return null;
               var r = el.getBoundingClientRect();
               return { left: r.left, top: r.top, width: r.width, height: r.height };
-            };
-            var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
+            }`;
+        const heldShell = await app.evalJS<{ drag: Box | null; indicator: Box | null }>(
+          `(function () {
+            var toBox = ${TO_BOX_JS};
             return {
               drag: toBox(document.querySelector('.tug-pane[data-pane-id="p1"]')),
-              ghost: toBox(mini.querySelector(".layout-mini-ghost")),
               indicator: toBox(document.querySelector(".tug-drop-zone-indicator")),
+            };
+          })()`,
+        );
+        const heldBody = await kindBody(app, "layout").evalJS<{ ghost: Box | null; zone: Box | null }>(
+          `(function () {
+            var toBox = ${TO_BOX_JS};
+            var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
+            return {
+              ghost: toBox(mini.querySelector(".layout-mini-ghost")),
               zone: toBox(mini.querySelector(".layout-mini-zone")),
             };
           })()`,
         );
+        const held = { ...heldShell, ...heldBody };
         note(
           `ghost ${describe_(held.ghost)} for a frame at ${describe_(held.drag)}; ` +
             `zone ${describe_(held.zone)} for an indicator at ${describe_(held.indicator)}`,
@@ -172,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
             x: target.x + 12,
             y: target.y + 12,
           });
-          const freed = await app.evalJS<{ drag: boolean; zone: boolean }>(
+          const freed = await kindBody(app, "layout").evalJS<{ drag: boolean; zone: boolean }>(
             `(function () {
               var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
               return {
@@ -191,7 +200,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
         });
         await wait(AFTER_LAND_MS);
 
-        const retired = await app.evalJS<{
+        const retired = await kindBody(app, "layout").evalJS<{
           drag: boolean;
           zone: boolean;
           ghostShown: string;

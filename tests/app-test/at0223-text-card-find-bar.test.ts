@@ -161,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
   test(
     "⌘F opens the bottom bar; query counts, navigates, narrows on Case, closes on Escape",
     async () => {
-      const app = await launchTugApp({ testName: "at0223-bar" });
+      const app = await launchTugApp({ bodies: false, testName: "at0223-bar" });
       try {
         await mountTextCard(app);
         await openBar(app);
@@ -321,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
   test(
     "the Case toggle persists into a freshly opened bar (global find options)",
     async () => {
-      const app = await launchTugApp({ testName: "at0223-persist" });
+      const app = await launchTugApp({ bodies: false, testName: "at0223-persist" });
       try {
         await mountTextCard(app);
         await openBar(app);

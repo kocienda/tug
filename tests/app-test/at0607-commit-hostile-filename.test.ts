@@ -111,13 +111,13 @@ const settle = (ms = 400): Promise<void> => new Promise((r) => setTimeout(r, ms)
 
 /** Raise the Changes shade in commit mode: type, dismiss the popup, ⌘⏎. */
 async function openCommitShade(app: App): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType("/commit");
   await settle();
   await app.nativeKey("Escape");
   await settle();
   await app.nativeKey("Return", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(COMMIT_SHEET)}) !== null &&
      document.querySelector(${JSON.stringify(COMMIT_BUTTON)}) !== null`,
     { timeoutMs: 20_000 },
@@ -160,11 +160,11 @@ describe.skipIf(!SHOULD_RUN)("AT0607: a hostile filename commits", () => {
 
         // ── 1. The shade names the file by its real bytes ─────────────────
         await openCommitShade(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHADE_ROW)}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const shadePaths = await app.evalJS<string[]>(
+        const shadePaths = await app.body("A").evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(
             `${COMMIT_SHEET} [data-testid="tug-changes-list-file-block"]`,
           )})).map(function (e) { return e.getAttribute("data-path") || ""; })`,
@@ -179,12 +179,12 @@ describe.skipIf(!SHOULD_RUN)("AT0607: a hostile filename commits", () => {
         ).toBe(false);
 
         // ── 2. The commit lands ───────────────────────────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CLAIM_ALL)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.nativeClickAtElement(CLAIM_ALL);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(CLAIM_ALL);
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              const b = document.querySelector(${JSON.stringify(COMMIT_BUTTON)});
              return b !== null && !b.hasAttribute("data-land-blocked");
@@ -192,12 +192,12 @@ describe.skipIf(!SHOULD_RUN)("AT0607: a hostile filename commits", () => {
           { timeoutMs: 30_000 },
         );
 
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType(SUBJECT);
         await settle(1_500);
-        await app.nativeClickAtElement(COMMIT_BUTTON);
+        await app.body("A").nativeClickAtElement(COMMIT_BUTTON);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RECEIPT_ROW)}) !== null`,
           { timeoutMs: 60_000 },
         );
@@ -221,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("AT0607: a hostile filename commits", () => {
         ).toBe("");
 
         // ── 3. The receipt names it ───────────────────────────────────────
-        const receiptPaths = await app.evalJS<string[]>(
+        const receiptPaths = await app.body("A").evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(
             `${CARD} [data-slot="tug-commit-changes-list"] [data-testid="tug-changes-list-file-block"]`,
           )})).map(function (e) { return e.getAttribute("data-path") || ""; })`,

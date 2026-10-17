@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
   test(
     "CM6 editor: the selected run transforms, keeps its selection, and undoes whole",
     async () => {
-      const app = await launchTugApp({ testName: "at0420-editor" });
+      const app = await launchTugApp({ bodies: false, testName: "at0420-editor" });
       const readText = `(function(){
         var ed = document.querySelector(${JSON.stringify(EDITOR)});
         return ed === null ? null : ed.textContent;
@@ -172,7 +172,7 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
   test(
     "native input: the selected run transforms and a bare caret is a no-op",
     async () => {
-      const app = await launchTugApp({ testName: "at0420-input" });
+      const app = await launchTugApp({ bodies: false, testName: "at0420-input" });
       const readValue = `(function(){
         var el = document.querySelector(${JSON.stringify(INPUT)});
         return el === null ? null : el.value;
@@ -221,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
   test(
     "the menu items follow focus and take their chords from the sweep",
     async () => {
-      const app = await launchTugApp({ testName: "at0420-menu" });
+      const app = await launchTugApp({ bodies: false, testName: "at0420-menu" });
       try {
         // A static label card handles neither verb, so both items are dark.
         await seed(app, "gallery-label");

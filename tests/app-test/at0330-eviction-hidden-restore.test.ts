@@ -96,7 +96,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden restore
         // callback firing: it clears the freeze and logs
         // `transcript_settle` to the dev log. Wait for that entry while
         // the scroller is still boxless.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
   var el = document.querySelector('${FIXTURE_SCROLLER}');
   if (el === null || el.offsetWidth !== 0) return false;
@@ -107,7 +107,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden restore
           { timeoutMs: 60_000, pollMs: 250 },
         );
 
-        const hidden = await app.evalJS<{
+        const hidden = await app.body("A").evalJS<{
           w: number;
           cells: number;
           replaying: boolean;
@@ -142,17 +142,17 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden restore
   return true;
 })()`);
         await waitForTranscriptSettled(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `!!document.querySelector('${FIXTURE_SCROLLER}[data-evict-active]')`,
           { timeoutMs: 30_000, pollMs: 250 },
         );
         // The exactness below holds once the drain has measured every row.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `!document.querySelector('${FIXTURE_SCROLLER}').hasAttribute("data-evict-stale")`,
           { timeoutMs: 30_000, pollMs: 250 },
         );
 
-        const revealed = await app.evalJS<{
+        const revealed = await app.body("A").evalJS<{
           h: number;
           fallbacks: number;
           anchor: string | null;
@@ -173,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden restore
         // ("Turns displayed X of Y" + "Load N more"), and it is the first
         // thing in the scroll content — above the top spacer, never buried
         // by it once the spacer grows for evicted rows.
-        const z0 = await app.evalJS<{
+        const z0 = await app.body("A").evalJS<{
           firstSlot: string | null;
           text: string;
         }>(`(function () {

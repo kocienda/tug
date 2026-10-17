@@ -77,12 +77,12 @@ function capabilities() {
 }
 
 const chipText = (app: App): Promise<string> =>
-  app.evalJS<string>(
+  app.body("A").evalJS<string>(
     `(document.querySelector(${JSON.stringify(CHIP_VALUE)})?.textContent ?? "").trim()`,
   );
 
 const userRowCount = (app: App): Promise<number> =>
-  app.evalJS<number>(
+  app.body("A").evalJS<number>(
     `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length`,
   );
 
@@ -107,7 +107,7 @@ async function persistedModel(app: App, tag: string): Promise<string> {
  * the completion popup, so the draft reaches the matcher the way a user's does.
  */
 async function runCommand(app: App, line: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT);
+  await app.body("A").nativeClickAtElement(PROMPT);
   await app.nativeType(line);
   await settle(400);
   await app.nativeKey("Return", ["cmd"]);
@@ -137,7 +137,7 @@ async function settleTurn(app: App, msgId: string): Promise<void> {
 
 /** The last user row's command atom label and its text. */
 function submittedRow(app: App): Promise<{ chipLabel: string | null; text: string }> {
-  return app.evalJS<{ chipLabel: string | null; text: string }>(
+  return app.body("A").evalJS<{ chipLabel: string | null; text: string }>(
     `(() => {
        const rows = document.querySelectorAll(${JSON.stringify(USER_ROWS)});
        const row = rows[rows.length - 1];
@@ -192,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /arc-review card verb", () => {
           model: "sonnet",
           ipc_version: 2,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(CHIP_VALUE)})?.textContent ?? "").indexOf("Sonnet") !== -1`,
           { timeoutMs: 10000 },
         );
@@ -201,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /arc-review card verb", () => {
 
         // ── The typed gesture, with an explicit path ─────────────────────
         await runCommand(app, `/arc-review ${planPath}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 10000 },
         );
@@ -232,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("AT0412: the /arc-review card verb", () => {
 
         // ── Bare: last-reviewed resolves it, through the real tugbank ────
         await runCommand(app, "/arc-review");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 2`,
           { timeoutMs: 10000 },
         );

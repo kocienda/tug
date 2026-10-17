@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: the strip", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
           { timeoutMs: 8_000 },
         );
@@ -236,6 +236,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: the strip", () => {
         // slot 5 is a held-open vacancy at the strip's end. Measured as the
         // rightmost edge of anything imposed, which is what "the strip's far
         // end" means and what the clamp is actually pinning.
+        // card-dom: shell — panes, vacancies and the canvas are the shell's.
         const clamped = await app.evalJS<{ right: number; band: number }>(
           `(function () {
             var strip = parseFloat(
@@ -283,6 +284,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: the strip", () => {
         // only capped strip is the one no rail stands in. This deck's rail is
         // flush to the right window edge, so that side is uncapped and the
         // bare left side carries a cap exactly one card gap wide.
+        // card-dom: shell — panes, margin caps and hit-testing over them are the shell's.
         const ink = await app.evalJS<{
           gutterPane: string | null;
           overRailPane: string | null;

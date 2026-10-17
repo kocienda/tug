@@ -237,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Wait for the replayed cost to land: the CONTEXT-used numerator
           // renders the last turn's resident window from the fixture usage.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(() => {
               const t = ${CTX_USED_JS};
               return t.length > 0 && /[1-9]/.test(t);
@@ -245,8 +245,8 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 15_000 },
           );
 
-          const ctxUsed = await app.evalJS<string>(CTX_USED_JS);
-          const ctxMax = await app.evalJS<string>(CTX_MAX_JS);
+          const ctxUsed = await app.body("A").evalJS<string>(CTX_USED_JS);
+          const ctxMax = await app.body("A").evalJS<string>(CTX_MAX_JS);
 
           // CONTEXT-used = window(last) of the replayed usage — non-zero, not
           // the "0" empty-resident reading. This is the primary proof the
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The shipped lineup: five cells, left to right, all laid out.
           // The retired TOKENS cell and the merged WORK cell are gone;
           // TASKS and JOBS stand in their place.
-          const lineup = await app.evalJS<
+          const lineup = await app.body("A").evalJS<
             Array<{ priority: string; shown: boolean }>
           >(LINEUP_JS);
           expect(lineup.map((c) => c.priority)).toEqual([
@@ -283,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)(
           // rests entirely on the family/version floor in
           // [model-context-max.ts]. An exact-id table (what that module used
           // to be) reads 200K here the day a new model ships.
-          const aiTokens = await app.evalJS<string[]>(AI_TOKENS_JS);
+          const aiTokens = await app.body("A").evalJS<string[]>(AI_TOKENS_JS);
           const modelText = aiTokens[0] ?? "";
           expect(ctxMax).not.toBe("");
           expect(ctxMax.includes("200")).toBe(false);
@@ -333,7 +333,7 @@ describe.skipIf(!SHOULD_RUN)(
             };
           })())`;
           try {
-            const diag = await app.evalJS<string>(DIAG_JS);
+            const diag = await app.body("A").evalJS<string>(DIAG_JS);
             process.stderr.write(`\n[at0192] tugdeck state:\n${diag}\n`);
           } catch (probeErr) {
             process.stderr.write(`\n[at0192] diag probe failed: ${String(probeErr)}\n`);

@@ -147,7 +147,7 @@ async function seedCardWithCommandLine(
   await ingest(asstText("m1", ASSISTANT_TEXT));
   await ingest(turnDone("m1"));
   await ingest(replayComplete());
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
     { timeoutMs: 10_000 },
   );
@@ -158,10 +158,10 @@ async function seedCardWithCommandLine(
 async function openCommandMenu(
   app: Awaited<ReturnType<typeof launchTugApp>>,
 ): Promise<void> {
-  await app.evalJS(
+  await app.body("A").evalJS(
     `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
   );
-  await app.nativeRightClickAtElement(SPAN);
+  await app.body("A").nativeRightClickAtElement(SPAN);
   await app.waitForCondition<boolean>(
     `document.querySelector('[data-item-action="copy-command"]') !== null`,
     { timeoutMs: 6000 },
@@ -195,7 +195,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
       try {
         await openCommandMenu(app);
         const rows = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify(Array.from(document.querySelectorAll('[data-item-action]')).map(function(el){
               return {
                 action: el.getAttribute('data-item-action'),
@@ -243,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         // text-only check would pass on a composer still holding it. The ink
         // is asked about the slug rather than asked to be empty: an empty
         // composer renders its placeholder, which is text.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return false;
@@ -252,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
           })()`,
           { timeoutMs: 15_000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var rows = Array.from(document.querySelectorAll(
               '[data-card-id="A"] [data-testid="session-card-transcript-user-body"]'));
@@ -296,7 +296,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
           { timeoutMs: 15_000 },
         );
         const cards = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify(Array.from(document.querySelectorAll('[data-card-id]')).map(function(el){
               return el.getAttribute('data-card-id');
             }))`,
@@ -322,7 +322,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
           (e) => e.kind === "session-lifecycle" && e.event === "opening_command.sent",
         );
         expect(sentEvents.length).toBe(1);
-        const theirs = await app.evalJS<string>(
+        const theirs = await app.body("A").evalJS<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(
               `${newCard} [data-slot="tug-text-editor"] .cm-content`,
@@ -335,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         // The originating card's own composer is untouched: the command did
         // not run here, and the transcript the reader was reading still says
         // what it said.
-        const here = await app.evalJS<string>(
+        const here = await app.body("A").evalJS<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             return cm ? (cm.textContent || '') : '';
@@ -360,11 +360,11 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
     async () => {
       const app = await seedCardWithCommandLine("at0560-run-brief-click");
       try {
-        await app.nativeClickAtElement(SPAN);
+        await app.body("A").nativeClickAtElement(SPAN);
 
         // Two chips and no loose path characters: the command leads, the
         // mention follows, and the argument between them is still ink.
-        const atoms = await app.waitForCondition<string>(
+        const atoms = await app.body("A").waitForCondition<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return "";
@@ -382,7 +382,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
 
         // The path is the chip's value, not the composer's text — which is
         // the whole of the difference a reader sees.
-        const ink = await app.evalJS<string>(
+        const ink = await app.body("A").evalJS<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             return cm ? (cm.textContent || '') : '';
@@ -453,7 +453,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         if (clip !== null) expect(clip).toContain(LINE);
 
         // A copy is not a run: the composer is empty and no card was opened.
-        const here = await app.evalJS<string>(
+        const here = await app.body("A").evalJS<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             return cm ? (cm.textContent || '') : '';

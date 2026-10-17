@@ -126,7 +126,7 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
           totalTurns: 1,
           hasOlder: false,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -134,10 +134,10 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
         // The wire drops: the card can no longer send, so the run arms.
         await app.driveSession("A", { op: "transportClose" });
 
-        await app.evalJS(
+        await app.body("A").evalJS(
           `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
         );
-        await app.nativeRightClickAtElement(SPAN);
+        await app.body("A").nativeRightClickAtElement(SPAN);
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-item-action="run-command-here"]') !== null`,
           { timeoutMs: 6000 },
@@ -154,18 +154,18 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
         await app.nativeClick(point as { x: number; y: number });
 
         // Armed, not sent: the command waits in the composer.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             return cm !== null && cm.querySelector('[data-atom-type="command"]') !== null;
           })()`,
           { timeoutMs: 10_000 },
         );
-        expect(await app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length`)).toBe(1);
+        expect(await app.body("A").evalJS<number>(`document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length`)).toBe(1);
 
         // Recovery moves the card to `restoring`, which unmounts the body…
         await app.driveSession("A", { op: "transportReconnect" });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROMPT_INPUT)}) === null`,
           { timeoutMs: 10_000 },
         );
@@ -176,7 +176,7 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
         // the reader's own row, and the composer is left empty.
         let sent = false;
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(USER_ROWS)})).some(function(r){
               return (r.textContent || '').indexOf(${JSON.stringify(BRIEF)}) !== -1;
             })`,
@@ -186,7 +186,7 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
         } catch {
           sent = false;
         }
-        const composer = await app.evalJS<string>(
+        const composer = await app.body("A").evalJS<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(PROMPT_INPUT)});
             if (!cm) return 'no composer';

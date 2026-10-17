@@ -131,7 +131,7 @@ async function openDeck(
     state: deckShape(options.cards, options.layout, options.slots),
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await app.body("L").waitForCondition<boolean>(
     `document.querySelector('[data-testid="layout-card-plan"]') !== null`,
     { timeoutMs: 8_000 },
   );

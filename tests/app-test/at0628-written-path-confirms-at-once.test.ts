@@ -136,23 +136,23 @@ type Row = { action: string; disabled: boolean };
 
 /** How many paths in card A's prose the resolver has confirmed into links. */
 async function fileLinkCount(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("A").evalJS<number>(
     `document.querySelectorAll('[data-card-id="A"] [data-tug-annotation="file-path"]').length`,
   );
 }
 
 /** Right-click the command line, read every menu row, and dismiss the menu. */
 async function readMenuRows(app: App): Promise<Row[]> {
-  await app.evalJS(
+  await app.body("A").evalJS(
     `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
   );
-  await app.nativeRightClickAtElement(SPAN);
+  await app.body("A").nativeRightClickAtElement(SPAN);
   await app.waitForCondition<boolean>(
     `document.querySelector('[data-item-action="copy-command"]') !== null`,
     { timeoutMs: 6000 },
   );
   const rows = JSON.parse(
-    await app.evalJS<string>(
+    await app.body("A").evalJS<string>(
       `JSON.stringify(Array.from(document.querySelectorAll('[data-item-action]')).map(function(el){
         return {
           action: el.getAttribute('data-item-action'),
@@ -215,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("AT0628: a write the session watched", () => {
         );
         await ingest(turnDone("m1"));
         await ingest(replayComplete());
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
           { timeoutMs: 10_000 },
         );
@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("AT0628: a write the session watched", () => {
         // the same debounced probe batch, and its becoming a link is the
         // batch having come back. The brief's `missing` was recorded by the
         // same response.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-card-id="A"] [data-tug-annotation="file-path"]') !== null`,
           { timeoutMs: 15_000 },
         );
@@ -258,7 +258,7 @@ describe.skipIf(!SHOULD_RUN)("AT0628: a write the session watched", () => {
         await ingest(turnDone("m2"));
 
         // --- 3. The brief's path is a link now, and the rows still live ---
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('[data-card-id="A"] [data-tug-annotation="file-path"]').length >= 2`,
           { timeoutMs: 5_000 },
         );

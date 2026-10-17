@@ -61,6 +61,7 @@ import {
   tugtoolPath,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -108,11 +109,11 @@ afterAll(() => {
  */
 async function shellUntil(app: App, command: string, marker: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(prompt);
+  await app.body("A").nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
        .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
     { timeoutMs: 60_000 },
@@ -176,11 +177,11 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
 
         await app.dispatchControlAction("toggle-arcs");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SECTION)}) !== null`,
           { timeoutMs: 30_000 },
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 30_000 },
         );
@@ -191,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         // is the one that watches the same button change: an arc with a brief
         // and no run reads Start, and nothing about the arc's *documents*
         // moves for the rest of the test.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("start"))}) !== null`,
           { timeoutMs: 30_000 },
         );
@@ -200,11 +201,11 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         await shellUntil(app, `${cli} arc run ${ARC_NAME}`, "is bound to it");
 
         // ── And the row's first verb is now Stop ──────────────────────────
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("stop"))}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const before = await app.evalJS<string>(
+        const before = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const button = document.querySelector(${JSON.stringify(TRANSPORT)});
              return JSON.stringify({
@@ -232,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         // And the reader with no eyes still learns which arc it is.
         expect(stopFace.label).toBe(`Stop arc ${ARC_NAME}`);
 
-        await app.nativeClickAtElement(transportWith("stop"));
+        await kindBody(app, "dashes").nativeClickAtElement(transportWith("stop"));
 
         // ── The record says it, in the closed vocabulary ──────────────────
         const stopped = await pollUntil(
@@ -248,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         // The press is a button on a *rail card*, and the receipt it earns
         // lands on the Session card — which is the whole of [D178]'s claim
         // that the row acts as a card rather than merely describing one.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
              .some((el) => (el.textContent || "").indexOf("you stopped it") !== -1)`,
           { timeoutMs: 30_000 },
@@ -256,11 +257,11 @@ describe.skipIf(!SHOULD_RUN)("AT0523: Stop on the Arcs card's row", () => {
         note("at0523 card with the stop receipt", (await app.screenshot()).path);
 
         // ── And the same button is now the way back in ────────────────────
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("resume"))}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const after = await app.evalJS<string>(
+        const after = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const buttons = document.querySelectorAll(${JSON.stringify(TRANSPORT)});
              const button = buttons[0];

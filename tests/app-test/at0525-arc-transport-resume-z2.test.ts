@@ -97,11 +97,11 @@ afterAll(() => {
  *  count can never come true. */
 async function shellUntil(app: App, command: string, marker: string): Promise<void> {
   const prompt = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-  await app.nativeClickAtElement(prompt);
+  await app.body("A").nativeClickAtElement(prompt);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
        .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
     { timeoutMs: 60_000 },
@@ -194,22 +194,23 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         // The cell is TASKS or ARC under one `data-priority`, and only the
         // ARC reading opens this placard — so the wait is on the endcap's
         // word rather than on the cell's presence.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "ARC"`,
           { timeoutMs: 30_000 },
         );
-        await app.click(CELL);
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(CELL);
+        // The placard is the card's own popover, so it stands in its body.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PLACARD)}) !== null`,
           { timeoutMs: 30_000 },
         );
 
         // ── And its footer is the verb row, led by Resume ─────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(transportWith("resume"))}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const offered = await app.evalJS<string>(
+        const offered = await app.body("A").evalJS<string>(
           `(() => {
              const footer = document.querySelector(${JSON.stringify(
                `${PLACARD} [data-slot="tug-popup-list-footer"]`,
@@ -257,7 +258,7 @@ describe.skipIf(!SHOULD_RUN)("AT0525: Resume in the ARC placard's footer", () =>
         expect(face.refused).toBeNull();
         note("at0525 placard with the Resume", (await app.screenshot()).path);
 
-        await app.nativeClickAtElement(transportWith("resume"));
+        await app.body("A").nativeClickAtElement(transportWith("resume"));
 
         // ── The record is the reading, and it is a moving target ──────────
         //

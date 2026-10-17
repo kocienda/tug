@@ -188,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
 
         // ---- The population, counted inside the bench card. --------------
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length === ${BENCH_COUNT}`,
           { timeoutMs: 30_000 },
         );
@@ -346,7 +346,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // guards against is per-glyph: a dot whose gates opened apart sheds
         // rings out of its breath for as long as it runs, and one sampled dot
         // that happened to open cleanly would report nothing.
-        const weld = await app.evalJS<{
+        const weld = await app.body("B").evalJS<{
           dots: number;
           loopsPerDot: number[];
           spreads: number[];
@@ -396,7 +396,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // time and the weld would be silently gone. So: dirty style with an
         // attribute the component knows nothing about, force the resolve, and
         // read the three back.
-        const afterRecalc = await app.evalJS<{
+        const afterRecalc = await app.body("B").evalJS<{
           spreads: number[];
           moved: number;
           opacity: string;

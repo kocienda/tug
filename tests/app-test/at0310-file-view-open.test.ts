@@ -47,6 +47,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { deflateSync } from "node:zlib";
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -350,7 +351,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("toggle-cards"), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${ROW_TITLE}');
             return el !== null && el.innerText.indexOf("gradient.png") !== -1;
@@ -360,20 +361,20 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // A viewer has no dirty state to report, so the row never wears the
         // dot a manual-mode Text card wears.
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "cards").evalJS<boolean>(
             `document.querySelector('${UNSAVED_DOT}') === null`,
           ),
         ).toBe(true);
         // The kind glyph is the only thing telling an image row apart from a
         // text row, so it has to actually render.
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "cards").evalJS<boolean>(
             `document.querySelector('${ROW_GLYPH} svg') !== null`,
           ),
         ).toBe(true);
 
         // ---- The row's close box closes the viewer.
-        await app.evalJS<null>(
+        await kindBody(app, "cards").evalJS<null>(
           `(document.querySelector('${ROW_CLOSE}').click(), null)`,
         );
         await app.waitForCondition<boolean>(

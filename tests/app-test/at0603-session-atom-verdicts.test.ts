@@ -165,18 +165,18 @@ describe.skipIf(!SHOULD_RUN)("at0603 — the three verdicts, in the real app", (
           tugSessionId: SESSION_A,
           projectDir: PROJECT_DIR,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(COMPOSER)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.focusElement(COMPOSER);
+        await app.body("A").focusElement(COMPOSER);
 
         // ---- A. The composer bakes it dashed. ------------------------------
         //
         // Pasted through the in-event sidecar branch, which is the same insert
         // a Tug copy makes and needs no key window. Nothing about the paste
         // says anything about findability; the chip asks for itself.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var cm = document.querySelector(${JSON.stringify(COMPOSER)});
           var dt = new DataTransfer();
           dt.setData("text/plain", ${JSON.stringify(REFERENCE)});
@@ -186,21 +186,21 @@ describe.skipIf(!SHOULD_RUN)("at0603 — the three verdicts, in the real app", (
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
           { timeoutMs: 10_000 },
         );
         // The ask goes to the server and the answer comes back a round trip
         // later; the bake that follows is the widget regeneration, which is
         // the only door a baked bitmap has.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var img = document.querySelector(${JSON.stringify(CHIP)});
             return img !== null && img.dataset.chipVariant === "missing";
           })()`,
           { timeoutMs: 20_000 },
         );
-        const chip = await app.evalJS<{ variant: string; sessionId: string }>(
+        const chip = await app.body("A").evalJS<{ variant: string; sessionId: string }>(
           `(function(){
             var img = document.querySelector(${JSON.stringify(CHIP)});
             return {
@@ -230,14 +230,14 @@ describe.skipIf(!SHOULD_RUN)("at0603 — the three verdicts, in the real app", (
           text: "￼ is the one I mean",
           atoms: [SESSION_ATOM],
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var p = document.querySelector(${JSON.stringify(PILL)});
             return p !== null && p.getAttribute("data-missing") === "true";
           })()`,
           { timeoutMs: 20_000 },
         );
-        const missing = await app.evalJS<{
+        const missing = await app.body("A").evalJS<{
           missing: string;
           elsewhere: string;
           interactive: string;
@@ -261,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)("at0603 — the three verdicts, in the real app", (
         // `title`, so it is hovered for. It is the half that makes the dash
         // readable — a border alone says "something is wrong", and which
         // wrong thing is what the reader needs.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(function(){
             var p = document.querySelector(${JSON.stringify(PILL)});
             p.dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }));
@@ -323,14 +323,14 @@ describe.skipIf(!SHOULD_RUN)("at0603 — the three verdicts, in the real app", (
         // The heal is waited for on the attribute, not slept for: the push,
         // the re-ask and the repaint are three hops and none of them has a
         // duration worth guessing at.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var p = document.querySelector(${JSON.stringify(PILL)});
             return p !== null && p.getAttribute("data-elsewhere") === "true";
           })()`,
           { timeoutMs: 30_000 },
         );
-        const healed = await app.evalJS<{
+        const healed = await app.body("A").evalJS<{
           missing: string;
           elsewhere: string;
           interactive: string;

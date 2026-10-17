@@ -29,6 +29,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { note } from "./_harness";
+import { enforcedTimeout } from "./_harness/rpc";
 import {
   SCROLLER,
   SHOULD_RUN,
@@ -37,8 +38,8 @@ import {
   readTopLine,
   rememberTopLine,
   scrollTo,
-  settleOn,
   standUp,
+  transcriptPage,
 } from "./eviction-fixture";
 
 /** The list's width settle (`WIDTH_INVALIDATION_SETTLE_MS`) plus the
@@ -52,8 +53,9 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — zoom", () => {
     async () => {
       const app = await standUp("at0330-zoom");
       try {
+        const page = await transcriptPage(app);
         await scrollTo(app, 0.5);
-        const before = await app.evalJS<{
+        const before = await page.evalJS<{
           cells: number;
           fallbacks: number;
           w: number;
@@ -77,10 +79,13 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — zoom", () => {
         // the factor the deck root was drawn at. The zoom is the root's
         // transform, which never moves `devicePixelRatio`, so the factor is
         // read off the root itself: its rect over its layout width.
-        await app.evalJS<boolean>(`(function () {
+        // The transcript's half — the cell count and its page's frames —
+        // records in the card's body; the deck's half — the factor per frame
+        // and each step's arrival — in the shell, which takes the host's
+        // zoom calls. Each half keeps its own page's clock.
+        await page.evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
-  var deck = document.getElementById("deck-container");
-  var rec = { maxCells: 0, frames: [], factors: [], applies: [], on: true };
+  var rec = { maxCells: 0, frames: [], on: true };
   var count = function () {
     var n = el.querySelectorAll("[data-tug-list-cell-index]").length;
     if (n > rec.maxCells) rec.maxCells = n;
@@ -89,11 +94,21 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — zoom", () => {
   rec.mo.observe(el, { childList: true, subtree: true });
   var tick = function (t) {
     rec.frames.push(t);
-    rec.factors.push([t, deck.getBoundingClientRect().width / deck.offsetWidth]);
     if (rec.on) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
   count();
+  window.__at0330Zoom = rec;
+  return true;
+})()`);
+        await app.evalJS<boolean>(`(function () {
+  var deck = document.getElementById("deck-container");
+  var rec = { factors: [], applies: [], on: true };
+  var tick = function (t) {
+    rec.factors.push([t, deck.getBoundingClientRect().width / deck.offsetWidth]);
+    if (rec.on) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
   var bridge = window.__tugBridge;
   rec.apply = bridge.onPageZoomApply;
   bridge.onPageZoomApply = function (factor) {
@@ -112,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — zoom", () => {
           w: number;
           worstGap: number;
         }> =>
-          app.evalJS(`(function () {
+          page.evalJS(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var rec = window.__at0330Zoom;
   var worst = 0;
@@ -138,21 +153,31 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — zoom", () => {
         // The drawn factor is read to 1e-2: the root's rect snaps to device
         // pixels, so a 2× step reads 1.9988. A timeout here costs the budget
         // times the runner's job count, so the condition must be one that comes.
-        const zoomLanded = (factor: number): Promise<boolean> =>
-          settleOn(
-            app,
-            `(function () {
-  var el = document.querySelector('${SCROLLER}');
+        // The root's factor and the step's arrival are the shell's; eviction's
+        // state is the transcript's, in the card's body. Both must hold at
+        // one poll.
+        const zoomLanded = async (factor: number): Promise<boolean> => {
+          const deadline = Date.now() + enforcedTimeout(5000);
+          for (;;) {
+            const deckLanded = await app.evalJS<boolean>(`(function () {
   var deck = document.getElementById("deck-container");
   var rec = window.__at0330Zoom;
   var last = rec.applies[rec.applies.length - 1];
   return last !== undefined &&
     Math.abs(deck.getBoundingClientRect().width / deck.offsetWidth - ${factor}) < 1e-2 &&
-    el.hasAttribute("data-evict-active") && !el.hasAttribute("data-evict-stale") &&
     performance.now() - last[0] >= ${ZOOM_SETTLE_MS};
-})()`,
-            { timeoutMs: 5000, pollMs: 50 },
-          );
+})()`);
+            const listLanded =
+              deckLanded &&
+              (await page.evalJS<boolean>(`(function () {
+  var el = document.querySelector('${SCROLLER}');
+  return el.hasAttribute("data-evict-active") && !el.hasAttribute("data-evict-stale");
+})()`));
+            if (listLanded) return true;
+            if (Date.now() >= deadline) return false;
+            await Bun.sleep(50);
+          }
+        };
 
         expect(await app.setPageZoom(0.5)).toBeCloseTo(0.5, 5);
         await zoomLanded(0.5);
@@ -192,10 +217,16 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — zoom", () => {
         const tapped = await read();
         await app.setPageZoom(1);
 
-        await app.evalJS<boolean>(`(function () {
+        await page.evalJS<boolean>(`(function () {
   var rec = window.__at0330Zoom;
   rec.on = false;
   rec.mo.disconnect();
+  delete window.__at0330Zoom;
+  return true;
+})()`);
+        await app.evalJS<boolean>(`(function () {
+  var rec = window.__at0330Zoom;
+  rec.on = false;
   window.__tugBridge.onPageZoomApply = rec.apply;
   delete window.__at0330Zoom;
   return true;

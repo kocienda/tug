@@ -84,6 +84,7 @@ import {
   SCROLLER,
   waitForTranscriptSettled,
 } from "./fixtures/runner";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -189,7 +190,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         await openFixtureSession(app, seeded);
         await waitForTranscriptSettled(app);
 
-        const savedTop = await app.evalJS<number>(
+        const savedTop = await app.body("A").evalJS<number>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
@@ -199,7 +200,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
           })()`,
         );
         expect(savedTop).toBeGreaterThan(RESTORE_TOL_PX);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SCROLLER)}).getAttribute("data-tug-scroll-state") !== null`,
           { timeoutMs: 4_000 },
         );
@@ -218,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
         // the anchor and the list keeps the anchored row in place, so
         // `savedTop` can be tens of pixels stale by now. Leg 4's claim is
         // "the same pixel", and this is the pixel.
-        const leftAt = await app.evalJS<number>(
+        const leftAt = await app.body("A").evalJS<number>(
           `document.querySelector(${JSON.stringify(SCROLLER)}).scrollTop`,
         );
         expect(leftAt).toBeGreaterThan(RESTORE_TOL_PX);
@@ -284,7 +285,7 @@ describe.skipIf(!SHOULD_RUN)("at0578 — a workspace switch keeps its sessions",
           { timeoutMs: 8_000 },
         );
         await waitForTranscriptSettled(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             if (el === null) return false;
@@ -449,14 +450,15 @@ const SURFACE_THREE = "surface-three";
  *
  * Every workspace the leg has visited stays MOUNTED ([B06]), so the document
  * now holds one Workspaces card per visited workspace — all of them but one
- * inside a wrapper with no `data-space-shown` and no boxes. A bare
- * `document.querySelectorAll` over rows would count the hidden ones too, and
- * a count is the assertion in half of this leg. So the row selectors below
- * carry the scope and the portaled ones (menus, confirms, the rename field)
- * deliberately do not: an overlay is mounted at the canvas's overlay root,
- * outside every layer.
+ * in a layer with no `data-space-shown` and no boxes. Each of those cards is
+ * a body of its own, a page holding that one card, and `kindBody(app,
+ * "cards")` reaches the one on screen (it prefers the visible body). So a
+ * count over rows in that page counts only the shown card's, and the scope
+ * the shell's document needed — the layer is a shell element, which no body
+ * page carries — is empty here. The portaled ones (menus, confirms, the
+ * rename field) are mounted at the body's own overlay root, in the same page.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
+const SHOWN = "";
 
 const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
 const headerFor = (id: string): string =>
@@ -499,14 +501,14 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           // ---- 1. Every workspace is a row, and one of them wears the mark.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 3`,
             { timeoutMs: 20_000 },
           );
           const readHeaders = (): Promise<
             { id: string; name: string; active: string }[]
           > =>
-            app.evalJS(
+            kindBody(app, "cards").evalJS(
               `Array.prototype.map.call(
                 document.querySelectorAll(${JSON.stringify(HEADER)}),
                 function (el) {
@@ -524,12 +526,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(first.map((h) => h.active)).toEqual(["true", "false", "false"]);
 
           // ---- 2. A click on a header goes there, and the mark goes with it.
-          await app.nativeClickAtElement(headerFor(SURFACE_TWO));
+          await kindBody(app, "cards").nativeClickAtElement(headerFor(SURFACE_TWO));
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(SURFACE_TWO)}`,
             { timeoutMs: 8_000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `(function () {
                var el = document.querySelector(${JSON.stringify(headerFor(SURFACE_TWO))});
                return el !== null && el.getAttribute("data-cards-space-active") === "true";
@@ -549,13 +551,13 @@ describe.skipIf(!SHOULD_RUN)(
           // which is Main's header — every workspace emits one, and a
           // collapsed one emits nothing else.
           await app.dispatchControlAction("toggle-cards");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             { timeoutMs: 8_000 },
           );
           await app.nativeKey("Home");
           await wait(150);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `(function () {
                var row = document.querySelector(${JSON.stringify(CURSOR_ROW)});
                return row !== null &&
@@ -576,21 +578,21 @@ describe.skipIf(!SHOULD_RUN)(
           // put them away; what the leg asserts is unchanged — the cue drives
           // a parked workspace's rows, and driving them is not going there.
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll(
                  '${SHOWN}.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
                ).length`,
             ),
           ).toBeGreaterThan(0);
-          await app.nativeClickAtElement(foldFor(SURFACE_THREE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(foldFor(SURFACE_THREE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(
                '${SHOWN}.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
              ).length === 0`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement(foldFor(SURFACE_THREE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(foldFor(SURFACE_THREE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(
                '${SHOWN}.cards-list [data-cards-space-run="${SURFACE_THREE}"][data-cards-space-inactive="true"]'
              ).length > 0`,
@@ -606,12 +608,12 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- 5. Right-click carries the row's three verbs. New Workspace
           // is not among them: a menu opened on a row is about that row, and
           // the card's `+` beside the filter field is the door for making one.
-          await app.nativeRightClickAtElement(headerFor(SURFACE_THREE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeRightClickAtElement(headerFor(SURFACE_THREE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
-          const actions = await app.evalJS<string[]>(
+          const actions = await kindBody(app, "cards").evalJS<string[]>(
             `Array.prototype.map.call(
                document.querySelectorAll(${JSON.stringify(MENU_ITEM)}),
                function (el) { return el.getAttribute("data-item-action"); },
@@ -625,8 +627,8 @@ describe.skipIf(!SHOULD_RUN)(
           ]);
 
           // ---- 6. Rename is inline on the row, and the record agrees.
-          await app.nativeClickAtElement('[data-item-action="rename-space"]');
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement('[data-item-action="rename-space"]');
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 8_000 },
           );
@@ -637,17 +639,17 @@ describe.skipIf(!SHOULD_RUN)(
           // Escape is the menu's own close and it consumes the press, so the
           // field that just opened is untouched by it.
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(".tug-menu-content") === null`,
             { timeoutMs: 8_000 },
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 4_000 },
           );
           await app.nativeType("Away");
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             // Null-safe on purpose: while the field is open the header holds
             // an input where the name span was, so the first poll can land on
             // a row that has no name to read.
@@ -688,18 +690,18 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8_000 },
           );
 
-          await app.nativeRightClickAtElement(headerFor(SURFACE_THREE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeRightClickAtElement(headerFor(SURFACE_THREE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="delete-space"]') !== null`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement('[data-item-action="delete-space"]');
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement('[data-item-action="delete-space"]');
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
             { timeoutMs: 8_000 },
           );
           expect(
-            await app.evalJS<string>(
+            await kindBody(app, "cards").evalJS<string>(
               `document.querySelector(${JSON.stringify(CONFIRM_MESSAGE)}).textContent`,
             ),
             // Two panes stand in that workspace — its Workspaces rail and the
@@ -707,8 +709,8 @@ describe.skipIf(!SHOULD_RUN)(
             // cards, never its rail's, with the live sessions among them
             // named parenthetically ([P06], Spec S03).
           ).toBe("Delete Away and close 1 card (1 session)?");
-          await app.nativeClickAtElement(CONFIRM_CANCEL);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(CONFIRM_CANCEL);
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -719,18 +721,18 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(3);
 
           // ---- 8. And Delete means yes.
-          await app.nativeRightClickAtElement(headerFor(SURFACE_THREE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeRightClickAtElement(headerFor(SURFACE_THREE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="delete-space"]') !== null`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement('[data-item-action="delete-space"]');
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement('[data-item-action="delete-space"]');
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM_OK)}) !== null`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement(CONFIRM_OK);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(CONFIRM_OK);
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 2`,
             { timeoutMs: 8_000 },
           );

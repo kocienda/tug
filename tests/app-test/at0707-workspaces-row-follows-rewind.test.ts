@@ -32,6 +32,7 @@ import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -90,7 +91,7 @@ async function publish(app: App, body: string): Promise<void> {
 }
 
 const rowText = (app: App): Promise<string> =>
-  app.evalJS<string>(
+  kindBody(app, "cards").evalJS<string>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(ROW)});
        return el === null ? "" : (el.textContent || "").replace(/\\s+/g, " ").trim();
@@ -98,7 +99,7 @@ const rowText = (app: App): Promise<string> =>
   );
 
 async function waitForRow(app: App, turns: string, prompt: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await kindBody(app, "cards").waitForCondition<boolean>(
     `(function () {
        var el = document.querySelector(${JSON.stringify(ROW)});
        if (el === null) return false;
@@ -122,7 +123,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: the Workspaces row follows a rewind", () =
         );
         await app.bindSession("A", { tugSessionId: SID, projectDir });
         await app.dispatchControlAction("toggle-cards");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -148,7 +149,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: the Workspaces row follows a rewind", () =
         expect(after).not.toContain("3 turns");
         // The row still files under the card's address.
         expect(
-          await app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(ROW)}).length`),
+          await kindBody(app, "cards").evalJS<number>(`document.querySelectorAll(${JSON.stringify(ROW)}).length`),
         ).toBe(1);
 
         // 3. The pre-rewind segment's row stays live, and a push about it does

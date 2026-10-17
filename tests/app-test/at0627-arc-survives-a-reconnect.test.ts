@@ -236,7 +236,7 @@ interface ArcSurfaces {
  * not inherit a placard the first left up.
  */
 async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
-  const cell = await app.evalJS<{ label: string; text: string }>(
+  const cell = await app.body("A").evalJS<{ label: string; text: string }>(
     `(() => {
        const el = document.querySelector(${JSON.stringify(CELL)});
        return {
@@ -254,7 +254,7 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
   const facts = await app.evalJS<{ tugSessionId: string; lineId: string }>(
     `window.__tug.cardLineFacts("A")`,
   );
-  await app.click(CELL);
+  await app.body("A").click(CELL);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(ARC_PLACARD)}) !== null`,
     { timeoutMs: 10_000 },
@@ -267,7 +267,7 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
        );
      })()`,
   );
-  await app.click(CELL);
+  await app.body("A").click(CELL);
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(ARC_PLACARD)}) === null`,
     { timeoutMs: 10_000 },
@@ -297,11 +297,11 @@ async function readArcSurfaces(app: App): Promise<ArcSurfaces> {
  * red in a batch, which is contention rather than a defect.
  */
 async function awaitArcSurfaces(app: App, timeoutMs = 60_000): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(document.querySelector(${JSON.stringify(CELL)})?.querySelector(".session-telemetry-endcap-label")?.textContent ?? "").trim() === "ARC"`,
     { timeoutMs },
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(document.querySelector(${JSON.stringify(CELL)})?.querySelector('[data-slot="session-telemetry-arc-value"]')?.textContent ?? "").trim().length > 0`,
     { timeoutMs },
   );
@@ -312,13 +312,13 @@ async function awaitArcSurfaces(app: App, timeoutMs = 60_000): Promise<void> {
 }
 
 function submitMode(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("A").evalJS<string | null>(
     `document.querySelector(${JSON.stringify(SUBMIT)})?.getAttribute("data-mode") ?? null`,
   );
 }
 
 function awaitSubmitMode(app: App, mode: string, timeoutMs: number): Promise<boolean> {
-  return app.waitForCondition<boolean>(
+  return app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SUBMIT)})?.getAttribute("data-mode") === ${JSON.stringify(mode)}`,
     { timeoutMs },
   );
@@ -332,7 +332,7 @@ function awaitSubmitMode(app: App, mode: string, timeoutMs: number): Promise<boo
  * supposed to destroy and calls it a survival.
  */
 function awaitWireBack(app: App, timeoutMs: number): Promise<boolean> {
-  return app.waitForCondition<boolean>(
+  return app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SUBMIT)})?.getAttribute("data-mode") !== "reconnecting"`,
     { timeoutMs },
   );

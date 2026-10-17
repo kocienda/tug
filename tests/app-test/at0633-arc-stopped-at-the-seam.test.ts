@@ -54,6 +54,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -170,11 +171,11 @@ const settle = (ms = 200): Promise<unknown> => new Promise((r) => setTimeout(r, 
  * text rather than on a row count (the shape `at0476` settled on).
  */
 async function shellUntil(app: App, command: string, marker: string): Promise<void> {
-  await app.nativeClickAtElement(EDITOR);
+  await app.body("A").nativeClickAtElement(EDITOR);
   await app.nativeType(`/shell ${command}`);
   await settle(150);
   await app.nativeKey("Enter", ["cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `Array.from(document.querySelectorAll(${JSON.stringify(SHELL_ROWS)}))
        .some((el) => (el.textContent || "").indexOf(${JSON.stringify(marker)}) !== -1)`,
     { timeoutMs: 60_000 },
@@ -183,12 +184,12 @@ async function shellUntil(app: App, command: string, marker: string): Promise<vo
 
 /** Whether the shade is up right now. */
 function shadeUp(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(`document.querySelector(${JSON.stringify(SHEET)}) !== null`);
+  return app.body("A").evalJS<boolean>(`document.querySelector(${JSON.stringify(SHEET)}) !== null`);
 }
 
 /** Whether the Changes segment is wearing the standing-join dot. */
 function offerDot(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `document.querySelector(${JSON.stringify(ROUTE_GROUP)})?.hasAttribute("data-join-offer") ?? false`,
   );
 }
@@ -219,9 +220,9 @@ interface RowReading {
   text: string;
 }
 
-/** The Arcs row, read whole from one beat: strip, note, register. */
+/** The Arcs row, read whole from one beat: strip, note, register — in the Arcs card's body. */
 const readRow = (app: App): Promise<RowReading> =>
-  app.evalJS<RowReading>(
+  kindBody(app, "dashes").evalJS<RowReading>(
     `(() => {
        const row = document.querySelector(${JSON.stringify(ROW)});
        const track = row.querySelector('[data-slot="tug-arc-track"]');
@@ -248,7 +249,7 @@ const readRow = (app: App): Promise<RowReading> =>
 async function openTheRoomOnTheJoin(app: App): Promise<void> {
   const deadline = Date.now() + 90_000;
   for (let attempt = 1; Date.now() < deadline; attempt += 1) {
-    await app.nativeClickAtElement(EDITOR);
+    await app.body("A").nativeClickAtElement(EDITOR);
     await settle();
     await app.nativeKey("a", ["cmd"]);
     await app.nativeKey("Delete");
@@ -260,12 +261,12 @@ async function openTheRoomOnTheJoin(app: App): Promise<void> {
     await settle();
     await app.nativeKey("Return", ["cmd"]);
     try {
-      await app.waitForCondition<boolean>(
+      await app.body("A").waitForCondition<boolean>(
         `document.querySelector(${JSON.stringify(SHEET)}) !== null &&
          document.querySelector(${JSON.stringify(JOIN_BUTTON)}) !== null`,
         { timeoutMs: 6000 },
       );
-      await app.waitForCondition<boolean>(
+      await app.body("A").waitForCondition<boolean>(
         `document.querySelector(${JSON.stringify(LANE_ROW)}) !== null`,
         { timeoutMs: 40000 },
       );
@@ -322,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("AT0633: a stop at the seam is not an offer", () =>
         // The row, with the stop folded into it: `data-stopped` on the strip
         // is the last fact the feed derives from the record, so a row that
         // has it has everything else this file reads.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${ROW} [data-slot="tug-arc-track"][data-stopped="true"]`)}) !== null`,
           { timeoutMs: 30000 },
         );
@@ -371,12 +372,12 @@ describe.skipIf(!SHOULD_RUN)("AT0633: a stop at the seam is not an offer", () =>
         // Entering join mode resolves the arc ([P03]) and a candidate comes
         // to stand — and the register still refuses to call it ready: the
         // stop outranks the candidate, on the composer as on the row.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD_REGISTER)})?.getAttribute("data-word") === "unaudited"`,
           { timeoutMs: 30000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(`${CARD} [data-slot="arc-join-register"][data-word="ready"]`)}) === null`,
           ),
           "nothing on the card calls a stopped, unaudited arc ready",
@@ -384,12 +385,12 @@ describe.skipIf(!SHOULD_RUN)("AT0633: a stop at the seam is not an offer", () =>
 
         // A message of the user's own, so the press clears the gate on its
         // merits rather than on whatever draft the arc happens to hold.
-        await app.nativeClickAtElement(EDITOR);
+        await app.body("A").nativeClickAtElement(EDITOR);
         await settle();
         await app.nativeKey("a", ["cmd"]);
         await app.nativeKey("Delete");
         await app.nativeType("at0633: land this arc unaudited");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(EDITOR)})?.textContent ?? "").indexOf("land this arc") !== -1`,
           { timeoutMs: 5000 },
         );
@@ -407,7 +408,7 @@ describe.skipIf(!SHOULD_RUN)("AT0633: a stop at the seam is not an offer", () =>
         note(`at0633 landed: ${JSON.stringify(baseTip())}`);
         // And the arc is gone from the lane: a landed arc that keeps being
         // offered would be the same lie the stop was.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LANE_ROW)}) === null`,
           { timeoutMs: 60000 },
         );

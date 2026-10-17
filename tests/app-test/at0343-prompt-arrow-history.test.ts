@@ -72,7 +72,7 @@ const CARET_IN_EDITOR = `(function(){
 
 /** The composer's document, read off CM6's rendered lines. */
 function docText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `Array.from(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT} .cm-line`)}))
       .map(function(l){ return l.textContent || ""; })
       .join("\\n")`,
@@ -91,8 +91,8 @@ async function seedCardWithCaret(
   );
   await app.bindSession("A", bind);
   await app.awaitEngineReady("A", { timeoutMs: 15_000 });
-  await app.nativeClickAtElement(EDITOR_CONTENT);
-  await app.waitForCondition<boolean>(CARET_IN_EDITOR, { timeoutMs: 8000 });
+  await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
+  await app.body("A").waitForCondition<boolean>(CARET_IN_EDITOR, { timeoutMs: 8000 });
   return app;
 }
 
@@ -110,13 +110,13 @@ describe.skipIf(!SHOULD_RUN)("at0343 — the composer's plain arrows and Cmd-his
           await pressKey(app, "ArrowUp");
         }
         expect(
-          await app.evalJS<boolean>(CARET_IN_EDITOR),
+          await app.body("A").evalJS<boolean>(CARET_IN_EDITOR),
           "an empty composer keeps the caret through repeated Up",
         ).toBe(true);
 
         // …and so does a composer with a document, at the document edge, held.
         await app.nativeType("alpha");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent.indexOf("alpha") !== -1`,
           { timeoutMs: 5000 },
         );
@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)("at0343 — the composer's plain arrows and Cmd-his
         await pressKey(app, "ArrowUp");
         await pressKey(app, "ArrowUp");
         expect(
-          await app.evalJS<boolean>(CARET_IN_EDITOR),
+          await app.body("A").evalJS<boolean>(CARET_IN_EDITOR),
           "no number of Ups at the document start crosses out of the editor",
         ).toBe(true);
 
@@ -172,16 +172,16 @@ describe.skipIf(!SHOULD_RUN)("at0343 — the composer's plain arrows and Cmd-his
         // inserts a newline in this composer; Shift-Return submits.
         await app.nativeType(SUBMITTED);
         await pressKey(app, "Enter", { shift: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent.indexOf(${JSON.stringify(SUBMITTED)}) === -1`,
           { timeoutMs: 10_000 },
         );
 
         // A fresh draft, caret resting at its end — away from the start.
-        await app.nativeClickAtElement(EDITOR_CONTENT);
-        await app.waitForCondition<boolean>(CARET_IN_EDITOR, { timeoutMs: 5000 });
+        await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
+        await app.body("A").waitForCondition<boolean>(CARET_IN_EDITOR, { timeoutMs: 5000 });
         await app.nativeType("draft line");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent === "draft line"`,
           { timeoutMs: 5000 },
         );
@@ -194,7 +194,7 @@ describe.skipIf(!SHOULD_RUN)("at0343 — the composer's plain arrows and Cmd-his
 
         // At the start that function is already a no-op, so Cmd-Up now recalls.
         await pressKey(app, "ArrowUp", { meta: true });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(EDITOR_CONTENT)}).textContent.indexOf("at0343-history") !== -1`,
           { timeoutMs: 5000 },
         );

@@ -58,6 +58,7 @@ import {
   titleBar,
   wait,
 } from "./miniature-live-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under the hand", () => {
   test(
@@ -94,7 +95,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
           "five cards in one slot is an overflowing column",
         ).toBeGreaterThanOrEqual(3);
         expect(
-          await app.evalJS<number>(
+          await kindBody(app, "layout").evalJS<number>(
             `document.querySelectorAll(
                ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-column-overflow]"
              ).length`,
@@ -145,13 +146,13 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
           await wait(HOLD_MS);
           gaugeUnderHand = await gauge(app, "--gauge-column-offset-1");
           slideUnderHand = await memberSlidePx(app);
-          draggingAttr = await app.evalJS<string | null>(
+          draggingAttr = await kindBody(app, "layout").evalJS<string | null>(
             `(function () {
               var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
               return mini === null ? null : mini.getAttribute("data-gauge-drag");
             })()`,
           );
-          transitionUnderHand = await app.evalJS<string>(
+          transitionUnderHand = await kindBody(app, "layout").evalJS<string>(
             `(function () {
               var block = document.querySelector(
                 ${JSON.stringify(COMMITTED_MINI)} + " .layout-mini-block[data-column-overflow]"
@@ -225,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the strip under 
           "so the live term is spent and the pins carry the position again",
         ).toBeLessThan(1);
         expect(
-          await app.evalJS<string | null>(
+          await kindBody(app, "layout").evalJS<string | null>(
             `(function () {
               var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
               return mini.getAttribute("data-gauge-drag");

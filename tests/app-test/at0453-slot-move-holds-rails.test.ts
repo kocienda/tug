@@ -145,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)(
             `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${LAYOUT_WIDTH} }), null)`,
           );
           await app.seedDeckState({ state: deckShape(), focusCardId: "B" });
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(KIND_TILES)}).length > 0`,
             { timeoutMs: 8_000 },
           );

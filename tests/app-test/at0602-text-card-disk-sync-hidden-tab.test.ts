@@ -99,7 +99,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
 
         // Park the viewport while the card is still in front — the place the
         // reader is owed back has to be established while CM6 can measure it.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
         );
         const readTop = `(function(){
@@ -114,11 +114,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           }
           return null;
         })()`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
           { timeoutMs: 6000 },
         );
-        const before = await app.evalJS<{
+        const before = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -129,14 +129,14 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // whole premise is `display: none`, so a shape that left it visible
         // would make this a duplicate of Scenario 5.
         await app.evalJS<void>(`window.__tug.activateCard("B")`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             return host !== null && getComputedStyle(host).display === "none";
           })()`,
           { timeoutMs: 6000 },
         );
-        const hiddenHeight = await app.evalJS<number>(
+        const hiddenHeight = await app.body("A").evalJS<number>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
         );
         expect(
@@ -157,7 +157,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
 
         // Bring it forward. This is the moment the reader is owed both things.
         await app.evalJS<void>(`window.__tug.activateCard("A")`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             return host !== null && getComputedStyle(host).display !== "none"
@@ -169,12 +169,12 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // The deferred reload lands a frame after the box appears, so wait for
         // the content rather than assuming the show and the text are the same
         // tick. A deferral that never applied times out here and says so.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
           { timeoutMs: 6000 },
         );
 
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -201,7 +201,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
 
         // The whole disk content really is in the buffer, not just its height.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
@@ -269,7 +269,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // that is the whole premise, and a visible card would make this
         // scenario a duplicate of the merge scenarios above.
         await app.evalJS<void>(`window.__tug.activateCard("B")`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
             return host !== null && getComputedStyle(host).display === "none";
@@ -277,7 +277,7 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
           ),
           "a display:none editor has no layout to measure",

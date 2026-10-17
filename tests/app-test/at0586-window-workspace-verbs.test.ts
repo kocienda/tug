@@ -54,6 +54,7 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -260,12 +261,12 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
         const created = afterNew.activeSpaceId;
         // New also opens the new workspace's name for editing (at0656 pins
         // the whole of that); cancel it so the rows below start from rest.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
           { timeoutMs: 15_000 },
         );
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -295,19 +296,19 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
         // Rename: the field opening again is the verb's own work, on the
         // card New brought ([P03]).
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "cards").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
           ),
           "nothing is being renamed yet",
         ).toBe(true);
         await app.dispatchControlAction("rename-space");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
           { timeoutMs: 15_000 },
         );
         // On the ACTIVE workspace's row, not on some other one.
         expect(
-          await app.evalJS<string | null>(
+          await kindBody(app, "cards").evalJS<string | null>(
             `(function(){
                var field = document.querySelector(${JSON.stringify(RENAME_INPUT)});
                var header = field.closest(".cards-space-header");
@@ -317,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
           "the field opens on the workspace the menu was naming — the active one",
         ).toBe(created);
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
           { timeoutMs: 8_000 },
         );
@@ -325,7 +326,8 @@ describe.skipIf(!SHOULD_RUN)("at0586 — the Window menu's workspace verbs", () 
         // Delete: reaches the card the same way and arms the confirm rather
         // than taking the workspace outright.
         await app.dispatchControlAction("delete-space");
-        await app.waitForCondition<boolean>(
+        // The confirm is the Cards card's own popover, in its body.
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
           { timeoutMs: 15_000 },
         );

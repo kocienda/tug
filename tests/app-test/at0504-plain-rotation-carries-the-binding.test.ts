@@ -221,7 +221,7 @@ async function openCard(app: App, sid: string): Promise<void> {
 
 /** Run a shell command on the card through its own `$` route. */
 async function shell(app: App, command: string): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType(`/shell ${command}`);
   await new Promise((r) => setTimeout(r, 150));
   await app.nativeKey("Enter", ["cmd"]);
@@ -378,7 +378,7 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         // something it is not claiming. (It did: the first version of this
         // waited for the word "implement" and timed out at four minutes with
         // every assertion around it already true.)
-        const dividers = await app.evalJS<string>(
+        const dividers = await app.body("A").evalJS<string>(
           `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
             STAGE_DIVIDERS,
           )})).map((el) => (el.textContent || "").trim()))`,
@@ -450,11 +450,11 @@ describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () =
         note(`at0504 masthead after the rotation: ${JSON.stringify(sigil)}`);
         expect(sigil, "the card still names its arc").toContain(PLAIN_ARC);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(Z2_ARC_VALUE)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        const placard = await app.evalJS<string>(
+        const placard = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(Z2_ARC_VALUE)})?.textContent ?? "").trim()`,
         );
         note(`at0504 Z2 placard after the rotation: ${JSON.stringify(placard)}`);

@@ -79,6 +79,7 @@ import {
   SCROLLER,
   waitForTranscriptSettled,
 } from "./fixtures/runner";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -188,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
         await openFixtureSession(app, seeded);
         await waitForTranscriptSettled(app);
 
-        const savedTop = await app.evalJS<number>(
+        const savedTop = await app.body("A").evalJS<number>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
@@ -198,7 +199,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
           })()`,
         );
         expect(savedTop).toBeGreaterThan(RESTORE_TOL_PX);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SCROLLER)}).getAttribute("data-tug-scroll-state") !== null`,
           { timeoutMs: 4_000 },
         );
@@ -265,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
         ).toContain("B");
 
         await waitForTranscriptSettled(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(SCROLLER)});
             if (el === null) return false;
@@ -308,7 +309,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
           };
         })()`;
         await app
-          .waitForCondition<Arrival | false>(
+          .body("A").waitForCondition<Arrival | false>(
             `(function(){
               var a = ${ARRIVAL_PROBE};
               return a.cardInline !== "0" && a.contentInline !== "0" && a.lineBox > 0 ? a : false;
@@ -316,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
             { timeoutMs: 8_000 },
           )
           .catch(() => undefined);
-        const arrived = await app.evalJS<Arrival>(ARRIVAL_PROBE);
+        const arrived = await app.body("A").evalJS<Arrival>(ARRIVAL_PROBE);
         note(`the arrival's appearance: ${JSON.stringify(arrived)}`);
         expect(arrived.cardInline).not.toBe("0");
         expect(arrived.contentInline).not.toBe("0");
@@ -328,7 +329,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
         await app.dispatchControlAction("toggle-cards");
         const ROW = `.cards-list .cards-row[data-cards-row-id=${JSON.stringify(boundSessionId)}]`;
         const HOME_HEADER = `.cards-space-header[data-cards-space-id=${JSON.stringify(HOME_SPACE)}]`;
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null && document.querySelector(${JSON.stringify(HOME_HEADER)}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -337,7 +338,7 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
         // exists only while the pointer is down: a press, the move that
         // engages the carry, the move onto the header, the reading, the
         // release. A poll from outside could only ever arrive after it.
-        const carry = await app.evalJS<{
+        const carry = await kindBody(app, "cards").evalJS<{
           engaged: boolean;
           lit: boolean;
         }>(
@@ -387,9 +388,10 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
             `window.__tug.cardLineFacts("A").tugSessionId`,
           ),
         ).toBe(boundSessionId);
-        // And the mark did not outlive the gesture.
+        // And the mark did not outlive the gesture — in the Workspaces card,
+        // where the gesture ran.
         expect(
-          await app.evalJS<number>(
+          await kindBody(app, "cards").evalJS<number>(
             `document.querySelectorAll('[data-drop-target="true"]').length`,
           ),
         ).toBe(0);
@@ -429,25 +431,29 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
         ).toBe(true);
         const PARKED_ROW = `.cards-list .cards-row[data-cards-space-run=${JSON.stringify(HOME_SPACE)}][data-cards-row-id=${JSON.stringify(boundSessionId)}]`;
         const AWAY_HEADER = `.cards-space-header[data-cards-space-id=${JSON.stringify(AWAY_SPACE)}]`;
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PARKED_ROW)}) !== null && document.querySelector(${JSON.stringify(AWAY_HEADER)}) !== null`,
           { timeoutMs: 15_000 },
         );
 
-        // One pass again, for leg 5's reason — and it reads the active
-        // workspace mid-gesture, which is where the old behaviour showed
-        // itself: the switch landed on the press, before any travel.
-        const outward = await app.evalJS<{
-          activeBefore: string;
-          activeAfterPress: string;
-          engaged: boolean;
-          lit: boolean;
-        }>(
+        // Leg 5's gesture again — and it reads the active workspace
+        // mid-gesture, which is where the old behaviour showed itself: the
+        // switch landed on the press, before any travel. The gesture runs in
+        // the Workspaces card's body and the active workspace is the shell's
+        // deck, so the pass is cut at the press: the press in the body (the
+        // pointer stays down across the cut), the active workspace read in the
+        // shell, then the travel, the reading and the release in the body. A
+        // switch the press set off has to cross from the body to the shell,
+        // so it is read after a round trip rather than inside the press's own
+        // task, where it could never yet be seen.
+        const activeBefore = await app.evalJS<string>(
+          `window.tugdeck.diag.getSpaces().activeSpaceId`,
+        );
+        await kindBody(app, "cards").evalJS<null>(
           `(function(){
             var row = document.querySelector(${JSON.stringify(PARKED_ROW)});
             var header = document.querySelector(${JSON.stringify(AWAY_HEADER)});
             if (row === null || header === null) throw new Error("no parked row or header");
-            var activeBefore = window.tugdeck.diag.getSpaces().activeSpaceId;
             var r = row.getBoundingClientRect();
             var h = header.getBoundingClientRect();
             var opts = function (cx, cy) {
@@ -455,18 +461,31 @@ describe.skipIf(!SHOULD_RUN)("at0580 — a card moves between workspaces", () =>
             };
             var x = r.left + r.width / 2;
             var y = r.top + r.height / 2;
+            window.__at0580Drag = { row: row, header: header, opts: opts, x: x, y: y,
+              hx: h.left + h.width / 2, hy: h.top + h.height / 2 };
             row.dispatchEvent(new PointerEvent("pointerdown", opts(x, y)));
-            var activeAfterPress = window.tugdeck.diag.getSpaces().activeSpaceId;
-            window.dispatchEvent(new PointerEvent("pointermove", opts(x, y + 10)));
-            var engaged = row.getAttribute("data-dragging") === "true";
-            var hx = h.left + h.width / 2;
-            var hy = h.top + h.height / 2;
-            window.dispatchEvent(new PointerEvent("pointermove", opts(hx, hy)));
-            var lit = header.getAttribute("data-drop-target") === "true";
-            window.dispatchEvent(new PointerEvent("pointerup", opts(hx, hy)));
-            return { activeBefore: activeBefore, activeAfterPress: activeAfterPress, engaged: engaged, lit: lit };
+            return null;
           })()`,
         );
+        const activeAfterPress = await app.evalJS<string>(
+          `window.tugdeck.diag.getSpaces().activeSpaceId`,
+        );
+        const travel = await kindBody(app, "cards").evalJS<{
+          engaged: boolean;
+          lit: boolean;
+        }>(
+          `(function(){
+            var d = window.__at0580Drag;
+            delete window.__at0580Drag;
+            window.dispatchEvent(new PointerEvent("pointermove", d.opts(d.x, d.y + 10)));
+            var engaged = d.row.getAttribute("data-dragging") === "true";
+            window.dispatchEvent(new PointerEvent("pointermove", d.opts(d.hx, d.hy)));
+            var lit = d.header.getAttribute("data-drop-target") === "true";
+            window.dispatchEvent(new PointerEvent("pointerup", d.opts(d.hx, d.hy)));
+            return { engaged: engaged, lit: lit };
+          })()`,
+        );
+        const outward = { activeBefore, activeAfterPress, ...travel };
         // The press alone went nowhere: the workspace under the pointer is
         // still the one the user was in.
         note(`the parked drag: ${JSON.stringify(outward)}`);

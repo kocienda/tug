@@ -98,7 +98,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
             await waitForTranscriptSettled(app);
             // The resumed list follows the bottom — confirm it is pinned
             // there so the saved bag records `atBottom`.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(SCROLLER)});
                 return el !== null &&
@@ -138,7 +138,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
 
             // Scroll up via a real wheel-up (disengages follow-bottom),
             // then land at ~half the scrollable range.
-            const target = await app.evalJS<number>(
+            const target = await app.body("A").evalJS<number>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(SCROLLER)});
                 el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
@@ -153,7 +153,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
             // Install a max-scrollTop accumulator, then fire a cardRoot
             // subtree mutation (what content settling / tool expansion
             // does in real use) so CardHost's MutationObserver runs.
-            await app.evalJS<boolean>(
+            await app.body(CARD_ID).evalJS<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(SCROLLER)});
                 window.__noSlam = { maxSeen: el.scrollTop, samples: 0 };
@@ -178,7 +178,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
               { timeoutMs: 4000 },
             );
 
-            const result = await app.evalJS<{
+            const result = await app.body("A").evalJS<{
               maxSeen: number;
               maxScroll: number;
               finalTop: number;

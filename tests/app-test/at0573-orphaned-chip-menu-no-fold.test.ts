@@ -134,33 +134,33 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
           feedId: 0x40,
           decoded: { tug_session_id: SID, type: "turn_complete", seq: 0, msg_id: "m1", result: "success" },
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 1`,
           { timeoutMs: 8000 },
         );
 
         // ── Raise the changes sheet ────────────────────────────────────────
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.nativeType("/commit");
         await settle();
         await app.nativeKey("Escape"); // dismiss the completion popup
         await settle();
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 8000 },
         );
 
         // ── The scratch file is stranded, and says whose it was ────────────
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
             { timeoutMs: 30000 },
           );
         } catch (err) {
           note(
             "at0573 shade contents when no orphaned chip appeared",
-            await app.evalJS<unknown>(
+            await app.body("A").evalJS<unknown>(
               `(() => {
                  const sheet = document.querySelector(${JSON.stringify(SHEET)});
                  if (sheet === null) return "no sheet";
@@ -179,7 +179,7 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
         }
 
         const isExpanded = async (): Promise<boolean> =>
-          app.evalJS<boolean>(
+          app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${ORPHANED_ROW}[data-expanded="true"]`,
             )}) !== null`,
@@ -187,19 +187,19 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
         expect(await isExpanded(), "the row starts folded").toBe(false);
 
         // ── The chip, Control-clicked ─────────────────────────────────────
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)})
              .scrollIntoView({ block: "center" }), true`,
         );
         await settle(300);
         await app.withModifiersHeld(["ctrl"], async () => {
-          await app.nativeClickAtElement(CHIP);
+          await app.body("A").nativeClickAtElement(CHIP);
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8000 },
         );
-        const rows = await app.evalJS<readonly string[]>(
+        const rows = await app.body("A").evalJS<readonly string[]>(
           `Array.prototype.map.call(
              document.querySelectorAll(${JSON.stringify(MENU)} + ' [role="menuitem"]'),
              function (item) { return item.getAttribute("data-item-action") || ""; })`,
@@ -214,7 +214,7 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
           false,
         );
 
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(function(){
              document.dispatchEvent(
                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
              return null;
            })()`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) === null`,
           { timeoutMs: 8000 },
         );
@@ -230,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)("AT0573: the orphaned row's chip under a secondary 
         // ── An ordinary click still folds the row ─────────────────────────
         for (let attempt = 0; attempt < 4; attempt += 1) {
           if (await isExpanded()) break;
-          await app.nativeClickAtElement(FOLD_CUE);
+          await app.body("A").nativeClickAtElement(FOLD_CUE);
           await settle(500);
         }
         expect(await isExpanded(), "the fold itself still works").toBe(true);

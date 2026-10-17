@@ -169,7 +169,7 @@ interface Step {
 
 /** Sample the editor's own state every frame for `ms`, then read it back. */
 async function sampleSteps(app: App, ms = 300): Promise<Step[]> {
-  await app.evalJS<boolean>(`(function () {
+  await app.body("A").evalJS<boolean>(`(function () {
   window.__textFindSamples = [];
   var deadline = performance.now() + ${ms};
   function tick() {
@@ -190,7 +190,7 @@ async function sampleSteps(app: App, ms = 300): Promise<Step[]> {
  * where the reader is.
  */
 async function settledScrollTop(app: App, still = 6): Promise<number> {
-  await app.evalJS<boolean>(`(function () {
+  await app.body("A").evalJS<boolean>(`(function () {
   window.__textFindSettled = null;
   var sc = document.querySelector(${JSON.stringify(SCROLL_DOM)});
   var last = -1, same = 0;
@@ -205,7 +205,7 @@ async function settledScrollTop(app: App, still = 6): Promise<number> {
   return true;
 })()`);
   // Wrapped, so a settled offset of 0 is still a truthy answer.
-  const settled = await app.waitForCondition<{ top: number }>(
+  const settled = await app.body("A").waitForCondition<{ top: number }>(
     `(window.__textFindSettled === null ? null : { top: window.__textFindSettled })`,
     { timeoutMs: 5000 },
   );
@@ -213,7 +213,7 @@ async function settledScrollTop(app: App, still = 6): Promise<number> {
 }
 
 async function readScrollTop(app: App): Promise<number> {
-  return app.evalJS<number>(`(function () {
+  return app.body("A").evalJS<number>(`(function () {
   var sc = document.querySelector(${JSON.stringify(SCROLL_DOM)});
   return sc ? Math.round(sc.scrollTop) : -1;
 })()`);
@@ -239,7 +239,7 @@ async function mountCard(app: App): Promise<void> {
     },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(EDITOR)});
       return el !== null && el.innerText.indexOf("line ${CARET_LINE}: ") !== -1;
@@ -249,7 +249,7 @@ async function mountCard(app: App): Promise<void> {
 }
 
 async function openBar(app: App): Promise<void> {
-  await app.focusElement(EDITOR);
+  await app.body("A").focusElement(EDITOR);
   await app.evalJS<boolean>(
     `(function(){
       var t = document.activeElement || document;
@@ -259,11 +259,11 @@ async function openBar(app: App): Promise<void> {
       }));
     })()`,
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(INPUT)}) !== null`,
     { timeoutMs: 8000 },
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
       var input = document.querySelector(${JSON.stringify(INPUT)});
       return input !== null && document.activeElement !== null &&
@@ -333,18 +333,18 @@ describe.skipIf(!SHOULD_RUN)("AT0604: the Text card's find from deep in a file",
         await mountCard(app);
 
         // ── 1. The anchor: one keystroke at a time ────────────────────────
-        await app.focusElement(EDITOR);
+        await app.body("A").focusElement(EDITOR);
         const anchorPos = await settledScrollTop(app);
         note(`anchor scrollTop at line ${CARET_LINE}: ${anchorPos}`);
         await openBar(app);
         const jumps: Array<{ char: number; scrollTop: number }> = [];
         for (let i = 1; i <= PROBE.length; i += 1) {
-          const mark = await markTrace(app);
+          const mark = await markTrace(app.body("A"));
           await app.nativeType(PROBE[i - 1]);
           // The engine's own record of this keystroke's search, then the
           // frames CM6 measures and scrolls its selection in.
-          await awaitGesture(app, mark, PROBE.slice(0, i), 30_000);
-          await waitFrames(app);
+          await awaitGesture(app.body("A"), mark, PROBE.slice(0, i), 30_000);
+          await waitFrames(app.body("A"));
           jumps.push({ char: i, scrollTop: await readScrollTop(app) });
         }
         note(`stepwise scroll offsets: ${JSON.stringify(jumps)}`);
@@ -359,12 +359,12 @@ describe.skipIf(!SHOULD_RUN)("AT0604: the Text card's find from deep in a file",
         ).toBe(0);
 
         // ── 2. The precondition: the full query is in ─────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(CHIP)})?.textContent || "") !== ""`,
           { timeoutMs: 30_000 },
         );
-        await waitFrames(app);
-        const opening = await app.evalJS<{ chip: string; scrollTop: number; max: number }>(
+        await waitFrames(app.body("A"));
+        const opening = await app.body("A").evalJS<{ chip: string; scrollTop: number; max: number }>(
           `(function () {
   var sc = document.querySelector(${JSON.stringify(SCROLL_DOM)});
   var chipEl = document.querySelector(${JSON.stringify(CHIP)});

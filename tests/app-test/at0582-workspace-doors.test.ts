@@ -72,6 +72,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -87,14 +88,15 @@ const SPACE_ONE = "doors-one";
 /**
  * "On screen", said out loud.
  *
- * Every visited workspace stays MOUNTED ([B06]), so the document holds one
- * Workspaces card per visited workspace — all but one inside a wrapper with
- * no `data-space-shown` and no boxes. A bare `document.querySelectorAll` over
- * rows counts the hidden ones too. The portaled selectors (menus, confirms,
- * sheets) deliberately carry no scope: an overlay is mounted at the canvas's
- * overlay root, outside every layer.
+ * Every visited workspace stays MOUNTED ([B06]), so the deck holds one
+ * Workspaces card per visited workspace — all but one inside a shell layer
+ * with no `data-space-shown` and no boxes. Each of those cards is its own
+ * body, and the layer wrapper is the shell's, so the scope is the page rather
+ * than a selector: every read goes through `kindBody(app, "cards")`, which
+ * answers from the visible card's body. The portaled selectors (menus,
+ * confirms, sheets) mount in that same body.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
+const SHOWN = "";
 
 const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
 const headerFor = (id: string): string =>
@@ -204,17 +206,17 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           // ---- 1. One workspace, expanded by default, with a live cue.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 1`,
             { timeoutMs: 20_000 },
           );
           const rowsUnder = (): Promise<number> =>
-            app.evalJS<number>(
+            kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll(
                  ${JSON.stringify(runUnder(SPACE_ONE))}
                ).length`,
             );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(
                ${JSON.stringify(runUnder(SPACE_ONE))}
              ).length > 0`,
@@ -226,7 +228,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The cue a person with one workspace can actually press. Disabled
           // was the whole defect, so the attribute is the assertion.
-          const cueState = await app.evalJS<{
+          const cueState = await kindBody(app, "cards").evalJS<{
             disabled: boolean;
             ariaDisabled: string | null;
           }>(
@@ -265,8 +267,8 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // ---- 2. A click folds it. Header stays; rows go.
-          await app.nativeClickAtElement(foldFor(SPACE_ONE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(foldFor(SPACE_ONE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(
                ${JSON.stringify(runUnder(SPACE_ONE))}
              ).length === 0`,
@@ -276,18 +278,18 @@ describe.skipIf(!SHOULD_RUN)(
           // label would take both away, and with one workspace that is the
           // only door back to the rows just put down.
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(HEADER)}).length`,
             ),
           ).toBe(1);
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll('[data-testid="cards-empty"]').length`,
             ),
           ).toBe(0);
           // The count is taken before the fold decides what to draw, so the
           // folded header still says how much is inside.
-          const summary = await app.evalJS<string | null>(
+          const summary = await kindBody(app, "cards").evalJS<string | null>(
             `(function () {
                var el = document.querySelector(${JSON.stringify(headerFor(SPACE_ONE))});
                var s = el.querySelector(${JSON.stringify(SUMMARY)});
@@ -302,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the name, and it carries the left rule that delimits it. Both come
           // off the live box, so a rule deleted from the stylesheet or a
           // tally that fell back inside the title label is a red here.
-          const tally = await app.evalJS<{
+          const tally = await kindBody(app, "cards").evalJS<{
             nameRight: number;
             tallyLeft: number;
             rule: string;
@@ -350,8 +352,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(deckAfter).toEqual(deckBefore);
 
           // ---- 4. A second click brings the rows back, as they were.
-          await app.nativeClickAtElement(foldFor(SPACE_ONE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(foldFor(SPACE_ONE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(
                ${JSON.stringify(runUnder(SPACE_ONE))}
              ).length === ${openRows}`,
@@ -401,7 +403,7 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 1`,
             { timeoutMs: 20_000 },
           );
@@ -411,12 +413,12 @@ describe.skipIf(!SHOULD_RUN)(
           // Read from the `···` rather than the right-click, because the
           // button is the door this step added and the menu behind it is the
           // same one — so this is both assertions at once.
-          await app.nativeClickAtElement(VERBS_BUTTON);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(VERBS_BUTTON);
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
-          const menu = await app.evalJS<
+          const menu = await kindBody(app, "cards").evalJS<
             { action: string; label: string; disabled: boolean }[]
           >(
             `Array.prototype.map.call(
@@ -452,11 +454,11 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- 2. The New button makes a second workspace and goes there.
           expect(
-            await app.evalJS<number>(
+            await kindBody(app, "cards").evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(NEW_BUTTON)}).length`,
             ),
           ).toBe(1);
-          await app.nativeClickAtElement(NEW_BUTTON);
+          await kindBody(app, "cards").nativeClickAtElement(NEW_BUTTON);
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.length === 2`,
             { timeoutMs: 8_000 },
@@ -470,18 +472,18 @@ describe.skipIf(!SHOULD_RUN)(
           expect(spaces.spaces).toHaveLength(2);
 
           // ---- 3. With two workspaces, Delete is live and names no reason.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 2`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement(
+          await kindBody(app, "cards").nativeClickAtElement(
             `${headerFor(SPACE_ONE)} [data-testid="cards-space-verbs-button"]`,
           );
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
-          const second = await app.evalJS<
+          const second = await kindBody(app, "cards").evalJS<
             { action: string; label: string; disabled: boolean }[]
           >(
             `Array.prototype.map.call(
@@ -502,13 +504,13 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- 4. The right-click still opens the same menu. The `···` is a
           // second door onto one menu, not a replacement for the first.
-          await app.nativeRightClickAtElement(headerFor(SPACE_ONE));
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeRightClickAtElement(headerFor(SPACE_ONE));
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(MENU_ITEM)}).length >= 3`,
             { timeoutMs: 8_000 },
           );
           expect(
-            await app.evalJS<string[]>(
+            await kindBody(app, "cards").evalJS<string[]>(
               `Array.prototype.map.call(
                  document.querySelectorAll(${JSON.stringify(MENU_ITEM)}),
                  function (el) { return el.getAttribute("data-item-action"); },
@@ -548,19 +550,19 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(HEADER)}) !== null`,
             { timeoutMs: 25_000 },
           );
 
           // ---- Open the rename through its own door.
-          await app.nativeClickAtElement(VERBS_BUTTON);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement(VERBS_BUTTON);
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="rename-space"]') !== null`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement('[data-item-action="rename-space"]');
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").nativeClickAtElement('[data-item-action="rename-space"]');
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 8_000 },
           );
@@ -570,7 +572,7 @@ describe.skipIf(!SHOULD_RUN)(
           // just opened is untouched by it (at0578 and at0591 carry the same
           // note for the same reason).
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(".tug-menu-content") === null`,
             { timeoutMs: 8_000 },
           );
@@ -582,7 +584,7 @@ describe.skipIf(!SHOULD_RUN)(
             focused: boolean;
             name: string | null;
           }> =>
-            app.evalJS(
+            kindBody(app, "cards").evalJS(
               `(function () {
                  var f = document.querySelector(${JSON.stringify(RENAME_INPUT)});
                  var n = document.querySelector(${JSON.stringify(NAME)});
@@ -607,7 +609,7 @@ describe.skipIf(!SHOULD_RUN)(
           // surface back. The field committed on that transient blur, so
           // clicking a word to put the caret in it closed the rename and put
           // the draft in. Nothing about the gesture said "I am done".
-          const caretPoint = await app.evalJS<{ x: number; y: number }>(
+          const caretPoint = await kindBody(app, "cards").evalJS<{ x: number; y: number }>(
             `(function () {
                var f = document.querySelector(${JSON.stringify(RENAME_INPUT)});
                if (f === null) throw new Error("no rename field");
@@ -618,7 +620,8 @@ describe.skipIf(!SHOULD_RUN)(
                };
              })()`,
           );
-          await app.nativeClick(caretPoint);
+          // The point is in the body's viewport, so the body places the click.
+          await kindBody(app, "cards").nativeClick(caretPoint);
           await new Promise<void>((r) => setTimeout(r, 600));
           const afterClick = await fieldState();
           note(`at0582 after a click in the field: ${JSON.stringify(afterClick)}`);
@@ -643,7 +646,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the selection". So Escape over an open rename cleared something
           // else and the edit stood. The field captures it now.
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );

@@ -138,12 +138,12 @@ describe.skipIf(!SHOULD_RUN)(
           // file — so it carries the annotation immediately, with no
           // probe and nothing to wait for.
           const HEADER_REF = '[data-card-id="A"] [data-slot="read-tool-block-path"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${HEADER_REF}') !== null`,
             { timeoutMs: 8000 },
           );
           const ref = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector('${HEADER_REF}');
               if (!el) return { found: false };
               return {
@@ -168,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)(
           // decoration on the skin would paint across the leading glyph
           // too, and an atom's mark is its name.
           const decoration = (selector: string) =>
-            app.evalJS<string>(`JSON.stringify((function(){
+            app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector(${JSON.stringify(selector)});
               if (el === null) return null;
               var s = getComputedStyle(el);
@@ -187,8 +187,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           // And the delegated layer — not any handler the component owns
           // — turns a click on it into an open.
-          await app.click(HEADER_REF);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(HEADER_REF);
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;
@@ -229,7 +229,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 30_000 },
           );
           await app.bindSession("A", { tugSessionId: SID });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-card-id="A"] [data-slot="session-telemetry-status-row"]') !== null`,
             { timeoutMs: 8000 },
           );
@@ -267,19 +267,19 @@ describe.skipIf(!SHOULD_RUN)(
           // until the disclosure is opened, so the rows are not in the DOM
           // yet.
           const GLOB = '[data-card-id="A"] [data-slot="glob-tool-block"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${GLOB}') !== null`,
             { timeoutMs: 8000 },
           );
-          await app.click(`${GLOB} [data-slot="tool-call-header-disclosure"]`);
+          await app.body("A").click(`${GLOB} [data-slot="tool-call-header-disclosure"]`);
 
           const ROW = '[data-card-id="A"] [data-slot="path-list-row"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${ROW}') !== null`,
             { timeoutMs: 8000 },
           );
           const row = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector('${ROW}');
               if (!el) return { found: false };
               return {
@@ -294,8 +294,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(row.annotated).toBe(true);
           expect(row.path).toBe(realPath);
 
-          await app.click(ROW);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(ROW);
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;
@@ -375,16 +375,16 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(replayComplete());
 
           const AGENT_TEXT = `[data-card-id="A"] [data-slot="agent-transcript-text"]`;
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${AGENT_TEXT}') !== null`,
             { timeoutMs: 10_000 },
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll('${AGENT_TEXT} [data-tug-annotation="file-path"]').length === 2`,
             { timeoutMs: 15_000 },
           );
           const marks = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var els = Array.from(document.querySelectorAll(
                 '${AGENT_TEXT} [data-tug-annotation="file-path"]'));
               return {
@@ -452,12 +452,12 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(replayComplete());
 
           const CHIP = '[data-card-id="A"] [data-tug-annotation="directory"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${CHIP}') !== null`,
             { timeoutMs: 8000 },
           );
           const chip = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var el = document.querySelector('${CHIP}');
               return {
                 path: el.getAttribute('data-path'),
@@ -546,7 +546,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           const COMMAND =
             '[data-card-id="A"] [data-slot="bash-tool-block-command"]';
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${COMMAND}') !== null`,
             { timeoutMs: 8000 },
           );
@@ -555,12 +555,12 @@ describe.skipIf(!SHOULD_RUN)(
           // inside the command; the run naming a missing sibling does not,
           // so verification still gates the affordance one fragment at a
           // time rather than for the header as a whole.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('${COMMAND} [data-tug-annotation="file-path"]') !== null`,
             { timeoutMs: 8000 },
           );
           const marks = JSON.parse(
-            await app.evalJS<string>(`JSON.stringify((function(){
+            await app.body("A").evalJS<string>(`JSON.stringify((function(){
               var host = document.querySelector('${COMMAND}');
               if (!host) return { found: false };
               var spans = Array.from(
@@ -603,8 +603,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           // And it opens, through the same delegated layer every other
           // annotation uses.
-          await app.click(`${COMMAND} [data-tug-annotation="file-path"]`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(`${COMMAND} [data-tug-annotation="file-path"]`);
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;

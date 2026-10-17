@@ -150,7 +150,7 @@ const settle = (ms = 400): Promise<void> => new Promise((r) => setTimeout(r, ms)
 /** Raise the Changes shade with no landing standing — ⌃⌘C, and nothing else. */
 async function raiseChangesShade(app: App): Promise<void> {
   await app.nativeKey("c", ["ctrl", "cmd"]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
     { timeoutMs: 20_000 },
   );
@@ -180,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
         await app.awaitEngineReady("A", { timeoutMs: 30_000 });
 
         await raiseChangesShade(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           { timeoutMs: 40_000 },
         );
@@ -189,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
         // not move. Read here rather than after, so a band that pushed the shade
         // downward is a difference rather than an absolute nobody can check.
         await settle(1_500);
-        const before = await app.evalJS<{ shadeBottom: number; entryTop: number }>(
+        const before = await app.body("A").evalJS<{ shadeBottom: number; entryTop: number }>(
           `(function(){
              const r = function(sel){ const e = document.querySelector(sel); return e === null ? null : e.getBoundingClientRect(); };
              const shade = r(${JSON.stringify(SHEET)});
@@ -206,18 +206,19 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
         // Discard stands on the row's verb row and asks before it destroys,
         // so the gesture is two acts: the verb arms the confirm, the confirm
         // sends it.
-        await pressArcRowMenuItem(app, ROW, "request-discard-arc");
-        await app.waitForCondition<boolean>(
+        await pressArcRowMenuItem(app.body("A"), ROW, "request-discard-arc");
+        // The confirm is the row verb's own popover, in the card's body.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
           { timeoutMs: 20_000 },
         );
-        await app.nativeClickAtElement(CONFIRM);
+        await app.body("A").nativeClickAtElement(CONFIRM);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ERROR_NOTICE)}) !== null`,
           { timeoutMs: 60_000 },
         );
-        const notice = await app.evalJS<string>(
+        const notice = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(ERROR_NOTICE)})?.textContent ?? "")`,
         );
         note(`at0627 the notice in the shade: ${JSON.stringify(notice)}`);
@@ -233,7 +234,7 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
 
         // 2. It is inside the shade, and 3. the shade still ends where it did.
         await settle(1_500);
-        const boxes = await app.evalJS<{
+        const boxes = await app.body("A").evalJS<{
           shadeTop: number;
           shadeBottom: number;
           noticeTop: number;
@@ -287,7 +288,7 @@ describe.skipIf(!SHOULD_RUN)("AT0627: a shade refusal speaks in the shade", () =
         // The refusal changed nothing: `working_set_hand_back` runs above every
         // write, so the arc is still standing and still a row.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(ROW)}) !== null`,
           ),
           "a refused discard leaves the arc where it was",

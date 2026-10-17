@@ -104,7 +104,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The transcript is windowed, so its DOM row count is not the turn
           // count; the wait that matters is the popup's own, below. This one
           // only says the drive is landing turns at all.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length > 0`,
             { timeoutMs: 15000 },
           );
@@ -113,7 +113,7 @@ describe.skipIf(!SHOULD_RUN)(
           // same gesture the reader makes, and the one that mounts the popup
           // body fresh (the placard renders only while a surface is open).
           expect(
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(Z2_TIME)});
                 if (el === null) return false;

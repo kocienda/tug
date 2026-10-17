@@ -39,13 +39,14 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import { hasBodyOfKind, kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -53,10 +54,14 @@ const TEST_TIMEOUT_MS = 180_000;
 const HOME = "new-home";
 
 /**
- * "On screen" — every visited workspace stays mounted, so the document holds
- * one Workspaces card per visited workspace and only one of them is shown.
+ * "On screen" — every visited workspace stays mounted, so the deck holds one
+ * Workspaces card per visited workspace and only one of them is shown. Each
+ * is its own body, whose page holds that one card and no space layer, so the
+ * scope is the body chosen — the visible one, `kindBody(app, "cards")` — and
+ * the prefix is empty. New moves to the workspace it made, whose Workspaces
+ * card is not `C1`.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
+const SHOWN = "";
 const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
 const NEW_BUTTON = `${SHOWN}[data-testid="cards-new-space"]`;
 const RENAME_INPUT = `${SHOWN}[data-testid="cards-space-rename"]`;
@@ -147,13 +152,16 @@ interface FieldFacts {
  * scroller.
  */
 async function openField(app: App): Promise<FieldFacts> {
-  await app.waitForCondition<boolean>(
+  // The shown Workspaces card — painted and placed, so a hidden layer's card
+  // that is still ready is never the one waited in.
+  const card: BodyApp = await waitForBodyPainted(app, "cards", 15_000);
+  await card.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
     { timeoutMs: 15_000 },
   );
   // A frame for the reveal's scroll and the field's focus to settle.
   await new Promise<void>((r) => setTimeout(r, 400));
-  return app.evalJS<FieldFacts>(
+  return card.evalJS<FieldFacts>(
     `(function () {
        var f = document.querySelector(${JSON.stringify(RENAME_INPUT)});
        var header = f.closest(".cards-space-header");
@@ -179,6 +187,7 @@ async function openField(app: App): Promise<FieldFacts> {
 async function spaces(
   app: App,
 ): Promise<{ activeSpaceId: string; spaces: { id: string; name: string }[] }> {
+  // card-dom: shell
   return app.evalJS(`window.tugdeck.diag.getSpaces()`);
 }
 
@@ -205,11 +214,12 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("C1").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === ${PARKED + 1}`,
             { timeoutMs: 25_000 },
           );
-          await app.nativeClickAtElement(NEW_BUTTON);
+          await app.body("C1").nativeClickAtElement(NEW_BUTTON);
+          // card-dom: shell
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.length === ${PARKED + 2}`,
             { timeoutMs: 10_000 },
@@ -238,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           await app.nativeType("Studio");
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -275,18 +285,19 @@ describe.skipIf(!SHOULD_RUN)(
           restoreInTestMode: true,
         });
         try {
+          // card-dom: shell
           await app.waitForCondition<boolean>(
             `typeof window.tugdeck !== "undefined" && window.tugdeck.diag.getSpaces().spaces.length === ${PARKED + 1}`,
             { timeoutMs: 25_000 },
           );
+          // No deck here has a Workspaces card, so none has a body.
           expect(
-            await app.evalJS<number>(
-              `document.querySelectorAll(${JSON.stringify(HEADER)}).length`,
-            ),
+            await hasBodyOfKind(app, "cards"),
             "no Workspaces card is on screen to start",
-          ).toBe(0);
+          ).toBe(false);
 
           await app.dispatchControlAction("new-space");
+          // card-dom: shell
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().spaces.length === ${PARKED + 2}`,
             { timeoutMs: 10_000 },
@@ -307,7 +318,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(field.inView, "its header in view").toBe(true);
 
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );

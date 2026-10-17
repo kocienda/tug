@@ -168,7 +168,7 @@ describe.skipIf(!SHOULD_RUN)("AT0411: the annotator leaves a chip's label alone"
         });
 
         // The chip is there before any verdict is.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP_TEXT)}) !== null`,
           { timeoutMs: 15_000 },
         );
@@ -176,13 +176,13 @@ describe.skipIf(!SHOULD_RUN)("AT0411: the annotator leaves a chip's label alone"
         // The control: the prose run is wrapped and marked, so the filesystem
         // confirmed the path and the wrapping pass has run over this
         // transcript. Only now does the chip's state mean anything.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WRAPPED_PROSE)}) !== null`,
           { timeoutMs: 20_000 },
         );
 
         const label = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify((function(){
               var t = document.querySelector(${JSON.stringify(CHIP_TEXT)});
               if (t === null) return null;

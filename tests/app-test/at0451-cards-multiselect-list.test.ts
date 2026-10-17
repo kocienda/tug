@@ -272,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)(
             "Escape clears the selection",
           ).toEqual([]);
           expect(
-            await app.evalJS<boolean>(
+            await app.body("L").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
             "and stops there — it does not also throw the keyboard out of the Cards card",
@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)(
           // the root — which is the point. A selection is deck state, and the
           // key that takes it back cannot depend on where the keyboard drifted.
           expect(
-            await app.evalJS<boolean>(
+            await app.body("L").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(CURSOR_ROW)}) !== null`,
             ),
             "the click left the Cards card without the keyboard",
