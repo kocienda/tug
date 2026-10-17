@@ -297,7 +297,7 @@
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": "body",
       "kind": "deck-facts",
-      "payload": { "theme": "ironclad", "zoom": 1, "keyboardAccess": false, "modifierLatch": [], "focusRingModality": "keyboard", "appActive": true, "frontmostProject": { "binding": { "tugSessionId": "s1", "lineId": "l1", "workspaceKey": "w1", "projectDir": "/p" } } }
+      "payload": { "theme": "ironclad", "zoom": 1, "keyboardAccess": false, "modifierLatch": [], "focusRingModality": "keyboard", "appActive": true, "frontmostProject": { "binding": { "tugSessionId": "s1", "lineId": "l1", "workspaceKey": "w1", "projectDir": "/p" } }, "motionDemoted": true }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },

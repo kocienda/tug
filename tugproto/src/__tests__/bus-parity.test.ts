@@ -167,6 +167,7 @@ const DELIVERED: BusDelivered[] = [
       focusRingModality: "keyboard",
       appActive: true,
       frontmostProject: { binding: { tugSessionId: "s1", lineId: "l1", workspaceKey: "w1", projectDir: "/p" } },
+      motionDemoted: true,
     },
   },
   {

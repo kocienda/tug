@@ -274,6 +274,11 @@ pub struct DeckFacts {
     /// a relative path against.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frontmost_project: Option<serde_json::Value>,
+    /// Whether the shell's motion breaker is demoting the deck: the hand
+    /// switch is the deck's, and a body stills its own loops by it. Absent
+    /// from a shell that predates it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_demoted: Option<bool>,
 }
 
 /// Whether the focus ring follows the keyboard only, or the pointer too.
@@ -414,6 +419,13 @@ mod tests {
         assert!(has(&|e| matches!(e.message, BusMessage::CardFacts(_))));
         assert!(has(&|e| matches!(e.message, BusMessage::CardCommand(_))));
         assert!(has(&|e| matches!(e.message, BusMessage::DeckFacts(_))));
+        assert!(has(&|e| matches!(
+            &e.message,
+            BusMessage::DeckFacts(DeckFacts {
+                motion_demoted: Some(true),
+                ..
+            })
+        )));
         assert!(has(&|e| matches!(e.message, BusMessage::CardContext(_))));
         assert!(has(&|e| matches!(
             &e.message,
