@@ -13,8 +13,12 @@
 //! `PASS` line. So the wrapper asks each for one mark per passing test —
 //! bun's `--dots`, nextest's `--status-level pass` — counts the marks, and
 //! swallows them, so what reaches the reader is what the bare command would
-//! have printed. `cargo test` already prints one line per test, on stdout,
-//! and is followed there with nothing added or taken away.
+//! have printed — with one accepted exception: bun's dots mode also prints
+//! its summary lines without their leading space and its `(fail)` lines
+//! without their timings, and those reach the reader as bun wrote them. The
+//! live count is worth that; the counts, names, messages and exit status are
+//! unchanged. `cargo test` already prints one line per test, on stdout, and
+//! is followed there with nothing added or taken away.
 //!
 //! A run that writes no junit document — a `cargo test`, or a nextest run
 //! that named no `--junit` — is recorded from what the follower counted off

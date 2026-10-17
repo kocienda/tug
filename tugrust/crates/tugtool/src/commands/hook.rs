@@ -38,8 +38,9 @@ pub enum HookCommands {
     /// Answer a PreToolUse hook: read the hook's JSON payload from stdin and
     /// print the decision. Auto-approves the plugin's own skills and the
     /// read-only Bash prefixes; denies a Bash command whose file operations
-    /// the change ledger cannot read; rewrites a test runner at the head of a
-    /// Bash command to run inside `tugtool test run`; says nothing otherwise.
+    /// the change ledger cannot read; rewrites each test runner in a Bash
+    /// command — wherever it stands as a command of its own, a pipeline's head
+    /// included — to run inside `tugtool test run`; says nothing otherwise.
     PreToolUse,
 }
 
@@ -185,7 +186,7 @@ pub(crate) fn pre_tool_use_with(
 // Test runners run inside `tugtool test run`
 // ---------------------------------------------------------------------------
 
-/// The runners the hook recognises at the head of a command, and the
+/// The runners the hook recognises, by their leading words, and the
 /// `test run --kind` each one is.
 const TEST_RUNNERS: &[(&[&str], &str)] = &[
     (&["cargo", "nextest", "run"], "nextest"),
@@ -193,99 +194,169 @@ const TEST_RUNNERS: &[(&[&str], &str)] = &[
     (&["bun", "test"], "bun"),
 ];
 
-/// Shell syntax the wrap does not read past. A runner followed by any of
-/// these sits in a pipeline, a sequence, a redirection or a grouping, and
-/// the wrap leaves the whole command to the shell rather than parse it. A
-/// `$VAR` or a quoted word is not in the list: the arguments are copied
-/// verbatim into the same shell, which reads them as it would have.
-const SHELL_SYNTAX: &[char] = &['|', ';', '&', '<', '>', '(', ')', '`', '\n'];
-
-/// A test runner read off the head of a command.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct TestRunner<'a> {
-    /// The directory a leading `cd <dir> &&` names, verbatim.
-    pub cd: Option<&'a str>,
-    /// The `test run --kind` the runner is.
-    pub kind: &'a str,
-    /// The runner's own words — `cargo nextest run`, `bun test`.
-    pub head: String,
-    /// The runner and its arguments, from the head to the end of the command.
-    pub rest: &'a str,
-}
-
-/// Read a recognised runner off a command: an optional `cd <dir> &&`, then
-/// `cargo nextest run`, `cargo test` or `bun test`, then its arguments and
-/// nothing else.
+/// The simple commands in a Bash command line, as byte ranges: the stretches
+/// between the shell's control operators (`|`, `||`, `&&`, `;`, `&`, a
+/// newline) and its grouping parentheses, read outside quotes. A `&` that is
+/// part of a redirection (`2>&1`, `&>`) is not an operator.
 ///
-/// Everything else is `None`, and that one rule covers the cases the wrap
-/// must not touch. A command already going through `tugtool test run` or a
-/// `just test-…` recipe has a different head. A runner mid-pipeline, or
-/// followed by `&&`, has shell syntax in its tail. An environment assignment
-/// before the runner is its head, and a second `cd` is shell syntax in the
-/// first one's tail.
-pub(crate) fn recognise_test_runner(command: &str) -> Option<TestRunner<'_>> {
-    let trimmed = command.trim();
-    let (cd, rest) = match trimmed.strip_prefix("cd ") {
-        Some(after) => {
-            let (dir, rest) = after.split_once("&&")?;
-            let dir = dir.trim();
-            if dir.is_empty() || dir.contains(SHELL_SYNTAX) {
-                return None;
+/// `None` when the line holds syntax this reading cannot place a command in
+/// with certainty — a command substitution (`$(…)`, backticks), a
+/// here-document, an unclosed quote — and then nothing in it is wrapped.
+fn simple_commands(command: &str) -> Option<Vec<(usize, usize)>> {
+    let bytes = command.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0;
+    let (mut single, mut double) = (false, false);
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if single {
+            if b == b'\'' {
+                single = false;
             }
-            (Some(dir), rest.trim())
+            i += 1;
+            continue;
         }
-        None => (None, trimmed),
-    };
-    if rest.contains(SHELL_SYNTAX) {
+        match b {
+            b'\\' => {
+                i += 2;
+                continue;
+            }
+            b'"' => double = !double,
+            b'`' => return None,
+            b'$' if bytes.get(i + 1) == Some(&b'(') => return None,
+            _ if double => {}
+            b'\'' => single = true,
+            b'<' if bytes.get(i + 1) == Some(&b'<') => return None,
+            b'&' if i > 0 && matches!(bytes[i - 1], b'>' | b'<') => {}
+            b'&' if bytes.get(i + 1) == Some(&b'>') => {}
+            b'|' | b'&' | b';' | b'(' | b')' | b'\n' => {
+                out.push((start, i));
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    if single || double {
         return None;
     }
-    let words: Vec<&str> = rest.split_whitespace().collect();
-    TEST_RUNNERS
-        .iter()
-        .find(|(head, _)| words.len() >= head.len() && words[..head.len()] == **head)
-        .map(|(head, kind)| TestRunner {
-            cd,
-            kind,
-            head: head.join(" "),
-            rest,
-        })
+    out.push((start, bytes.len()));
+    Some(out)
 }
 
-/// The command a recognised runner becomes: the same `cd` prefix, the call
-/// id in the environment so the run's reports land on their own block, and
-/// this binary's `test run` around the runner and its arguments, verbatim.
+/// A simple command's whitespace-separated words, each with its byte offset
+/// in the whole command line. Quotes are not read here: only the leading
+/// words matter, and an argument's spelling is never touched.
+fn words_of(command: &str, (start, end): (usize, usize)) -> Vec<(usize, &str)> {
+    let span = &command[start..end];
+    let mut out = Vec::new();
+    let mut word = None;
+    for (i, c) in span.char_indices() {
+        if c.is_whitespace() {
+            if let Some(s) = word.take() {
+                out.push((start + s, &span[s..i]));
+            }
+        } else if word.is_none() {
+            word = Some(i);
+        }
+    }
+    if let Some(s) = word {
+        out.push((start + s, &span[s..]));
+    }
+    out
+}
+
+/// `NAME=value` with a plain value — an environment assignment the wrap can
+/// leave standing in front of it. A quoted value may hold spaces the word
+/// split cut through, so it is not read as one.
+fn is_assignment(word: &str) -> bool {
+    match word.split_once('=') {
+        Some((name, value)) => {
+            !name.is_empty()
+                && !name.starts_with(|c: char| c.is_ascii_digit())
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                && !value.contains(['\'', '"'])
+        }
+        None => false,
+    }
+}
+
+/// The runner a simple command is, past any environment assignments: the
+/// offset of its first word, its `test run --kind`, and its own words.
+fn runner_in(words: &[(usize, &str)]) -> Option<(usize, &'static str, String)> {
+    let first = words.iter().position(|(_, w)| !is_assignment(w))?;
+    let rest: Vec<&str> = words[first..].iter().map(|(_, w)| *w).collect();
+    TEST_RUNNERS
+        .iter()
+        .find(|(head, _)| rest.len() >= head.len() && rest[..head.len()] == **head)
+        .map(|(head, kind)| (words[first].0, *kind, head.join(" ")))
+}
+
+/// The command line with every recognised runner wrapped where it stands, or
+/// `None` when there is none to wrap.
+///
+/// A runner is wrapped wherever it is a simple command of its own — the whole
+/// line, after a `cd … &&`, at the head of a pipeline, inside `( … )` — by
+/// inserting the call id and this binary's `test run … --` in front of its
+/// first word. Nothing else in the line moves, so a pipe, a filter, a
+/// redirection and the line's exit status are what they were: `test run`
+/// passes the runner's output through byte for byte and exits with its
+/// status, and the run panel reads the run's reports, which go to tugcast by
+/// call id rather than down the pipe. That is why a `| tail -6` costs the
+/// panel nothing.
+///
+/// Left alone: a line holding syntax [`simple_commands`] will not read, and
+/// any command whose head is not a runner — `just test-rust` and an already
+/// wrapped `tugtool test run` among them, so nothing is wrapped twice, and
+/// `echo cargo test` or a loop's `do cargo test` too.
 ///
 /// The suite is the ledger's key for the run. Rust runs share `rust` with
-/// `just test-rust`, so a crate run and the workspace run are one history.
-/// A bun run takes the name of the directory it runs in, which is how the
-/// recipes name theirs.
+/// `just test-rust`, so a crate run and the workspace run are one history. A
+/// bun run takes the name of the directory it runs in — the last `cd <dir>`
+/// before it, else the call's own — which is how the recipes name theirs.
 pub(crate) fn wrap_test_runner(
     command: &str,
     cwd: Option<&str>,
     tool_use_id: Option<&str>,
     tugtool: &str,
 ) -> Option<String> {
-    let runner = recognise_test_runner(command)?;
-    let suite = match runner.kind {
-        "bun" => dir_name(runner.cd.or(cwd)).unwrap_or("bun"),
-        _ => "rust",
-    };
-    let mut out = String::new();
-    if let Some(dir) = runner.cd {
-        out.push_str(&format!("cd {dir} && "));
+    let mut inserts: Vec<(usize, String)> = Vec::new();
+    let mut dir: Option<&str> = None;
+    for span in simple_commands(command)? {
+        let words = words_of(command, span);
+        if let [(_, "cd"), (_, d)] = words.as_slice() {
+            dir = Some(d);
+            continue;
+        }
+        let Some((at, kind, head)) = runner_in(&words) else {
+            continue;
+        };
+        let suite = match kind {
+            "bun" => dir_name(dir.or(cwd)).unwrap_or("bun"),
+            _ => "rust",
+        };
+        let mut wrap = String::new();
+        if let Some(id) = tool_use_id.filter(|id| is_plain_word(id)) {
+            wrap.push_str(&format!("TUG_TOOL_USE_ID={id} "));
+        }
+        wrap.push_str(&format!(
+            "{} test run --suite {} --kind {} --label {} --needle {} -- ",
+            shell_word(tugtool),
+            shell_word(suite),
+            kind,
+            shell_word(&head),
+            shell_word(&head),
+        ));
+        inserts.push((at, wrap));
     }
-    if let Some(id) = tool_use_id.filter(|id| is_plain_word(id)) {
-        out.push_str(&format!("TUG_TOOL_USE_ID={id} "));
+    if inserts.is_empty() {
+        return None;
     }
-    out.push_str(&format!(
-        "{} test run --suite {} --kind {} --label {} --needle {} -- {}",
-        shell_word(tugtool),
-        shell_word(suite),
-        runner.kind,
-        shell_word(&runner.head),
-        shell_word(&runner.head),
-        runner.rest
-    ));
+    let mut out = command.to_string();
+    for (at, text) in inserts.into_iter().rev() {
+        out.insert_str(at, &text);
+    }
     Some(out)
 }
 
@@ -900,20 +971,88 @@ mod tests {
     }
 
     #[test]
-    fn a_runner_that_is_not_the_whole_command_is_left_alone() {
+    fn a_runner_is_wrapped_where_it_stands_and_the_rest_of_the_line_is_untouched() {
+        const W: &str =
+            "TUG_TOOL_USE_ID=toolu_01A /Applications/Tug.app/Contents/MacOS/tugtool test run";
+        let nextest = format!(
+            "{W} --suite rust --kind nextest --label 'cargo nextest run' --needle 'cargo nextest run' -- "
+        );
+        let cargo = format!(
+            "{W} --suite rust --kind cargo-test --label 'cargo test' --needle 'cargo test' -- "
+        );
+        for (command, wrapped) in [
+            // A filter on the output: the pipe and the filter stand as typed.
+            (
+                "cargo nextest run 2>&1 | tail -5".to_string(),
+                format!("{nextest}cargo nextest run 2>&1 | tail -5"),
+            ),
+            (
+                "cargo nextest run && echo ok".into(),
+                format!("{nextest}cargo nextest run && echo ok"),
+            ),
+            (
+                "cargo test; echo done".into(),
+                format!("{cargo}cargo test; echo done"),
+            ),
+            (
+                "cargo nextest run > out.txt".into(),
+                format!("{nextest}cargo nextest run > out.txt"),
+            ),
+            // An assignment stays in front, so it still reaches the runner.
+            (
+                "RUST_LOG=debug cargo test".into(),
+                format!("RUST_LOG=debug {cargo}cargo test"),
+            ),
+            (
+                "cd a && cd b && cargo test".into(),
+                format!("cd a && cd b && {cargo}cargo test"),
+            ),
+            (
+                "(cd tugrust && cargo test)".into(),
+                format!("(cd tugrust && {cargo}cargo test)"),
+            ),
+            // The shapes a session reaches for, verbatim but for the wrap.
+            (
+                "(grep -c x a && just test-tugdeck || (cd tugdeck && bun test)) | tail -12".into(),
+                format!(
+                    "(grep -c x a && just test-tugdeck || (cd tugdeck && {W} --suite tugdeck --kind bun \
+                     --label 'bun test' --needle 'bun test' -- bun test)) | tail -12"
+                ),
+            ),
+            (
+                "cargo nextest run -p a 2>&1 | tail -3; cargo test -p b | grep FAILED".into(),
+                format!(
+                    "{nextest}cargo nextest run -p a 2>&1 | tail -3; {cargo}cargo test -p b | grep FAILED"
+                ),
+            ),
+        ] {
+            assert_eq!(
+                wrap(&command).as_deref(),
+                Some(wrapped.as_str()),
+                "{command}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_cannot_be_read_with_certainty_is_left_alone() {
         for command in [
-            "cargo nextest run 2>&1 | tail -5",
-            "cargo nextest run && echo ok",
-            "cargo test; echo done",
-            "RUST_LOG=debug cargo test",
-            "cd a && cd b && cargo test",
-            "(cd tugrust && cargo test)",
-            "cargo nextest run > out.txt",
             "cargo build",
             "bunx tsc --noEmit",
+            "echo cargo test",
+            "echo 'cargo test | x'",
+            "for c in a b; do cargo test -p $c; done",
+            "x=$(cargo test 2>&1)",
+            "echo `cargo test`",
+            "cat <<EOF | sh\ncargo test\nEOF",
+            "cargo test 'unclosed",
+            "FOO=\"a b\" cargo test",
         ] {
             assert_eq!(wrap(command), None, "{command}");
         }
+        // Wrapping is idempotent: a wrapped line has nothing left to wrap.
+        let once = wrap("cargo test | tail -3").unwrap();
+        assert_eq!(wrap(&once), None, "{once}");
     }
 
     #[test]

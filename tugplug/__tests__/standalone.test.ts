@@ -189,9 +189,26 @@ describe("the hook script, from the bundle alone", () => {
     expect(command.endsWith(" -- cargo nextest run -p app")).toBe(true);
   });
 
-  test("leaves a runner alone when it is not the whole command", () => {
+  /**
+   * A filter on the output is the shape sessions type most, and the wrap
+   * holds there too: the prefix lands before the runner and the pipe and
+   * the filter stand as typed, since the panel's reports never go down it.
+   */
+  test("wraps a runner at the head of a pipeline and leaves the filter as typed", () => {
+    const decision = hook({
+      tool_name: "Bash",
+      tool_input: { command: "cargo nextest run 2>&1 | tail -5" },
+      cwd: project,
+      tool_use_id: "toolu_01pipe",
+    });
+    const command: string = decision.hookSpecificOutput.updatedInput.command;
+    expect(command.startsWith("TUG_TOOL_USE_ID=toolu_01pipe ")).toBe(true);
+    expect(command.endsWith(" -- cargo nextest run 2>&1 | tail -5")).toBe(true);
+  });
+
+  test("leaves a runner alone inside a command substitution", () => {
     expect(
-      hook({ tool_name: "Bash", tool_input: { command: "cargo nextest run 2>&1 | tail -5" }, cwd: project }),
+      hook({ tool_name: "Bash", tool_input: { command: "x=$(cargo nextest run 2>&1)" }, cwd: project }),
     ).toBeNull();
   });
 
