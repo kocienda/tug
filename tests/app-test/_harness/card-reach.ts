@@ -14,7 +14,7 @@
  */
 
 import type { App, BodyApp, DeckTraceEvent } from "./index";
-import { enforcedTimeout } from "./rpc";
+import { enforcedTimeout, withinFileDeadline } from "./rpc";
 import { keyboardInCardHost } from "./selectors";
 
 /**
@@ -102,7 +102,7 @@ export async function waitForKeyboardInCard(app: App, cardId: string, opts: { ti
  * Throws when no such card stands ready in `timeoutMs`.
  */
 export async function bodyOfKind(app: App, componentId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + withinFileDeadline(timeoutMs);
   for (;;) {
     const bodies = await app.bodies();
     // Several cards of a kind (one Workspaces card per workspace, say): the
@@ -125,7 +125,7 @@ export async function bodyOfKind(app: App, componentId: string, timeoutMs = BODY
  * Throws with what the host holds when the body is not ready in `timeoutMs`.
  */
 export async function waitForBodyReady(app: App, cardId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + withinFileDeadline(timeoutMs);
   for (;;) {
     const bodies = await app.bodies();
     if (bodies.some((b) => b.cardId === cardId && b.state === "ready")) return app.body(cardId);
@@ -170,7 +170,7 @@ export async function waitForNoBodyOfKind(app: App, componentId: string, opts: {
  * such body stands in `timeoutMs`.
  */
 export async function waitForBodyPainted(app: App, componentId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + withinFileDeadline(timeoutMs);
   for (;;) {
     const bodies = await app.bodies();
     const placed = bodies.find(

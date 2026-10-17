@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { RpcClient, translateError, type RpcTransport } from "./rpc";
+import { RpcClient, WAIT_CEILING_MS, enforcedTimeout, translateError, type RpcTransport } from "./rpc";
 import {
   AppCrashedError,
   TimeoutError,
@@ -205,5 +205,20 @@ describe("translateError", () => {
     expect(err.name).toBe("ReferenceError");
     expect(err.message).toBe("foo is not defined");
     expect(err).not.toBeInstanceOf(TimeoutError);
+  });
+});
+
+describe("the wait ceiling", () => {
+  test("no wait is enforced past 20 s, however long it asks for", () => {
+    expect(WAIT_CEILING_MS).toBe(20_000);
+    expect(enforcedTimeout(40_000)).toBe(20_000);
+    expect(enforcedTimeout(5_000)).toBe(5_000);
+  });
+
+  test("an explicit ask past the ceiling goes on the wire at the ceiling", () => {
+    const { transport, sent } = makeMockTransport();
+    const client = new RpcClient(transport);
+    void client.call<boolean>({ method: "waitForCondition", script: "false", timeoutMs: 100_000 }).catch(() => {});
+    expect(JSON.parse(sent[0]).timeoutMs).toBe(20_000);
   });
 });

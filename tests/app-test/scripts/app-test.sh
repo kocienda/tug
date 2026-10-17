@@ -592,24 +592,22 @@ BG_COUNT=${#BG_QUEUE[@]}
 # it at 1 so a red costs its own budget and not four of them.
 [ "$JOBS" -gt 1 ] && export TUG_APPTEST_TIMEOUT_SCALE="${TUG_APPTEST_TIMEOUT_SCALE:-$JOBS}"
 
-# Bun's own per-test timeout (5000ms) is the other budget sized for a lone
-# file, and it lives outside the RPC path, so it is scaled on the command line.
-BUN_TIMEOUT_ARG=""
-[ "$JOBS" -gt 1 ] && BUN_TIMEOUT_ARG="--timeout $(( 5000 * JOBS ))"
-
 RUNDIR="$(mktemp -d -t apptest-run.XXXXXX)"
 
-# Stop any of THIS WORKTREE's apptest stragglers. The harness's
+# Stop the apptest stragglers under a prefix: this worktree's by default, or
+# one file's when the pool names that file's own (`$1`). The harness's
 # `app.close()` already targets its own instance; this is defence-in-depth
-# for a test that panics before reaching `close`.
+# for a file that was stopped, or panicked, before reaching `close`. An app
+# launched through `open` is outside the file's process group, so stopping
+# the file does not stop its app — this does.
 #
-# It is prefix-scoped, so it reaches every concurrent file's app as readily
-# as its own — which is why it runs BETWEEN batches and never inside one.
-# Called per-file under concurrency, the first file to finish would SIGTERM
-# every app still under test.
+# The worktree prefix reaches every concurrent file's app as readily as its
+# own, so under the pool a file is reaped by its own prefix and never by
+# the worktree's.
 reap_stragglers() {
+    local prefix="${1:-$TUG_APPTEST_ID_PREFIX}"
     while read -r ID; do
-        case "$ID" in "${TUG_APPTEST_ID_PREFIX}-"*)
+        case "$ID" in "${prefix}-"*)
             tugrust/target/debug/tugtool host instance stop "$ID" --timeout 2 >/dev/null 2>&1 || true ;;
         esac
     done < <(tugrust/target/debug/tugtool host instance list 2>/dev/null | tail -n +2 | awk '{print $1}')
@@ -633,11 +631,13 @@ run_one_file() {
     # The block's run panel draws this file's lane from here.
     printf '%s' "$((file_start * 1000))" > "$out.start"
     post_units "$f started"
-    # The file runs under its wedge cap (run-capped.sh), which kills it and
-    # leaves $out.wedged behind when the app has stopped answering.
-    local cap
-    cap="$(wedge_cap_for "$f" | cut -f1)"
-    [ "$cap" -gt "$KILL_CEILING" ] && cap="$KILL_CEILING"
+    # The file runs under the budget (run-capped.sh), which stops it and
+    # leaves $out.wedged behind when it has not finished by then.
+    local cap="$BUDGET_SECS"
+    # Every wait inside the file is held to this, a few seconds short of the
+    # stop, so a red fails with its own message and still tears down in time
+    # (`_harness/rpc.ts`, withinFileDeadline).
+    export TUG_APPTEST_FILE_DEADLINE_MS=$(( (file_start + BUDGET_SECS) * 1000 - 3000 ))
     if [ -n "$STREAM" ]; then
         echo "---- $f ----"
         # bun's stdout/stderr both stream to the user's terminal AND
@@ -671,11 +671,16 @@ run_one_file() {
     # Diagnostics the test asked to be seen, on green runs as well as red.
     grep '^TUG-NOTE: ' "$tmpout" 2>/dev/null | sed 's/^TUG-NOTE: //' > "$out.notes" || true
 
-    # A wedge outranks every count: the file was killed mid-run, so what it
-    # printed before the kill is not a result. It has no failure records,
-    # and the ledger never reads it as a red.
+    # A file stopped at the budget is a red, like any file past it: OVERTIME,
+    # which the ledger records as a failure. Its failures are what it printed
+    # before the stop, and the stop itself with the tail of its output — so
+    # the report says where it was, not just that it was slow.
     if [ -e "$out.wedged" ]; then
-        status=WEDGED
+        status=OVERTIME
+        extract_failures "$tmpout" "$f" > "$out.fails"
+        failed="$(grep -c '^(fail) ' "$tmpout" 2>/dev/null || true)"
+        passed=0; total=$(( ${failed:-0} + 1 ))
+        printf '%s' "(stopped at the ${BUDGET_SECS}s budget, unfinished)$US$(grep -v '^[[:space:]]*$' "$tmpout" | tail -n 12)$US$RS" >> "$out.fails"
     elif [ "$rc" -eq 0 ] && [ "$total" -eq 0 ]; then
         status=SKIP; passed=0; total=0
     elif [ "$rc" -eq 0 ]; then
@@ -725,18 +730,12 @@ report_progress() {
         msg="${msg%%"$US"*}"
         detail="$(printf '\n          ↳ %s\n            %s' "${title:0:140}" "${msg:0:160}")"
     fi
-    if [ "$status" = WEDGED ]; then
-        local cap last
-        IFS=$'\t' read -r cap last <<< "$(wedge_cap_for "$f")"
-        if [ "$cap" -gt "$KILL_CEILING" ]; then
-            detail="$(printf '\n          ↳ stopped at %ss, three times the %ss budget at the timeout scale of this run — it had not finished' "$KILL_CEILING" "$BUDGET_SECS")"
-        elif [ "$last" = "-" ]; then
-            detail="$(printf '\n          ↳ stopped at its %ss cap (no recorded time, so the floor) — the app stopped answering' "$cap")"
-        else
-            detail="$(printf '\n          ↳ stopped at its %ss cap (3× the median of its recent recorded times, %ss) — the app stopped answering' "$cap" "$last")"
-        fi
-    fi
-    if [ "$status" = OVERTIME ]; then
+    if [ "$status" = OVERTIME ] && [ -e "$RUNDIR/$(printf '%s' "$f" | tr '/' '_').wedged" ]; then
+        detail="$(printf '\n          ↳ stopped at the %ss budget, unfinished' "$BUDGET_SECS")"
+        first="$(head -n 1 "$fails")"
+        title="${first%%"$US"*}"
+        case "$title" in "(stopped at"*) ;; *) detail="$detail$(printf ' — first red: %s' "${title:0:140}")" ;; esac
+    elif [ "$status" = OVERTIME ]; then
         detail="$(printf '\n          ↳ green, but %ss is over the %ss budget every file is held to: split it or make it faster' "$secs" "$BUDGET_SECS")"
     fi
     printf '%3d/%-3d %02d:%02d  %-6s %-56s (%d/%d)  %4ds%s\n' \
@@ -773,11 +772,6 @@ collect_file() {
     [ -f "$out.row" ] || return 0
     row="$(cat "$out.row")"
     RESULT_ROWS+=("$row")
-    case "$row" in
-        WEDGED:*) WEDGE_STREAK=$((WEDGE_STREAK + 1)) ;;
-        *)        WEDGE_STREAK=0 ;;
-    esac
-    [ "$WEDGE_STREAK" -ge 2 ] && HALTED=1
     if [ -f "$out.notes" ]; then
         while IFS= read -r ln; do
             [ -n "$ln" ] && NOTE_ROWS+=("$f$US$ln")
@@ -797,14 +791,9 @@ collect_file() {
 TUGTOOL_BIN="$REPO_ROOT/tugrust/target/debug/tugtool"
 [ -x "$TUGTOOL_BIN" ] || TUGTOOL_BIN="$(command -v tugtool 2>/dev/null || true)"
 
-# Every file's wedge cap, from one history call before anything runs: three
-# times the median of its recent recorded wall times, floored at two minutes
-# — or, with no recorded time, at the file's own declared timeout when that
-# is longer (wedge-cap.ts).
-# A file past its cap is killed and recorded as WEDGED rather than waited
-# on — a hung app otherwise walks the rest of the selection into the same
-# wall, one file at a time. No ledger means every file gets the floor: the
-# cap is a backstop, and a missing one must never stop a run.
+# Every file's recorded time, from one history call before anything runs:
+# the median of its recent wall times (wedge-cap.ts's basis), which the cost
+# estimate below sums. No ledger means every file is unknown.
 CAPS_FILE="$RUNDIR/caps"
 if [ -n "$TUGTOOL_BIN" ]; then
     "$TUGTOOL_BIN" apptest history --root "$REPO_ROOT" --json "${FILES[@]}" 2>/dev/null || true
@@ -817,19 +806,15 @@ wedge_cap_for() {
 }
 
 # Every file is held to one budget of wall time, 20 s unless the caller says
-# otherwise: a file that finishes past it is OVERTIME, a red the summary and
-# the ledger count as a failure, because a slow test is a defect of the test.
-# The kill still comes from the wedge cap, now never later than three budgets:
-# a file that has not finished by then has nothing left to say.
+# otherwise, and is stopped there: a file past it is OVERTIME, a red the
+# summary and the ledger count as a failure, because a slow test is a defect
+# of the test. Nothing inside a file waits longer either — the harness holds
+# every wait to the same 20 s (`_harness/rpc.ts`, WAIT_CEILING_MS), and bun's
+# per-test timeout is the budget — so a red fails with its own message rather
+# than being stopped with none. No number of stopped files stops the run.
 BUDGET_SECS="${TUG_APPTEST_FILE_BUDGET_SECS:-20}"
 case "$BUDGET_SECS" in ''|*[!0-9]*) BUDGET_SECS=20 ;; esac
-# The kill ceiling travels with the timeout scale, as every wait inside a file
-# does: under concurrency a file's 20 s wait is 80 s of wall time, and a
-# ceiling below that would kill an ordinary timeout red as a wedge, losing its
-# failure and halting the run on two of them.
-KILL_SCALE="${TUG_APPTEST_TIMEOUT_SCALE:-1}"
-case "$KILL_SCALE" in ''|*[!0-9]*) KILL_SCALE=1 ;; esac
-KILL_CEILING=$((BUDGET_SECS * 3 * KILL_SCALE))
+BUN_TIMEOUT_ARG="--timeout $((BUDGET_SECS * 1000))"
 
 # What this run will cost, said before it starts, from the ledger's recorded
 # times: the sum of each file's basis (the median of its recent times), the
@@ -851,43 +836,49 @@ if [ "${#FILES[@]}" -gt 0 ]; then
     echo "==> ${#FILES[@]} file(s); the record says ~${est_secs}s of file time (~${est_wall}s wall at ${JOBS} at a time) for the ${est_known} with a record, ${est_unknown} unknown; ${est_over} already over the ${BUDGET_SECS}s budget by their recorded times."
 fi
 
-# Two wedges in a row is an app that is not answering, not two slow files:
-# every file after them would wedge too, each at its own cap. The run halts
-# instead, and the files it never reached are named in the summary.
-WEDGE_STREAK=0
-HALTED=""
-
 START_EPOCH="$(date +%s)"
 [ -n "$PROGRESS" ] && echo "==> running ${#FILES[@]} file(s), $JOBS at a time; each reports as it finishes."
 
-# The background tier, JOBS at a time. Batched rather than a rolling pool:
-# macOS ships bash 3.2, which has no `wait -n` to retire one job at a time.
-declare -a BATCH=()
+# The background tier, a rolling pool of JOBS: the moment a file finishes,
+# the next starts in its slot, so a slow file holds only its own. macOS ships
+# bash 3.2, which has no `wait -n`; each job instead writes its file's name to
+# a FIFO as its last act, and a blocking read on it is the retirement. Each
+# file runs under an instance prefix of its own, so its stragglers are reaped
+# without touching the apps of the files still running beside it.
 if [ "${#BG_QUEUE[@]}" -gt 0 ]; then
+    POOL_FIFO="$RUNDIR/pool.fifo"
+    mkfifo "$POOL_FIFO"
+    exec 3<>"$POOL_FIFO"
+    pool_seq=0
+    pool_running=0
     for f in "${BG_QUEUE[@]}"; do
-        BATCH+=("$f")
-        if [ "${#BATCH[@]}" -ge "$JOBS" ]; then
-            for b in "${BATCH[@]}"; do run_one_file "$b" & done
-            wait
-            reap_stragglers
-            for b in "${BATCH[@]}"; do collect_file "$b"; done
-            BATCH=()
-            [ -n "$HALTED" ] && break
+        if [ "$pool_running" -ge "$JOBS" ]; then
+            read -r done_f <&3
+            collect_file "$done_f"
+            pool_running=$((pool_running - 1))
         fi
+        pool_seq=$((pool_seq + 1))
+        (
+            export TUG_APPTEST_ID_PREFIX="${TUG_APPTEST_ID_PREFIX}-f${pool_seq}"
+            run_one_file "$f"
+            reap_stragglers "$TUG_APPTEST_ID_PREFIX"
+            printf '%s\n' "$f" >&3
+        ) &
+        pool_running=$((pool_running + 1))
     done
-    if [ -z "$HALTED" ] && [ "${#BATCH[@]}" -gt 0 ]; then
-        for b in "${BATCH[@]}"; do run_one_file "$b" & done
-        wait
-        reap_stragglers
-        for b in "${BATCH[@]}"; do collect_file "$b"; done
-        BATCH=()
-    fi
+    while [ "$pool_running" -gt 0 ]; do
+        read -r done_f <&3
+        collect_file "$done_f"
+        pool_running=$((pool_running - 1))
+    done
+    wait
+    exec 3<&-
+    reap_stragglers
 fi
 
 # The motion tail, strictly one at a time and at an unscaled budget: alone,
 # a motion file has the machine its frame bars were sized for.
 for f in ${MOTION_QUEUE[@]+"${MOTION_QUEUE[@]}"}; do
-    [ -n "$HALTED" ] && break
     TUG_APPTEST_TIMEOUT_SCALE=1 run_one_file "$f"
     reap_stragglers
     collect_file "$f"
@@ -896,7 +887,6 @@ done
 # The screen-takers, strictly one at a time. The decision resolves here,
 # after every background file has already run.
 for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
-    [ -n "$HALTED" ] && break
     resolve_foreground_decision
     if [ "$FG_DECISION" = "skip" ]; then
         [ -n "$STREAM" ] && echo "---- $f (skipped — takes the screen) ----"
@@ -912,19 +902,6 @@ for f in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
     collect_file "$f"
     sleep 0.3
 done
-
-declare -a UNRUN_FILES=()
-if [ -n "$HALTED" ]; then
-    for f in "${FILES[@]}"; do
-        ran=""
-        for row in "${RESULT_ROWS[@]}"; do
-            IFS=':' read -r _s rfile _rest <<< "$row"
-            [ "$rfile" = "$f" ] && ran=1 && break
-        done
-        [ -z "$ran" ] && UNRUN_FILES+=("$f")
-    done
-    echo "==> two files in a row wedged — the app is not answering. Stopping with ${#UNRUN_FILES[@]} file(s) not run."
-fi
 
 END_EPOCH="$(date +%s)"
 ELAPSED=$((END_EPOCH - START_EPOCH))
@@ -964,9 +941,7 @@ printf '%-14s  %d\n' 'Files failed:' "$files_failed"
 printf '%-14s  %d\n' 'Files errored:' "$files_errored"
 [ "$files_skipped" -gt 0 ] && printf '%-14s  %d\n' 'Files skipped:' "$files_skipped"
 [ "$files_wedged" -gt 0 ] && printf '%-14s  %d\n' 'Files wedged:' "$files_wedged"
-[ "$files_overtime" -gt 0 ] && printf '%-14s  %d (green past the %ss budget)\n' 'Files overtime:' "$files_overtime" "$BUDGET_SECS"
-[ "${#UNRUN_FILES[@]}" -gt 0 ] && printf '%-14s  %d (%s)\n' 'Files not run:' "${#UNRUN_FILES[@]}" \
-    "$(printf '%s\n' "${UNRUN_FILES[@]}" | sed 's/\.test\.ts$//' | paste -sd ',' - | sed 's/,/, /g')"
+[ "$files_overtime" -gt 0 ] && printf '%-14s  %d (past the %ss budget)\n' 'Files overtime:' "$files_overtime" "$BUDGET_SECS"
 if [ "$ELAPSED" -lt 60 ]; then
     printf '%-14s  %ds\n' 'Wall time:' "$ELAPSED"
 else
@@ -1116,7 +1091,7 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
     if ! command -v jq >/dev/null 2>&1; then
         echo "[app-test] TUG_APPTEST_JSON is set but jq is not on PATH — no document written." >&2
     else
-        if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ -z "$HALTED" ]; then
+        if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ]; then
             json_verdict=PASS
         else
             json_verdict=FAIL
@@ -1180,14 +1155,13 @@ if [ -n "${TUG_APPTEST_JSON:-}" ]; then
             --argjson filesErrored "$files_errored" \
             --argjson filesSkipped "$files_skipped" \
             --argjson filesWedged "$files_wedged" \
-            --argjson filesNotRun "${#UNRUN_FILES[@]}" \
             --argjson testsPassed "$tests_passed_total" \
             --argjson testsTotal "$tests_total" \
             '{sweep:$sweep, wallSeconds:$wall, verdict:$verdict,
               totals:{filesRun:$filesRun, filesPassed:$filesPassed,
                       filesFailed:$filesFailed, filesErrored:$filesErrored,
                       filesSkipped:$filesSkipped, filesWedged:$filesWedged,
-                      filesNotRun:$filesNotRun, testsPassed:$testsPassed,
+                      testsPassed:$testsPassed,
                       testsTotal:$testsTotal},
               files: .}' > "$TUG_APPTEST_JSON"
     fi
@@ -1207,7 +1181,7 @@ elif ! command -v jq >/dev/null 2>&1; then
     echo "[app-test] results not recorded: jq is not on PATH" >&2
 else
     record_verdict=PASS
-    { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ "$files_overtime" -eq 0 ] && [ -z "$HALTED" ]; } || record_verdict=FAIL
+    { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ "$files_overtime" -eq 0 ]; } || record_verdict=FAIL
     record_head="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     record_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
     record_dirty=false
@@ -1282,7 +1256,6 @@ skip_clause=""
 # whether that file works, so the run cannot say PASS.
 wedge_clause=""
 [ "$files_wedged" -gt 0 ] && wedge_clause="; $files_wedged wedged"
-[ "${#UNRUN_FILES[@]}" -gt 0 ] && wedge_clause="$wedge_clause; ${#UNRUN_FILES[@]} not run"
 [ "$files_overtime" -gt 0 ] && wedge_clause="$wedge_clause; $files_overtime over the ${BUDGET_SECS}s budget"
 if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$wedge_clause" ]; then
     printf 'VERDICT: PASS  (%d/%d files green%s; %d/%d tests passed)\n' \

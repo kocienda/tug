@@ -40,11 +40,11 @@ import {
   TimeoutError,
   VersionSkewError,
 } from "./errors";
-import { shellTimeoutCause } from "./timeout-cause";
+import { bodyEvidenceCause, selectorProbe, selectorsQueried, shellTimeoutCause, type BodyEvidence } from "./timeout-cause";
 import { shortToken, tmuxSocketLabel } from "./fnv1a";
 import { unionReachMaps, type ReachMap } from "./reach-map";
 import { onTestRunEnd } from "./test-cleanup";
-import { RpcClient, type RpcTransport } from "./rpc";
+import { RpcClient, WAIT_CEILING_MS, type RpcTransport } from "./rpc";
 import { scopeToCard } from "./scope-to-card";
 import {
   QUIESCE_DRAIN_DEADLINE_MS,
@@ -92,7 +92,7 @@ export {
   type ExpectedEntry,
   type MatcherResult,
 } from "./matchers";
-export { enforcedTimeout, TIMEOUT_SCALE } from "./rpc";
+export { enforcedTimeout, TIMEOUT_SCALE, WAIT_CEILING_MS } from "./rpc";
 export type {
   ActiveElementInfo,
   AppLifecycleOptions,
@@ -590,17 +590,42 @@ export class App {
       });
     } catch (error) {
       if (!(error instanceof TimeoutError)) throw error;
-      const bodyIds = await this.bodies().then(
-        (bodies) => bodies.flatMap((b) => (b.cardId === null ? [] : [b.cardId])),
-        () => [] as string[],
-      );
-      const cause = shellTimeoutCause(script, bodyIds);
+      const held = await this.bodies().catch(() => []);
+      const bodyIds = held.flatMap((b) => (b.cardId === null ? [] : [b.cardId]));
+      // Only a body that can evaluate is asked for evidence.
+      const ready = held.flatMap((b) => (b.cardId !== null && (b.state === "ready" || b.state === "bound") ? [b.cardId] : []));
+      const cause = shellTimeoutCause(script, bodyIds) ?? (await this.bodyEvidence(script, ready));
       if (cause === null) throw error;
       const labelled = new TimeoutError(`${error.message} — ${cause}`, error.script, error.timeoutMs);
       // The original frames: the report locates a failure in the test file from them.
       if (error.stack !== undefined) labelled.stack = error.stack.replace(error.message, labelled.message);
       throw labelled;
     }
+  }
+
+  /**
+   * After a shell timeout, what the bodies say of it (`timeout-cause.ts`,
+   * `bodyEvidenceCause`): the condition evaluated in each body, and each
+   * queried selector checked in the shell and in each body. Best effort — a
+   * page that does not answer is a page with no evidence.
+   */
+  private async bodyEvidence(script: string, cardIds: readonly string[]): Promise<string | null> {
+    if (cardIds.length === 0) return null;
+    const selectors = selectorsQueried(script);
+    const probe = selectorProbe(selectors);
+    const matched = async (page: App | BodyApp): Promise<string[]> => {
+      if (selectors.length === 0) return [];
+      const hits = await page.evalJS<boolean[]>(probe, { timeoutMs: 1000 }).catch(() => [] as boolean[]);
+      return selectors.filter((_, i) => hits[i] === true);
+    };
+    const shellMatches = await matched(this);
+    const bodies: BodyEvidence[] = [];
+    for (const cardId of cardIds) {
+      const body = this.body(cardId);
+      const holds = await body.evalJS<unknown>(script, { timeoutMs: 1000 }).then((v) => Boolean(v), () => false);
+      bodies.push({ cardId, holds, matches: await matched(body) });
+    }
+    return bodyEvidenceCause(shellMatches, bodies);
   }
 
   /**
@@ -2511,7 +2536,7 @@ function resolveLaunchOptions(opts: LaunchTugAppOptions): ResolvedLaunch {
     // Scaled with the runner's concurrency: a launch under contention reaches
     // its handshake later than one that had the machine to itself, and that is
     // slowness, not failure. Unset (serial) leaves the original 10s exactly.
-    connectTimeoutMs: opts.connectTimeoutMs ?? 10000 * launchTimeoutScale(),
+    connectTimeoutMs: Math.min(opts.connectTimeoutMs ?? 10000 * launchTimeoutScale(), WAIT_CEILING_MS),
     connectPollMs: opts.connectPollMs ?? 100,
     env: {
       ...baseEnv,

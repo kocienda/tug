@@ -84,13 +84,47 @@ export const TIMEOUT_SCALE = ((): number => {
 })();
 
 /**
+ * The longest any one wait may run, scaled or not: a file is held to 20 s of
+ * wall time in all, so a wait past that can only end in the file being
+ * stopped with nothing to say. A red fails inside the budget, with its own
+ * message, instead. The scale still widens a short wait under contention; it
+ * never widens one past this.
+ */
+export const WAIT_CEILING_MS = 20_000;
+
+/**
+ * When this file must be done, as epoch milliseconds, from
+ * `TUG_APPTEST_FILE_DEADLINE_MS`: the recipe stops a file at its budget, and
+ * sets this a few seconds short of that, so a wait that would outlast the file
+ * times out first — the test fails with its own message and the file still
+ * has time to tear down and report. Unset (a file run by hand) is no deadline.
+ */
+const FILE_DEADLINE_MS = ((): number | null => {
+  const raw = Number(process.env.TUG_APPTEST_FILE_DEADLINE_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+})();
+
+/** The shortest wait the deadline leaves: enough to evaluate once and fail. */
+const DEADLINE_FLOOR_MS = 250;
+
+/**
+ * `ms`, or less: what is left before the file's deadline, when that is
+ * sooner. For a wait the harness runs on its own clock rather than the
+ * server's.
+ */
+export function withinFileDeadline(ms: number): number {
+  if (FILE_DEADLINE_MS === null) return ms;
+  return Math.min(ms, Math.max(DEADLINE_FLOOR_MS, FILE_DEADLINE_MS - Date.now()));
+}
+
+/**
  * The budget a caller's `timeoutMs` is actually enforced at, once the parallel
- * runner's scale is applied. A test asserting on a `TimeoutError`'s budget
- * wants this number, not the pre-scaling ask — the error reports what the
- * server was told to wait, which under contention is deliberately larger.
+ * runner's scale, the {@link WAIT_CEILING_MS} ceiling and the file's deadline
+ * are applied. A test asserting on a `TimeoutError`'s budget wants this number,
+ * not the ask — the error reports what the server was told to wait.
  */
 export function enforcedTimeout(askedMs: number): number {
-  return Math.round(askedMs * TIMEOUT_SCALE);
+  return withinFileDeadline(Math.min(Math.round(askedMs * TIMEOUT_SCALE), WAIT_CEILING_MS));
 }
 
 /**
@@ -109,13 +143,14 @@ const SERVER_DEFAULT_TIMEOUT_MS: Record<string, number> = {
  * The budget to put on the wire for `method`, given whatever the caller asked for.
  *
  * An explicit `timeoutMs` is scaled, not replaced — it is the caller's considered
- * number, and under contention it needs the same room every other budget gets.
+ * number, and under contention it needs the same room every other budget gets —
+ * and held to {@link WAIT_CEILING_MS}, at any scale.
  */
 function scaledTimeout(method: string, explicit: number | undefined): number | undefined {
-  if (TIMEOUT_SCALE === 1) return explicit;
-  if (explicit !== undefined) return Math.round(explicit * TIMEOUT_SCALE);
+  if (explicit !== undefined) return enforcedTimeout(explicit);
+  if (TIMEOUT_SCALE === 1 && FILE_DEADLINE_MS === null) return explicit;
   const serverDefault = SERVER_DEFAULT_TIMEOUT_MS[method];
-  return serverDefault === undefined ? undefined : Math.round(serverDefault * TIMEOUT_SCALE);
+  return serverDefault === undefined ? undefined : enforcedTimeout(serverDefault);
 }
 
 /**

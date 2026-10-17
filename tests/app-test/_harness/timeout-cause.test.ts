@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { cardIdsNamed, shellTimeoutCause } from "./timeout-cause";
+import { bodyEvidenceCause, cardIdsNamed, selectorsQueried, shellTimeoutCause } from "./timeout-cause";
 
 describe("cardIdsNamed", () => {
   test("reads each scoped card once, in either quote, escaped or not", () => {
@@ -30,5 +30,37 @@ describe("shellTimeoutCause", () => {
     expect(shellTimeoutCause(`q('[data-card-id="A"] x') && q('[data-card-id="B"] y')`, ["A", "B"])).toContain(
       'card "A", "B" are bodies',
     );
+  });
+});
+
+describe("selectorsQueried", () => {
+  test("reads literal selectors in either quote, escaped or not, once each", () => {
+    const script = `document.querySelector("[data-slot=\\"tug-sheet\\"]") !== null && document.querySelectorAll('.session-card-picker-form').length > 0 && document.querySelector("[data-slot=\\"tug-sheet\\"]")`;
+    expect(selectorsQueried(script)).toEqual(['[data-slot="tug-sheet"]', ".session-card-picker-form"]);
+  });
+
+  test("a selector built at run time is not read", () => {
+    expect(selectorsQueried(`document.querySelector(card + " .x")`)).toEqual([]);
+  });
+});
+
+describe("bodyEvidenceCause", () => {
+  test("a condition that holds in a body names that body", () => {
+    const cause = bodyEvidenceCause([], [{ cardId: "A", holds: true, matches: [] }]);
+    expect(cause).toContain(`card "A"'s body`);
+    expect(cause).toContain('app.body("A")');
+  });
+
+  test("a selector matching only in a body names it and the body", () => {
+    const cause = bodyEvidenceCause([], [
+      { cardId: "A", holds: false, matches: [] },
+      { cardId: "B", holds: false, matches: ['[data-slot="tug-sheet"]'] },
+    ]);
+    expect(cause).toContain('"[data-slot=\\"tug-sheet\\"]" matches only in card "B"');
+  });
+
+  test("a selector the shell matches too is no evidence, and no answer is none", () => {
+    expect(bodyEvidenceCause([".tug-pane"], [{ cardId: "A", holds: false, matches: [".tug-pane"] }])).toBeNull();
+    expect(bodyEvidenceCause([], [])).toBeNull();
   });
 });

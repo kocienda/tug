@@ -1,13 +1,16 @@
 /**
  * failure-signatures.ts — group an app-test run's reds by what they say.
  *
- *   bun scripts/failure-signatures.ts <report.json> [--json] [--min <n>]
+ *   bun scripts/failure-signatures.ts <report.json>… [--json] [--min <n>]
  *
  * Reads the document `TUG_APPTEST_JSON=<path>` writes and prints every red
  * file grouped by the signature of its failures, biggest cluster first: a
  * run of five hundred files reds by cause, and a cause shows as many files
  * failing the same way. A file that wedged or errored with no failure of its
  * own groups by its status.
+ *
+ * Several reports read as one run: a corpus run in batches, each batch its own
+ * invocation and its own document, groups across all of them.
  *
  * The signature of a failure is its error's first line with the parts that
  * vary from file to file blanked — numbers, quoted literals — plus, for a
@@ -73,7 +76,7 @@ export function selectorToken(message: string): string | null {
 export function signatureOf(failure: ReportFailure): string {
   const line = normalizeLine(failure.message);
   if (!/TimeoutError|exceeded/.test(failure.message)) return line;
-  const body = /evaluated in the shell, but card .* (?:is a body|are bodies)/.test(failure.message)
+  const body = /evaluated in the shell, but (?:card .* (?:is a body|are bodies)|the condition holds in card|.* matches only in card)/.test(failure.message)
     ? " [shell reach into a body]"
     : "";
   const token = selectorToken(failure.message);
@@ -119,21 +122,21 @@ export function clustersOf(files: readonly ReportFile[]): Cluster[] {
 }
 
 function main(argv: string[]): number {
-  const path = argv.find((a) => !a.startsWith("--"));
-  if (path === undefined || argv.includes("--help")) {
-    process.stdout.write("usage: bun scripts/failure-signatures.ts <report.json> [--json] [--min <n>]\n");
-    return path === undefined ? 2 : 0;
-  }
   const minAt = argv.indexOf("--min");
+  const paths = argv.filter((a, i) => !a.startsWith("--") && !(minAt !== -1 && i === minAt + 1));
+  if (paths.length === 0 || argv.includes("--help")) {
+    process.stdout.write("usage: bun scripts/failure-signatures.ts <report.json>… [--json] [--min <n>]\n");
+    return paths.length === 0 ? 2 : 0;
+  }
   const min = minAt === -1 ? 1 : Number(argv[minAt + 1] ?? "1");
-  const report = JSON.parse(readFileSync(path, "utf8")) as { files: ReportFile[]; totals?: unknown };
-  const clusters = clustersOf(report.files).filter((c) => c.files.length >= min);
+  const files = paths.flatMap((p) => (JSON.parse(readFileSync(p, "utf8")) as { files: ReportFile[] }).files);
+  const clusters = clustersOf(files).filter((c) => c.files.length >= min);
   if (argv.includes("--json")) {
     process.stdout.write(`${JSON.stringify(clusters, null, 2)}\n`);
     return 0;
   }
   const reds = clusters.reduce((n, c) => n + c.files.length, 0);
-  process.stdout.write(`${reds} red file(s) in ${clusters.length} signature(s), of ${report.files.length} run\n\n`);
+  process.stdout.write(`${reds} red file(s) in ${clusters.length} signature(s), of ${files.length} run\n\n`);
   clusters.forEach((c, i) => {
     process.stdout.write(`#${i + 1}  ${c.files.length} file(s)  ${c.signature}\n`);
     for (const f of c.files) {
