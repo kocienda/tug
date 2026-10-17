@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CELLS_UP_TO, formatSecs, runPanelModel, unitWord, verdictSentence } from "../run-panel-model";
+import { CELLS_UP_TO, formatSecs, laneSlots, runPanelModel, unitWord, verdictSentence } from "../run-panel-model";
 import type { RunProgress, RunUnit } from "../run-progress-store";
 
 const NOW = 100_000;
@@ -126,5 +126,30 @@ describe("runPanelModel", () => {
     expect(formatSecs(5)).toBe("5s");
     expect(formatSecs(250)).toBe("4m 10s");
     expect(formatSecs(16.5)).toBe("17s");
+  });
+});
+
+describe("laneSlots", () => {
+  test("a row is never emptied: a landed unit stays until another takes its row", () => {
+    let slots = laneSlots([], ["a"]);
+    expect(slots).toEqual(["a"]);
+    // Between units nothing runs, and the row still shows the last one.
+    slots = laneSlots(slots, []);
+    expect(slots).toEqual(["a"]);
+    slots = laneSlots(slots, ["b"]);
+    expect(slots).toEqual(["b"]);
+  });
+
+  test("a running unit keeps its row, and rows grow only to the most at once", () => {
+    let slots = laneSlots([], ["a", "b"]);
+    expect(slots).toEqual(["a", "b"]);
+    // `a` lands and `c` starts: `c` takes `a`'s row, `b` does not move.
+    slots = laneSlots(slots, ["b", "c"]);
+    expect(slots).toEqual(["c", "b"]);
+    // The tail of the run: one unit left, and both rows stand.
+    slots = laneSlots(slots, ["b"]);
+    expect(slots).toEqual(["c", "b"]);
+    slots = laneSlots(slots, ["b", "d", "e"]);
+    expect(slots).toEqual(["d", "b", "e"]);
   });
 });

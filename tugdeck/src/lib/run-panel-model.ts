@@ -56,6 +56,27 @@ export interface RunPanelModel {
   verdict: "running" | "green" | "red";
 }
 
+/**
+ * The in-flight rows as slots: what each row shows, given what it showed
+ * last and what is running now. A row whose unit still runs keeps it; a
+ * newly started unit takes the first row whose unit has landed, else a new
+ * row at the end. A row is never emptied and never removed — a landed unit
+ * stays on its row until another unit takes it — so the rows hold their
+ * height between one unit and the next, and grow only to the most units
+ * that ran at once.
+ */
+export function laneSlots(prev: readonly string[], running: readonly string[]): string[] {
+  const live = new Set(running);
+  const slots = [...prev];
+  for (const name of running) {
+    if (slots.includes(name)) continue;
+    const free = slots.findIndex((s) => !live.has(s));
+    if (free >= 0) slots[free] = name;
+    else slots.push(name);
+  }
+  return slots;
+}
+
 /** The plural a fraction reads: `25 files`, `1 test`. */
 export function unitWord(unit: string, n: number): string {
   return n === 1 ? unit : `${unit}s`;

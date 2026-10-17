@@ -6,22 +6,29 @@
  * goes (`tugtool progress --unit …`, `tugtool test run`). The panel is one
  * shape for every run, in one column, top to bottom:
  *
- *   1. **Masthead** — the ring (running) or nothing (finished, where the
- *      verdict band leads), the label, the fraction with its unit word, the
- *      tally as words, and the run's facts: jobs and the projection while
- *      running, wall time once over.
- *   2. **Track** — a cell per unit in run order, coloured as it lands, up to
- *      {@link CELLS_UP_TO}; a density band past that, or whenever the report
- *      carries only some of its units, with each red as a mark.
- *   3. **In flight** — a lane per running unit, its name in full. A run
- *      counting phases shows every phase as a compact step row, its time on
- *      the right; a run counting tests shows the test it is on.
+ *   1. **Masthead** — the ring while running and the verdict word, PASS or
+ *      FAIL, in its place once over; the label, the fraction with its unit
+ *      word, the tally as words, and the run's facts: jobs and the projection
+ *      while running, wall time once over.
+ *   2. **Track** — a cell per unit in run order, coloured as it lands, in one
+ *      row whose cells shrink as the count grows, up to {@link CELLS_UP_TO};
+ *      a density band past that, or whenever the report carries only some of
+ *      its units, with each red as a mark.
+ *   3. **In flight** — a row per unit in flight, its name in full; a row is
+ *      never emptied while the run goes, so the panel does not jump between
+ *      units. A run counting phases shows every phase as a compact step row,
+ *      its time on the right; a run counting tests shows the test it is on.
  *   4. **Reds, always open** — each failed or wedged unit, its first
- *      failure, and what the record said of it before this run.
- *   5. **Folds**, collapsed: what passed, the wall-time chart (one bar per
- *      unit, the recorded median a ghost tick), and the run's own output.
+ *      failure, and what the record said of it before this run. While the
+ *      run goes they land at the foot, under the folds, so a red arriving
+ *      moves nothing above it; once over they lead the body.
+ *   5. **Folds**, collapsed: what passed (standing from the first report),
+ *      the wall-time chart (one bar per unit, the recorded median a ghost
+ *      tick), and the run's own output.
  *
- * {@link TugRunStrip} is the finished run as one line, for a collapsed block.
+ * {@link TugRunStrip} is the finished run for a collapsed block: rows 1 and 2
+ * and nothing else, so the running panel, the strip and the expanded result
+ * all open on the same two rows.
  *
  * Colour is never the only reading: every cell has a title, every row a mark
  * and a word, and the tally is words.
@@ -37,16 +44,16 @@
 
 import "./tug-run-panel.css";
 
-import React from "react";
+import React, { useRef } from "react";
 
 import {
   CELLS_UP_TO,
   formatSecs,
   isRed,
+  laneSlots,
   runPanelModel,
   unitWord,
   verdictSentence,
-  type RunLane,
   type RunPanelModel,
   type RunPanelState,
 } from "@/lib/run-panel-model";
@@ -132,21 +139,20 @@ function Tally({ m }: { m: RunPanelModel }) {
  * The track: a cell per unit, or a band. A cell's `data-status` is what the
  * stylesheet paints; the band's fill is the done fraction and each red a mark
  * at its place in run order.
+ *
+ * The cells are one row at every count: each is 16px wide while the row has
+ * room and shrinks toward 3px as the count grows, with the gap tightening past
+ * {@link MANY_CELLS}, so more units cost width and never another row. Past
+ * {@link CELLS_UP_TO} a cell is too thin to read and the band takes over.
  */
-export function TugRunTrack({
-  m,
-  dense = false,
-}: {
-  m: RunPanelModel;
-  dense?: boolean;
-}): React.ReactElement | null {
+export function TugRunTrack({ m }: { m: RunPanelModel }): React.ReactElement | null {
   if (m.track === "none") return null;
   if (m.track === "cells") {
     return (
       <div
         className="tug-run-panel-track"
         data-slot="tug-run-panel-track"
-        data-dense={dense ? "" : undefined}
+        data-many={m.units.length > MANY_CELLS ? "" : undefined}
         role="img"
         aria-label={`${m.done} of ${m.total} ${unitWord(m.unit, m.total ?? 0)} done, ${m.counts.red} red`}
       >
@@ -166,7 +172,6 @@ export function TugRunTrack({
     <div
       className="tug-run-panel-band"
       data-slot="tug-run-panel-band"
-      data-dense={dense ? "" : undefined}
       role="img"
       aria-label={`${m.done} of ${total} ${unitWord(m.unit, total)} done, ${m.counts.red} red`}
     >
@@ -184,17 +189,26 @@ export function TugRunTrack({
   );
 }
 
+/** Past this many cells the track's gap tightens, so the cells keep their width longer. */
+const MANY_CELLS = 24;
+
 /**
- * One job slot: the unit it runs now, by name. No gauge and no elapsed
- * readout: the panel renders on a report rather than on a clock, so a bar or
- * a seconds count would stand frozen between reports, and a gauge that comes
- * and goes with each lane made the rows hop and cut the names short.
+ * One in-flight row: the unit it shows, by name. A running unit wears the
+ * pulsing dot; a unit that landed while no other has taken its row wears its
+ * mark, so the row is never blank between one unit and the next. No gauge
+ * and no elapsed readout: a gauge that came and went with each unit made the
+ * rows hop and cut the names short.
  */
-function Lane({ lane }: { lane: RunLane }) {
+function SlotRow({ name, unit }: { name: string; unit: RunUnit | undefined }) {
+  const status = unit?.status ?? "running";
   return (
-    <div className="tug-run-panel-lane" data-slot="tug-run-panel-lane">
-      <TugProgressIndicator variant="pulsing-dot" size={10} state="running" role="action" aria-label="running" />
-      <span className="tug-run-panel-name">{lane.unit.name}</span>
+    <div className="tug-run-panel-lane" data-slot="tug-run-panel-lane" data-status={status}>
+      {status === "running" ? (
+        <TugProgressIndicator variant="pulsing-dot" size={10} state="running" role="action" aria-label="running" />
+      ) : (
+        <span className="tug-run-panel-mark" aria-hidden>{MARK[status]}</span>
+      )}
+      <span className="tug-run-panel-name">{name}</span>
     </div>
   );
 }
@@ -278,7 +292,20 @@ function FoldTitle({ label, count }: { label: string; count?: string }) {
   );
 }
 
+/**
+ * What is running. A phased run is its step rows. Any other run is a set of
+ * rows, one per unit in flight, kept by {@link laneSlots} so a row is never
+ * emptied or removed while the run goes on — the rows grow to the most units
+ * that ran at once and hold that height to the end. A run that names no
+ * units in flight shows its progress line on one row, keeping the last line
+ * it had rather than going blank.
+ */
 function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
+  // Not appearance state: what each row showed last, which the next render
+  // reads to keep the rows where they were. laneSlots is idempotent, so a
+  // second render pass writes the same thing.
+  const slots = useRef<string[]>([]);
+  const lastText = useRef("");
   if (m.unit === "phase") {
     return (
       <ol className="tug-run-panel-phases" data-slot="tug-run-panel-phases">
@@ -307,24 +334,25 @@ function InFlight({ m, text }: { m: RunPanelModel; text: string | undefined }) {
       </ol>
     );
   }
-  if (m.lanes.length > 0) {
+  slots.current = laneSlots(
+    slots.current,
+    m.lanes.map((l) => l.unit.name),
+  );
+  if (slots.current.length > 0) {
     return (
       <div className="tug-run-panel-lanes" data-slot="tug-run-panel-lanes">
-        {m.lanes.map((l) => <Lane key={`${l.unit.index ?? 0}-${l.unit.name}`} lane={l} />)}
+        {slots.current.map((name, i) => (
+          <SlotRow key={i} name={name} unit={m.units.find((u) => u.name === name)} />
+        ))}
       </div>
     );
   }
-  if (m.verdict === "running" && text !== undefined && text.length > 0) {
-    return (
-      <div className="tug-run-panel-lanes" data-slot="tug-run-panel-now">
-        <div className="tug-run-panel-now">
-          <TugProgressIndicator variant="pulsing-dot" size={10} state="running" role="action" aria-label="running" />
-          <span className="tug-run-panel-name">{text}</span>
-        </div>
-      </div>
-    );
-  }
-  return null;
+  if (text !== undefined && text.length > 0) lastText.current = text;
+  return (
+    <div className="tug-run-panel-lanes" data-slot="tug-run-panel-now">
+      <SlotRow name={lastText.current || "starting"} unit={undefined} />
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -346,16 +374,21 @@ export interface TugRunPanelProps {
   foldKey?: string;
 }
 
-export function TugRunPanel({
-  run,
+/**
+ * The masthead: the lead, the label, the fraction, the tally, the facts. The
+ * lead is the ring while the run goes and the verdict word once it is over,
+ * in the same place, so a run that finishes changes one thing on this line.
+ * The panel and the strip both open with it.
+ */
+function Masthead({
+  m,
   state,
-  nowMs,
-  callFailed = false,
   wallSecs,
-  output,
-  foldKey,
-}: TugRunPanelProps): React.ReactElement {
-  const m = runPanelModel(run, state, nowMs, { callFailed });
+}: {
+  m: RunPanelModel;
+  state: RunPanelState;
+  wallSecs: number | undefined;
+}): React.ReactElement {
   const facts: React.ReactElement[] = [];
   if (m.jobs !== undefined && m.jobs > 1) facts.push(<span key="j">{m.jobs} jobs</span>);
   if (state === "running" && m.projectionSecs !== null) {
@@ -366,50 +399,71 @@ export function TugRunPanel({
     );
   }
   if (state === "finished" && wallSecs !== undefined) facts.push(<span key="w">wall {formatSecs(wallSecs)}</span>);
+  return (
+    <div className="tug-run-panel-masthead">
+      {state === "running" ? (
+        <TugProgressIndicator
+          variant="ring"
+          size={22}
+          role="action"
+          state="running"
+          {...(m.total !== undefined ? { value: m.done, max: m.total } : {})}
+          aria-label="Progress"
+        />
+      ) : (
+        <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>
+      )}
+      {m.label.length > 0 && <span className="tug-run-panel-label">{m.label}</span>}
+      <Fraction done={m.done} total={m.total} unit={m.unit} />
+      <Tally m={m} />
+      <span className="tug-run-panel-spacer" />
+      {facts.length > 0 && <TugMetaRun parts={facts} />}
+    </div>
+  );
+}
 
+export function TugRunPanel({
+  run,
+  state,
+  nowMs,
+  callFailed = false,
+  wallSecs,
+  output,
+  foldKey,
+}: TugRunPanelProps): React.ReactElement {
+  const m = runPanelModel(run, state, nowMs, { callFailed });
   const landed = m.units.filter((u) => u.secs !== undefined);
+  const running = state === "running";
+  const reds = m.reds.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} />);
+  // The panel opens with the strip's two rows, so a finished block that
+  // collapses to its strip keeps them where they were. While the run goes,
+  // everything below them holds its place: the in-flight rows never empty,
+  // the Passed fold stands from the first report, and reds land at the foot,
+  // where arriving moves nothing above. Once over, the reds lead the body.
   return (
     <div className="tug-run-panel" data-slot="tug-run-panel" data-state={state} data-verdict={m.verdict}>
-      {state === "finished" && (
+      <Masthead m={m} state={state} wallSecs={wallSecs} />
+      <TugRunTrack m={m} />
+
+      {!running && (
         <div className="tug-run-panel-verdict" data-slot="tug-run-panel-verdict" data-verdict={m.verdict}>
-          <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>
-          <span className="tug-run-panel-verdict-text">{verdictSentence(m)}</span>
+          {verdictSentence(m)}
         </div>
       )}
 
-      <div className="tug-run-panel-masthead">
-        {state === "running" && (
-          <TugProgressIndicator
-            variant="ring"
-            size={22}
-            role="action"
-            state="running"
-            {...(m.total !== undefined ? { value: m.done, max: m.total } : {})}
-            aria-label="Progress"
-          />
-        )}
-        {m.label.length > 0 && <span className="tug-run-panel-label">{m.label}</span>}
-        <Fraction done={m.done} total={m.total} unit={m.unit} />
-        <Tally m={m} />
-        <span className="tug-run-panel-spacer" />
-        {facts.length > 0 && <TugMetaRun parts={facts} />}
-      </div>
+      {running && <InFlight m={m} text={run.text} />}
+      {!running && m.unit === "phase" && <InFlight m={m} text={undefined} />}
 
-      <TugRunTrack m={m} />
+      {!running && reds}
 
-      {state === "running" && <InFlight m={m} text={run.text} />}
-      {state === "finished" && m.unit === "phase" && <InFlight m={m} text={undefined} />}
-
-      {m.reds.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
-
-      {(m.greens.length > 0 || landed.length > 1 || output !== undefined) && m.unit !== "phase" && (
+      {(running || m.greens.length > 0 || landed.length > 1 || output !== undefined) && m.unit !== "phase" && (
         <TugAccordion
           type="multiple"
           variant="plain"
           className="tug-run-panel-folds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: foldKey } : {})}
         >
-          {m.greens.length > 0 && (
+          {(running || m.greens.length > 0) && (
             <TugAccordionItem value="passed" trigger={<FoldTitle label="Passed" count={String(m.greens.length)} />}>
               <div className="tug-run-panel-landed-list">
                 {[...m.greens].reverse().map((u) => <LandedRow key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
@@ -440,6 +494,7 @@ export function TugRunPanel({
           </TugAccordionItem>
         </TugAccordion>
       )}
+      {running && reds}
     </div>
   );
 }
@@ -449,7 +504,13 @@ function verdictWord(m: RunPanelModel): string {
   return m.verdict === "red" ? "FAIL" : "PASS";
 }
 
-/** A finished run as one line — the verdict, the fraction, the track — for a collapsed block. */
+/**
+ * A finished run for a collapsed block: the panel's own masthead and track,
+ * at the panel's own sizes, and nothing under them. It is what the running
+ * panel becomes when it settles — the ring turns into the verdict word, the
+ * rows below go — and what the expanded panel opens with, so moving between
+ * the three changes no row the eye was already reading.
+ */
 export function TugRunStrip({
   run,
   callFailed = false,
@@ -461,18 +522,14 @@ export function TugRunStrip({
 }): React.ReactElement {
   const m = runPanelModel(run, "finished", 0, { callFailed });
   return (
-    <div className="tug-run-strip" data-slot="tug-run-strip" data-verdict={m.verdict}>
-      <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>
-      {m.label.length > 0 && <span className="tug-run-panel-label">{m.label}</span>}
-      <Fraction done={m.done} total={m.total} unit={m.unit} />
-      <TugRunTrack m={m} dense />
-      {m.counts.red > 0 && (
-        <span className="tug-run-panel-tally-word" data-status="fail">
-          {m.counts.red} fail
-        </span>
-      )}
-      <span className="tug-run-panel-spacer" />
-      {wallSecs !== undefined && <span className="tug-run-strip-wall">{formatSecs(wallSecs)}</span>}
+    <div
+      className="tug-run-panel tug-run-strip"
+      data-slot="tug-run-strip"
+      data-state="finished"
+      data-verdict={m.verdict}
+    >
+      <Masthead m={m} state="finished" wallSecs={wallSecs} />
+      <TugRunTrack m={m} />
     </div>
   );
 }

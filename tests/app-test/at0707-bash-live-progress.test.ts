@@ -34,7 +34,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -61,18 +61,18 @@ function frame(app: App, decoded: Record<string, unknown>): Promise<unknown> {
   });
 }
 
-function count(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
+function count(card: BodyApp, selector: string): Promise<number> {
+  return card.evalJS<number>(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
 }
 
-function shown(app: App, selector: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+function shown(card: BodyApp, selector: string): Promise<boolean> {
+  return card.evalJS<boolean>(
     `(function () { const el = document.querySelector(${JSON.stringify(selector)}); return el !== null && getComputedStyle(el).display !== "none"; })()`,
   );
 }
 
-function text(app: App, selector: string): Promise<string | null> {
-  return app.evalJS<string | null>(
+function text(card: BodyApp, selector: string): Promise<string | null> {
+  return card.evalJS<string | null>(
     `(function () { const el = document.querySelector(${JSON.stringify(selector)}); return el === null ? null : el.textContent; })()`,
   );
 }
@@ -92,6 +92,9 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
         );
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A", { timeoutMs: 20_000 });
+        // The Session card is a body: its DOM lives in the card's own page,
+        // so every read, wait and click below goes there.
+        const card = app.body("A");
 
         await app.driveSession("A", { op: "send", text: "run the tests" });
         await frame(app, { type: "prompt_anchor", promptUuid: `${SID}-u1` });
@@ -119,26 +122,26 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           total: 10,
         });
 
-        await app.waitForCondition<boolean>(
+        await card.waitForCondition<boolean>(
           `!!document.querySelector(${JSON.stringify(BAND)})`,
           { timeoutMs: 10_000 },
         );
         expect(
-          await app.evalJS<string | null>(
+          await card.evalJS<string | null>(
             `(document.querySelector(${JSON.stringify(BLOCK)}) || { getAttribute: () => null }).getAttribute("data-block-collapsed")`,
           ),
           "a shell block mounts collapsed, and the band reads anyway",
         ).toBe("true");
-        expect(await text(app, BAND)).toContain("rust · 3/10 · compiling tugcast");
+        expect(await text(card, BAND)).toContain("rust · 3/10 · compiling tugcast");
 
         // The engine's reading, not the local clock since the replayed
         // start: 125 s at the heartbeat, carried forward.
-        const elapsed = (await text(app, ELAPSED)) ?? "";
+        const elapsed = (await text(card, ELAPSED)) ?? "";
         const m = /(\d+)m (\d+)s/.exec(elapsed);
         expect(m, `elapsed reads ${JSON.stringify(elapsed)}`).not.toBeNull();
         expect(Number(m![1]) * 60 + Number(m![2])).toBeGreaterThanOrEqual(125);
         expect(
-          await app.evalJS<string | null>(
+          await card.evalJS<string | null>(
             `(document.querySelector(${JSON.stringify(ELAPSED)}) || { getAttribute: () => null }).getAttribute("data-engine")`,
           ),
         ).toBe("live");
@@ -149,7 +152,7 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           is_error: false,
           output: "ok",
         });
-        await app.waitForCondition<boolean>(
+        await card.waitForCondition<boolean>(
           `!document.querySelector(${JSON.stringify(BAND)})`,
           { timeoutMs: 10_000 },
         );
@@ -181,30 +184,63 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
             { name: "at0360-session-identity-menu", status: "pending", index: 3, median: 7 },
           ],
         });
-        await app.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RUN_PANEL)})`, {
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RUN_PANEL)})`, {
           timeoutMs: 10_000,
         });
         expect(
-          await app.evalJS<string | null>(
+          await card.evalJS<string | null>(
             `(document.querySelector(${JSON.stringify(RUN_BLOCK)}) || { getAttribute: () => null }).getAttribute("data-block-collapsed")`,
           ),
           "the running panel reads while the block is collapsed",
         ).toBe("true");
-        expect(await count(app, `${RUN_PANEL} .tug-run-panel-cell`), "a cell per file").toBe(4);
-        expect(await count(app, `${RUN_PANEL} .tug-run-panel-cell[data-status="fail"]`)).toBe(1);
-        expect(await count(app, `${RUN_PANEL} [data-slot="tug-run-panel-lane"]`), "one file in flight").toBe(1);
+        expect(await count(card, `${RUN_PANEL} .tug-run-panel-cell`), "a cell per file").toBe(4);
+        expect(await count(card, `${RUN_PANEL} .tug-run-panel-cell[data-status="fail"]`)).toBe(1);
+        expect(await count(card, `${RUN_PANEL} [data-slot="tug-run-panel-lane"]`), "one file in flight").toBe(1);
         // The projection is an elapsed reading: with no new report it still
         // counts down, because the running panel reads the shared 1 Hz tick.
         const PROJECTION = `${RUN_PANEL} .tug-run-panel-projection`;
-        const projected = await text(app, PROJECTION);
+        const projected = await text(card, PROJECTION);
         expect(projected, "a projection from the recorded medians").toContain("to go");
-        await app.waitForCondition<boolean>(
+        await card.waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(PROJECTION)}) || { textContent: "" }).textContent !== ${JSON.stringify(projected)}`,
           { timeoutMs: 5_000 },
         );
-        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-fraction"]`)).toContain("files");
-        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("composer clears after send");
-        expect(await count(app, `${RUN_BLOCK} [data-slot="bash-live-band"]`), "no one-line band beside it").toBe(0);
+        // Between units the panel holds still: the file that just landed
+        // keeps its row, wearing its mark, until another file takes it, and
+        // the panel is the height it was.
+        const panelHeight = (): Promise<number> =>
+          card.evalJS<number>(
+            `document.querySelector(${JSON.stringify(RUN_PANEL)}).getBoundingClientRect().height`,
+          );
+        const heightBefore = await panelHeight();
+        await frame(app, {
+          type: "run_progress",
+          tool_use_id: RUN_ID,
+          label: "app-test",
+          text: "at0352 PASS 9s",
+          done: 3,
+          total: 4,
+          failures: 1,
+          unit: "file",
+          jobs: 2,
+          units: [
+            { name: "at0310-file-view-open", status: "pass", index: 0, passed: 2, total: 2, secs: 5, median: 5 },
+            { name: "at0339-composer-order-census", status: "fail", index: 1, passed: 1, total: 2, secs: 14,
+              median: 9, title: "composer clears after send", message: "data-empty wait timed out" },
+            { name: "at0352-pane-split-restore", status: "pass", index: 2, secs: 9, median: 11 },
+            { name: "at0360-session-identity-menu", status: "pending", index: 3, median: 7 },
+          ],
+        });
+        await card.waitForCondition<boolean>(
+          `!!document.querySelector(${JSON.stringify(`${RUN_PANEL} [data-slot="tug-run-panel-lane"][data-status="pass"]`)})`,
+          { timeoutMs: 10_000 },
+        );
+        expect(await count(card, `${RUN_PANEL} [data-slot="tug-run-panel-lane"]`), "the row stands between files").toBe(1);
+        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-lane"]`)).toContain("at0352-pane-split-restore");
+        expect(await panelHeight(), "nothing in the panel moved").toBe(heightBefore);
+        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-fraction"]`)).toContain("files");
+        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("composer clears after send");
+        expect(await count(card, `${RUN_BLOCK} [data-slot="bash-live-band"]`), "no one-line band beside it").toBe(0);
 
         await frame(app, {
           type: "run_progress",
@@ -232,25 +268,29 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           is_error: true,
           output: "Exit code 1\nVERDICT: FAIL  (2/4 files green)",
         });
-        await app.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RUN_STRIP)})`, {
+        await card.waitForCondition<boolean>(`!!document.querySelector(${JSON.stringify(RUN_STRIP)})`, {
           timeoutMs: 10_000,
         });
-        expect(await shown(app, RUN_STRIP), "collapsed, the settled run is its strip").toBe(true);
-        expect(await text(app, RUN_STRIP)).toContain("FAIL");
-        expect(await count(app, `${RUN_BLOCK} [data-slot="tool-block-notice"]`), "the strip, not the error band").toBe(0);
+        expect(await shown(card, RUN_STRIP), "collapsed, the settled run is its strip").toBe(true);
+        expect(await text(card, RUN_STRIP)).toContain("FAIL");
+        expect(
+          await count(card, `${RUN_STRIP} .tug-run-panel-cell`),
+          "the strip opens on the panel's own track, a cell per file",
+        ).toBe(4);
+        expect(await count(card, `${RUN_BLOCK} [data-slot="tool-block-notice"]`), "the strip, not the error band").toBe(0);
 
-        await app.click(`${RUN_BLOCK} [data-slot="tool-call-header-disclosure"]`);
-        await app.waitForCondition<boolean>(
+        await card.click(`${RUN_BLOCK} [data-slot="tool-call-header-disclosure"]`);
+        await card.waitForCondition<boolean>(
           `!!document.querySelector(${JSON.stringify(`${RUN_PANEL}[data-state="finished"]`)})`,
           { timeoutMs: 10_000 },
         );
-        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-verdict"]`)).toContain(
+        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-verdict"]`)).toContain(
           "1 of 4 files failed, 1 wedged",
         );
-        expect(await count(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`), "both reds stay open").toBe(2);
-        expect(await text(app, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("red in the last 7 recorded runs");
-        expect(await text(app, `${RUN_PANEL} .tug-run-panel-folds`), "the output is a fold at the foot").toContain("Output");
-        expect(await shown(app, RUN_STRIP), "expanded, the panel says what the strip did").toBe(false);
+        expect(await count(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`), "both reds stay open").toBe(2);
+        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("red in the last 7 recorded runs");
+        expect(await text(card, `${RUN_PANEL} .tug-run-panel-folds`), "the output is a fold at the foot").toContain("Output");
+        expect(await shown(card, RUN_STRIP), "expanded, the panel says what the strip did").toBe(false);
 
         // A report no call claimed: the card's line, on the JOBS placard.
         await frame(app, {
@@ -261,14 +301,14 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           done: 7,
           total: 20,
         });
-        await app.evalJS<boolean>(
+        await card.evalJS<boolean>(
           `(function () { const c = document.querySelector(${JSON.stringify(JOBS_CELL)}); if (c === null) return false; c.click(); return true; })()`,
         );
-        await app.waitForCondition<boolean>(
+        await card.waitForCondition<boolean>(
           `!!document.querySelector(${JSON.stringify(LIVE_RUN)})`,
           { timeoutMs: 10_000 },
         );
-        expect(await text(app, LIVE_RUN)).toBe("app-test · 7/20 · at0603 PASS");
+        expect(await text(card, LIVE_RUN)).toBe("app-test · 7/20 · at0603 PASS");
       } finally {
         await app.close();
       }

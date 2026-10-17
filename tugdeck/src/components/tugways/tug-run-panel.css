@@ -47,9 +47,6 @@ body {
   --tugx-run-pending-edge: var(--tug7-element-global-border-normal-muted-rest);
   --tugx-run-band-track:   var(--tug7-surface-global-primary-normal-control-rest);
 
-  --tugx-run-red-wash:     var(--tug7-surface-control-primary-tinted-danger-rest);
-  --tugx-run-green-wash:   var(--tug7-surface-control-primary-tinted-success-rest);
-
   --tugx-run-gap:  var(--tug-space-lg);
   --tugx-run-pad:  var(--tug-space-lg);
 }
@@ -146,14 +143,22 @@ body {
 
 .tug-run-panel-track {
   display: flex;
-  flex-wrap: wrap;
+  /* One row at every count: the cells shrink before the row would wrap. */
+  flex-wrap: nowrap;
   gap: 4px;
+  min-width: 0;
   padding: var(--tug-space-2xs) 0;
+}
+
+.tug-run-panel-track[data-many] {
+  gap: 2px;
 }
 
 /* @tug-renders-on: --tugx-run-surface */
 .tug-run-panel-cell {
-  width: 16px;
+  /* 16px while the row has room, down to 3px as the count grows. */
+  flex: 0 1 16px;
+  min-width: 3px;
   height: 16px;
   border-radius: var(--tug-radius-2xs);
   box-shadow: inset 0 0 0 1px var(--tugx-run-pending-edge);
@@ -197,34 +202,12 @@ body {
   .tug-run-panel-cell[data-status="running"] { animation: none; }
 }
 
-/* the strip's track: narrow cells in one row */
-.tug-run-panel-track[data-dense] {
-  flex-wrap: nowrap;
-  gap: 1px;
-  padding: 0;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.tug-run-panel-track[data-dense] .tug-run-panel-cell {
-  width: 7px;
-  height: 14px;
-  flex: 0 0 auto;
-  border-radius: 1px;
-}
-
 .tug-run-panel-band {
   position: relative;
   height: 10px;
   border-radius: var(--tug-radius-xs);
   background-color: var(--tugx-run-band-track);
   overflow: hidden;
-}
-
-.tug-run-panel-band[data-dense] {
-  flex: 1 1 120px;
-  max-width: 240px;
-  height: 10px;
 }
 
 .tug-run-panel-band-fill {
@@ -259,13 +242,6 @@ body {
   align-items: center;
   gap: var(--tug-space-sm);
   min-height: 22px;
-}
-
-.tug-run-panel-now {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-sm);
-  min-width: 0;
 }
 
 /* @tug-renders-on: --tugx-run-surface, --tugx-run-card-surface */
@@ -495,55 +471,37 @@ body {
   text-align: right;
 }
 
-/* ---- The verdict band, and the strip ------------------------------------ */
+/* ---- The verdict, and the strip ----------------------------------------- */
 
-.tug-run-panel-verdict {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-md);
-  padding: var(--tug-space-sm) var(--tugx-run-pad);
-  margin: calc(-1 * var(--tugx-run-pad)) calc(-1 * var(--tugx-run-pad)) 0;
-  font-size: var(--tug-font-size-sm);
-  background-color: var(--tugx-run-green-wash);
-  color: var(--tugx-run-text-color);
-  border-bottom: 1px solid var(--tugx-run-pass-fill);
-}
-
-.tug-run-panel-verdict[data-verdict="red"] {
-  background-color: var(--tugx-run-red-wash);
-  border-bottom-color: var(--tugx-run-red-fill);
-}
-
+/* The verdict word stands in the masthead where the ring stood, the same
+   height, so a run that finishes changes that one thing on the line. */
 .tug-run-panel-verdict-word {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
   font-weight: var(--tug-font-weight-bold);
   letter-spacing: 0.08em;
 }
 
-/* @tug-renders-on: --tugx-run-red-wash, --tugx-run-surface */
-[data-verdict="red"] > .tug-run-panel-verdict-word {
+/* @tug-renders-on: --tugx-run-surface */
+[data-verdict="red"] .tug-run-panel-verdict-word {
   color: var(--tugx-run-red-text-color);
 }
 
-/* @tug-renders-on: --tugx-run-green-wash, --tugx-run-surface */
-[data-verdict="green"] > .tug-run-panel-verdict-word {
+/* @tug-renders-on: --tugx-run-surface */
+[data-verdict="green"] .tug-run-panel-verdict-word {
   color: var(--tugx-run-pass-text-color);
 }
 
-.tug-run-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--tug-space-md);
-  min-width: 0;
-  min-height: 32px;
-  padding: var(--tug-space-sm) var(--tug-space-md);
-  font-size: var(--tug-font-size-sm);
-  background-color: var(--tugx-run-surface);
-  color: var(--tugx-run-text-color);
+/* The finished panel's sentence, under the track: what the tally adds up to. */
+/* @tug-renders-on: --tugx-run-surface */
+.tug-run-panel-verdict {
+  font-size: var(--tug-font-size-xs);
+  color: var(--tugx-run-muted-color);
 }
 
-/* @tug-renders-on: --tugx-run-surface */
-.tug-run-strip-wall {
-  font-family: var(--tug-font-family-mono);
-  color: var(--tugx-run-subtle-color);
-  white-space: nowrap;
+/* The strip is the panel's first two rows and nothing under them: the same
+   box and sizes, only without the room the body below would need. */
+.tug-run-strip {
+  padding-bottom: var(--tugx-run-pad);
 }
