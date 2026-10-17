@@ -1,9 +1,5 @@
 [
   {
-    "file": "at0007-card-detach.test.ts",
-    "kind": "gallery-input"
-  },
-  {
     "file": "at0010-cold-boot-selection.test.ts",
     "kind": "fixture-markdown-1kb"
   },
@@ -12,47 +8,11 @@
     "kind": "session"
   },
   {
-    "file": "at0025-prompt-deactivated-roundtrip.test.ts",
-    "kind": "gallery-input"
-  },
-  {
-    "file": "at0038-deactivation-inactive-paint-typed.test.ts",
-    "kind": "gallery-input"
-  },
-  {
-    "file": "at0042-tug-text-editor-state-roundtrip.test.ts",
-    "kind": "gallery-text-editor"
-  },
-  {
-    "file": "at0043-tug-text-editor-copy-diag.test.ts",
-    "kind": "gallery-text-editor"
-  },
-  {
-    "file": "at0051-completion-popup-escapes-card.test.ts",
-    "kind": "gallery-text-editor"
-  },
-  {
     "file": "at0088-permission-mode-chip.test.ts",
     "kind": "session"
   },
   {
-    "file": "at0100-sheet-pane-modal-focus.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "at0140-cycle-session-card.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0146-question-dialog-keyboard.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0146-question-dialog-keyboard.test.ts",
-    "kind": "unknown"
-  },
-  {
-    "file": "at0157-cycle-escape-two-pane.test.ts",
     "kind": "session"
   },
   {
@@ -70,10 +30,6 @@
   {
     "file": "at0200-assistant-defaults.test.ts",
     "kind": "settings"
-  },
-  {
-    "file": "at0201-session-card-activation-click-focus.test.ts",
-    "kind": "session"
   },
   {
     "file": "at0205-atom-chip-first-paint.test.ts",
@@ -100,15 +56,7 @@
     "kind": "text"
   },
   {
-    "file": "at0222-one-shot-commands.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "at0223-text-card-find-bar.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0224-card-active-keyboard.test.ts",
     "kind": "text"
   },
   {
@@ -125,30 +73,6 @@
   },
   {
     "file": "at0241-jots-editor.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0246-focus-boot-invariant.test.ts",
-    "kind": "gallery-prompt-entry"
-  },
-  {
-    "file": "at0246-focus-boot-invariant.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0247-relaunch-keyboard.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0247-relaunch-keyboard.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0250-focus-steal-trap.test.ts",
-    "kind": "gallery-prompt-entry"
-  },
-  {
-    "file": "at0250-focus-steal-trap.test.ts",
     "kind": "jots"
   },
   {
@@ -176,32 +100,8 @@
     "kind": "jots"
   },
   {
-    "file": "at0267-drag-activation-focus.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0267-drag-activation-focus.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "at0269-markdown-text-style-constructs.test.ts",
     "kind": "gallery-prompt-entry"
-  },
-  {
-    "file": "at0277-row-accessories-keyboard.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0277-row-accessories-keyboard.test.ts",
-    "kind": "layout"
-  },
-  {
-    "file": "at0277-row-accessories-keyboard.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0278-cards-focus-stability.test.ts",
-    "kind": "cards"
   },
   {
     "file": "at0280-shared-agent-absent.test.ts",
@@ -257,14 +157,6 @@
   },
   {
     "file": "at0343-prompt-arrow-history.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0344-activation-click-drill-down.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0345-editor-ring-mode-division.test.ts",
     "kind": "session"
   },
   {
@@ -330,22 +222,6 @@
   {
     "file": "at0387-session-identity-menu.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "at0388-press-collapses-selection.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0399-shade-focus.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0400-tab-release.test.ts",
-    "kind": "unknown"
-  },
-  {
-    "file": "at0402-caret-owns-arrows.test.ts",
-    "kind": "unknown"
   },
   {
     "file": "at0403-find-selection.test.ts",
@@ -438,10 +314,6 @@
   {
     "file": "at0427-refs-match-search.test.ts",
     "kind": "unknown"
-  },
-  {
-    "file": "at0431-tooltip-dismissal.test.ts",
-    "kind": "text"
   },
   {
     "file": "at0435-join-refusal-speaks.test.ts",
@@ -580,10 +452,6 @@
     "kind": "session"
   },
   {
-    "file": "at0475-dictionary-lookup.test.ts",
-    "kind": "unknown"
-  },
-  {
     "file": "at0476-arc-stop-resume.test.ts",
     "kind": "session"
   },
@@ -626,10 +494,6 @@
   {
     "file": "at0499-arcs-scroll.test.ts",
     "kind": "dashes"
-  },
-  {
-    "file": "at0502-layout-card.test.ts",
-    "kind": "layout"
   },
   {
     "file": "at0505-arc-stage-kill.test.ts",
@@ -704,10 +568,6 @@
     "kind": "keyboard"
   },
   {
-    "file": "at0533-overview-insert-atom.test.ts",
-    "kind": "overview"
-  },
-  {
     "file": "at0534-overview-history.test.ts",
     "kind": "overview"
   },
@@ -720,24 +580,8 @@
     "kind": "overview"
   },
   {
-    "file": "at0545-field-focus-one-mark.test.ts",
-    "kind": "gallery-label"
-  },
-  {
     "file": "at0548-turn-chords-clear-the-composer.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "at0554-session-fold-focus.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0555-session-fold-motion.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "at0558-sheet-visibility-folded-card.test.ts",
-    "kind": "unknown"
   },
   {
     "file": "at0559-ready-folded-form.test.ts",
@@ -788,24 +632,12 @@
     "kind": "cards"
   },
   {
-    "file": "at0585-workspace-delete-guard.test.ts",
-    "kind": "cards"
-  },
-  {
-    "file": "at0585-workspace-delete-guard.test.ts",
-    "kind": "text"
-  },
-  {
     "file": "at0586-window-workspace-verbs.test.ts",
     "kind": "cards"
   },
   {
     "file": "at0586-window-workspace-verbs.test.ts",
     "kind": "text"
-  },
-  {
-    "file": "at0587-workspace-switch-mounted.test.ts",
-    "kind": "cards"
   },
   {
     "file": "at0588-arc-stop-quiesces.test.ts",
@@ -814,10 +646,6 @@
   {
     "file": "at0588-arc-stop-quiesces.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "at0589-hidden-mount-visibility.test.ts",
-    "kind": "text"
   },
   {
     "file": "at0590-workspace-delete-crash.test.ts",
@@ -834,10 +662,6 @@
   {
     "file": "at0593-jot-close-holds-its-place.test.ts",
     "kind": "jots"
-  },
-  {
-    "file": "at0595-commit-card-masthead.test.ts",
-    "kind": "commit"
   },
   {
     "file": "at0596-commit-atom-opens-card.test.ts",
@@ -1036,20 +860,8 @@
     "kind": "layout"
   },
   {
-    "file": "at0663-highlight-registry.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "at0665-workspace-theme-swatch.test.ts",
     "kind": "cards"
-  },
-  {
-    "file": "at0666-workspace-theme-flash.test.ts",
-    "kind": "cards"
-  },
-  {
-    "file": "at0666-workspace-theme-flash.test.ts",
-    "kind": "text"
   },
   {
     "file": "at0667-dictation-stop-and-send.test.ts",
@@ -1061,10 +873,6 @@
   },
   {
     "file": "at0669-folded-text-card-surfaces.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0670-folded-text-card.test.ts",
     "kind": "text"
   },
   {

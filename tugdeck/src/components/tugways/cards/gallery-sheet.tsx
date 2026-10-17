@@ -231,8 +231,8 @@ function ClosingFieldSheetBody(
 }
 
 /**
- * Card Settings body — two fields + a popup-in-sheet ([D09] elevation demo and
- * the at0057/at0058 fixture) over a Cancel / Save row. The fields and buttons
+ * Card Settings body — two fields + a popup-in-sheet ([D09] elevation demo)
+ * over a Cancel / Save row. The fields and buttons
  * carry the full focus language (Tab walk, arrow seam/rove, caret seeded in the
  * name field, default ring on Save); the popup keeps its own behavior.
  */
@@ -322,7 +322,7 @@ function CardSettingsSheetBody() {
  * 7. Spatial arrow order.
  * 8. Display widths — the `sm`/`md`/`lg`/`xl` ladder and its proportional gutter.
  *    Last, because the sections above are clicked at their painted positions by
- *    at0057 / at0100 / at0163 — a section inserted among them moves those
+ *    at0100 — a section inserted among them moves those
  *    triggers below the fold.
  */
 /**

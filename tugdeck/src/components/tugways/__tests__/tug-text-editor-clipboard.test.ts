@@ -4,7 +4,7 @@
  * Exercises `serializeClipboard`, `parseClipboardSidecar`, and
  * `rehydrateSidecarBytes` in isolation. The DOM event handlers and the
  * native-bridge copy/paste path that wrap these helpers are exercised
- * via app-test (`at0043`, `at0044`); this file proves the wire format
+ * via app-test (`at0477`, `at0526`); this file proves the wire format
  * itself is bidirectional, carries image bytes / atom ids
  * self-contained, and rejects malformed payloads cleanly.
  */

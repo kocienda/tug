@@ -144,18 +144,12 @@ const CORE_TIER = [
     "harness-smoke/smoke.test.ts", // bridge floor: boot, handshake, close
     "harness-smoke/smoke-native.test.ts", // native CGEvent gesture pipeline
     "harness-smoke/smoke-cold-boot.test.ts", // two-process tugbank round-trip
-    "at0001-tab-switch-fc.test.ts", // intra-pane tab switch + caret restore
-    "at0003-pane-activation.test.ts", // cross-pane activation
-    "at0016-tab-close-handoff.test.ts", // close-the-active-tab focus handoff
-    "at0014-scroll-persistence.test.ts", // region scroll across activation paths
     "at0024-prompt-state-roundtrip.test.ts", // prompt state across reload + relaunch
     "at0084-session-lifecycle-coordination.test.ts", // session lifecycle state-to-zone matrix
-    "at0109-focus-ring.test.ts", // the one app-owned focus ring
-    "at0126-keyboard-ring-cold-boot.test.ts", // focus axis survives relaunch
     "at0145-permission-dialog-keyboard.test.ts", // card-modal dialog keyboard model
     "at0165-activation-first-responder.test.ts", // responder-chain accelerators
     "at0191-turns-end-to-end.test.ts", // canonical turns through the transcript
-    "at0201-session-card-activation-click-focus.test.ts", // session card activation focus
+    "body-grounding/row-07-focus.test.ts", // the keyboard follows the key card across bodies
     "at0209-text-card-live-autosave-loop.test.ts", // Text card core loop on real files
     "at0216-shell-exchange.test.ts", // $ shell route end-to-end
     "at0231-sidebar-toggle.test.ts", // sidebar rail toggle + focus + reload
@@ -192,6 +186,9 @@ const ACCEPTED_FANOUT: Record<string, number> = {
     // pixel cosmetics and restored when that grading was found wrong: they read
     // computed style, but what they assert is an engine rule, and the phase's
     // recorded failure mode is exactly an attribute-green/pixel-dark ring.
+    // All three were deleted on 2026-10-16 with the rest of the corpus's
+    // focus-engine files (briefs/app-test-corpus-cut-brief.md [B06]), and the
+    // module's fan-out is under the budget again.
     "tugdeck/src/components/tugways/focus-manager.ts": 29,
 
     // The deck's one canvas. Re-keyed rather than raised: this ratchet compares
@@ -389,7 +386,7 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugdeck/src/components/cards/cards-store/": 3,
     // `tugdeck/src/components/jots/` was here at 4 and is gone: the directory
     // grew to 5 with `jot-row-menu.tsx`, and the one declaration claiming it —
-    // `at0247`'s — was narrowed to the three modules that test actually drives
+    // `at0247`'s, since deleted — was narrowed to the three modules that test drove
     // rather than refinanced upward. Debt paid down, which is the remedy this
     // ratchet asks for first.
     "tugdeck/src/components/tugways/hooks/": 11,
@@ -507,10 +504,9 @@ const ACCEPTED_SUBTREES: Record<string, number> = {
     "tugdeck/src/lib/markdown/": 22,
 
     // `tugdeck/styles/themes/` was here at 7 and is gone: the directory grew to
-    // ten themes, and its one declaration — `at0109`'s — boots under the base
-    // theme and never switches, so it was narrowed to `ironclad.css` rather than
-    // refinanced upward. The ring tokens it reads are app-owned in
-    // `focus-ring.css`, which it already names.
+    // ten themes, and its one declaration — `at0109`'s, since deleted — booted under the base
+    // theme and never switched, so it was narrowed to `ironclad.css` rather than
+    // refinanced upward.
 
     "tugrust/crates/tugbank-core/": 10,
     "tugrust/crates/tugbank/": 3,

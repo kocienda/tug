@@ -316,7 +316,7 @@ Two test categories live under `tests/app-test/`:
 
 ### `harness-smoke/<name>.test.ts` — primitive gates
 
-Smoke tests pin a single harness primitive: RPC handshake, evalJS error translation, native CGEvent click round-trip, app-reload, cold-boot / `quitGracefully`, capture-phase save invariant. They exist so a primitive regression can be diagnosed without the attribution being conflated with a scenario regression. If `smoke.test.ts` fails, the bridge transport is broken; if `at0001-tab-switch-fc.test.ts` fails *and* `smoke.test.ts` passes, the bug is in the scenario path, not the harness.
+Smoke tests pin a single harness primitive: RPC handshake, evalJS error translation, native CGEvent click round-trip, app-reload, cold-boot / `quitGracefully`, capture-phase save invariant. They exist so a primitive regression can be diagnosed without the attribution being conflated with a scenario regression. If `smoke.test.ts` fails, the bridge transport is broken; if a scenario file fails *and* `smoke.test.ts` passes, the bug is in the scenario path, not the harness.
 
 Smoke tests are not numbered. The filename describes what the gate asserts. Add a smoke test only when (a) it pins a harness primitive that AT scenarios depend on, AND (b) failure attribution would be muddled without a separate gate. A smoke test for behavior already covered by a scenario adds noise without diagnostic value.
 

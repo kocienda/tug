@@ -1,8 +1,11 @@
 /**
  * select-tests-print.test.ts — `--print` writes the selection to stdout.
  *
- * These run the real `select-tests.ts` as a subprocess against the real corpus, so what is
- * under test is the actual script resolving actual `@covers` declarations.
+ * These run the real `select-tests.ts` as a subprocess over a throwaway copy of the corpus,
+ * with the source roots linked beside it, so what is under test is the actual script
+ * resolving actual `@covers` declarations. The copy adds fixture files of its own that
+ * cover `OVER_BUDGET`: the corpus is cut down over time, and an over-cap selection must
+ * stay testable when no real source fans out past the cap.
  *
  * Counts are asserted as properties (non-empty, under or over the cap) rather than as
  * literals: the corpus shrinks as tests are retired, and a literal would break on every
@@ -12,13 +15,15 @@
  * invisible to `testFiles()`, which only scans the corpus root, `harness-smoke/` and `body-grounding/`.
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { copyAppTestTree } from "./copy-app-test-tree";
 
-const APP_TEST_DIR = resolve(dirname(import.meta.dir));
-const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
+const REAL_APP_TEST_DIR = resolve(dirname(import.meta.dir));
+const REAL_REPO = resolve(REAL_APP_TEST_DIR, "..", "..");
+const SOURCE_ROOTS = ["tugdeck", "tugrust", "tugapp", "tugcode", "tuglaws"];
 
 /** The cap the script cuts at, mirrored from `select-tests.ts`. */
 const MAX_SELECTED = 20;
@@ -32,8 +37,26 @@ afterAll(() => rmSync(LEDGER_DIR, { recursive: true, force: true }));
 
 /** A source path covered by a handful of tests — comfortably under the cap. */
 const UNDER_BUDGET = "tugcode/src/types.ts";
-/** A source path with a recorded fan-out well above the cap. */
+/** A source path the fixtures below carry well above the cap. */
 const OVER_BUDGET = "tugdeck/src/components/tugways/focus-manager.ts";
+
+/** The copy's own candidates for `OVER_BUDGET`, enough to fill the cap and spill past it. */
+const FIXTURES = Array.from({ length: MAX_SELECTED + 5 }, (_, i) => `at9900-print-fixture-${String(i).padStart(2, "0")}.test.ts`);
+
+const ROOT = join(LEDGER_DIR, "repo");
+const APP_TEST_DIR = join(ROOT, "tests", "app-test");
+const SCRIPT = join(APP_TEST_DIR, "scripts", "select-tests.ts");
+
+/** A run in the copy takes about four seconds where one in the checkout takes a fraction of one, and a case runs it twice. */
+setDefaultTimeout(30_000);
+
+beforeAll(() => {
+    mkdirSync(join(ROOT, "tests"), { recursive: true });
+    copyAppTestTree(REAL_APP_TEST_DIR, APP_TEST_DIR);
+    for (const r of SOURCE_ROOTS) symlinkSync(join(REAL_REPO, r), join(ROOT, r));
+    const source = ["/**", " * A print fixture: one more file covering the focus manager.", " *", ` * @covers ${OVER_BUDGET}`, " */", "", 'import { test } from "bun:test";', "", 'test.skip("print fixture", () => {});', ""].join("\n");
+    for (const f of FIXTURES) writeFileSync(join(APP_TEST_DIR, f), source);
+});
 
 function run(args: string[]): { code: number; out: string; err: string } {
     const proc = Bun.spawnSync(["bun", SCRIPT, ...args], {

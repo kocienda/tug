@@ -103,18 +103,49 @@ const RANK_LINE =
 const TUGTOOL = join(REAL_REPO, "tugrust", "target", "debug", "tugtool");
 const SYMBOL = "FocusContext.mayRestoreFirstResponder";
 
+/**
+ * Candidates of the fixture's own, written into the copy beside the real corpus: each
+ * covers `FOCUS` and names nothing in it. The cut is only testable while more than the
+ * cap's worth of files cover `FOCUS`, and the real corpus is cut down over time, so the
+ * test brings enough of its own to fill the cap and leave some below it.
+ */
+const FIXTURES = Array.from({ length: MAX_SELECTED + 9 }, (_, i) => `at9900-rank-fixture-${String(i).padStart(2, "0")}.test.ts`);
+
 /** The nine candidates that name no surface the change guards. */
-const F02 = [
-    "at0109-focus-ring.test.ts",
-    "at0121-list-view-container-focus.test.ts",
-    "at0126-keyboard-ring-cold-boot.test.ts",
-    "at0127-list-view-cursor.test.ts",
-    "at0246-focus-boot-invariant.test.ts",
-    "at0250-focus-steal-trap.test.ts",
-    "at0252-accessibility-focus-follows.test.ts",
-    "at0267-drag-activation-focus.test.ts",
-    "at0398-chord-ring.test.ts",
-];
+const F02 = FIXTURES.slice(0, 9);
+
+/** A fixture candidate that spells `FocusManager.adoptKeyCard`, for the case that needs a namer. */
+const NAMER = "at9900-rank-fixture-namer.test.ts";
+
+function namerSource(): string {
+    return [
+        "/**",
+        " * A rank fixture: covers the focus manager and drives `adoptKeyCard` by name.",
+        " *",
+        ` * @covers ${FOCUS}`,
+        " */",
+        "",
+        'import { test } from "bun:test";',
+        "",
+        'test.skip("rank fixture", () => void "adoptKeyCard");',
+        "",
+    ].join("\n");
+}
+
+function fixtureSource(): string {
+    return [
+        "/**",
+        " * A rank fixture: covers the focus manager and names nothing in it.",
+        " *",
+        ` * @covers ${FOCUS}`,
+        " */",
+        "",
+        'import { test } from "bun:test";',
+        "",
+        'test.skip("rank fixture", () => {});',
+        "",
+    ].join("\n");
+}
 
 interface Seed {
     file: string;
@@ -162,6 +193,8 @@ beforeAll(() => {
     ledger = join(root, "apptest_results.db");
     mkdirSync(join(root, "tests"), { recursive: true });
     copyAppTestTree(REAL_APP_TEST_DIR, join(root, "tests", "app-test"));
+    for (const f of FIXTURES) writeFileSync(join(root, "tests", "app-test", f), fixtureSource());
+    writeFileSync(join(root, "tests", "app-test", NAMER), namerSource());
     for (const r of SOURCE_ROOTS) {
         const keep = COPIED.filter((c) => c.startsWith(`${r}/`)).map((c) => c.slice(r.length + 1));
         if (keep.length > 0) mirror(join(REAL_REPO, r), join(root, r), keep);
@@ -232,7 +265,7 @@ describe("a change inside a function some candidates name", () => {
         // The tests that spell the method itself say so.
         const direct = ranked.filter((l) =>
             /(?<![A-Za-z0-9_$])adoptKeyCard(?![A-Za-z0-9_$])/.test(
-                readFileSync(join(REAL_APP_TEST_DIR, l.file), "utf8"),
+                readFileSync(join(root, "tests", "app-test", l.file), "utf8"),
             ),
         );
         expect(direct.length).toBeGreaterThan(0);
@@ -304,9 +337,9 @@ describe("the reach report", () => {
         git("checkout", "--", FOCUS);
         ledger = join(root, "maps-c.db");
         seed([
-            { file: "at0109-focus-ring.test.ts", headSha: head(), hits: false },
+            { file: FIXTURES[0], headSha: head(), hits: false },
             {
-                file: "at0121-list-view-container-focus.test.ts",
+                file: FIXTURES[1],
                 headSha: head(),
                 hits: true,
                 map: { [FOCUS]: { n: 10, hit: Array.from({ length: 9 }, (_, i) => `FocusContext.f${i}`) } },
@@ -315,18 +348,13 @@ describe("the reach report", () => {
     });
 
     test("prints hit/n per covered module, no map for an unseeded test, and names the wide claimer", () => {
-        const r = run([
-            "--reach",
-            "at0109-focus-ring.test.ts",
-            "at0121-list-view-container-focus.test.ts",
-            "at0126-keyboard-ring-cold-boot.test.ts",
-        ]);
+        const r = run(["--reach", FIXTURES[0], FIXTURES[1], FIXTURES[2]]);
         expect(r.code).toBe(0);
-        expect(r.out).toContain("at0109-focus-ring.test.ts  covered 1/196 (1%)");
+        expect(r.out).toContain(`${FIXTURES[0]}  covered 1/196 (1%)`);
         expect(r.out).toContain(`  ${FOCUS}  1/196 (1%)`);
-        expect(r.out).toContain("at0121-list-view-container-focus.test.ts  covered 9/10 (90%)");
-        expect(r.out).toContain("at0126-keyboard-ring-cold-boot.test.ts  no map");
-        expect(r.out[r.out.length - 1]).toBe("claim nearly everything they cover: at0121-list-view-container-focus.test.ts");
+        expect(r.out).toContain(`${FIXTURES[1]}  covered 9/10 (90%)`);
+        expect(r.out).toContain(`${FIXTURES[2]}  no map`);
+        expect(r.out[r.out.length - 1]).toBe(`claim nearly everything they cover: ${FIXTURES[1]}`);
     });
 });
 

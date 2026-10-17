@@ -557,17 +557,10 @@ Each of these pins one transition or one component-roster axis of [A9]. They are
 
 | Test | Gate |
 |------|------|
-| [`at0001-tab-switch-fc`](../tests/app-test/at0001-tab-switch-fc.test.ts) | Intra-pane tab switch — FC caret round-trip |
-| [`at0004-app-resign-return`](../tests/app-test/at0004-app-resign-return.test.ts) | App resign → become-active focus restore |
-| [`at0006-cross-pane-drag`](../tests/app-test/at0006-cross-pane-drag.test.ts) | Cross-pane move — focus restore |
-| [`at0010-markdown-selection`](../tests/app-test/at0010-markdown-selection.test.ts) | Markdown-view copy-selection persistence |
 | [`at0010-cold-boot-selection`](../tests/app-test/at0010-cold-boot-selection.test.ts) | The same selection across a full process restart |
-| [`at0014-scroll-persistence`](../tests/app-test/at0014-scroll-persistence.test.ts) | Scroll persistence across activation paths |
 | [`at0014-cold-boot-scroll`](../tests/app-test/at0014-cold-boot-scroll.test.ts) | Region-scroll restore across a full process restart |
 | [`at0017-savestate-rpc-parity`](../tests/app-test/at0017-savestate-rpc-parity.test.ts) | `saveState` RPC captures the same axes as the will-phase save |
 | [`at0024-prompt-state-roundtrip`](../tests/app-test/at0024-prompt-state-roundtrip.test.ts) | The foundational round-trip matrix, reload + relaunch |
-| [`at0027-layout-state-persistence`](../tests/app-test/at0027-layout-state-persistence.test.ts) | Layout state — accordion expansion, split-pane divider |
-| [`at0037-deck-wide-restore-reload`](../tests/app-test/at0037-deck-wide-restore-reload.test.ts), [`-relaunch-l1-l2`](../tests/app-test/at0037-deck-wide-restore-relaunch-l1-l2.test.ts), [`-relaunch-l3-l4`](../tests/app-test/at0037-deck-wide-restore-relaunch-l3-l4.test.ts) | Multi-card restore preserves the active/inactive invariants |
 | [`at0430-resize-scroll-preservation-transcript`](../tests/app-test/at0430-resize-scroll-preservation-transcript.test.ts), [`-documents`](../tests/app-test/at0430-resize-scroll-preservation-documents.test.ts) | A width change never moves what the reader is looking at |
 
 The EM-flavored halves of several of these (tab switch, cross-pane move, inactive mount) were retired on 2026-08-11 — they asserted the same orchestrator contract as their FC counterparts, differing only in which component reacquired focus. [`at0032-em-cold-boot-selection`](../tests/app-test/at0032-em-cold-boot-selection.test.ts) is kept as the EM representative, on the restore path where a break would be silent.

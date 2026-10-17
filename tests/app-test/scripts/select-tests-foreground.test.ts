@@ -39,7 +39,7 @@ function lines(s: string): string[] {
 
 describe("--foreground / --core against the real corpus", () => {
     test("--foreground returns only the tagged files", () => {
-        const r = run(SCRIPT, ["--foreground", "at0001-tab-switch-fc.test.ts", TAGGED]);
+        const r = run(SCRIPT, ["--foreground", "at0216-shell-exchange.test.ts", TAGGED]);
         expect(r.code).toBe(0);
         expect(lines(r.out)).toEqual([TAGGED]);
     });

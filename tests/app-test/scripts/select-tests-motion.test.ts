@@ -24,7 +24,7 @@ const MOTION = "at0624-reveal-travel-on-curve.test.ts";
 const IN_RANGE_PLAIN = "at0709-insert-file-image.test.ts";
 /** A screen-taker. */
 const FOREGROUND = "at0145-permission-dialog-keyboard.test.ts";
-const PLAIN = "at0001-tab-switch-fc.test.ts";
+const PLAIN = "at0216-shell-exchange.test.ts";
 
 function run(script: string, args: string[]): { code: number; out: string; err: string } {
     const proc = Bun.spawnSync(["bun", script, ...args], { cwd: dirname(dirname(script)) });
