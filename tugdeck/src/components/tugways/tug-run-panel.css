@@ -283,10 +283,6 @@ body {
   border-left-color: var(--tugx-run-wedged-fill);
 }
 
-.tug-run-panel-red + .tug-run-panel-red {
-  margin-top: calc(-1 * var(--tug-space-sm));
-}
-
 .tug-run-panel-red-head {
   display: flex;
   align-items: center;
@@ -322,6 +318,20 @@ body {
   margin-top: var(--tug-space-2xs);
   font-size: var(--tug-font-size-2xs);
   color: var(--tugx-run-subtle-color);
+}
+
+/* The most recent red open, the earlier ones in a fold under it. */
+.tug-run-panel-reds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+}
+
+.tug-run-panel-red-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tug-space-xs);
+  padding-top: var(--tug-space-xs);
 }
 
 /* ---- Marks and words ---------------------------------------------------- */

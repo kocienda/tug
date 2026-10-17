@@ -18,10 +18,12 @@
  *      never emptied while the run goes, so the panel does not jump between
  *      units. A run counting phases shows every phase as a compact step row,
  *      its time on the right; a run counting tests shows the test it is on.
- *   4. **Reds, always open** — each failed or wedged unit, its first
- *      failure, and what the record said of it before this run. While the
- *      run goes they land at the foot, under the folds, so a red arriving
- *      moves nothing above it; once over they lead the body.
+ *   4. **Reds** — the most recent failed or wedged unit open as a card, its
+ *      first failure and what the record said of it before this run, and
+ *      every earlier red folded under it, newest first, one tap away. While
+ *      the run goes they land at the foot, under the folds, so a red
+ *      arriving changes the card and the fold's count and moves nothing
+ *      above them; once over they lead the body.
  *   5. **Folds**, collapsed: what passed (standing from the first report),
  *      the wall-time chart (one bar per unit, the recorded median a ghost
  *      tick), and the run's own output.
@@ -237,7 +239,7 @@ function LandedRow({ unit }: { unit: RunUnit }) {
   );
 }
 
-/** A red unit, always open: head, first failure, what the record said. */
+/** A red unit: head, first failure, what the record said. */
 function RedCard({ unit }: { unit: RunUnit }) {
   const timing = secsOfMedian(unit);
   return (
@@ -252,6 +254,41 @@ function RedCard({ unit }: { unit: RunUnit }) {
       {unit.title !== undefined && <div className="tug-run-panel-red-title">{unit.title}</div>}
       {unit.message !== undefined && <div className="tug-run-panel-red-message">{unit.message}</div>}
       {unit.history !== undefined && <div className="tug-run-panel-red-history">{unit.history}</div>}
+    </div>
+  );
+}
+
+/**
+ * The reds: the most recent one open, the earlier ones folded under it. A
+ * run that goes red many times would otherwise stack a card per failure and
+ * push everything else off the screen, and the one a reader acts on next is
+ * the one that just landed. Run order is landing order, so the last red is
+ * the most recent; the fold lists the rest newest first.
+ */
+function Reds({ reds, foldKey }: { reds: readonly RunUnit[]; foldKey: string | undefined }) {
+  const latest = reds[reds.length - 1];
+  if (latest === undefined) return null;
+  const earlier = reds.slice(0, -1).reverse();
+  return (
+    <div className="tug-run-panel-reds" data-slot="tug-run-panel-reds">
+      <RedCard unit={latest} />
+      {earlier.length > 0 && (
+        <TugAccordion
+          type="multiple"
+          variant="plain"
+          className="tug-run-panel-folds tug-run-panel-earlier-reds"
+          {...(foldKey !== undefined ? { componentStatePreservationKey: `${foldKey}-earlier-reds` } : {})}
+        >
+          <TugAccordionItem
+            value="earlier-reds"
+            trigger={<FoldTitle label="Earlier failures" count={String(earlier.length)} />}
+          >
+            <div className="tug-run-panel-red-list">
+              {earlier.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} />)}
+            </div>
+          </TugAccordionItem>
+        </TugAccordion>
+      )}
     </div>
   );
 }
@@ -434,12 +471,13 @@ export function TugRunPanel({
   const m = runPanelModel(run, state, nowMs, { callFailed });
   const landed = m.units.filter((u) => u.secs !== undefined);
   const running = state === "running";
-  const reds = m.reds.map((u) => <RedCard key={`${u.index ?? 0}-${u.name}`} unit={u} />);
+  const reds = <Reds reds={m.reds} foldKey={foldKey} />;
   // The panel opens with the strip's two rows, so a finished block that
   // collapses to its strip keeps them where they were. While the run goes,
   // everything below them holds its place: the in-flight rows never empty,
   // the Passed fold stands from the first report, and reds land at the foot,
-  // where arriving moves nothing above. Once over, the reds lead the body.
+  // where arriving moves nothing above, and only the most recent stands open.
+  // Once over, the reds lead the body.
   return (
     <div className="tug-run-panel" data-slot="tug-run-panel" data-state={state} data-verdict={m.verdict}>
       <Masthead m={m} state={state} wallSecs={wallSecs} />

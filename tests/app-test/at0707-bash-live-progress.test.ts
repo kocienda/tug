@@ -287,9 +287,19 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
         expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-verdict"]`)).toContain(
           "1 of 4 files failed, 1 wedged",
         );
-        expect(await count(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`), "both reds stay open").toBe(2);
-        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("red in the last 7 recorded runs");
-        expect(await text(card, `${RUN_PANEL} .tug-run-panel-folds`), "the output is a fold at the foot").toContain("Output");
+        // Only the most recent red stands open; the earlier one is folded
+        // under it, a tap away.
+        expect(await count(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`), "one red open").toBe(1);
+        expect(await text(card, `${RUN_PANEL} [data-slot="tug-run-panel-red"]`)).toContain("at0352-pane-split-restore");
+        const EARLIER = `${RUN_PANEL} .tug-run-panel-earlier-reds`;
+        expect(await text(card, EARLIER)).toContain("Earlier failures1");
+        await card.click(`${EARLIER} .tug-accordion-trigger`);
+        await card.waitForCondition<boolean>(
+          `document.querySelectorAll(${JSON.stringify(`${RUN_PANEL} [data-slot="tug-run-panel-red"]`)}).length === 2`,
+          { timeoutMs: 5_000 },
+        );
+        expect(await text(card, `${EARLIER} [data-slot="tug-run-panel-red"]`)).toContain("red in the last 7 recorded runs");
+        expect(await text(card, `${RUN_PANEL} .tug-run-panel-folds:not(.tug-run-panel-earlier-reds)`), "the output is a fold at the foot").toContain("Output");
         expect(await shown(card, RUN_STRIP), "expanded, the panel says what the strip did").toBe(false);
 
         // A report no call claimed: the card's line, on the JOBS placard.
