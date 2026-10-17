@@ -18,6 +18,15 @@ import { enforcedTimeout } from "./rpc";
 import { keyboardInCardHost } from "./selectors";
 
 /**
+ * How long the helpers below wait for a card's body to stand ready by
+ * default. A body is ready in a second or two, warm or cold; a card that
+ * never opens is a red, and every reach through `kindBody` pays this wait
+ * again before failing, so it is short. A caller that knows its card is
+ * slow passes its own.
+ */
+export const BODY_STANDS_MS = 10_000;
+
+/**
  * The page that holds `cardId`'s DOM: its body when the host holds a bound
  * body for it, and the shell otherwise.
  */
@@ -92,7 +101,7 @@ export async function waitForKeyboardInCard(app: App, cardId: string, opts: { ti
  * seeding one under an id it names. With several of the kind, the visible one.
  * Throws when no such card stands ready in `timeoutMs`.
  */
-export async function bodyOfKind(app: App, componentId: string, timeoutMs = 30_000): Promise<BodyApp> {
+export async function bodyOfKind(app: App, componentId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const bodies = await app.bodies();
@@ -115,7 +124,7 @@ export async function bodyOfKind(app: App, componentId: string, timeoutMs = 30_0
  * body; a test that has just seeded or opened the card waits here first.
  * Throws with what the host holds when the body is not ready in `timeoutMs`.
  */
-export async function waitForBodyReady(app: App, cardId: string, timeoutMs = 30_000): Promise<BodyApp> {
+export async function waitForBodyReady(app: App, cardId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const bodies = await app.bodies();
@@ -160,7 +169,7 @@ export async function waitForNoBodyOfKind(app: App, componentId: string, opts: {
  * point computed in its viewport then lands outside the view. Throws when no
  * such body stands in `timeoutMs`.
  */
-export async function waitForBodyPainted(app: App, componentId: string, timeoutMs = 30_000): Promise<BodyApp> {
+export async function waitForBodyPainted(app: App, componentId: string, timeoutMs = BODY_STANDS_MS): Promise<BodyApp> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const bodies = await app.bodies();
@@ -187,7 +196,7 @@ export async function waitForBodyPainted(app: App, componentId: string, timeoutM
  * a card of the kind, as {@link bodyOfKind} does, and runs there; a call
  * with no such body standing ready in `timeoutMs` throws as it would.
  */
-export function kindBody(app: App, componentId: string, timeoutMs = 30_000): BodyApp {
+export function kindBody(app: App, componentId: string, timeoutMs = BODY_STANDS_MS): BodyApp {
   const template = app.body(`kind:${componentId}`);
   return new Proxy(template, {
     get(target, prop, receiver) {

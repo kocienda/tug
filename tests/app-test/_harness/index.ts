@@ -37,8 +37,10 @@ import { randomUUID } from "node:crypto";
 import {
   AccessibilityPermissionMissingError,
   AppCrashedError,
+  TimeoutError,
   VersionSkewError,
 } from "./errors";
+import { shellTimeoutCause } from "./timeout-cause";
 import { shortToken, tmuxSocketLabel } from "./fnv1a";
 import { unionReachMaps, type ReachMap } from "./reach-map";
 import { onTestRunEnd } from "./test-cleanup";
@@ -570,17 +572,35 @@ export class App {
    * Throws `TimeoutError` on budget exceeded. Prefer this over
    * `evalJS` + `setTimeout` — `setTimeout`-based waiting is banned in
    * harness / test code ([D12]).
+   *
+   * A timeout whose script scopes a selector by a card the host holds as a
+   * body says so in its message: the expression waited in the wrong page
+   * (`timeout-cause.ts`).
    */
-  waitForCondition<T = unknown>(
+  async waitForCondition<T = unknown>(
     script: string,
     opts?: WaitForConditionOptions,
   ): Promise<T> {
-    return this.rpc.call<T>({
-      method: "waitForCondition",
-      script,
-      timeoutMs: opts?.timeoutMs,
-      pollMs: opts?.pollMs,
-    });
+    try {
+      return await this.rpc.call<T>({
+        method: "waitForCondition",
+        script,
+        timeoutMs: opts?.timeoutMs,
+        pollMs: opts?.pollMs,
+      });
+    } catch (error) {
+      if (!(error instanceof TimeoutError)) throw error;
+      const bodyIds = await this.bodies().then(
+        (bodies) => bodies.flatMap((b) => (b.cardId === null ? [] : [b.cardId])),
+        () => [] as string[],
+      );
+      const cause = shellTimeoutCause(script, bodyIds);
+      if (cause === null) throw error;
+      const labelled = new TimeoutError(`${error.message} — ${cause}`, error.script, error.timeoutMs);
+      // The original frames: the report locates a failure in the test file from them.
+      if (error.stack !== undefined) labelled.stack = error.stack.replace(error.message, labelled.message);
+      throw labelled;
+    }
   }
 
   /**
