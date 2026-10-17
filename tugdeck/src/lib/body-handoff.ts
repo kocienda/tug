@@ -10,16 +10,21 @@
  * **Which cards.** A card whose kind's registration says `body: true`
  * ({@link isBodyKind}). A kind whose registration also says
  * `bodyHandOff: "spawn"` — the Session card — is handed off by its spawn
- * funnels; every other body kind by the shell's deck scan, with a `mount`
- * intent, as soon as the deck holds the card (`lib/body-shell.ts`).
+ * funnels when the shell has a session to start for it, and by the shell's
+ * deck scan, with a `restore` intent, once it has none; every other body kind
+ * by the deck scan, with a `mount` intent, as soon as the deck holds the card
+ * (`lib/body-shell.ts`).
  *
  * **Hand-off.** The spawn funnels (`fireRestore`, `fireFreshSpawn`,
  * `fireNewSpawn`) ask {@link handOffToBody} first. A Session card the deck
  * holds becomes a body card: the shell marks it and asks the host for its
  * body with the intent the funnel would have acted on, and the funnel sends
  * nothing — the body spawns or resumes on its own connection. A card that is
- * already a body card answers true and nothing is posted, which is what the
- * shell's reconnect pass needs: the body reconnects and re-spawns on its own.
+ * already a body card answers true too, and the intent the shell has just
+ * decided for it is sent to its body, which replays it. The one caller with
+ * nothing to send is the shell's reconnect pass, which passes over every
+ * body card ({@link isBodyCard}): the body reconnects and re-asserts its card
+ * on its own.
  *
  * What the shell does with a body card afterwards is `lib/body-shell.ts`;
  * this module is the funnels' one import, so it stays light.
@@ -92,6 +97,11 @@ export function isHandOffSuppressed(cardId: string): boolean {
   return suppressed.has(cardId);
 }
 
+/** Whether `cardId` is a body card on this page: its body, not this page, acts for it. */
+export function isBodyCard(cardId: string): boolean {
+  return capabilities.bodyViews && bodyCardsStore.has(cardId);
+}
+
 /** Whether a card of `componentId` lives in a body on this host. */
 export function isBodyKind(componentId: string): boolean {
   return capabilities.bodyViews && getRegistration(componentId)?.body === true;
@@ -109,8 +119,17 @@ export function isMountBodyKind(componentId: string): boolean {
 export function _resetHandOffForTest(): void {
   suppressed.clear();
   intents.clear();
+  forwarder = null;
   bodyCardsStore._reset();
   bodyFactsStore._reset();
+}
+
+/** How an intent reaches a card's body: the shell's bus, once it is installed. */
+let forwarder: ((cardId: string, intent: BodyIntent) => void) | null = null;
+
+/** The shell sends a body card's later intents through `send`; null to stop. */
+export function setBodyIntentForwarder(send: ((cardId: string, intent: BodyIntent) => void) | null): void {
+  forwarder = send;
 }
 
 /** Post `body` to the host's `name` handler; nothing without a host. */
@@ -128,10 +147,20 @@ export function postToHost(name: string, body: unknown): void {
  * when the funnel must send nothing: the card is now a body card, or already
  * was one. `intent` is called only when a body is actually asked for, so a
  * funnel can drain a one-shot hold into it without losing it on a false.
+ *
+ * A card that already was one is sent `intent` through the forwarder the
+ * shell installed, since the funnel has just decided it and the body is the
+ * only page that can act on it ([L31]: a decision is never dropped unsaid).
  */
 export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean {
   if (!capabilities.bodyViews) return false;
-  if (bodyCardsStore.has(cardId)) return true;
+  if (bodyCardsStore.has(cardId)) {
+    if (forwarder === null) return true;
+    const made = intent();
+    intents.set(cardId, made);
+    forwarder(cardId, made);
+    return true;
+  }
   if (suppressed.has(cardId)) return false;
   const deck = getDeckStore();
   if (deck === null) return false;

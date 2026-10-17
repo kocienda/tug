@@ -698,22 +698,34 @@ export class App {
     return client.getFocusedCardId(this as HarnessCaller);
   }
 
-  /** Read the caret / selection snapshot for `cardId`. */
-  getCaretState(cardId: string): Promise<CaretState | null> {
-    return client.getCaretState(this as HarnessCaller, cardId);
+  /**
+   * The page that holds `cardId`'s DOM: its body when the host holds one for
+   * it, the shell otherwise. Every verb below that names a card asks there,
+   * so a test asks for a card's state the same way wherever the card lives —
+   * through `App.body`, the one door to a card's DOM.
+   */
+  private async pageOf(cardId: string): Promise<HarnessCaller> {
+    const bodies = await this.bodies();
+    const body = bodies.find((b) => b.cardId === cardId);
+    return body !== undefined && body.state !== "failed" ? this.body(cardId) : (this as HarnessCaller);
   }
 
-  /** Read a persisted form-control's value by its persist key. */
-  getFormControlValue(
+  /** Read the caret / selection snapshot for `cardId`, in the page that holds it. */
+  async getCaretState(cardId: string): Promise<CaretState | null> {
+    return client.getCaretState(await this.pageOf(cardId), cardId);
+  }
+
+  /** Read a persisted form-control's value by its persist key, in the page that holds the card. */
+  async getFormControlValue(
     cardId: string,
     componentStatePreservationKey: string,
   ): Promise<string | null> {
-    return client.getFormControlValue(this as HarnessCaller, cardId, componentStatePreservationKey);
+    return client.getFormControlValue(await this.pageOf(cardId), cardId, componentStatePreservationKey);
   }
 
-  /** `true` iff the deck has registered a card-host root for `cardId`. */
-  assertHostRootRegistered(cardId: string): Promise<boolean> {
-    return client.assertHostRootRegistered(this as HarnessCaller, cardId);
+  /** `true` iff the page that holds `cardId` has registered a card-host root for it. */
+  async assertHostRootRegistered(cardId: string): Promise<boolean> {
+    return client.assertHostRootRegistered(await this.pageOf(cardId), cardId);
   }
 
   /** Pull the DeckTrace ring; `since` filters by `seq > that`. */
@@ -753,12 +765,12 @@ export class App {
    * (compared via server-side `JSON.stringify`). Wraps
    * `waitForCondition`; throws `TimeoutError` on budget exceeded.
    */
-  expectCaret(
+  async expectCaret(
     cardId: string,
     expected: CaretState,
     opts?: WaitForConditionOptions,
   ): Promise<void> {
-    return client.expectCaret(this as HarnessCaller, cardId, expected, opts);
+    return client.expectCaret(await this.pageOf(cardId), cardId, expected, opts);
   }
 
   // -------------------------------------------------------------------
@@ -970,10 +982,12 @@ export class App {
   /**
    * Read the current selection. With `cardId`, scoped to that card's
    * host subtree (matches `getCaretState` shape but adds
-   * contentEditable ranges). Without, page-wide.
+   * contentEditable ranges), in the page that holds the card. Without,
+   * the shell's page.
    */
-  getSelection(cardId?: string): Promise<SelectionSnapshot | null> {
-    return client.getSelection(this as HarnessCaller, cardId);
+  async getSelection(cardId?: string): Promise<SelectionSnapshot | null> {
+    const page = cardId === undefined ? (this as HarnessCaller) : await this.pageOf(cardId);
+    return client.getSelection(page, cardId);
   }
 
   /** Resolved CSS value for `property` on `selector`. */
@@ -993,22 +1007,23 @@ export class App {
    * Mirrors what a real card does via `useSelectionBoundary` on
    * mount. Tests that inject ad-hoc fixture overlays outside of a
    * real card need this so tugdeck's `selectionGuard.handleSelectStart`
-   * doesn't preventDefault their drag-selections.
+   * doesn't preventDefault their drag-selections. It registers in the page
+   * that holds the card, whose guard serves it.
    */
-  registerSelectionBoundary(
+  async registerSelectionBoundary(
     cardId: string,
     selector: string,
   ): Promise<void> {
     return client.registerSelectionBoundary(
-      this as HarnessCaller,
+      await this.pageOf(cardId),
       cardId,
       selector,
     );
   }
 
   /** Inverse of {@link App.registerSelectionBoundary}. */
-  unregisterSelectionBoundary(cardId: string): Promise<void> {
-    return client.unregisterSelectionBoundary(this as HarnessCaller, cardId);
+  async unregisterSelectionBoundary(cardId: string): Promise<void> {
+    return client.unregisterSelectionBoundary(await this.pageOf(cardId), cardId);
   }
 
   // -------------------------------------------------------------------
@@ -1022,8 +1037,8 @@ export class App {
    * forces a save before reading, so the returned state reflects
    * current engine content rather than a stale debounced save.
    */
-  getEmCardState(cardId: string): Promise<client.EmCardState | null> {
-    return client.getEmCardState(this as HarnessCaller, cardId);
+  async getEmCardState(cardId: string): Promise<client.EmCardState | null> {
+    return client.getEmCardState(await this.pageOf(cardId), cardId);
   }
 
   // -------------------------------------------------------------------
@@ -1061,21 +1076,27 @@ export class App {
     return client.forceSettleStall(this as HarnessCaller, ms);
   }
 
-  /** Synchronous probe: has `engine-ready` been recorded for `cardId`? */
-  isEngineReady(cardId: string): Promise<boolean> {
-    return client.isEngineReady(this as HarnessCaller, cardId);
+  /** Synchronous probe: has `engine-ready` been recorded for `cardId`, in the page that holds it? */
+  async isEngineReady(cardId: string): Promise<boolean> {
+    return client.isEngineReady(await this.pageOf(cardId), cardId);
   }
 
   /**
    * Block until the engine for `cardId` has emitted `engine-ready`,
    * or until `timeoutMs` (default 2000ms) elapses. Throws
-   * `TimeoutError` on budget exceeded.
+   * `TimeoutError` on budget exceeded. A body card is waited for in its
+   * body, once the shell says the body is up; the shell answers that from
+   * the body's state, under the same budget.
    */
-  awaitEngineReady(
+  async awaitEngineReady(
     cardId: string,
     opts?: WaitForConditionOptions,
   ): Promise<void> {
-    return client.awaitEngineReady(this as HarnessCaller, cardId, opts);
+    await this.waitForCondition<boolean>(
+      `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered(${JSON.stringify(cardId)})`,
+      opts,
+    );
+    return client.awaitEngineReady(await this.pageOf(cardId), cardId, opts);
   }
 
   /**
@@ -1153,13 +1174,14 @@ export class App {
    * must be bound first (`bindSession`). Frames flow through the
    * store's real decode → `dispatch` path: a frame whose shape has drifted
    * from its `@tugproto/outbound-decoders` decoder is logged and dropped.
+   * A body card's store is in its body, so the drive runs there.
    */
-  driveSession(
+  async driveSession(
     cardId: string,
     action: client.SessionDriveAction,
     opts?: EvalJsOptions,
   ): Promise<void> {
-    return client.driveSession(this as HarnessCaller, cardId, action, opts);
+    return client.driveSession(await this.pageOf(cardId), cardId, action, opts);
   }
 
   /**
@@ -1201,7 +1223,7 @@ export class App {
    * handshake. Requires a prior `bindSession(cardId)`.
    */
   ingestSessionMetadata(cardId: string, payload: unknown): Promise<void> {
-    return client.ingestSessionMetadata(this as HarnessCaller, cardId, payload);
+    return this.pageOf(cardId).then((page) => client.ingestSessionMetadata(page, cardId, payload));
   }
 
   // -------------------------------------------------------------------
@@ -1940,6 +1962,108 @@ export class BodyApp implements HarnessCaller {
   /** A trusted click at the center of `selector` in this body. */
   nativeClickAtElement(selector: string, opts?: NativeClickOptions): Promise<void> {
     return client.nativeClickAtElement(this, selector, opts);
+  }
+
+  /** A trusted right-click at the center of `selector` in this body. */
+  nativeRightClickAtElement(selector: string): Promise<void> {
+    return client.nativeRightClickAtElement(this, selector);
+  }
+
+  /** A trusted double-click at the center of `selector` in this body. */
+  nativeDoubleClickAtElement(selector: string, opts?: { button?: NativeMouseButton }): Promise<void> {
+    return client.nativeDoubleClickAtElement(this, selector, opts);
+  }
+
+  // The element drags and the release, in this body's viewport: the host runs
+  // every native verb in the view the request names, so a drag's points are
+  // this body's own, the way its clicks and `nativeDrag` (below) are.
+
+  /** A trusted drag from the center of `fromSelector` to a point or element in this body. */
+  nativeDragElement(
+    fromSelector: string,
+    to: ViewportPoint | { selector: string },
+    opts?: NativeDragOptions,
+  ): Promise<void> {
+    return client.nativeDragElement(this, fromSelector, to, opts);
+  }
+
+  /** As {@link nativeDragElement}, holding the button down; pair with {@link nativeMouseUp}. */
+  nativeDragElementWithoutRelease(
+    fromSelector: string,
+    to: ViewportPoint | { selector: string },
+    opts?: NativeDragOptions,
+  ): Promise<void> {
+    return client.nativeDragElementWithoutRelease(this, fromSelector, to, opts);
+  }
+
+  /** A trusted mouse-up at a point in this body's viewport. */
+  nativeMouseUp(viewportPoint: ViewportPoint, opts?: { button?: NativeMouseButton }): Promise<void> {
+    return client.nativeMouseUp(this, viewportPoint, opts);
+  }
+
+  // The synthesized gestures and the element reads, in this body's page:
+  // the same verbs `App` runs in the shell's, so a reach moves onto a body
+  // by its receiver alone.
+
+  click(selector: string, opts?: ClickOptions): Promise<void> {
+    return client.click(this, selector, opts);
+  }
+
+  type(selector: string, text: string): Promise<void> {
+    return client.type_(this, selector, text);
+  }
+
+  focusElement(selector: string): Promise<void> {
+    return client.focusElement(this, selector);
+  }
+
+  getElementText(selector: string): Promise<string> {
+    return client.getElementText(this, selector);
+  }
+
+  getElementValue(selector: string): Promise<string> {
+    return client.getElementValue(this, selector);
+  }
+
+  getElementAttribute(selector: string, name: string): Promise<string | null> {
+    return client.getElementAttribute(this, selector, name);
+  }
+
+  getElementBounds(selector: string): Promise<ElementBounds> {
+    return client.getElementBounds(this, selector);
+  }
+
+  getElementState(selector: string): Promise<ElementStateSnapshot> {
+    return client.getElementState(this, selector);
+  }
+
+  getComputedStyleValue(selector: string, property: string): Promise<string> {
+    return client.getComputedStyleValue(this, selector, property);
+  }
+
+  /** The selection in this body's page; with `cardId`, scoped to that card — see {@link App.getSelection}. */
+  getSelection(cardId?: string): Promise<SelectionSnapshot | null> {
+    return client.getSelection(this, cardId);
+  }
+
+  /** This body's caret / selection snapshot for its card. */
+  getCaretState(): Promise<CaretState | null> {
+    return client.getCaretState(this, this.cardId);
+  }
+
+  /** A persisted form-control's value in this body's card, by its persist key. */
+  getFormControlValue(componentStatePreservationKey: string): Promise<string | null> {
+    return client.getFormControlValue(this, this.cardId, componentStatePreservationKey);
+  }
+
+  /** This body's own deck trace — see {@link App.getDeckTrace}. A card's save callbacks and engine events are recorded here. */
+  getDeckTrace(opts?: { since?: number }): Promise<readonly DeckTraceEvent[]> {
+    return client.getDeckTrace(this, opts);
+  }
+
+  /** Mark this body's trace — see {@link App.markDeckTrace}. */
+  markDeckTrace(): Promise<number> {
+    return client.markDeckTrace(this);
   }
 
   nativeDoubleClick(
@@ -2710,6 +2834,16 @@ function spawnTugApp(resolved: ResolvedLaunch): SpawnedTugApp {
       "--stderr", logPathForRedirect,
       ...envArgs,
       bundlePath,
+      // After a crash, AppKit's state restorer puts up "The application
+      // quit unexpectedly — reopen windows?" as a modal BEFORE
+      // `applicationDidFinishLaunching`, and every launch of the bundle id
+      // after that sits behind it: no log line, no harness socket, and the
+      // runner records a WEDGED row for every file on the machine until
+      // somebody clicks it (2026-10-15, after an `NSFileHandleOperationException`
+      // in the harness socket). A launch under test has no state to
+      // restore and nobody at the dialog, so it is told to ignore the
+      // persistent state outright.
+      "--args", "-ApplePersistenceIgnoreState", "YES",
     ],
     // `open` itself doesn't need the TUGAPP_* env vars (they go to
     // the app via --env); forwarding PATH is enough.

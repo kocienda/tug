@@ -33,6 +33,7 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp } from "./_harness";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank } from "./_harness/tugbank-helpers";
 import { mkTextFixture } from "./_harness/fixtures";
 import {
   EDITOR_CONTENT_SELECTOR,
@@ -55,12 +56,12 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "open, autosave-to-disk, conflict banner, reload-from-disk",
     async () => {
       const { dir, file } = mkTextFixture("at0209-", FIXTURE_CONTENT);
-      const app = await launchTugApp({ testName: "at0209-core-loop" });
+      const app = await launchTugApp({ bodies: true, testName: "at0209-core-loop", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "fixture line 01");
         // The whole fixture is present (24 short lines all render).
-        const rendered = await app.evalJS<string>(
+        const rendered = await app.body("A").evalJS<string>(
           `document.querySelector('${EDITOR_CONTENT_SELECTOR}').innerText`,
         );
         expect(rendered).toContain("fixture line 24");
@@ -83,9 +84,9 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         fs.writeFileSync(file, EXTERNAL, "utf8");
         await typeIntoEditor(app, "LOCAL-EDIT ");
         // The conflict banner is a TugPaneBanner, portaled into the
-        // pane chrome — outside the card-id subtree, so the probe is
-        // document-wide.
-        await app.waitForCondition<boolean>(
+        // pane chrome — outside the card-id subtree but inside the
+        // card's own page, so the probe is body-wide.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') !== null`,
           { timeoutMs: 8000 },
         );
@@ -93,9 +94,9 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
 
         // Reload from disk: buffer adopts the external content, the
         // banner clears, autosave resumes cleanly.
-        await app.click('[data-testid="text-card-conflict-reload"]');
+        await app.body("A").click('[data-testid="text-card-conflict-reload"]');
         await waitForEditorShowing(app, "EXTERNAL-WRITER CONTENT");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') === null`,
           { timeoutMs: 6000 },
         );
@@ -120,7 +121,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
       // Phase A: type and quit immediately — the teardown flush (not
       // the debounce timer) must land the edit.
       {
-        const appA = await launchTugApp({ testName: "at0209-quit-A" });
+        const appA = await launchTugApp({ bodies: true, testName: "at0209-quit-A", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
         let closed = false;
         try {
           await seedTextCard(appA, file);
@@ -143,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
       // Phase B: a fresh process re-opens the file and shows the
       // flushed content (disk is the only source of truth).
       {
-        const appB = await launchTugApp({ testName: "at0209-quit-B" });
+        const appB = await launchTugApp({ bodies: true, testName: "at0209-quit-B", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
         try {
           await seedTextCard(appB, file);
           await waitForEditorShowing(appB, "QUIT-FLUSH-EDIT");

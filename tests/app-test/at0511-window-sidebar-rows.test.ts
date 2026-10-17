@@ -210,6 +210,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0511-sidebar-marks",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -262,6 +263,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0511-sidebar-sides",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -318,6 +320,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0511-sidebar-chord",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -367,6 +370,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0511-resize-sidebars-row",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -418,6 +422,7 @@ describe.skipIf(!SHOULD_RUN)("at0511 — the View menu's sidebar rows", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0511-hide-sidebars-row",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,

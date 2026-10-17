@@ -742,7 +742,9 @@ final class TestHarnessConnection {
 
     /// `{op: "arm", windowMs, layer?}` arms the window's display-link meter
     /// for `windowMs`, sampling the named container's presentation layer
-    /// (`"spike"` is the spike's; a card id is that card's body) per tick;
+    /// (`"spike"` is the spike's; `"spare"` is the warm spare's, which is the
+    /// container the next card to arrive takes; a card id is that card's
+    /// body) per tick;
     /// `{op: "read"}` returns the reading so far. The meter stops itself at
     /// the window's end.
     private func dispatchHostFrames(id: Int, verbObj: [String: Any]) {
@@ -757,9 +759,12 @@ final class TestHarnessConnection {
                 let windowMs = (verbObj["windowMs"] as? NSNumber)?.intValue ?? 2000
                 var layer: CALayer?
                 if let name = verbObj["layer"] as? String {
-                    let named = name == "spike"
-                        ? mainWindow.spikeBody.containerLayer
-                        : mainWindow.bodies?.body(forCard: name)?.container.layer
+                    let named: CALayer?
+                    switch name {
+                    case "spike": named = mainWindow.spikeBody.containerLayer
+                    case "spare": named = mainWindow.bodies?.spare?.container.layer
+                    default: named = mainWindow.bodies?.body(forCard: name)?.container.layer
+                    }
                     guard let named else {
                         self.respondError(id: id, name: "NoSuchLayer", message: "hostFrames: no layer named '\(name)'")
                         return

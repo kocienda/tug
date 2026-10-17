@@ -181,6 +181,7 @@ describe.skipIf(!SHOULD_RUN)(
       "no member's box lags the height the drag pinned on it",
       async () => {
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0632-sash-drag-box-is-pin",
         });
         try {

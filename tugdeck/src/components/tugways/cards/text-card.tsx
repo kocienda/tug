@@ -1307,9 +1307,9 @@ export function TextCardContent({ cardId }: { cardId: string }) {
               // file-view card, anything textual in a Text card, and anything
               // else — a `.zip`, a `.sketch`, a file that is no longer there —
               // in the Finder. A path already open is reused rather than
-              // duplicated, as with every other open.
-              const deck = getDeckStore();
-              if (deck !== null) void openAttachmentPath(deck, p, cardId);
+              // duplicated, as with every other open. The open is the shell's
+              // `OPEN_FILE` command, so it lands the same from a body page.
+              void openAttachmentPath(p, cardId);
             }}
           />
         </cycle.CycleScope>

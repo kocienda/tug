@@ -162,6 +162,13 @@ export interface BodyPlacement {
   readonly height: number;
   readonly visible: boolean;
   /**
+   * The pane's resize handles, viewport rects grown to whole points. Each
+   * lies half over the body, and in a document the handle is above the
+   * content, so a point on one is the shell's: the host keeps it from the
+   * body ({@link BodyHitRegion}, `BodyGeometry.swift`).
+   */
+  readonly grips: readonly Rect[];
+  /**
    * The pane's stacking order, its computed `z-index`: the host stacks the
    * bodies in the same order, so where two panes overlap the body of the
    * one in front is in front.
@@ -190,12 +197,32 @@ export function samePlacement(a: PlaceBodies | null, b: PlaceBodies): boolean {
       p.width !== q.width ||
       p.height !== q.height ||
       p.visible !== q.visible ||
-      p.z !== q.z
+      p.z !== q.z ||
+      !sameRects(p.grips, q.grips)
     ) {
       return false;
     }
   }
   return true;
+}
+
+function sameRects(a: readonly Rect[], b: readonly Rect[]): boolean {
+  return a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
+}
+
+/**
+ * The pane frame's resize handles as viewport rects grown to whole points —
+ * the grips a body's placement carries. Every handle the pane offers, so a
+ * slotted card with no handle on an edge keeps that edge of its body.
+ */
+export function gripRects(frame: Element | null): Rect[] {
+  if (frame === null) return [];
+  const out: Rect[] = [];
+  for (const handle of frame.querySelectorAll(":scope > .tug-pane-resize")) {
+    const r = wholePoints(handle.getBoundingClientRect());
+    if (r.width > 0 && r.height > 0) out.push(r);
+  }
+  return out;
 }
 
 /**
@@ -481,13 +508,15 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, exa
     exact?.set(cardId, { x: measured.x, y: measured.y, width: measured.width, height: measured.height });
     const rect = wholePoints(measured);
     if (bodies.length === 0) radius = radiusAt(el);
-    const z = parseInt(getComputedStyle(el.closest(".tug-pane") ?? el).zIndex, 10);
+    const frame = el.closest<HTMLElement>(".tug-pane");
+    const z = parseInt(getComputedStyle(frame ?? el).zIndex, 10);
     bodies.push({
       cardId,
       x: rect.x,
       y: rect.y,
       width: rect.width,
       height: rect.height,
+      grips: gripRects(frame),
       // A placeholder whose card is in no pane of the shown deck — a parked
       // workspace's card — is a body to hide and a lid to put back on.
       visible: facts !== null && bodyVisible(facts),
@@ -706,7 +735,7 @@ export class BodyPlacer {
       const b = last.bodies[i];
       if (b.x === rect.x && b.y === rect.y && b.width === rect.width && b.height === rect.height) continue;
       bodies ??= [...last.bodies];
-      bodies[i] = { ...b, x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      bodies[i] = { ...b, x: rect.x, y: rect.y, width: rect.width, height: rect.height, grips: gripRects(frame) };
     }
     if (bodies === null) return;
     const next: PlaceBodies = { radius: last.radius, bodies };

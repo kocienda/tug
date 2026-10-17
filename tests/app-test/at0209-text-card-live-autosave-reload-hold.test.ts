@@ -39,6 +39,7 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp, note } from "./_harness";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank } from "./_harness/tugbank-helpers";
 import {
   EDITOR_SCROLLER_SELECTOR,
   SHOULD_RUN,
@@ -75,7 +76,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "in-place reload holds the text at the viewport top",
     async () => {
       const { dir, file } = mkTallFixture();
-      const app = await launchTugApp({ testName: "at0209-reload-restore" });
+      const app = await launchTugApp({ bodies: true, testName: "at0209-reload-restore", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "tall line 001");
@@ -89,14 +90,14 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         const EXTERNAL = "EXTERNAL-WRITER LINE\n" + TALL_CONTENT;
         fs.writeFileSync(file, EXTERNAL, "utf8");
         await typeIntoEditor(app, "EDIT2 ");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') !== null`,
           { timeoutMs: 8000 },
         );
 
         // Park the viewport at a real mid-document offset, then read WHICH
         // line sits at the viewport top and how far down its row starts.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 900, null)`,
         );
         const readTop = `(function(){
@@ -111,31 +112,31 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
           }
           return null;
         })()`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){ var t = ${readTop}; return t !== null && t.scrollTop > 200 && t.text.indexOf("tall line") === 0; })()`,
           { timeoutMs: 6000 },
         );
-        const before = await app.evalJS<{ text: string; delta: number; scrollTop: number; scrollHeight: number }>(readTop);
+        const before = await app.body("A").evalJS<{ text: string; delta: number; scrollTop: number; scrollHeight: number }>(readTop);
 
         // Reload from disk (in-place) — adopts the external content.
-        await app.click('[data-testid="text-card-conflict-reload"]');
-        await app.waitForCondition<boolean>(
+        await app.body("A").click('[data-testid="text-card-conflict-reload"]');
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') === null`,
           { timeoutMs: 6000 },
         );
 
         // The reload landed (the added row made the content taller) and the
         // same text is still at the same place.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
           { timeoutMs: 6000 },
         );
-        const after = await app.evalJS<{ text: string; delta: number; scrollTop: number; scrollHeight: number }>(readTop);
+        const after = await app.body("A").evalJS<{ text: string; delta: number; scrollTop: number; scrollHeight: number }>(readTop);
         expect(after.text).toBe(before.text);
         expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
 
         // And the disk content really is in the buffer.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
@@ -184,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "in-place reload holds the text when it lands in the scroll's own frame",
     async () => {
       const { dir, file } = mkTallFixture();
-      const app = await launchTugApp({ testName: "at0209-reload-same-task" });
+      const app = await launchTugApp({ bodies: true, testName: "at0209-reload-same-task", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "tall line 001");
@@ -198,7 +199,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         const EXTERNAL = "EXTERNAL-WRITER LINE\n" + TALL_CONTENT;
         fs.writeFileSync(file, EXTERNAL, "utf8");
         await typeIntoEditor(app, "EDIT2 ");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') !== null`,
           { timeoutMs: 8000 },
         );
@@ -207,7 +208,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // trace covers the whole reload. Each frame records which line sits at
         // the viewport top, how far down its row starts, and the raw scrollTop
         // — enough to tell "never hopped" from "hopped and was corrected".
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
           window.__tugHopSamples = [];
           window.__tugHopStop = false;
@@ -234,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
 
         // ONE task: park the viewport, read the line at the top, and click
         // Reload — no frame, and therefore no CM6 measure pass, in between.
-        const before = await app.evalJS<{
+        const before = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -260,11 +261,11 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         expect(before.scrollTop).toBeGreaterThan(200);
 
         // The reload landed: banner gone and the added row made it taller.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') === null`,
           { timeoutMs: 6000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
           { timeoutMs: 6000 },
         );
@@ -281,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
           }
           return null;
         })()`;
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -292,7 +293,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // scenario passes or fails: a green run whose trace shows the top line
         // changing and changing back is a different fact from one that never
         // moved, and only the trace can tell them apart.
-        const samples = await app.evalJS<
+        const samples = await app.body("A").evalJS<
           Array<{ text: string; delta: number; scrollTop: number }>
         >(`(function(){ window.__tugHopStop = true; return window.__tugHopSamples; })()`);
         const distinct: string[] = [];
@@ -330,7 +331,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
           hopped.map((s) => `${s.text.slice(0, 14)}@${Math.round(s.scrollTop)}`),
         ).toEqual([]);
         // And the disk content really is in the buffer.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");
@@ -382,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "in-place reload holds the text with the page's frames held",
     async () => {
       const { dir, file } = mkTallFixture();
-      const app = await launchTugApp({ testName: "at0209-reload-frames-held" });
+      const app = await launchTugApp({ bodies: true, testName: "at0209-reload-frames-held", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "tall line 001");
@@ -394,7 +395,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         const EXTERNAL = "EXTERNAL-WRITER LINE\n" + TALL_CONTENT;
         fs.writeFileSync(file, EXTERNAL, "utf8");
         await typeIntoEditor(app, "EDIT2 ");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') !== null`,
           { timeoutMs: 8000 },
         );
@@ -403,7 +404,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // CM6 measure from the typing above, most of all — has run and drained.
         // What the stall holds is then the reload's own callbacks and nothing
         // that was pending before it.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           window.__tugFrames = 0;
           requestAnimationFrame(function(){
             window.__tugFrames++;
@@ -411,7 +412,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
           });
           return null;
         })()`);
-        await app.waitForCondition<boolean>(`window.__tugFrames >= 2`, {
+        await app.body("A").waitForCondition<boolean>(`window.__tugFrames >= 2`, {
           timeoutMs: 6000,
         });
 
@@ -419,7 +420,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // handing out, so a `cancelAnimationFrame` for a pre-stall id is
         // forwarded to the real one instead of evicting a held callback by
         // collision.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var stall = {
             raf: window.requestAnimationFrame.bind(window),
             cancel: window.cancelAnimationFrame.bind(window),
@@ -450,7 +451,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // earliest instant the browser could paint the new text, and therefore
         // the flash window exactly. Whatever it records is what a frame landing
         // there would have shown.
-        await app.evalJS<null>(`(function(){
+        await app.body("A").evalJS<null>(`(function(){
           var scroller = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
           window.__tugFlashSample = null;
           var obs = new MutationObserver(function(){
@@ -473,7 +474,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // ONE task, exactly as 3b: park the viewport, read the line at the top,
         // and click Reload. From here until the release below, no frame
         // callback can run.
-        const before = await app.evalJS<{
+        const before = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -501,11 +502,11 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // The reload landed — banner gone and the inserted row made the
         // document taller. Both are synchronous consequences of CM6's DOM
         // write, so neither needs a frame to become true.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-testid="text-card-conflict-reload"]') === null`,
           { timeoutMs: 6000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollHeight > ${before.scrollHeight} + 4`,
           { timeoutMs: 6000 },
         );
@@ -525,18 +526,18 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
 
         // Read the top line INSIDE the held interval, and count what is being
         // held while reading it.
-        const held = await app.evalJS<{
+        const held = await app.body("A").evalJS<{
           top: { text: string; delta: number; scrollTop: number } | null;
           pending: number;
         }>(`(function(){
           return { top: ${readTop}, pending: window.__tugFrameStall.held.size };
         })()`);
-        const flash = await app.evalJS<{
+        const flash = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
         } | null>(`(function(){ return window.__tugFlashSample; })()`);
-        const stallState = await app.evalJS<{ requested: number }>(
+        const stallState = await app.body("A").evalJS<{ requested: number }>(
           `(function(){ return { requested: window.__tugFrameStall.requested }; })()`,
         );
         note(
@@ -577,7 +578,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         // Release the stall and run what it held, then read the settled state.
         // A fix that only moved the flash later would pass the read above and
         // fail here.
-        const ran = await app.evalJS<number>(`(function(){
+        const ran = await app.body("A").evalJS<number>(`(function(){
           var stall = window.__tugFrameStall;
           window.requestAnimationFrame = stall.raf;
           window.cancelAnimationFrame = stall.cancel;
@@ -592,7 +593,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         })()`);
         note(`stall released: ${ran} held callback(s) run`);
 
-        const after = await app.evalJS<{
+        const after = await app.body("A").evalJS<{
           text: string;
           delta: number;
           scrollTop: number;
@@ -602,7 +603,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         expect(Math.abs(after.delta - before.delta)).toBeLessThanOrEqual(2);
 
         // And the disk content really is in the buffer.
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector('${EDITOR_SCROLLER_SELECTOR}').scrollTop = 0, null)`,
         );
         await waitForEditorShowing(app, "EXTERNAL-WRITER LINE");

@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "inner edges only, the seam follows the hand, shares recorded, slots kept",
       async () => {
-        const app = await launchTugApp({ testName: "at0694-resize-keeps-slot-split" });
+        const app = await launchTugApp({ testName: "at0694-resize-keeps-slot-split", bodies: true });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

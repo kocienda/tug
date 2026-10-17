@@ -122,7 +122,7 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
   test(
     "chords are applied, released, and left alone as the registry says",
     async () => {
-      const app = await launchTugApp({ testName: "at0181-sweep" });
+      const app = await launchTugApp({ bodies: true, testName: "at0181-sweep" });
       try {
         await app.seedDeckState({ state: singleCardDeck(), focusCardId: "C0" });
         await app.waitForCondition<boolean>(
@@ -203,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)("AT0181: the keymap drives the native key equivalen
   test(
     "a rebuilt menu keeps the swept chord instead of reverting to its literal",
     async () => {
-      const app = await launchTugApp({ testName: "at0181-rebuild" });
+      const app = await launchTugApp({ bodies: true, testName: "at0181-rebuild" });
       try {
         await app.seedDeckState({ state: singleCardDeck(), focusCardId: "C0" });
         await app.waitForCondition<boolean>(

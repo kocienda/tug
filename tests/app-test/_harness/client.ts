@@ -1278,6 +1278,7 @@ export interface HostFrameReading {
  */
 export function hostFrames(
   caller: HarnessCaller,
+  /** `layer`: `"spike"`, `"spare"` (the warm spare, which the next arriving card takes), or a card id. */
   params: { op: "arm"; windowMs: number; layer?: string } | { op: "read" },
 ): Promise<HostFrameReading | { armed: true; windowMs: number }> {
   return caller.rpcCall("hostFrames", params);

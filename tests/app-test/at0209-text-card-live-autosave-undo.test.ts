@@ -106,7 +106,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
         ).toBe("Undo Typing");
 
         await undoOnce(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
             return el !== null && el.innerText.indexOf(${JSON.stringify(TYPED_RUN.trim())}) === -1;

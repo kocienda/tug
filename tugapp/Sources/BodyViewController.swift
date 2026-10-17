@@ -226,6 +226,9 @@ final class BodyViewController {
         var shownReported = false
         /// The frame the last placement gave it, viewport coordinates.
         var frame: CGRect = .zero
+        /// Its pane's resize handles from the last placement, viewport
+        /// coordinates: the shell's points over the body.
+        var grips: [CGRect] = []
         /// The stacking order the last placement gave it: the pane's
         /// `z-index`. Containers are kept in this order, so where two panes
         /// overlap the body in front is the pane in front.
@@ -495,17 +498,18 @@ final class BodyViewController {
     /// placement does not name is hidden.
     func place(_ payload: [String: Any]) {
         if let r = (payload["radius"] as? NSNumber)?.doubleValue { radius = CGFloat(r) }
-        var named: [String: (CGRect, Bool, Int, Int)] = [:]
+        var named: [String: (CGRect, [CGRect], Bool, Int, Int)] = [:]
         for (index, entry) in (payload["bodies"] as? [[String: Any]] ?? []).enumerated() {
             guard let cardId = entry["cardId"] as? String,
                   let frame = BodyHitRegion.rect(fromPayload: entry) else { continue }
-            named[cardId] = (frame, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0, index)
+            let grips = (entry["grips"] as? [[String: Any]] ?? []).compactMap(BodyHitRegion.rect(fromPayload:))
+            named[cardId] = (frame, grips, entry["visible"] as? Bool ?? false, (entry["z"] as? NSNumber)?.intValue ?? 0, index)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for body in bodies {
             body.container.layer?.cornerRadius = radius
-            guard let cardId = body.cardId, let (frame, visible, z, deckIndex) = named[cardId] else {
+            guard let cardId = body.cardId, let (frame, grips, visible, z, deckIndex) = named[cardId] else {
                 cancelBeats(body)
                 body.visible = false
                 applyVisibility(body)
@@ -519,6 +523,7 @@ final class BodyViewController {
                 cancelBeats(body)
             }
             body.frame = frame
+            body.grips = grips
             body.container.frame = frame
             body.visible = visible
             body.z = z
@@ -592,6 +597,7 @@ final class BodyViewController {
 
     private func refreshRegion() {
         region.visibleFrames = visibleBodies.map(\.frame)
+        region.visibleGrips = visibleBodies.map(\.grips)
         refreshAccessibilityOrder()
     }
 

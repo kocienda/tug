@@ -95,6 +95,10 @@ pub enum CardCommandKind {
     RevealSettings,
     /// The shell's dev log for the devtools card (`payload`: `entries`), opaque here.
     DevLog,
+    /// A session the shell decided for a card already in its body (`payload`: the intent), opaque here.
+    Intent,
+    /// Capture a jot in the Jots card: create an empty one and open its editor.
+    NewJot,
 }
 
 /// Where a `focus-enter` lands the keyboard.
@@ -233,6 +237,10 @@ pub enum CardAdvice {
     CloseGuard { asks: bool },
     /// The card's close guard decided: `close` or `cancel`.
     CloseDecision { answer: CloseAnswer },
+    /// The card's chord capture armed or disarmed: the host parks the menu
+    /// bar's key equivalents while a capture records, and the menu state is
+    /// the shell's to push.
+    CaptureArmed { armed: bool },
     /// The card's session inspection, opaque here.
     Inspection { inspection: serde_json::Value },
 }
@@ -261,6 +269,11 @@ pub struct DeckFacts {
     /// family's travel. Absent until the shell has projected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub menu: Option<serde_json::Value>,
+    /// The deck's frontmost bound card's binding (`binding`, null when none),
+    /// opaque here: the project a card with no session of its own resolves
+    /// a relative path against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frontmost_project: Option<serde_json::Value>,
 }
 
 /// Whether the focus ring follows the keyboard only, or the pointer too.
@@ -292,6 +305,10 @@ pub struct CardContext {
     /// The deck edge a pinned rail card stands on; absent for any other card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rail_side: Option<RailSide>,
+    /// The crossing the card's pane stands under, for the body to hold its
+    /// card root through; opaque here, absent when none stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crossing: Option<serde_json::Value>,
 }
 
 /// A deck edge a rail stands pinned to.
@@ -422,6 +439,7 @@ mod tests {
             "deck-call",
             "close-guard",
             "close-decision",
+            "capture-armed",
             "inspection",
         ] {
             assert!(
@@ -443,6 +461,8 @@ mod tests {
             CardCommandKind::RevealLine,
             CardCommandKind::RevealSettings,
             CardCommandKind::DevLog,
+            CardCommandKind::Intent,
+            CardCommandKind::NewJot,
         ] {
             assert!(
                 has(&|e| matches!(&e.message, BusMessage::CardCommand(c) if c.command == command)),

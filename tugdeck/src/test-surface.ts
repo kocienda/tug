@@ -36,6 +36,7 @@
  */
 
 import type { DeckManager } from "./deck-manager";
+import type { UsageStore } from "./lib/usage-store";
 import type { IDeckManagerStore } from "./deck-manager-store";
 import type { DeckState, CardStateBag } from "./layout-tree";
 import {
@@ -122,6 +123,7 @@ import {
 } from "./lib/markdown/parse-counters";
 import { renderIncremental } from "./lib/markdown/render-incremental";
 import { isRenderedPending, isRenderedRecord } from "./lib/ingest/rendered-merge";
+import { bodyCardsStore } from "./lib/body-cards-store";
 import {
   annotateCounters,
   type AnnotateCountersSnapshot,
@@ -513,8 +515,26 @@ import {
  * `2.42.0`: `ringFollowsPointer`, on every view, reads the focus-ring
  * modality the page's engine follows, so a body's can be read against the
  * shell's. Additive; major stays `2`.
+ *
+ * `2.43.0`: the per-card reads move to the methods every view carries, so a
+ * body answers them for its own card: `getCaretState`, `getFormControlValue`,
+ * `assertHostRootRegistered`, the session reads and drives (`inkRestoreFacts`,
+ * `refreshInkRestore`, `lastSentUserMessage`, `ingestSessionMetadata`,
+ * `getSessionPerf`, `rowParsesByIdentity`), `getCardStateBag`, the deck trace,
+ * the list-view probes, the page's own wire (`connectionClose`,
+ * `ingestHostFail`), `getFocusInvariantReport`, `isGestureScopePending` and
+ * `dispatchControlAction`. The shell's `assertHostRootRegistered` answers a
+ * body card from its body's state. A body's surface adds `ingestUsage`.
+ * Additive; major stays `2`.
+ *
+ * `2.44.0`: the tugbank test verbs (`setTugbankValue`, `deleteTugbankValue`,
+ * `getTugbankValue`) move to the methods every view carries. Each page holds
+ * its own tugbank cache, and the verbs are local to the page they run in — a
+ * value set in the shell never reaches a card's body — so a test that drives
+ * a card's settings sets and reads them in the card's page. Additive; major
+ * stays `2`.
  */
-export const SURFACE_VERSION = "2.42.0" as const;
+export const SURFACE_VERSION = "2.44.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2127,7 +2147,7 @@ function readSelectionDirection(
  */
 type ViewSurfaceStore = Pick<
   IDeckManagerStore,
-  "invokeSaveCallback" | "getCardState" | "getSnapshot"
+  "invokeSaveCallback" | "getCardState" | "getSnapshot" | "peekCardHostRoot"
 >;
 
 /**
@@ -2219,6 +2239,19 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
       return getResponderChainManager()?.getFirstResponder() ?? null;
     },
 
+    /**
+     * Fire a control action through this page's own `dispatchAction` — the
+     * path the host's menu items and the wire's control frames take. On a
+     * body it reaches the handlers the body registered (its store tails,
+     * the ledger's answers); see {@link TugTestSurface.dispatchControlAction}.
+     */
+    dispatchControlAction(
+      actionName: string,
+      payload?: Record<string, unknown>,
+    ): void {
+      dispatchAction({ ...payload, action: actionName });
+    },
+
     /** The card this page's chain routes key-card commands to, or `null`. */
     getKeyCardId(): string | null {
       return getResponderChainManager()?.getKeyCard() ?? null;
@@ -2231,6 +2264,24 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
      */
     ringFollowsPointer(): boolean | null {
       return getFocusManager()?.ringFollowsPointerMode() ?? null;
+    },
+
+    /**
+     * This page's focus engine's invariant report — the same shape the
+     * shell's surface answers, read of the engine that owns this page's
+     * card. `null` when no `FocusManager` is mounted.
+     */
+    getFocusInvariantReport() {
+      return getFocusManager()?.focusInvariantReport() ?? null;
+    },
+
+    /**
+     * Whether a pointer gesture's scope is still open in this page — the
+     * same read the shell's surface answers, of the gesture scope the body
+     * installs for its card. `click` settles on it.
+     */
+    isGestureScopePending(): boolean {
+      return gestureScope.isPending();
     },
 
     // ---- gesture drivers ----
@@ -2481,6 +2532,258 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
       return false;
     },
 
+    getCaretState(cardId: string): CaretState | null {
+      const cardRoot = deck.peekCardHostRoot(cardId);
+      if (cardRoot === null) return null;
+
+      // Variant 1: active element is a keyed form-control inside
+      // the card. Return its selection shape directly.
+      const input = activeFormControlIn(cardRoot);
+      if (input !== null) {
+        return {
+          kind: "input",
+          selectionStart: input.selectionStart ?? 0,
+          selectionEnd: input.selectionEnd ?? 0,
+          selectionDirection: readSelectionDirection(input),
+          value: input.value,
+        };
+      }
+
+      // Variant 2: the card has a published DOM Range in
+      // `selectionGuard`. Serialize it with paths rooted at the
+      // card's registered host element. `nodeToPath` returns
+      // `null` if the range's nodes are no longer inside the host
+      // subtree — treat that as "no caret state available" rather
+      // than synthesizing a bogus snapshot.
+      const range = selectionGuard.getCardRange(cardId);
+      if (range === undefined) return null;
+      const anchorPath = nodeToPath(cardRoot, range.startContainer);
+      const focusPath = nodeToPath(cardRoot, range.endContainer);
+      if (anchorPath === null || focusPath === null) return null;
+      return {
+        kind: "range",
+        anchorPath,
+        anchorOffset: range.startOffset,
+        focusPath,
+        focusOffset: range.endOffset,
+        text: range.toString(),
+      };
+    },
+
+    getFormControlValue(cardId: string, componentStatePreservationKey: string): string | null {
+      const cardRoot = deck.peekCardHostRoot(cardId);
+      if (cardRoot === null) return null;
+      // `CSS.escape` is important: componentStatePreservationKeys are authored
+      // strings and can technically contain characters that would
+      // otherwise be interpreted as selector syntax.
+      const selector = `[data-tug-state-key="${CSS.escape(componentStatePreservationKey)}"]`;
+      const el = cardRoot.querySelector(selector);
+      if (el === null) return null;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        return el.value;
+      }
+      return null;
+    },
+
+    getSelection(cardId?: string): SelectionSnapshot | null {
+      if (cardId !== undefined) {
+        // Card-scoped: mirrors getCaretState(cardId)'s form-control
+        // variant and augments with a contentEditable fallback.
+        const cardRoot = deck.peekCardHostRoot(cardId);
+        if (cardRoot === null) return null;
+        const input = activeFormControlIn(cardRoot);
+        if (input !== null) {
+          return {
+            kind: "input",
+            selectionStart: input.selectionStart ?? 0,
+            selectionEnd: input.selectionEnd ?? 0,
+            selectionDirection: readSelectionDirection(input),
+            value: input.value,
+            cardId,
+          };
+        }
+        const sel = window.getSelection();
+        if (sel === null || sel.rangeCount === 0) return null;
+        const range = sel.getRangeAt(0);
+        if (!cardRoot.contains(range.startContainer)) return null;
+        return {
+          kind: "range",
+          text: range.toString(),
+          isCollapsed: range.collapsed,
+          cardId,
+        };
+      }
+
+      // Page-wide: prefer the focused form control when possible.
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement
+      ) {
+        const cardEl = active.closest("[data-card-id]");
+        const containingCardId =
+          cardEl instanceof HTMLElement
+            ? cardEl.getAttribute("data-card-id")
+            : null;
+        return {
+          kind: "input",
+          selectionStart: active.selectionStart ?? 0,
+          selectionEnd: active.selectionEnd ?? 0,
+          selectionDirection: readSelectionDirection(active),
+          value: active.value,
+          cardId: containingCardId,
+        };
+      }
+      const sel = window.getSelection();
+      if (sel === null || sel.rangeCount === 0) return null;
+      const range = sel.getRangeAt(0);
+      let containingCardId: string | null = null;
+      const startNode = range.startContainer;
+      // Selection anchors inside text nodes; walk up to the nearest
+      // element to query `closest("[data-card-id]")`.
+      const elStart =
+        startNode.nodeType === Node.ELEMENT_NODE
+          ? (startNode as Element)
+          : startNode.parentElement;
+      if (elStart !== null) {
+        const cardEl = elStart.closest("[data-card-id]");
+        if (cardEl instanceof HTMLElement) {
+          containingCardId = cardEl.getAttribute("data-card-id");
+        }
+      }
+      return {
+        kind: "range",
+        text: range.toString(),
+        isCollapsed: range.collapsed,
+        cardId: containingCardId,
+      };
+    },
+
+    getComputedStyleValue(selector: string, property: string): string {
+      const el = queryRequired(selector);
+      return window.getComputedStyle(el).getPropertyValue(property);
+    },
+
+    registerSelectionBoundary(cardId: string, selector: string): void {
+      const el = queryRequired(selector);
+      selectionGuard.registerBoundary(cardId, el);
+    },
+
+    unregisterSelectionBoundary(cardId: string): void {
+      selectionGuard.unregisterBoundary(cardId);
+    },
+
+    assertHostRootRegistered(cardId: string): boolean {
+      return deck.peekCardHostRoot(cardId) !== null;
+    },
+
+    // ---- trace access: this page's own ring ----
+    getDeckTrace(opts?: { since?: number }): readonly DeckTraceEvent[] {
+      if (opts?.since !== undefined) return deckTrace.since(opts.since);
+      return deckTrace.dump();
+    },
+
+    markDeckTrace(): number {
+      return deckTrace.mark();
+    },
+
+    clearDeckTrace(): void {
+      deckTrace.clear();
+    },
+
+    // ---- list-view probes, answered by the page holding the scroller: a
+    // transcript in a body is reached through its body's surface, and the
+    // lab flag the list reads is this page's module instance.
+    setTranscriptEvictionDisabled(disabled: boolean): void {
+      labFlags.setTranscriptEvictionDisabled(disabled);
+    },
+
+    getScrollDisplacementCount(selector: string): number {
+      const probe = listViewProbeForScroller(queryRequired(selector));
+      if (probe === null) {
+        throw new Error(
+          `getScrollDisplacementCount: ${selector} is not a list-view scroller`,
+        );
+      }
+      return probe.displacementCount();
+    },
+
+    forceCommitClamp(selector: string): void {
+      const probe = listViewProbeForScroller(queryRequired(selector));
+      if (probe === null) {
+        throw new Error(
+          `forceCommitClamp: ${selector} is not a list-view scroller`,
+        );
+      }
+      probe.forceCommitClamp();
+    },
+
+    startListReveal(selector: string, index: number): void {
+      const probe = listViewProbeForScroller(queryRequired(selector));
+      if (probe === null) {
+        throw new Error(
+          `startListReveal: ${selector} is not a list-view scroller`,
+        );
+      }
+      void probe.revealRow(index).then((outcome) => {
+        listRevealOutcomes.push(outcome);
+      });
+    },
+
+    takeListRevealOutcome(): string | null {
+      return listRevealOutcomes.shift() ?? null;
+    },
+
+    setTranscriptFollowBottom(selector: string, engaged: boolean): void {
+      const ss = smartScrollForElement(queryRequired(selector));
+      if (ss === null) {
+        throw new Error(
+          `setTranscriptFollowBottom: ${selector} has no SmartScroll`,
+        );
+      }
+      if (engaged) ss.engage("test-surface");
+      else ss.disengage("test-surface");
+    },
+
+    getListConservation(selector: string): {
+      events: unknown[];
+      audit: unknown;
+      ring: unknown[];
+      floor: { height: number; inset: number };
+    } {
+      const probe = listViewProbeForScroller(queryRequired(selector));
+      if (probe === null) {
+        throw new Error(
+          `getListConservation: ${selector} is not a list-view scroller`,
+        );
+      }
+      return {
+        events: probe.conservationEvents(),
+        audit: probe.auditLedger(),
+        ring: probe.geometryRing(),
+        floor: probe.extentFloor(),
+      };
+    },
+
+    // ---- this page's wire: a body rides a connection of its own, so a
+    // close or an ingest fault is asked of the page whose wire it is.
+    connectionClose(): boolean {
+      const connection = getConnection();
+      if (!connection) return false;
+      connection._forceCloseForTest();
+      return true;
+    },
+
+    ingestHostFail(): boolean {
+      const connection = getConnection();
+      if (!connection) return false;
+      connection._failIngestHostForTest();
+      return true;
+    },
+
     sessionSettled(cardId: string): boolean {
       return cardServicesStore.getServices(cardId)?.codeSessionStore.isSettled() ?? true;
     },
@@ -2559,6 +2862,186 @@ function createViewSurfaceMethods(deck: ViewSurfaceStore) {
       }
     },
 
+
+    // ---- Per-card session reads and drives, answered by the page the card
+    // lives in: these read `cardServicesStore`, which is per page, so a body
+    // holding a bound Session card answers them for its own card and the
+    // shell answers for a card it still hosts.
+
+    rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] } {
+      const liveTurnKeys: string[] = [];
+      cardServicesStore.forEachCodeSessionStore((store) => {
+        const turnKey = store.getSnapshot().activeTurn?.turnKey;
+        if (turnKey !== undefined) liveTurnKeys.push(turnKey);
+      });
+      return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
+    },
+
+    /**
+     * Ink-restore truth for one card, read from the **stores** rather than
+     * the DOM ([P07]).
+     *
+     * A transcript is windowed and its rows are virtualized, so counting
+     * `[data-slot=...]` elements answers "what is painted", not "what was
+     * restored" — and those two diverging silently is precisely how a
+     * ledgered `/commit` receipt went missing three times without a red test.
+     * `shellTurns` counts ink turns in the committed transcript; `restore` is
+     * the store's own census of the last answer.
+     */
+    inkRestoreFacts(cardId: string): {
+      shellTurns: number;
+      commands: string[];
+      restore: {
+        ledgerTotal: number;
+        applied: number;
+        complete: boolean;
+        answered: boolean;
+      };
+      order: Array<{
+        origin: string;
+        command: string | null;
+        anchorMsgId: string | null;
+        msgId: string;
+        createdAt: number;
+        endedAt: number;
+      }>;
+    } {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(`inkRestoreFacts: card "${cardId}" has no bound session`);
+      }
+      const transcript = services.codeSessionStore.getSnapshot().transcript;
+      const commandOf = (t: (typeof transcript)[number]): string | null => {
+        const msg = t.messages[0] as { command?: unknown } | undefined;
+        return typeof msg?.command === "string" ? msg.command : null;
+      };
+      const turns = transcript.filter((t) => t.origin === "shell");
+      return {
+        shellTurns: turns.length,
+        commands: turns.map((t) => commandOf(t) ?? ""),
+        restore: services.shellSessionStore.getSnapshot().restore,
+        order: transcript.map((t) => ({
+          origin: t.origin,
+          command: commandOf(t),
+          anchorMsgId: t.anchorMsgId ?? null,
+          msgId: t.msgId,
+          createdAt: t.messages[0]?.createdAt ?? t.endedAt,
+          endedAt: t.endedAt,
+        })),
+      };
+    },
+
+    /**
+     * Re-ask the shell ledger for this card's ink rows — the same refresh a
+     * "load previous" page or the load bar's Retry performs.
+     *
+     * A landing's receipt exists twice: the live row the initiating deck
+     * painted, and the ledger row a restore replays. Only a refresh brings the
+     * second one into a transcript that already holds the first, so this is
+     * the one gesture that can prove they are one turn rather than two.
+     */
+    refreshInkRestore(cardId: string): void {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(`refreshInkRestore: card "${cardId}" has no bound session`);
+      }
+      services.shellSessionStore.refreshRestore();
+    },
+
+    lastSentUserMessage(cardId: string): string | null {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(
+          `lastSentUserMessage: card "${cardId}" has no bound session`,
+        );
+      }
+      const msg = services.codeSessionStore._lastSentUserMessageForTest();
+      return msg === null || msg === undefined ? null : JSON.stringify(msg);
+    },
+
+    ingestSessionMetadata(cardId: string, payload: unknown): void {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(
+          `ingestSessionMetadata: card "${cardId}" has no bound session — ` +
+            `call bindSession("${cardId}") first`,
+        );
+      }
+      services.sessionMetadataStore._ingestForTest(payload);
+    },
+
+    getSessionPerf(cardId: string): {
+      replay: ReplayIngestPerf | null;
+      lastReplay: ReplayIngestPerf | null;
+      liveTurn: LiveTurnPerf | null;
+      lastLiveTurn: LiveTurnPerf | null;
+      rowParse: RowParseCountersSnapshot;
+      annotate: AnnotateCountersSnapshot;
+    } {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) {
+        throw new Error(
+          `getSessionPerf: card "${cardId}" has no bound session — ` +
+            `call bindSession("${cardId}") first`,
+        );
+      }
+      return {
+        ...services.codeSessionStore._getPerfForDevPanel(),
+        rowParse: snapshotRowParseCounters(),
+        annotate: annotateCounters(),
+      };
+    },
+
+    // ---- tugbank, this page's cache ----
+    /**
+     * Set a tugbank value in this page's client cache, as a DEFAULTS frame
+     * arriving would — in-process, no tugcast, no disk. Local to the page:
+     * the shell's cache and a body's are separate, so a card's value is set
+     * in the card's page.
+     */
+    setTugbankValue(domain: string, key: string, value: TaggedValue): void {
+      const client = getTugbankClient();
+      if (client === null) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(
+            `[test-surface] setTugbankValue(${domain}/${key}): no tugbank client installed`,
+          );
+        }
+        return;
+      }
+      client.setLocalValue(domain, key, value);
+    },
+
+    /**
+     * Drop a tugbank key, as a `DELETE` arriving from another process would.
+     * The counterpart to {@link setTugbankValue}, for the domains where a
+     * key's *absence* is the meaningful state — a keymap override reset is a
+     * deletion, and a test that could only write values could never drive it.
+     */
+    deleteTugbankValue(domain: string, key: string): void {
+      const client = getTugbankClient();
+      if (client === null) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(
+            `[test-surface] deleteTugbankValue(${domain}/${key}): no tugbank client installed`,
+          );
+        }
+        return;
+      }
+      client.deleteLocalValue(domain, key);
+    },
+
+    /** Read one tugbank value from this page's client cache, or `null` when unset. */
+    getTugbankValue(domain: string, key: string): TaggedValue | null {
+      const client = getTugbankClient();
+      if (client === null) return null;
+      return client.get(domain, key) ?? null;
+    },
+
+    getCardStateBag(cardId: string): CardStateBag | null {
+      const bag = deck.getCardState(cardId);
+      return bag === undefined ? null : bag;
+    },
   };
 }
 
@@ -2621,45 +3104,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         cardStates: cardStatesRecordToMap(args.cardStates),
         focusCardId: args.focusCardId,
       });
-    },
-
-    setTugbankValue(domain: string, key: string, value: TaggedValue): void {
-      const client = getTugbankClient();
-      if (client === null) {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn(
-            `[test-surface] setTugbankValue(${domain}/${key}): no tugbank client installed`,
-          );
-        }
-        return;
-      }
-      client.setLocalValue(domain, key, value);
-    },
-
-    /**
-     * Drop a tugbank key, as a `DELETE` arriving from another process would.
-     * The counterpart to {@link setTugbankValue}, for the domains where a
-     * key's *absence* is the meaningful state — a keymap override reset is a
-     * deletion, and a test that could only write values could never drive it.
-     */
-    deleteTugbankValue(domain: string, key: string): void {
-      const client = getTugbankClient();
-      if (client === null) {
-        if (process.env.NODE_ENV !== "production") {
-          console.warn(
-            `[test-surface] deleteTugbankValue(${domain}/${key}): no tugbank client installed`,
-          );
-        }
-        return;
-      }
-      client.deleteLocalValue(domain, key);
-    },
-
-    /** Read one tugbank value from the client cache, or `null` when unset. */
-    getTugbankValue(domain: string, key: string): TaggedValue | null {
-      const client = getTugbankClient();
-      if (client === null) return null;
-      return client.get(domain, key) ?? null;
     },
 
     // ---- granular reset ----
@@ -2741,149 +3185,14 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return deck.getFocusedCardId();
     },
 
-    getCaretState(cardId: string): CaretState | null {
-      const cardRoot = deck.peekCardHostRoot(cardId);
-      if (cardRoot === null) return null;
-
-      // Variant 1: active element is a keyed form-control inside
-      // the card. Return its selection shape directly.
-      const input = activeFormControlIn(cardRoot);
-      if (input !== null) {
-        return {
-          kind: "input",
-          selectionStart: input.selectionStart ?? 0,
-          selectionEnd: input.selectionEnd ?? 0,
-          selectionDirection: readSelectionDirection(input),
-          value: input.value,
-        };
-      }
-
-      // Variant 2: the card has a published DOM Range in
-      // `selectionGuard`. Serialize it with paths rooted at the
-      // card's registered host element. `nodeToPath` returns
-      // `null` if the range's nodes are no longer inside the host
-      // subtree — treat that as "no caret state available" rather
-      // than synthesizing a bogus snapshot.
-      const range = selectionGuard.getCardRange(cardId);
-      if (range === undefined) return null;
-      const anchorPath = nodeToPath(cardRoot, range.startContainer);
-      const focusPath = nodeToPath(cardRoot, range.endContainer);
-      if (anchorPath === null || focusPath === null) return null;
-      return {
-        kind: "range",
-        anchorPath,
-        anchorOffset: range.startOffset,
-        focusPath,
-        focusOffset: range.endOffset,
-        text: range.toString(),
-      };
-    },
-
-    getFormControlValue(cardId: string, componentStatePreservationKey: string): string | null {
-      const cardRoot = deck.peekCardHostRoot(cardId);
-      if (cardRoot === null) return null;
-      // `CSS.escape` is important: componentStatePreservationKeys are authored
-      // strings and can technically contain characters that would
-      // otherwise be interpreted as selector syntax.
-      const selector = `[data-tug-state-key="${CSS.escape(componentStatePreservationKey)}"]`;
-      const el = cardRoot.querySelector(selector);
-      if (el === null) return null;
-      if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement
-      ) {
-        return el.value;
-      }
-      return null;
-    },
-
     assertHostRootRegistered(cardId: string): boolean {
+      // A body card's root is in its own page, which answers for it there;
+      // the shell answers "is it up" from the body's state, which it holds.
+      // A card mid-hand-off may still hold a root here (a Session card's
+      // picker); once the shell has handed it off, the body's state decides.
+      const state = bodyCardsStore.stateOf(cardId);
+      if (state !== null) return state === "ready" || state === "painted";
       return deck.peekCardHostRoot(cardId) !== null;
-    },
-
-    // ---- trace access ----
-    getDeckTrace(opts?: { since?: number }): readonly DeckTraceEvent[] {
-      if (opts?.since !== undefined) return deckTrace.since(opts.since);
-      return deckTrace.dump();
-    },
-
-    markDeckTrace(): number {
-      return deckTrace.mark();
-    },
-
-    clearDeckTrace(): void {
-      deckTrace.clear();
-    },
-
-    setTranscriptEvictionDisabled(disabled: boolean): void {
-      labFlags.setTranscriptEvictionDisabled(disabled);
-    },
-
-    getScrollDisplacementCount(selector: string): number {
-      const probe = listViewProbeForScroller(queryRequired(selector));
-      if (probe === null) {
-        throw new Error(
-          `getScrollDisplacementCount: ${selector} is not a list-view scroller`,
-        );
-      }
-      return probe.displacementCount();
-    },
-
-    forceCommitClamp(selector: string): void {
-      const probe = listViewProbeForScroller(queryRequired(selector));
-      if (probe === null) {
-        throw new Error(
-          `forceCommitClamp: ${selector} is not a list-view scroller`,
-        );
-      }
-      probe.forceCommitClamp();
-    },
-
-    startListReveal(selector: string, index: number): void {
-      const probe = listViewProbeForScroller(queryRequired(selector));
-      if (probe === null) {
-        throw new Error(
-          `startListReveal: ${selector} is not a list-view scroller`,
-        );
-      }
-      void probe.revealRow(index).then((outcome) => {
-        listRevealOutcomes.push(outcome);
-      });
-    },
-
-    takeListRevealOutcome(): string | null {
-      return listRevealOutcomes.shift() ?? null;
-    },
-
-    setTranscriptFollowBottom(selector: string, engaged: boolean): void {
-      const ss = smartScrollForElement(queryRequired(selector));
-      if (ss === null) {
-        throw new Error(
-          `setTranscriptFollowBottom: ${selector} has no SmartScroll`,
-        );
-      }
-      if (engaged) ss.engage("test-surface");
-      else ss.disengage("test-surface");
-    },
-
-    getListConservation(selector: string): {
-      events: unknown[];
-      audit: unknown;
-      ring: unknown[];
-      floor: { height: number; inset: number };
-    } {
-      const probe = listViewProbeForScroller(queryRequired(selector));
-      if (probe === null) {
-        throw new Error(
-          `getListConservation: ${selector} is not a list-view scroller`,
-        );
-      }
-      return {
-        events: probe.conservationEvents(),
-        audit: probe.auditLedger(),
-        ring: probe.geometryRing(),
-        floor: probe.extentFloor(),
-      };
     },
 
     getFocusInvariantReport() {
@@ -2992,15 +3301,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     },
 
     ...overviewSurfaceMethods(),
-
-    rowParsesByIdentity(): { byIdentity: Record<string, number>; liveTurnKeys: string[] } {
-      const liveTurnKeys: string[] = [];
-      cardServicesStore.forEachCodeSessionStore((store) => {
-        const turnKey = store.getSnapshot().activeTurn?.turnKey;
-        if (turnKey !== undefined) liveTurnKeys.push(turnKey);
-      });
-      return { byIdentity: snapshotParsesByIdentity(), liveTurnKeys };
-    },
 
     async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {
       const services = cardServicesStore.getServices(cardId);
@@ -3115,94 +3415,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return true;
     },
 
-    getSelection(cardId?: string): SelectionSnapshot | null {
-      if (cardId !== undefined) {
-        // Card-scoped: mirrors getCaretState(cardId)'s form-control
-        // variant and augments with a contentEditable fallback.
-        const cardRoot = deck.peekCardHostRoot(cardId);
-        if (cardRoot === null) return null;
-        const input = activeFormControlIn(cardRoot);
-        if (input !== null) {
-          return {
-            kind: "input",
-            selectionStart: input.selectionStart ?? 0,
-            selectionEnd: input.selectionEnd ?? 0,
-            selectionDirection: readSelectionDirection(input),
-            value: input.value,
-            cardId,
-          };
-        }
-        const sel = window.getSelection();
-        if (sel === null || sel.rangeCount === 0) return null;
-        const range = sel.getRangeAt(0);
-        if (!cardRoot.contains(range.startContainer)) return null;
-        return {
-          kind: "range",
-          text: range.toString(),
-          isCollapsed: range.collapsed,
-          cardId,
-        };
-      }
-
-      // Page-wide: prefer the focused form control when possible.
-      const active = document.activeElement;
-      if (
-        active instanceof HTMLInputElement ||
-        active instanceof HTMLTextAreaElement
-      ) {
-        const cardEl = active.closest("[data-card-id]");
-        const containingCardId =
-          cardEl instanceof HTMLElement
-            ? cardEl.getAttribute("data-card-id")
-            : null;
-        return {
-          kind: "input",
-          selectionStart: active.selectionStart ?? 0,
-          selectionEnd: active.selectionEnd ?? 0,
-          selectionDirection: readSelectionDirection(active),
-          value: active.value,
-          cardId: containingCardId,
-        };
-      }
-      const sel = window.getSelection();
-      if (sel === null || sel.rangeCount === 0) return null;
-      const range = sel.getRangeAt(0);
-      let containingCardId: string | null = null;
-      const startNode = range.startContainer;
-      // Selection anchors inside text nodes; walk up to the nearest
-      // element to query `closest("[data-card-id]")`.
-      const elStart =
-        startNode.nodeType === Node.ELEMENT_NODE
-          ? (startNode as Element)
-          : startNode.parentElement;
-      if (elStart !== null) {
-        const cardEl = elStart.closest("[data-card-id]");
-        if (cardEl instanceof HTMLElement) {
-          containingCardId = cardEl.getAttribute("data-card-id");
-        }
-      }
-      return {
-        kind: "range",
-        text: range.toString(),
-        isCollapsed: range.collapsed,
-        cardId: containingCardId,
-      };
-    },
-
-    getComputedStyleValue(selector: string, property: string): string {
-      const el = queryRequired(selector);
-      return window.getComputedStyle(el).getPropertyValue(property);
-    },
-
-    registerSelectionBoundary(cardId: string, selector: string): void {
-      const el = queryRequired(selector);
-      selectionGuard.registerBoundary(cardId, el);
-    },
-
-    unregisterSelectionBoundary(cardId: string): void {
-      selectionGuard.unregisterBoundary(cardId);
-    },
-
     // ---- Reload primitives (SURFACE_VERSION 1.4.0) ----
 
     appReload(): void {
@@ -3213,27 +3425,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // dedup guard (`reloadPending`) and any future reload-side
       // bookkeeping in one place. [L23]
       dispatchAction({ action: "reload" });
-    },
-
-    connectionClose(): boolean {
-      const connection = getConnection();
-      if (!connection) return false;
-      connection._forceCloseForTest();
-      return true;
-    },
-
-    ingestHostFail(): boolean {
-      const connection = getConnection();
-      if (!connection) return false;
-      connection._failIngestHostForTest();
-      return true;
-    },
-
-    dispatchControlAction(
-      actionName: string,
-      payload?: Record<string, unknown>,
-    ): void {
-      dispatchAction({ ...payload, action: actionName });
     },
 
     getReadyGen(): number {
@@ -3254,14 +3445,19 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // A card with no line named is a line of one, keyed by its own segment —
       // the same fallback the identity stores take ([P12]).
       const lineId = options?.lineId ?? tugSessionId;
-      sessionLineStore.seat(tugSessionId, lineId);
-      cardSessionBindingStore.setBinding(cardId, {
+      const binding = {
         tugSessionId,
         lineId,
         workspaceKey: options?.workspaceKey ?? `test-workspace-${cardId}`,
         projectDir: options?.projectDir ?? "/tmp/test-project",
         sessionMode: options?.sessionMode ?? "new",
-      });
+      };
+      // With bodies, a bind is the decision a spawn would be: the card's body
+      // takes the binding into its own stores. The shell keeps it too, as it
+      // would on hearing a real spawn's broadcast.
+      handOffToBody(cardId, () => ({ kind: "bind", ...binding }));
+      sessionLineStore.seat(tugSessionId, lineId);
+      cardSessionBindingStore.setBinding(cardId, binding);
     },
 
     publishCardBindings(bindings: CardBinding[]): void {
@@ -3323,60 +3519,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     },
 
     /**
-     * Ink-restore truth for one card, read from the **stores** rather than
-     * the DOM ([P07]).
-     *
-     * A transcript is windowed and its rows are virtualized, so counting
-     * `[data-slot=...]` elements answers "what is painted", not "what was
-     * restored" — and those two diverging silently is precisely how a
-     * ledgered `/commit` receipt went missing three times without a red test.
-     * `shellTurns` counts ink turns in the committed transcript; `restore` is
-     * the store's own census of the last answer.
-     */
-    inkRestoreFacts(cardId: string): {
-      shellTurns: number;
-      commands: string[];
-      restore: {
-        ledgerTotal: number;
-        applied: number;
-        complete: boolean;
-        answered: boolean;
-      };
-      order: Array<{
-        origin: string;
-        command: string | null;
-        anchorMsgId: string | null;
-        msgId: string;
-        createdAt: number;
-        endedAt: number;
-      }>;
-    } {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(`inkRestoreFacts: card "${cardId}" has no bound session`);
-      }
-      const transcript = services.codeSessionStore.getSnapshot().transcript;
-      const commandOf = (t: (typeof transcript)[number]): string | null => {
-        const msg = t.messages[0] as { command?: unknown } | undefined;
-        return typeof msg?.command === "string" ? msg.command : null;
-      };
-      const turns = transcript.filter((t) => t.origin === "shell");
-      return {
-        shellTurns: turns.length,
-        commands: turns.map((t) => commandOf(t) ?? ""),
-        restore: services.shellSessionStore.getSnapshot().restore,
-        order: transcript.map((t) => ({
-          origin: t.origin,
-          command: commandOf(t),
-          anchorMsgId: t.anchorMsgId ?? null,
-          msgId: t.msgId,
-          createdAt: t.messages[0]?.createdAt ?? t.endedAt,
-          endedAt: t.endedAt,
-        })),
-      };
-    },
-
-    /**
      * What a card's binding says about its **line of work** ([P01]), read from
      * the stores rather than the DOM.
      *
@@ -3426,34 +3568,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       };
     },
 
-    /**
-     * Re-ask the shell ledger for this card's ink rows — the same refresh a
-     * "load previous" page or the load bar's Retry performs.
-     *
-     * A landing's receipt exists twice: the live row the initiating deck
-     * painted, and the ledger row a restore replays. Only a refresh brings the
-     * second one into a transcript that already holds the first, so this is
-     * the one gesture that can prove they are one turn rather than two.
-     */
-    refreshInkRestore(cardId: string): void {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(`refreshInkRestore: card "${cardId}" has no bound session`);
-      }
-      services.shellSessionStore.refreshRestore();
-    },
-
-    lastSentUserMessage(cardId: string): string | null {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(
-          `lastSentUserMessage: card "${cardId}" has no bound session`,
-        );
-      }
-      const msg = services.codeSessionStore._lastSentUserMessageForTest();
-      return msg === null || msg === undefined ? null : JSON.stringify(msg);
-    },
-
     ingestRateLimit(info: RateLimitInfo): void {
       deck.getRateLimitStore()._ingestForTest(info);
     },
@@ -3462,46 +3576,8 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       deck.getUsageStore()._ingestForTest(payload);
     },
 
-    ingestSessionMetadata(cardId: string, payload: unknown): void {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(
-          `ingestSessionMetadata: card "${cardId}" has no bound session — ` +
-            `call bindSession("${cardId}") first`,
-        );
-      }
-      services.sessionMetadataStore._ingestForTest(payload);
-    },
-
-    getSessionPerf(cardId: string): {
-      replay: ReplayIngestPerf | null;
-      lastReplay: ReplayIngestPerf | null;
-      liveTurn: LiveTurnPerf | null;
-      lastLiveTurn: LiveTurnPerf | null;
-      rowParse: RowParseCountersSnapshot;
-      annotate: AnnotateCountersSnapshot;
-    } {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) {
-        throw new Error(
-          `getSessionPerf: card "${cardId}" has no bound session — ` +
-            `call bindSession("${cardId}") first`,
-        );
-      }
-      return {
-        ...services.codeSessionStore._getPerfForDevPanel(),
-        rowParse: snapshotRowParseCounters(),
-        annotate: annotateCounters(),
-      };
-    },
-
     getHasFocus(): boolean {
       return deck.getSnapshot().hasFocus;
-    },
-
-    getCardStateBag(cardId: string): CardStateBag | null {
-      const bag = deck.getCardState(cardId);
-      return bag === undefined ? null : bag;
     },
 
     closePane(paneId: string): void {
@@ -3830,24 +3906,24 @@ function overviewSurfaceMethods() {
   };
 }
 
-export function attachBodyTestSurface(bridge: ViewSurfaceStore): void {
+export function attachBodyTestSurface(bridge: ViewSurfaceStore, stores: { usageStore?: UsageStore } = {}): void {
   if (typeof window === "undefined" || window.__tugTestMode !== true) return;
   // The Overview's store is the page's own: a body holding the Overview is
-  // fed and read here, as the shell's document was.
+  // fed and read here, as the shell's document was. So is the usage store: a
+  // `/usage` sheet rises in the card's page and reads the store there.
   window.__tug = {
     version: SURFACE_VERSION,
     ...createViewSurfaceMethods(bridge),
     ...overviewSurfaceMethods(),
-    // A body owns its own WebSocket, so the shell's drop never reaches it:
-    // this is the body's, for a reconnect a body card goes through alone.
-    connectionClose(): boolean {
-      const connection = getConnection();
-      if (!connection) return false;
-      connection._forceCloseForTest();
-      return true;
+    ingestUsage(payload: unknown): void {
+      if (stores.usageStore === undefined) throw new Error("ingestUsage: this page holds no usage store");
+      stores.usageStore._ingestForTest(payload);
     },
   };
-  if (readDeckTraceEnabled()) {
-    deckTrace.enable(true);
-  }
+  // A body records its trace from boot under the harness. The enable a test
+  // sends lands in the shell's page, and its flag lives in the shell's
+  // session storage, which a body — its own browsing context — never sees;
+  // the trace-gated reads a test asks of a card (`isEngineReady`, the save
+  // callbacks) are recorded here, where the card is.
+  deckTrace.enable(true);
 }

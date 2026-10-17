@@ -154,7 +154,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the bottom edge sets it, the run's end clears it, Fill Height clears it, the slot stands",
       async () => {
-        const app = await launchTugApp({ testName: "at0695-resize-keeps-slot-height" });
+        const app = await launchTugApp({ testName: "at0695-resize-keeps-slot-height", bodies: true });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

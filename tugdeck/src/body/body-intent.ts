@@ -31,6 +31,8 @@ import {
 } from "../lib/session-restore";
 import { isReloadReason, type ReloadReason } from "../lib/reload-reasons";
 import { subscribeToListCardBindingsOk } from "../lib/session-ledger-events";
+import { cardSessionBindingStore, type CardSessionMode } from "../lib/card-session-binding-store";
+import { sessionLineStore } from "../lib/session-line-store";
 
 export type BodyIntent =
   | {
@@ -61,7 +63,21 @@ export type BodyIntent =
    * card's state as the shell holds it at the hand-off — a just-opened
    * file's seed is there before anything reaches tugbank.
    */
-  | { kind: "mount"; bag?: CardStateBag };
+  | { kind: "mount"; bag?: CardStateBag }
+  /**
+   * The harness's fake bind (`window.__tug.bindSession`), handed to the
+   * body as a spawn would be: the card takes the binding into its own
+   * stores and renders its session body with no frames flowing. Honoured
+   * only under the harness.
+   */
+  | {
+      kind: "bind";
+      tugSessionId: string;
+      lineId: string;
+      workspaceKey: string;
+      projectDir: string;
+      sessionMode: CardSessionMode;
+    };
 
 function str(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
@@ -74,6 +90,16 @@ export function parseBodyIntent(raw: unknown): BodyIntent | null {
   switch (r.kind) {
     case "restore":
       return { kind: "restore" };
+    case "bind":
+      if (!str(r.tugSessionId) || !str(r.lineId) || !str(r.workspaceKey) || !str(r.projectDir)) return null;
+      return {
+        kind: "bind",
+        tugSessionId: r.tugSessionId,
+        lineId: r.lineId,
+        workspaceKey: r.workspaceKey,
+        projectDir: r.projectDir,
+        sessionMode: r.sessionMode === "resume" ? "resume" : "new",
+      };
     case "mount":
       return typeof r.bag === "object" && r.bag !== null
         ? { kind: "mount", bag: r.bag as CardStateBag }
@@ -146,6 +172,17 @@ export function replayBodyIntent(
   };
   switch (intent.kind) {
     case "mount":
+      return;
+    case "bind":
+      if (typeof window === "undefined" || window.__tugTestMode !== true) return;
+      sessionLineStore.seat(intent.tugSessionId, intent.lineId);
+      cardSessionBindingStore.setBinding(cardId, {
+        tugSessionId: intent.tugSessionId,
+        lineId: intent.lineId,
+        workspaceKey: intent.workspaceKey,
+        projectDir: intent.projectDir,
+        sessionMode: intent.sessionMode,
+      });
       return;
     case "resume":
       narrow(intent.tugSessionId);

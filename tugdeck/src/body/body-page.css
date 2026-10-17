@@ -16,6 +16,16 @@ html[data-body-page] #deck-container {
   background: var(--tugx-pane-bg);
 }
 
+/* A pane-modal sheet's clip starts under the pane's title bar
+   (`--tugx-pane-chrome-height`, `tug-sheet.css`). A body page has no title
+   bar — the shell draws the card's chrome — so the clip starts at the top of
+   the page, and the panel's height cap (measured against this page's canvas,
+   which is its viewport) gets that band back. Left at the chrome offset, a
+   Text card's options sheet lost its Done row below the viewport. */
+html[data-body-page] .tug-sheet-clip {
+  top: 0;
+}
+
 .body-canvas,
 .body-pane-frame,
 .body-pane-root {

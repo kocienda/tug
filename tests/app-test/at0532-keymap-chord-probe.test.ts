@@ -37,6 +37,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -62,7 +63,7 @@ async function waitKeyEquivalent(
 
 /** The verdict line's text, or `""` while the strip has nothing to say. */
 async function verdictText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return kindBody(app, "keyboard").evalJS<string>(
     `document.querySelector('[data-testid="settings-keymap-probe-verdict"]')?.textContent ?? ""`,
   );
 }
@@ -73,7 +74,7 @@ async function verdictText(app: App): Promise<string> {
  * a search result.
  */
 async function rowCount(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return kindBody(app, "keyboard").evalJS<number>(
     `document.querySelectorAll('[data-testid^="keymap-row-"]').length`,
   );
 }
@@ -85,7 +86,10 @@ async function openKeyboardCard(app: App): Promise<void> {
   await app.evalJS(
     `window.__tug.dispatchControlAction("show-keyboard-shortcuts", {})`,
   );
-  await app.waitForCondition<boolean>(
+  // The arming clicks below are real, so the card's body has to be placed
+  // with a size first; `ready` alone is not that.
+  await waitForBodyPainted(app, "keyboard");
+  await kindBody(app, "keyboard").waitForCondition<boolean>(
     `document.querySelector('[data-testid="settings-keymap-probe"]') !== null`,
     { timeoutMs: 8000 },
   );
@@ -99,8 +103,10 @@ async function openKeyboardCard(app: App): Promise<void> {
  * probe. AT0182 waits on the same signal for the same reason.
  */
 async function armProbe(app: App): Promise<void> {
-  await app.click('[data-testid="settings-keymap-probe-arm"]');
-  await app.waitForCondition<boolean>(
+  // A real click: the chord that follows goes to the window's first
+  // responder, which the Keyboard card's body becomes only when clicked.
+  await kindBody(app, "keyboard").nativeClickAtElement('[data-testid="settings-keymap-probe-arm"]');
+  await kindBody(app, "keyboard").waitForCondition<boolean>(
     `document.querySelector('[data-testid="settings-keymap-probe"] [data-testid="keymap-capture"]') !== null`,
     { timeoutMs: 6000 },
   );
@@ -114,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
   test(
     "a bound chord is reported and the list narrows to it — and nothing is rebound",
     async () => {
-      const app = await launchTugApp({ testName: "at0532-taken" });
+      const app = await launchTugApp({ testName: "at0532-taken", bodies: true });
       try {
         await openKeyboardCard(app);
 
@@ -131,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
         // in the reader rather than zooming the page — which is the whole
         // reason the probe shares the row capture's arming.
         await app.nativeKey("-", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-keymap-probe-verdict"]') !== null`,
           { timeoutMs: 6000 },
         );
@@ -149,14 +155,14 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
           "the probe disarmed on its own answer and unparked the menu bar",
         ).toBe("-");
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "keyboard").evalJS<boolean>(
             `document.querySelector('[data-testid="settings-keymap-probe"] [data-testid="keymap-capture"]') === null`,
           ),
           "the reader is gone, so nothing is still swallowing keys",
         ).toBe(true);
 
         // The second half of "what has this chord": the row itself.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="keymap-row-zoom-out"]') !== null`,
           { timeoutMs: 6000 },
         );
@@ -191,41 +197,41 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
       // is a COUNT rather than a lock — so nothing downstream would have
       // caught this. The pane holds one arming slot, and the exclusivity is
       // that slot rather than two flags that have to agree.
-      const app = await launchTugApp({ testName: "at0532-exclusive" });
+      const app = await launchTugApp({ testName: "at0532-exclusive", bodies: true });
       try {
         await openKeyboardCard(app);
-        await app.type('[data-testid="settings-keymap-filter"] input', "Zoom Out");
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").type('[data-testid="settings-keymap-filter"] input', "Zoom Out");
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="keymap-arm-zoom-out"]') !== null`,
           { timeoutMs: 8000 },
         );
 
         // Arm a command row's Change, then reach for Test.
-        await app.click('[data-testid="keymap-arm-zoom-out"]');
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").nativeClickAtElement('[data-testid="keymap-arm-zoom-out"]');
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="keymap-row-zoom-out"] [data-testid="keymap-capture"]') !== null`,
           { timeoutMs: 6000 },
         );
-        await app.click('[data-testid="settings-keymap-probe-arm"]');
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").nativeClickAtElement('[data-testid="settings-keymap-probe-arm"]');
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-keymap-probe"] [data-testid="keymap-capture"]') !== null`,
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<number>(
+          await kindBody(app, "keyboard").evalJS<number>(
             `document.querySelectorAll('[data-testid="keymap-capture"]').length`,
           ),
           "arming the probe closed the row's capture",
         ).toBe(1);
 
         // And back the other way.
-        await app.click('[data-testid="keymap-arm-zoom-out"]');
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").nativeClickAtElement('[data-testid="keymap-arm-zoom-out"]');
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="keymap-row-zoom-out"] [data-testid="keymap-capture"]') !== null`,
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<number>(
+          await kindBody(app, "keyboard").evalJS<number>(
             `document.querySelectorAll('[data-testid="keymap-capture"]').length`,
           ),
           "arming a row closed the probe's capture",
@@ -234,18 +240,18 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
         // The surviving reader is the one that gets the chord — and it is a
         // rebind capture, so the chord lands pending rather than as a verdict.
         await app.nativeKey("y", ["cmd", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `(document.querySelector('[data-testid="keymap-capture"] [data-pending="true"]')?.textContent ?? "").includes("Y")`,
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "keyboard").evalJS<boolean>(
             `document.querySelector('[data-testid="settings-keymap-probe-verdict"]') === null`,
           ),
           "the disarmed probe read nothing, so it has no verdict to show",
         ).toBe(true);
 
-        await app.click('[data-testid="keymap-capture-cancel"]');
+        await kindBody(app, "keyboard").click('[data-testid="keymap-capture-cancel"]');
         expect(
           await waitKeyEquivalent(app, "view.zoomOut", "-"),
           "cancelling leaves the keymap where it was",
@@ -264,7 +270,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
   test(
     "an unclaimed chord reads free and leaves the list alone",
     async () => {
-      const app = await launchTugApp({ testName: "at0532-free" });
+      const app = await launchTugApp({ testName: "at0532-free", bodies: true });
       try {
         await openKeyboardCard(app);
         const allRows = await rowCount(app);
@@ -276,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
         // to show, and emptying the list would read as "no results" rather
         // than as "yes, take it".
         await app.nativeKey("j", ["cmd", "alt", "ctrl"]);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "keyboard").waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-keymap-probe-verdict"]') !== null`,
           { timeoutMs: 6000 },
         );
@@ -284,7 +290,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
         const verdict = await verdictText(app);
         expect(verdict, "an unclaimed chord reads free").toContain("free");
         expect(
-          await app.evalJS<string>(
+          await kindBody(app, "keyboard").evalJS<string>(
             `document.querySelector('[data-testid="settings-keymap-probe-verdict"]')?.getAttribute("data-kind") ?? ""`,
           ),
         ).toBe("free");

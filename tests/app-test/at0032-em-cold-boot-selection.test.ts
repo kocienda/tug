@@ -119,7 +119,7 @@ async function runColdBootSelection(
   // Diagnostic event 1: cold-boot-restore-snapshot fires with the
   // seeded selection still intact in `bag.content` at the moment
   // CardHost hands it to the factory's onRestore.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var t = window.__tug.getDeckTrace();
       for (var i = 0; i < t.length; i++) {
@@ -141,7 +141,7 @@ async function runColdBootSelection(
   // matching the seed. Pre-fix, if `onRestore` ran while the
   // CardPortal slot was still detached, `engine.setSelectedRange`
   // would no-op and `domSelectionAfter` would be null.
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var t = window.__tug.getDeckTrace();
       for (var i = 0; i < t.length; i++) {
@@ -172,7 +172,7 @@ async function runColdBootSelection(
 
 describe.skipIf(!SHOULD_RUN)("at0032-em: saved selection round-trips through cold-boot mount-restore", () => {
   test("gallery-prompt-entry (TugPromptEntry, session-card's editor): seeded selection lands in live DOM after restore", async () => {
-    const app = await launchTugApp({ testName: "at0032-em-cold-boot-entry" });
+    const app = await launchTugApp({ bodies: true, testName: "at0032-em-cold-boot-entry" });
     try {
       await runColdBootSelection(app, "gallery-prompt-entry");
     } finally {

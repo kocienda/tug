@@ -587,8 +587,10 @@ BG_COUNT=${#BG_QUEUE[@]}
 # Timeout budgets are sized for a file that has the machine to itself. Under
 # concurrency the same work takes longer in wall time with nothing wrong, so
 # the budgets travel with the contention. At JOBS=1 this is unset and every
-# byte on the wire is what a serial run always sent.
-[ "$JOBS" -gt 1 ] && export TUG_APPTEST_TIMEOUT_SCALE="$JOBS"
+# byte on the wire is what a serial run always sent. A caller that sets the
+# scale itself keeps it: a triage sweep whose reds are mostly timeouts pins
+# it at 1 so a red costs its own budget and not four of them.
+[ "$JOBS" -gt 1 ] && export TUG_APPTEST_TIMEOUT_SCALE="${TUG_APPTEST_TIMEOUT_SCALE:-$JOBS}"
 
 # Bun's own per-test timeout (5000ms) is the other budget sized for a lone
 # file, and it lives outside the RPC path, so it is scaled on the command line.
@@ -635,6 +637,7 @@ run_one_file() {
     # leaves $out.wedged behind when the app has stopped answering.
     local cap
     cap="$(wedge_cap_for "$f" | cut -f1)"
+    [ "$cap" -gt "$KILL_CEILING" ] && cap="$KILL_CEILING"
     if [ -n "$STREAM" ]; then
         echo "---- $f ----"
         # bun's stdout/stderr both stream to the user's terminal AND
@@ -677,6 +680,7 @@ run_one_file() {
         status=SKIP; passed=0; total=0
     elif [ "$rc" -eq 0 ]; then
         status=PASS
+        [ "$secs" -gt "$BUDGET_SECS" ] && status=OVERTIME
     else
         if [ "$total" -gt 0 ]; then
             status=FAIL
@@ -724,11 +728,16 @@ report_progress() {
     if [ "$status" = WEDGED ]; then
         local cap last
         IFS=$'\t' read -r cap last <<< "$(wedge_cap_for "$f")"
-        if [ "$last" = "-" ]; then
+        if [ "$cap" -gt "$KILL_CEILING" ]; then
+            detail="$(printf '\n          ↳ stopped at %ss, three times the %ss budget at the timeout scale of this run — it had not finished' "$KILL_CEILING" "$BUDGET_SECS")"
+        elif [ "$last" = "-" ]; then
             detail="$(printf '\n          ↳ stopped at its %ss cap (no recorded time, so the floor) — the app stopped answering' "$cap")"
         else
             detail="$(printf '\n          ↳ stopped at its %ss cap (3× the median of its recent recorded times, %ss) — the app stopped answering' "$cap" "$last")"
         fi
+    fi
+    if [ "$status" = OVERTIME ]; then
+        detail="$(printf '\n          ↳ green, but %ss is over the %ss budget every file is held to: split it or make it faster' "$secs" "$BUDGET_SECS")"
     fi
     printf '%3d/%-3d %02d:%02d  %-6s %-56s (%d/%d)  %4ds%s\n' \
         "$nth" "${#FILES[@]}" $((elapsed / 60)) $((elapsed % 60)) \
@@ -747,7 +756,7 @@ post_units() {
     fi
     # shellcheck disable=SC2012  # counting rows the runner named itself
     nth="$(ls "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
-    fails="$(grep -lE '^(FAIL|ERR|WEDGED):' "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
+    fails="$(grep -lE '^(FAIL|ERR|WEDGED|OVERTIME):' "$RUNDIR"/*.row 2>/dev/null | wc -l | tr -d ' ')"
     units="$(mktemp "$RUNDIR/units.XXXXXX")"
     bun scripts/run-units.ts "$RUNDIR" "$CAPS_FILE" "${FILES[@]}" > "$units" 2>/dev/null || printf '[]' > "$units"
     "$TUGTOOL_BIN" progress --label app-test --unit file --jobs "$JOBS" --units-json "$units" \
@@ -806,6 +815,41 @@ wedge_cap_for() {
     [ -n "$line" ] || line="$(printf '120\t-')"
     printf '%s\n' "$line"
 }
+
+# Every file is held to one budget of wall time, 20 s unless the caller says
+# otherwise: a file that finishes past it is OVERTIME, a red the summary and
+# the ledger count as a failure, because a slow test is a defect of the test.
+# The kill still comes from the wedge cap, now never later than three budgets:
+# a file that has not finished by then has nothing left to say.
+BUDGET_SECS="${TUG_APPTEST_FILE_BUDGET_SECS:-20}"
+case "$BUDGET_SECS" in ''|*[!0-9]*) BUDGET_SECS=20 ;; esac
+# The kill ceiling travels with the timeout scale, as every wait inside a file
+# does: under concurrency a file's 20 s wait is 80 s of wall time, and a
+# ceiling below that would kill an ordinary timeout red as a wedge, losing its
+# failure and halting the run on two of them.
+KILL_SCALE="${TUG_APPTEST_TIMEOUT_SCALE:-1}"
+case "$KILL_SCALE" in ''|*[!0-9]*) KILL_SCALE=1 ;; esac
+KILL_CEILING=$((BUDGET_SECS * 3 * KILL_SCALE))
+
+# What this run will cost, said before it starts, from the ledger's recorded
+# times: the sum of each file's basis (the median of its recent times), the
+# wall time that sum makes at this concurrency, and how many files the record
+# already puts over the budget. A file with no record counts as unknown.
+est_known=0; est_secs=0; est_over=0; est_unknown=0
+for f in "${FILES[@]}"; do
+    IFS=$'\t' read -r _cap basis <<< "$(wedge_cap_for "$f")"
+    if [ "$basis" = "-" ] || [ -z "$basis" ]; then
+        est_unknown=$((est_unknown + 1))
+    else
+        est_known=$((est_known + 1))
+        est_secs=$((est_secs + ${basis%.*}))
+        [ "${basis%.*}" -gt "$BUDGET_SECS" ] && est_over=$((est_over + 1))
+    fi
+done
+if [ "${#FILES[@]}" -gt 0 ]; then
+    est_wall=$(( (est_secs + JOBS - 1) / JOBS ))
+    echo "==> ${#FILES[@]} file(s); the record says ~${est_secs}s of file time (~${est_wall}s wall at ${JOBS} at a time) for the ${est_known} with a record, ${est_unknown} unknown; ${est_over} already over the ${BUDGET_SECS}s budget by their recorded times."
+fi
 
 # Two wedges in a row is an app that is not answering, not two slow files:
 # every file after them would wedge too, each at its own cap. The run halts
@@ -891,6 +935,7 @@ files_failed=0
 files_errored=0
 files_skipped=0
 files_wedged=0
+files_overtime=0
 tests_passed_total=0
 tests_total=0
 for row in "${RESULT_ROWS[@]}"; do
@@ -898,6 +943,7 @@ for row in "${RESULT_ROWS[@]}"; do
     case "$status" in
         PASS) files_passed=$((files_passed + 1)) ;;
         FAIL) files_failed=$((files_failed + 1)) ;;
+        OVERTIME) files_overtime=$((files_overtime + 1)) ;;
         ERR)  files_errored=$((files_errored + 1)) ;;
         SKIP) files_skipped=$((files_skipped + 1)) ;;
         WEDGED) files_wedged=$((files_wedged + 1)) ;;
@@ -918,6 +964,7 @@ printf '%-14s  %d\n' 'Files failed:' "$files_failed"
 printf '%-14s  %d\n' 'Files errored:' "$files_errored"
 [ "$files_skipped" -gt 0 ] && printf '%-14s  %d\n' 'Files skipped:' "$files_skipped"
 [ "$files_wedged" -gt 0 ] && printf '%-14s  %d\n' 'Files wedged:' "$files_wedged"
+[ "$files_overtime" -gt 0 ] && printf '%-14s  %d (green past the %ss budget)\n' 'Files overtime:' "$files_overtime" "$BUDGET_SECS"
 [ "${#UNRUN_FILES[@]}" -gt 0 ] && printf '%-14s  %d (%s)\n' 'Files not run:' "${#UNRUN_FILES[@]}" \
     "$(printf '%s\n' "${UNRUN_FILES[@]}" | sed 's/\.test\.ts$//' | paste -sd ',' - | sed 's/,/, /g')"
 if [ "$ELAPSED" -lt 60 ]; then
@@ -965,7 +1012,7 @@ HISTORY_ERR=""
 declare -a RED_FILES=()
 for row in "${RESULT_ROWS[@]}"; do
     IFS=':' read -r status file _p _t _s <<< "$row"
-    case "$status" in FAIL|ERR) RED_FILES+=("$file") ;; esac
+    case "$status" in FAIL|ERR|OVERTIME) RED_FILES+=("$file") ;; esac
 done
 if [ "${#RED_FILES[@]}" -gt 0 ]; then
     if [ -z "$TUGTOOL_BIN" ]; then
@@ -1160,7 +1207,7 @@ elif ! command -v jq >/dev/null 2>&1; then
     echo "[app-test] results not recorded: jq is not on PATH" >&2
 else
     record_verdict=PASS
-    { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ -z "$HALTED" ]; } || record_verdict=FAIL
+    { [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ "$files_wedged" -eq 0 ] && [ "$files_overtime" -eq 0 ] && [ -z "$HALTED" ]; } || record_verdict=FAIL
     record_head="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     record_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
     record_dirty=false
@@ -1169,6 +1216,8 @@ else
         {
             for row in "${RESULT_ROWS[@]}"; do
                 IFS=':' read -r status file rpassed rtotal rsecs <<< "$row"
+                # The ledger knows no OVERTIME: it is a red with its real time.
+                [ "$status" = OVERTIME ] && status=FAIL
                 fg=false
                 for q in ${FG_QUEUE[@]+"${FG_QUEUE[@]}"}; do
                     [ "$q" = "$file" ] && fg=true && break
@@ -1234,6 +1283,7 @@ skip_clause=""
 wedge_clause=""
 [ "$files_wedged" -gt 0 ] && wedge_clause="; $files_wedged wedged"
 [ "${#UNRUN_FILES[@]}" -gt 0 ] && wedge_clause="$wedge_clause; ${#UNRUN_FILES[@]} not run"
+[ "$files_overtime" -gt 0 ] && wedge_clause="$wedge_clause; $files_overtime over the ${BUDGET_SECS}s budget"
 if [ "$files_failed" -eq 0 ] && [ "$files_errored" -eq 0 ] && [ -z "$wedge_clause" ]; then
     printf 'VERDICT: PASS  (%d/%d files green%s; %d/%d tests passed)\n' \
         "$files_passed" "$files_ran" "$skip_clause" "$tests_passed_total" "$tests_total"

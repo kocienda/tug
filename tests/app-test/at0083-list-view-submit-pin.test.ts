@@ -142,7 +142,7 @@ interface ScrollSnapshot {
 
 /** Read the inner scrollport geometry + the rendered cell count. */
 async function readScroll(app: App, cardId: string): Promise<ScrollSnapshot> {
-  return app.evalJS<ScrollSnapshot>(
+  return app.body(cardId).evalJS<ScrollSnapshot>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       if (el === null) {
@@ -169,7 +169,7 @@ async function waitForSettled(
   cardId: string,
   timeoutMs = 5000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       if (el === null) return false;
@@ -177,14 +177,14 @@ async function waitForSettled(
     })()`,
     { timeoutMs },
   );
-  const firstHeight = await app.evalJS<number>(
+  const firstHeight = await app.body(cardId).evalJS<number>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       return el === null ? -1 : el.scrollHeight;
     })()`,
   );
   await new Promise<void>((resolve) => setTimeout(resolve, 250));
-  const secondHeight = await app.evalJS<number>(
+  const secondHeight = await app.body(cardId).evalJS<number>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       return el === null ? -1 : el.scrollHeight;
@@ -195,7 +195,7 @@ async function waitForSettled(
       `waitForSettled: scrollHeight unstable (${firstHeight} → ${secondHeight})`,
     );
   }
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       var raw = el && el.getAttribute("data-tug-scroll-state");
@@ -227,6 +227,7 @@ describe.skipIf(!SHOULD_RUN)(
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0083-list-view-submit-pin-restore",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -248,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)(
           // `atBottom` and the cold-boot restore re-pins to the bottom
           // instead of the mid anchor this test asserts. (The file's second
           // test already does this.)
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
@@ -256,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)(
               el.dispatchEvent(new Event('scroll', { bubbles: true }));
             })()`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               var raw = el && el.getAttribute("data-tug-scroll-state");
@@ -311,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // -------- Phase 4: install a scroll recorder, drive
           // scrollToBottom(), and prove it lands AND holds.
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               window.__at0083 = { tops: [] };
@@ -321,10 +322,10 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
           );
 
-          await app.click(scrollToBottomButtonFor("A"));
+          await app.body("A").click(scrollToBottomButtonFor("A"));
 
           // Wait for the scroller to reach the bottom.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
@@ -349,7 +350,7 @@ describe.skipIf(!SHOULD_RUN)(
           // toward the saved anchor. A pullback would land a recorded
           // scrollTop near RESTORE_TARGET_PX; every post-jump value
           // must sit well below `distanceFromBottom` of that.
-          const recorded = await app.evalJS<{ tops: number[] }>(
+          const recorded = await app.body("A").evalJS<{ tops: number[] }>(
             `window.__at0083`,
           );
           const midpoint =
@@ -382,6 +383,7 @@ describe.skipIf(!SHOULD_RUN)(
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0083-list-view-submit-pin-funnel",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -396,7 +398,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // The fixture mounts with `followBottom`, so first paint
           // pins to the bottom. Wait for that to land.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
@@ -408,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)(
           // -------- Phase A — scrollToBottom() while already pinned
           // is a no-op.
           const beforeNoop = await readScroll(app, "A");
-          await app.click(scrollToBottomButtonFor("A"));
+          await app.body("A").click(scrollToBottomButtonFor("A"));
           await new Promise<void>((resolve) => setTimeout(resolve, 200));
           const afterNoop = await readScroll(app, "A");
           expect(afterNoop.distanceFromBottom).toBeLessThanOrEqual(
@@ -427,7 +429,7 @@ describe.skipIf(!SHOULD_RUN)(
           // gated purely by `isFollowingBottom`. A collapsed Bash/diff
           // hunk reaches the same `_setFollowingBottom(false)` through
           // `useScroller().disengage`.
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               el.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
@@ -444,8 +446,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           for (let i = 0; i < 3; i += 1) {
             const target = beforeGrowth.itemCount + i + 1;
-            await app.click(insertBottomButtonFor("A"));
-            await app.waitForCondition<boolean>(
+            await app.body("A").click(insertBottomButtonFor("A"));
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(cellsSelectorFor("A"))}).length >= ${target}`,
               { timeoutMs: 2000 },
             );
@@ -464,8 +466,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(afterGrowth.distanceFromBottom).toBeGreaterThan(200);
 
           // -------- Phase B — scrollToBottom() re-engages follow-bottom.
-          await app.click(scrollToBottomButtonFor("A"));
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(scrollToBottomButtonFor("A"));
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
@@ -479,8 +481,8 @@ describe.skipIf(!SHOULD_RUN)(
           const beforePin = await readScroll(app, "A");
           for (let i = 0; i < 3; i += 1) {
             const target = beforePin.itemCount + i + 1;
-            await app.click(insertBottomButtonFor("A"));
-            await app.waitForCondition<boolean>(
+            await app.body("A").click(insertBottomButtonFor("A"));
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(cellsSelectorFor("A"))}).length >= ${target}`,
               { timeoutMs: 2000 },
             );

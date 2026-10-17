@@ -121,7 +121,7 @@ describe.skipIf(!SHOULD_RUN)("AT0711: pane gestures land in layout px under a zo
   test(
     "a drag, a resize and an Option-snap at 50 %, 100 % and 200 %",
     async () => {
-      const app = await launchTugApp({ testName: "at0711-zoom-pane-gestures" });
+      const app = await launchTugApp({ testName: "at0711-zoom-pane-gestures", bodies: true });
       const readings: Record<string, unknown> = {};
       try {
         await app.enableDeckTrace(true);

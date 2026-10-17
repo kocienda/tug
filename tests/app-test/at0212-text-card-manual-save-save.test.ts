@@ -42,6 +42,7 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp } from "./_harness";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank } from "./_harness/tugbank-helpers";
 import { mkTextFixture } from "./_harness/fixtures";
 import {
   CMD_MASK,
@@ -65,10 +66,10 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "edits stay off disk; menu gates + dynamic ⇧⌘S",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ testName: "at0212-gates" });
+      const app = await launchTugApp({ bodies: true, testName: "at0212-gates" });
       try {
         await seedTextCard(app, file);
-        await waitForEditor(app, "alpha");
+        await waitForEditor(app.body("A"), "alpha");
 
         // Clean titled manual card: "Saved"; Save/Revert disabled, Reload
         // enabled; Save As… carries the dynamic ⇧⌘S ([P07]).
@@ -82,7 +83,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         expect(saveAs.found ? (saveAs.modifierMask & SHIFT_MASK) !== 0 : false).toBe(true);
 
         // Type → "Edited", disk UNCHANGED, Save + Revert enabled.
-        await typeIntoEditor(app, "EDIT ");
+        await typeIntoEditor(app.body("A"), "EDIT ");
         await waitForSaveCell(app, "Edited");
         await settle();
         expect(fs.readFileSync(file, "utf8")).toBe(ORIGINAL);
@@ -108,11 +109,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "save survives a title-bar interaction (focus reclaim on cardDidMove)",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ testName: "at0212-reclaim" });
+      const app = await launchTugApp({ bodies: true, testName: "at0212-reclaim" });
       try {
         await seedTextCard(app, file);
-        await waitForEditor(app, "alpha");
-        await typeIntoEditor(app, "MOVED ");
+        await waitForEditor(app.body("A"), "alpha");
+        await typeIntoEditor(app.body("A"), "MOVED ");
         await waitForSaveCell(app, "Edited");
         await settle();
 
@@ -132,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
 
         // The reclaim must have restored the editor as the chain first
         // responder (not merely DOM focus, which survived the drag).
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
              var fr = document.querySelector('[data-first-responder]');
              var content = document.querySelector('${EDITOR_CONTENT}');
@@ -159,11 +160,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "conflict: Save Anyway writes the buffer to the real file ([P12])",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ testName: "at0212-conflict" });
+      const app = await launchTugApp({ bodies: true, testName: "at0212-conflict" });
       try {
         await seedTextCard(app, file);
-        await waitForEditor(app, "alpha");
-        await typeIntoEditor(app, "MINE ");
+        await waitForEditor(app.body("A"), "alpha");
+        await typeIntoEditor(app.body("A"), "MINE ");
         await waitForSaveCell(app, "Edited");
         await settle();
 
@@ -173,11 +174,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         fs.writeFileSync(file, "FOREIGN CONTENT\n", "utf8");
         await dispatchControl(app, "save");
         await settle();
-        await waitSheetButton(app, "save-anyway");
+        await waitSheetButton(app.body("A"), "save-anyway");
 
         // Save Anyway writes the BUFFER (not the aside) to the REAL file.
         await settle();
-        await app.click(`[data-testid="file-save-sheet-save-anyway"]`);
+        await app.body("A").click(`[data-testid="file-save-sheet-save-anyway"]`);
         await settle();
         await waitForSaveCell(app, "Saved");
         const disk = fs.readFileSync(file, "utf8");
@@ -195,10 +196,16 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "automatic mode keeps Save enabled when clean (no-beep guard, [P07])",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ testName: "at0212-automatic" });
+      // A body card reads its save mode from the tugbank the app opens, so
+      // automatic is seeded there rather than through the shell's cache.
+      const app = await launchTugApp({
+        bodies: true,
+        testName: "at0212-automatic",
+        env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) },
+      });
       try {
         await seedTextCard(app, file, "automatic");
-        await waitForEditor(app, "alpha");
+        await waitForEditor(app.body("A"), "alpha");
         await waitMenuEnabled(app, "file.save", true);
       } finally {
         await app.close();

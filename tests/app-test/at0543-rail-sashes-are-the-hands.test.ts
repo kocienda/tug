@@ -216,6 +216,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ── Phase A: divide the rail by hand, then quit. ──
           {
             const app = await launchTugApp({
+              bodies: true,
               testName: "at0543-rail-sashes-are-the-hands-A",
               env: { TUGBANK_PATH: tugbankPath },
               persistInTestMode: true,
@@ -268,6 +269,7 @@ describe.skipIf(!SHOULD_RUN)(
           // ── Phase B: relaunch from the same tugbank, no seeding. ──
           {
             const app = await launchTugApp({
+              bodies: true,
               testName: "at0543-rail-sashes-are-the-hands-B",
               env: { TUGBANK_PATH: tugbankPath },
               persistInTestMode: true,
@@ -310,6 +312,7 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           seedTugbankForLaunch(tugbankPath);
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0543-rail-sashes-cascade",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,

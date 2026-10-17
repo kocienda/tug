@@ -1864,6 +1864,8 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
  * height it lands at, or for a fold at the LARGER of its two — and this box
  * tweens past that height, so the card overflows it or stands short of it —
  * which is the whole design: one edge moves and nothing inside the card
+ * (a body card's own page holds its root the same way, on `.body-pane-frame`,
+ * from the crossing the shell relays it — `applyCrossingMirror`)
  * re-flows, because a subtree with a definite height that does not change is
  * not dirtied by its ancestor's tween. Laid out where it lands, the card has
  * nothing left to re-flow when the mark comes off (`data-still-settled`).
@@ -1884,7 +1886,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
  * holds under View › Zoom's scale, where `position: sticky` against this box
  * did not.
  */
-.tug-pane[data-still-crossing] .tug-pane-content {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing] .tug-pane-content {
   overflow: hidden;
 }
 
@@ -1957,7 +1959,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   inherits: false;
 }
 
-.tug-pane[data-still-crossing]:not([data-still-height-free]) .tug-pane-content [data-card-host] > * {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing]:not([data-still-height-free]) .tug-pane-content [data-card-host] > * {
   height: var(--tugx-still-held-height);
 }
 
@@ -1978,7 +1980,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   inherits: false;
 }
 
-.tug-pane[data-still-crossing][data-still-width] .tug-pane-content [data-card-host] > * {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing][data-still-width] .tug-pane-content [data-card-host] > * {
   width: var(--tugx-still-held-width);
 }
 
@@ -1999,7 +2001,7 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
  * of a TOP-anchored interior, and when both marks are on the frame the fold's
  * picture wins.
  */
-.tug-pane[data-still-crossing]:not([data-fold-crossing])
+:is(.tug-pane, .body-pane-frame)[data-still-crossing]:not([data-fold-crossing])
   .tug-pane-content
   [data-card-host]
   > [data-still-anchor="bottom"] {

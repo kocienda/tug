@@ -89,7 +89,7 @@ function deckShape() {
 
 /** What each strip tile is captioned with, in strip order. */
 function tileCaptions(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("A").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(
       `${STRIP_SELECTOR} [data-slot="tug-attachment-preview__caption"]`,
     )})).map(function(el){ return el.textContent || ""; })`,
@@ -103,7 +103,7 @@ function tileCountIs(n: number): string {
 
 /** The editor's whole document, read off CM6's rendered lines. */
 function docText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `Array.from(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT_SELECTOR} .cm-line`)}))
       .map(function(l){ return l.textContent || ""; })
       .join("\\n")`,
@@ -139,7 +139,7 @@ function withGeneratedPng(fileName: string, deliver: string): string {
 
 /** Drop a real PNG `File` on the editor under `fileName`. */
 async function dropPngOnEditor(app: App, fileName: string): Promise<void> {
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     withGeneratedPng(
       fileName,
       `var r = host.getBoundingClientRect();
@@ -153,7 +153,7 @@ async function dropPngOnEditor(app: App, fileName: string): Promise<void> {
        host.dispatchEvent(ev);`,
     ),
   );
-  await app.waitForCondition<boolean>(`window.__at0412Done === true`, {
+  await app.body("A").waitForCondition<boolean>(`window.__at0412Done === true`, {
     timeoutMs: 10_000,
   });
 }
@@ -166,7 +166,7 @@ async function dropPngOnEditor(app: App, fileName: string): Promise<void> {
  * through: the native clipboard bridge's read result carries no image data.
  */
 async function pasteImageOnEditor(app: App): Promise<void> {
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     withGeneratedPng(
       "image.png",
       `var ev = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
@@ -174,7 +174,7 @@ async function pasteImageOnEditor(app: App): Promise<void> {
        host.dispatchEvent(ev);`,
     ),
   );
-  await app.waitForCondition<boolean>(`window.__at0412Done === true`, {
+  await app.body("A").waitForCondition<boolean>(`window.__at0412Done === true`, {
     timeoutMs: 10_000,
   });
 }
@@ -186,7 +186,7 @@ async function pasteImageOnEditor(app: App): Promise<void> {
  * Return — which is what a person does anyway.
  */
 async function typeAtEnd(app: App, lines: readonly string[]): Promise<void> {
-  await app.click(EDITOR_CONTENT_SELECTOR);
+  await app.body("A").click(EDITOR_CONTENT_SELECTOR);
   // ⌘↓ — document end, so the typed link lands on its own after the seed.
   await app.nativeKey("ArrowDown", ["cmd"]);
   for (const line of lines) {
@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ testName: "at0412-asset-strip" });
+          const app = await launchTugApp({ bodies: true, testName: "at0412-asset-strip" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("SEEDED") !== -1;
@@ -244,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
 
             // ── The seeded link projects a tile ────────────────────────────
-            await app.waitForCondition<boolean>(tileCountIs(1), {
+            await app.body("A").waitForCondition<boolean>(tileCountIs(1), {
               timeoutMs: 15_000,
             });
             expect(await tileCaptions(app)).toEqual(["shown.png"]);
@@ -252,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)(
             // Painted from the file's own path. The strip stands for files
             // already on disk, so holding their bytes in JS to draw a
             // thumbnail would park a whole document's assets in memory.
-            const imgSrc = await app.evalJS<string>(
+            const imgSrc = await app.body("A").evalJS<string>(
               `(function(){
                 var img = document.querySelector(${JSON.stringify(
                   `${STRIP_SELECTOR} img`,
@@ -269,7 +269,7 @@ describe.skipIf(!SHOULD_RUN)(
             // No attachment gesture involved: the strip is a projection, so
             // the text IS the interface.
             await typeAtEnd(app, ["", "[notes](assets/notes.txt)"]);
-            await app.waitForCondition<boolean>(tileCountIs(2), {
+            await app.body("A").waitForCondition<boolean>(tileCountIs(2), {
               timeoutMs: 15_000,
             });
             expect(await tileCaptions(app)).toEqual(["shown.png", "notes.txt"]);
@@ -283,7 +283,7 @@ describe.skipIf(!SHOULD_RUN)(
             // A `data:` src is unambiguous here: the image tile beside it
             // paints from `/api/fs/blob`, so only the thumbnail bridge can put
             // an inline PNG in this strip.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `Array.from(document.querySelectorAll(${JSON.stringify(
                 `${STRIP_SELECTOR} img`,
               )})).some(function(i){
@@ -296,14 +296,14 @@ describe.skipIf(!SHOULD_RUN)(
             // The strip follows the text because it *is* the text — no
             // bookkeeping anywhere had to be told the attachment was gone.
             await app.nativeKey("z", ["cmd"]);
-            await app.waitForCondition<boolean>(tileCountIs(1), {
+            await app.body("A").waitForCondition<boolean>(tileCountIs(1), {
               timeoutMs: 15_000,
             });
             expect(await tileCaptions(app)).toEqual(["shown.png"]);
 
             // ── And redo brings both back ──────────────────────────────────
             await app.nativeKey("z", ["cmd", "shift"]);
-            await app.waitForCondition<boolean>(tileCountIs(2), {
+            await app.body("A").waitForCondition<boolean>(tileCountIs(2), {
               timeoutMs: 15_000,
             });
             expect(await tileCaptions(app)).toEqual(["shown.png", "notes.txt"]);
@@ -327,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)(
           // run dropped, into an instance whose draft home never received
           // their files.
           const draftId = `A-${Date.now().toString(36)}`;
-          const app = await launchTugApp({ testName: "at0412-untitled-drop" });
+          const app = await launchTugApp({ bodies: true, testName: "at0412-untitled-drop" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -347,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)}) !== null`,
               { timeoutMs: 15_000 },
             );
@@ -357,11 +357,11 @@ describe.skipIf(!SHOULD_RUN)(
             // The drop landed: a link, and a tile painted from a real file in
             // the buffer's own draft home. No banner anywhere — the untitled
             // precondition is gone, not merely reworded.
-            await app.waitForCondition<boolean>(tileCountIs(1), {
+            await app.body("A").waitForCondition<boolean>(tileCountIs(1), {
               timeoutMs: 20_000,
             });
             expect(
-              await app.evalJS<number>(
+              await app.body("A").evalJS<number>(
                 `document.querySelectorAll('[data-card-id="A"] [data-slot="tug-pane-banner"]').length`,
               ),
             ).toBe(0);
@@ -370,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The link is the same relative form a saved document holds, which
             // is what lets Save As migrate the home without rewriting prose.
-            const tileSrc = await app.evalJS<string>(
+            const tileSrc = await app.body("A").evalJS<string>(
               `(function(){
                 var img = document.querySelector(${JSON.stringify(
                   `${STRIP_SELECTOR} img`,
@@ -402,7 +402,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.writeFileSync(docPath, "# Notes\n\nSEEDED\n", "utf8");
 
         try {
-          const app = await launchTugApp({ testName: "at0412-image-paste" });
+          const app = await launchTugApp({ bodies: true, testName: "at0412-image-paste" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -417,7 +417,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("SEEDED") !== -1;
@@ -426,7 +426,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
 
             await pasteImageOnEditor(app);
-            await app.waitForCondition<boolean>(tileCountIs(1), {
+            await app.body("A").waitForCondition<boolean>(tileCountIs(1), {
               timeoutMs: 20_000,
             });
 
@@ -460,7 +460,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.chmodSync(dir, 0o500);
 
         try {
-          const app = await launchTugApp({ testName: "at0412-attach-failure" });
+          const app = await launchTugApp({ bodies: true, testName: "at0412-attach-failure" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -475,7 +475,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("SEEDED") !== -1;
@@ -486,7 +486,7 @@ describe.skipIf(!SHOULD_RUN)(
             await dropPngOnEditor(app, "photo.png");
 
             // The failure names the file, on the thing that failed.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(
                 `${STRIP_SELECTOR} [data-slot="tug-attachment-preview__file"][data-failed]`,
               )}).length === 1`,
@@ -498,12 +498,12 @@ describe.skipIf(!SHOULD_RUN)(
             // defect where two banners fought over one `inert` flag cannot
             // happen when the card renders exactly one.
             expect(
-              await app.evalJS<number>(
+              await app.body("A").evalJS<number>(
                 `document.querySelectorAll('[data-card-id="A"] [data-slot="tug-pane-banner"]').length`,
               ),
             ).toBe(0);
             expect(
-              await app.evalJS<boolean>(
+              await app.body("A").evalJS<boolean>(
                 `(function(){
                   var body = document.querySelector('[data-card-id="A"] .tug-pane-body');
                   return body !== null && body.hasAttribute("inert");
@@ -538,7 +538,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ testName: "at0412-missing-tile" });
+          const app = await launchTugApp({ bodies: true, testName: "at0412-missing-tile" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -553,7 +553,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("SEEDED") !== -1;
@@ -563,7 +563,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The tile exists — a typo the user can see — and shows the broken
             // state rather than an image that will never load.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(
                 `${STRIP_SELECTOR} [data-slot="tug-attachment-preview__broken"]`,
               )}).length === 1`,

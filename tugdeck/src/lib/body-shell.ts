@@ -90,18 +90,23 @@ import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-reque
 import { requestLogout } from "./logout-store";
 import { ShellSurfaceDrawer } from "./shell-surface";
 import { onBus, sendBus } from "./deck-bus";
-import { replayBodyIntent } from "../body/body-intent";
+import { replayBodyIntent, type BodyIntent } from "../body/body-intent";
 import {
   bodyIntentOf,
   forgetBodyIntent,
   handOffToBody,
   hostCapabilitiesStore,
+  isBodyKind,
+  isHandOffSuppressed,
   isMountBodyKind,
   postToHost,
+  setBodyIntentForwarder,
   suppressHandOff,
 } from "./body-handoff";
+import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import { openingBidForCard } from "./opening-bid";
 import { pageZoomStore } from "./page-zoom-store";
+import { bodyChordCaptureStore } from "./body-chord-capture-store";
 import { sheetReservationMemberIdOf } from "./sheet-reservation";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { getRegistration, isSidebarCard, type CardIdentityFacts } from "../card-registry";
@@ -113,6 +118,9 @@ import { isBodyDeckCall, projectActivities, projectArrangement } from "./body-ar
 import { registerCardCloseGuard } from "./card-close-guard";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
+import { setJotCaptureForwarder } from "./jot-capture";
+import { frontmostProjectBinding } from "./frontmost-project";
+import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
 import type { TugDevLogEntry } from "./tug-dev-log-store/types";
 
 /** The kinds the shell relays something of its own to, by their component ids. */
@@ -218,6 +226,9 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
         deck.getFirstResponderCardId(),
       ),
     },
+    // The project a card with no session of its own resolves against, which
+    // a body's one-card deck cannot find.
+    frontmostProject: { binding: frontmostProjectBinding() },
   };
 }
 
@@ -254,6 +265,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   };
   /** The member each card's sheet reservation was claimed under. */
   const reservedUnder = new Map<string, string>();
+  /** The latest intent decided for each body card its body has not yet spoken to take. */
+  const pendingIntents = new Map<string, BodyIntent>();
+  /** The Jots body cards owed a jot capture their body has not yet spoken to take. */
+  const pendingJotCaptures = new Set<string>();
   /** Each body card's deck-scope surface, drawn over the deck. */
   const surfaces = new ShellSurfaceDrawer({
     onActivate: (cardId, path) => {
@@ -297,6 +312,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     hadMasthead.delete(cardId);
     reservedUnder.delete(cardId);
     paintHeard.delete(cardId);
+    pendingIntents.delete(cardId);
+    pendingJotCaptures.delete(cardId);
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
@@ -417,9 +434,18 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   };
 
   /** What a body card's context carries beyond its own card: the arrangement, the followed card, the app identity. */
-  const contextExtras = (cardId: string): Pick<CardContext, "arrangement" | "followed" | "appInfo"> => {
+  const contextExtras = (cardId: string): Pick<CardContext, "arrangement" | "followed" | "appInfo" | "crossing"> => {
     const registration = registrationOf(cardId);
-    const extras: Pick<CardContext, "arrangement" | "followed" | "appInfo"> = {};
+    const extras: Pick<CardContext, "arrangement" | "followed" | "appInfo" | "crossing"> = {};
+    // The crossing the card's pane stands under, which the body holds its
+    // card root through: read off the pane and the placeholder the hold
+    // writes its sizes on.
+    const placeholder = document.querySelector<HTMLElement>(
+      `[data-body-placeholder][data-card-id="${CSS.escape(cardId)}"]`,
+    );
+    const frame = placeholder?.closest<HTMLElement>(".tug-pane") ?? null;
+    const crossing = placeholder != null && frame !== null ? crossingMirrorOf(frame, placeholder) : null;
+    if (crossing !== null) extras.crossing = crossing;
     if (registration?.bodyDeck === "arrangement") {
       const arrangement = projectArrangement(
         deck,
@@ -468,6 +494,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         forget(cardId);
         bodyCardsStore.drop(cardId);
         bodyFactsStore.drop(cardId);
+        bodyChordCaptureStore.clear(cardId);
       }),
     ];
     perCard.set(cardId, () => {
@@ -493,6 +520,22 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // the deck holds the card — at install for the restored deck, and on every
   // commit for a card added since. `CardHostSwitch` already stands its
   // placeholder for such a card, so it never mounts in this document first.
+  //
+  // A Session card is handed off by its spawn funnel when the shell has a
+  // session to start for it, and here, with a `restore`, once the shell has
+  // none: it holds no binding, the startup restore pass has settled, no pass
+  // is still asking the ledger about it, and it has no restore in flight. In
+  // its body the restore finds no binding and the card shows its picker
+  // there. That scan runs a microtask after whatever called it, so a
+  // workspace switch's restore (`restoreSpaceSessions`, called right after
+  // its commit) has registered what it decided first.
+  const unboundSessionCard = (cardId: string, componentId: string): boolean =>
+    isBodyKind(componentId) &&
+    !isHandOffSuppressed(cardId) &&
+    cardSessionBindingStore.getBinding(cardId) === undefined &&
+    restorePassGate.getSnapshot() &&
+    !restorePassCards.has(cardId) &&
+    !sessionRestoreRegistry.has(cardId);
   const handOffMountKinds = (): void => {
     for (const card of deck.getSnapshot().cards) {
       if (bodyCardsStore.has(card.id) || !isMountBodyKind(card.componentId)) continue;
@@ -504,8 +547,55 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       });
     }
   };
-  releases.push(deck.subscribe(handOffMountKinds));
+  const handOffUnboundSessions = (): void => {
+    for (const card of deck.getSnapshot().cards) {
+      if (bodyCardsStore.has(card.id) || !unboundSessionCard(card.id, card.componentId)) continue;
+      handOffToBody(card.id, () => ({ kind: "restore" }));
+    }
+  };
+  let scanQueued = false;
+  let installed = true;
+  const queueSessionScan = (): void => {
+    if (scanQueued) return;
+    scanQueued = true;
+    queueMicrotask(() => {
+      scanQueued = false;
+      if (installed) handOffUnboundSessions();
+    });
+  };
+  releases.push(
+    deck.subscribe(() => {
+      handOffMountKinds();
+      queueSessionScan();
+    }),
+    restorePassGate.subscribe(queueSessionScan),
+    restorePassCards.subscribe(queueSessionScan),
+    sessionRestoreRegistry.subscribe(queueSessionScan),
+    cardSessionBindingStore.subscribe(queueSessionScan),
+    () => {
+      installed = false;
+    },
+  );
   handOffMountKinds();
+  queueSessionScan();
+
+  // ---- Intents decided for a card already in its body ----
+
+  // A session the shell decides for a body card — a harness spawn, a resume
+  // asked for from another card — is sent to its body, which replays it. A
+  // body not yet heard from has no page bound to take it, so the latest one
+  // waits and goes out behind the body's first `card-facts`.
+  const sendIntent = (cardId: string, intent: BodyIntent): void => {
+    sendBus(connection, { card: cardId }, {
+      kind: "card-command",
+      payload: { command: "intent", payload: intent as unknown as Record<string, unknown> },
+    });
+  };
+  setBodyIntentForwarder((cardId, intent) => {
+    if (heard.has(cardId)) sendIntent(cardId, intent);
+    else pendingIntents.set(cardId, intent);
+  });
+  releases.push(() => setBodyIntentForwarder(null));
 
   // ---- What the shell tells its bodies ----
 
@@ -611,6 +701,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     keyboardAccessStore.subscribe(publishDeckFacts),
     focusRingModalityStore.subscribe(publishDeckFacts),
     subscribeModifierLatch(publishDeckFacts),
+    cardSessionBindingStore.subscribe(publishDeckFacts),
   );
   // An arrangement card lists every card's binding and title, and a
   // following card names its followed card's binding: a change to either
@@ -637,6 +728,21 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     // session spawned into it, or the card re-adopted.
     bodyCardsStore.subscribe(syncInspection),
   );
+  // A crossing's marks are attributes it writes on the pane frame, after the
+  // held sizes, so each one re-sends the context of the bodies standing in
+  // that frame — in the microtask after the write, ahead of the next frame.
+  const crossingWatch = new MutationObserver((records) => {
+    const frames = new Set<HTMLElement>();
+    for (const record of records) if (record.target instanceof HTMLElement) frames.add(record.target);
+    for (const frame of frames) {
+      for (const el of frame.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
+        const cardId = el.dataset.cardId;
+        if (cardId !== undefined && heard.has(cardId)) sendContext(cardId, false);
+      }
+    }
+  });
+  crossingWatch.observe(document.body, { subtree: true, attributes: true, attributeFilter: [...CROSSING_FRAME_ATTRS] });
+  releases.push(() => crossingWatch.disconnect());
   // An arrangement card hears a commit in the commit's own task, not a
   // painted frame later: the deferral keeps this page's React commit off a
   // motion's first frame, and a body renders in its own page. A row press in
@@ -676,6 +782,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         }
         sendBus(connection, { card: cardId }, { kind: "deck-facts", payload: readDeckFacts(deck) });
         sendContext(cardId, true);
+        const pending = pendingIntents.get(cardId);
+        if (pending !== undefined) {
+          pendingIntents.delete(cardId);
+          sendIntent(cardId, pending);
+        }
+        if (pendingJotCaptures.delete(cardId)) {
+          sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "new-jot" } });
+        }
         relaySpaceVerb();
         const kind = kindOf(cardId);
         if (kind === DEVTOOLS_KIND) relayDevLog(cardId);
@@ -768,6 +882,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return;
       case "logout":
         requestLogout();
+        return;
+      case "capture-armed":
+        bodyChordCaptureStore.set(cardId, advice.armed);
         return;
       case "deck-call": {
         // Only the calls an arrangement card is allowed; anything else — a
@@ -879,6 +996,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         hadMasthead.delete(cardId);
         paintHeard.delete(cardId);
         surfaces.remove(cardId);
+        // The page whose capture was armed is gone, and so is its disarm.
+        bodyChordCaptureStore.clear(cardId);
         // The page that would have answered a close decision is gone.
         pendingDecisions.get(cardId)?.("cancel");
         return;
@@ -993,6 +1112,19 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     setCardContentForwarder((cardId, action) => {
       if (!bodyCardsStore.has(cardId)) return false;
       sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "content-action", id: action } });
+      return true;
+    }),
+    // ⌘J's capture opens the editor in the Jots card's own page, whose store
+    // holds the open row. A card that is about to be a body, or whose body
+    // has not yet spoken, takes it once its body does.
+    setJotCaptureForwarder((cardId) => {
+      const kind = kindOf(cardId);
+      if (kind === undefined || !isBodyKind(kind) || isHandOffSuppressed(cardId)) return false;
+      if (heard.has(cardId)) {
+        sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "new-jot" } });
+      } else {
+        pendingJotCaptures.add(cardId);
+      }
       return true;
     }),
     // An open of a file a body Text card already holds reveals the asked-for

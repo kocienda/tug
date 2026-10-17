@@ -69,6 +69,14 @@ describe("run-units", () => {
     expect(errored?.history).toBe("last green 6ad15611d (2026-10-16, 1 recorded run ago)");
   });
 
+  test("a file green past the budget is a red row that says so", () => {
+    writeFileSync(`${outBase(dir, "at0001-a.test.ts")}.row`, "OVERTIME:at0001-a.test.ts:2:2:27\n");
+    const [row] = unitRows(dir, CAPS, ["at0001-a.test.ts"]);
+    expect(row?.status).toBe("fail");
+    expect(row?.secs).toBe(27);
+    expect(row?.message).toBe("green, but 27s is over the per-file budget: split it or make it faster");
+  });
+
   test("a skipped file is a row with no time", () => {
     writeFileSync(`${outBase(dir, "at0004-d.test.ts")}.row`, "SKIP:at0004-d.test.ts:0:0:0\n");
     expect(unitRows(dir, CAPS, ["at0004-d.test.ts"])).toEqual([

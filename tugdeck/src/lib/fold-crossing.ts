@@ -303,10 +303,15 @@ export function heldHeightOnMark(
  * inherited by every element in the card, and taking it off restyled all of
  * them — 8–15 ms on a real transcript, paid at the land, for a value only the
  * root reads.
+ *
+ * A body card's placeholder takes them too. No rule reads them there, so its
+ * box goes on following the content box, which is the clip the host places
+ * the body in; the shell relays them to the body, whose own root holds
+ * ({@link crossingMirrorOf}).
  */
 function heldTargetsOf(content: HTMLElement): HTMLElement[] {
   return Array.from(
-    content.querySelectorAll<HTMLElement>(":scope [data-card-host] > *"),
+    content.querySelectorAll<HTMLElement>(":scope [data-card-host] > *, :scope [data-body-placeholder]"),
   );
 }
 
@@ -714,6 +719,101 @@ function releaseKind(kind: CrossingKind, frame: HTMLElement): void {
     for (const root of heldTargetsOf(content)) {
       root.style.removeProperty(kind.prop);
     }
+  }
+}
+
+/**
+ * A frame's crossing as another page mirrors it: the marks on the frame and
+ * the held sizes on one of its hold's targets. A body card's interior is in
+ * its own page, so the shell relays this for the card's placeholder and the
+ * body writes it on its own frame ({@link applyCrossingMirror}): the same
+ * rules then hold the body's card root, and the same doors in it hear the end.
+ */
+export interface CrossingMirror {
+  /** The still mark's stamp, or null when only a fold stands. */
+  readonly still: number | null;
+  readonly settled: boolean;
+  readonly width: boolean;
+  readonly heightFree: boolean;
+  /** The fold mark's stamp, or null. */
+  readonly fold: number | null;
+  /** The held sizes, by property, as written on the target. */
+  readonly held: Readonly<Record<string, string>>;
+}
+
+const MIRRORED_PROPS = [STILL_HELD_HEIGHT_PROP, STILL_HELD_WIDTH_PROP, FOLD_HELD_HEIGHT_PROP] as const;
+
+/** The attributes a crossing writes on its frame: what a mirror must watch. */
+export const CROSSING_FRAME_ATTRS = [
+  STILL_CROSSING_ATTR,
+  STILL_SETTLED_ATTR,
+  STILL_WIDTH_ATTR,
+  STILL_HEIGHT_FREE_ATTR,
+  FOLD_CROSSING_ATTR,
+] as const;
+
+/** `frame`'s crossing as it stands, read off the frame and `target`, one of its hold's targets; null when none stands. */
+export function crossingMirrorOf(frame: HTMLElement, target: HTMLElement): CrossingMirror | null {
+  const still = frame.getAttribute(STILL_CROSSING_ATTR);
+  const fold = frame.getAttribute(FOLD_CROSSING_ATTR);
+  if (still === null && fold === null) return null;
+  const held: Record<string, string> = {};
+  for (const prop of MIRRORED_PROPS) {
+    const value = target.style.getPropertyValue(prop);
+    if (value !== "") held[prop] = value;
+  }
+  return {
+    still: still === null ? null : Number(still),
+    settled: frame.hasAttribute(STILL_SETTLED_ATTR),
+    width: frame.hasAttribute(STILL_WIDTH_ATTR),
+    heightFree: frame.hasAttribute(STILL_HEIGHT_FREE_ATTR),
+    fold: fold === null ? null : Number(fold),
+    held,
+  };
+}
+
+/**
+ * Write `mirror` on `frame`, a page's own frame for a card whose crossing
+ * stands in another page, replacing whatever it mirrored before; null takes
+ * every mark off. A mark that comes off is announced as its own door
+ * announces it, after the bottom is kept across the release, so the
+ * interior's owed pin and restore run here as they would in the shell.
+ */
+export function applyCrossingMirror(frame: HTMLElement, mirror: CrossingMirror | null): void {
+  const hadStill = openStamp(STILL_KIND, frame);
+  const hadFold = openStamp(FOLD_KIND, frame);
+  const write = (): void => {
+    const set = (attr: string, value: string | null): void => {
+      if (value === null) frame.removeAttribute(attr);
+      else frame.setAttribute(attr, value);
+    };
+    set(STILL_CROSSING_ATTR, mirror?.still == null ? null : String(mirror.still));
+    set(STILL_SETTLED_ATTR, mirror?.settled === true ? "" : null);
+    set(STILL_WIDTH_ATTR, mirror?.width === true ? "" : null);
+    set(STILL_HEIGHT_FREE_ATTR, mirror?.heightFree === true ? "" : null);
+    set(FOLD_CROSSING_ATTR, mirror?.fold == null ? null : String(mirror.fold));
+    const content = contentBoxOf(frame);
+    if (content === null) return;
+    for (const root of heldTargetsOf(content)) {
+      for (const prop of MIRRORED_PROPS) {
+        const value = mirror?.held[prop];
+        if (value === undefined) root.style.removeProperty(prop);
+        else root.style.setProperty(prop, value);
+      }
+    }
+  };
+  const releasing = hadStill !== null && mirror?.still == null;
+  if (releasing) preserveBottomAcross(frame, write);
+  else write();
+  if (releasing) announceStillCrossingEnd(frame, hadStill);
+  if (hadFold !== null && mirror?.fold == null) {
+    frame.dispatchEvent(
+      new CustomEvent<FoldCrossingEventDetail>(FOLD_CROSSING_END, {
+        detail: { crossingId: hadFold },
+        cancelable: false,
+        bubbles: false,
+      }),
+    );
   }
 }
 

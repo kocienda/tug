@@ -71,7 +71,7 @@ function deckShape() {
 }
 
 function docText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `Array.from(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT_SELECTOR} .cm-line`)}))
       .map(function(l){ return l.textContent || ""; })
       .join("\\n")`,
@@ -80,7 +80,7 @@ function docText(app: App): Promise<string> {
 
 /** Press the ✕ on the tile at `index`. */
 async function pressDelete(app: App, index: number): Promise<void> {
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     `(function(){
       var buttons = document.querySelectorAll(${JSON.stringify(DELETE_SELECTOR)});
       var button = buttons[${index}];
@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ testName: "at0414-asset-trash-undo" });
+          const app = await launchTugApp({ bodies: true, testName: "at0414-asset-trash-undo" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -142,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(TILE_SELECTOR)}).length === 1`,
               { timeoutMs: 20_000 },
             );
@@ -154,20 +154,20 @@ describe.skipIf(!SHOULD_RUN)(
             await waitForFile(asset, false);
             // And the link went with it, so the document does not name a file
             // that is no longer there.
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(TILE_SELECTOR)}).length === 0`,
               { timeoutMs: 20_000 },
             );
             expect(await docText(app)).not.toContain("assets/photo.png");
 
             // ── ⌘Z ─────────────────────────────────────────────────────────
-            await app.click(EDITOR_CONTENT_SELECTOR);
+            await app.body("A").click(EDITOR_CONTENT_SELECTOR);
             await app.nativeKey("z", ["cmd"]);
 
             // Both halves return, and the bytes are the ones that left.
             await waitForFile(asset, true);
             expect(fs.readFileSync(asset).equals(original)).toBe(true);
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(TILE_SELECTOR)}).length === 1`,
               { timeoutMs: 20_000 },
             );
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ testName: "at0414-two-removals" });
+          const app = await launchTugApp({ bodies: true, testName: "at0414-two-removals" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -217,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(TILE_SELECTOR)}).length === 2`,
               { timeoutMs: 20_000 },
             );
@@ -227,20 +227,20 @@ describe.skipIf(!SHOULD_RUN)(
             await waitForFile(second, false);
             await pressDelete(app, 0);
             await waitForFile(first, false);
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(TILE_SELECTOR)}).length === 0`,
               { timeoutMs: 20_000 },
             );
 
             // Undo twice — each ✕ was its own history entry, so each undo
             // brings back exactly the file it took.
-            await app.click(EDITOR_CONTENT_SELECTOR);
+            await app.body("A").click(EDITOR_CONTENT_SELECTOR);
             await app.nativeKey("z", ["cmd"]);
             await waitForFile(first, true);
             await app.nativeKey("z", ["cmd"]);
             await waitForFile(second, true);
 
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(TILE_SELECTOR)}).length === 2`,
               { timeoutMs: 20_000 },
             );

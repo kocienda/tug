@@ -186,6 +186,7 @@ async function launchOnFixture(
   // deck never finishes mounting and `window.__tug` is never installed.
   seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
   const app = await launchTugApp({
+    bodies: true,
     testName,
     env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: fixture.dataRoot },
   });
@@ -232,7 +233,7 @@ async function warmUpWatcher(
   writeFileSync(file, WARMUP_BODY);
   await waitForEditorShowing(app, "WARMUP marker", 60000);
   writeFileSync(file, body);
-  await app.waitForCondition<boolean>(
+  await app.body("B").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR}');
       if (el === null) return false;
@@ -249,7 +250,7 @@ async function waitForEditorShowing(
   sentinel: string,
   timeoutMs = 15000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("B").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR}');
       return el !== null && el.innerText.indexOf(${JSON.stringify(sentinel)}) !== -1;
@@ -260,13 +261,13 @@ async function waitForEditorShowing(
 
 /** Every save sheet's title text, or "" when no sheet is up. */
 async function sheetTitle(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("B").evalJS<string>(
     `(document.querySelector('${SAVE_SHEET} .tug-alert-title')?.textContent || "")`,
   );
 }
 
 async function anyVerdictShowing(app: App): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("B").evalJS<boolean>(
     `(document.querySelector('${SAVE_SHEET}') !== null
       || document.querySelector('${CONFLICT_BANNER}') !== null
       || document.querySelector('${MISSING_BANNER}') !== null)`,
@@ -274,7 +275,7 @@ async function anyVerdictShowing(app: App): Promise<boolean> {
 }
 
 async function typeIntoEditor(app: App, text: string): Promise<void> {
-  const ok = await app.evalJS<boolean>(
+  const ok = await app.body("B").evalJS<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR}');
       if (!el) return false;
@@ -346,7 +347,7 @@ describe.skipIf(!SHOULD_RUN)("AT0460: a join replaces a card's file in place", (
       openTugbank = tugbankPath;
       try {
         await typeIntoEditor(app, "UNSAVED-EDIT ");
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${EDITOR}');
             return el !== null && el.innerText.indexOf("UNSAVED-EDIT") !== -1;
@@ -356,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("AT0460: a join replaces a card's file in place", (
 
         squashMerge(fixture.repo);
 
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelector('${SAVE_SHEET}') !== null`,
           { timeoutMs: 15000 },
         );
@@ -434,20 +435,20 @@ describe.skipIf(!SHOULD_RUN)("AT0460: a join replaces a card's file in place", (
         // A genuine delete still verdicts — the settle window defers it, it
         // never swallows it.
         rmSync(fixture.file);
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelector('${MISSING_BANNER}') !== null`,
           { timeoutMs: 20000 },
         );
         // Nothing was at risk, so it is the banner and not the modal sheet.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("B").evalJS<boolean>(
             `document.querySelector('${SAVE_SHEET}') !== null`,
           ),
         ).toBe(false);
 
         // Someone puts the file back. No gesture from the user.
         writeFileSync(fixture.file, "RESTORED line one\nRESTORED line two\n");
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `document.querySelector('${MISSING_BANNER}') === null`,
           { timeoutMs: 20000 },
         );

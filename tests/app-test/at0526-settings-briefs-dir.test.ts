@@ -33,6 +33,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -52,20 +53,21 @@ describe.skipIf(!SHOULD_RUN)(
     test("typing a template and leaving the field stores it verbatim", async () => {
       const app = await launchTugApp({
         ...NO_AX,
+        bodies: true,
         testName: "at0526-settings-briefs-dir",
       });
       try {
         await app.evalJS(
           `window.__tug.dispatchControlAction("show-card", { component: "settings" })`,
         );
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "settings").waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-general"]') !== null`,
         );
 
-        await app.focusElement(FIELD_INPUT);
-        await app.type(FIELD_INPUT, TEMPLATE);
-        expect(await app.getElementValue(FIELD_INPUT)).toBe(TEMPLATE);
-        await app.focusElement(BLUR_TARGET);
+        await kindBody(app, "settings").focusElement(FIELD_INPUT);
+        await kindBody(app, "settings").type(FIELD_INPUT, TEMPLATE);
+        expect(await kindBody(app, "settings").getElementValue(FIELD_INPUT)).toBe(TEMPLATE);
+        await kindBody(app, "settings").focusElement(BLUR_TARGET);
 
         // The write is a fire-and-forget PUT, so a single GET can beat it to
         // the server and latch a 404 — poll until the key is there.
@@ -92,7 +94,7 @@ describe.skipIf(!SHOULD_RUN)(
         expect(stored.value).toBe(TEMPLATE);
 
         // The field settles on what tugbank holds, which here is what was typed.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "settings").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIELD_INPUT)}).value ===
              ${JSON.stringify(TEMPLATE)}`,
           { timeoutMs: 8000 },

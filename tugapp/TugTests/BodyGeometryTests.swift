@@ -24,6 +24,20 @@ final class BodyGeometryTests: XCTestCase {
         check("no frame index under a claim", region.frameIndex(at: CGPoint(x: 300, y: 200)) == nil)
     }
 
+    func testAGripOverABodyKeepsThePointInTheShell() {
+        // The pane's bottom handle: 8 points tall, half inside the frame.
+        let grip = CGRect(x: 208, y: 396, width: 384, height: 8)
+        let region = BodyHitRegion(visibleFrames: [body], visibleGrips: [[grip]], claim: .none)
+        check("on the grip's inner half", !region.passesThrough(CGPoint(x: 300, y: 398)))
+        check("in the body above the grip", region.passesThrough(CGPoint(x: 300, y: 390)))
+        // A front pane's handle hanging over the body behind it is the front
+        // pane's, as it is in a document where the handle is above that body.
+        let back = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let stacked = BodyHitRegion(visibleFrames: [body, back], visibleGrips: [[grip], []], claim: .none)
+        check("the grip's outer half over the back body", !stacked.passesThrough(CGPoint(x: 300, y: 402)))
+        check("the back body beside it", stacked.frameIndex(at: CGPoint(x: 50, y: 50)) == 1)
+    }
+
     func testClaimingAllKeepsEveryPoint() {
         let region = BodyHitRegion(visibleFrames: [body], claim: .all)
         check("nothing passes through", !region.passesThrough(CGPoint(x: 300, y: 200)))

@@ -70,7 +70,7 @@ describe.skipIf(!SHOULD_RUN)("at0672: a pane press raises in its own task", () =
   test(
     "the pressed pane is in front and focused before the press's task ends",
     async () => {
-      const app = await launchTugApp({ testName: "at0672-pane-press-raises-in-its-task" });
+      const app = await launchTugApp({ testName: "at0672-pane-press-raises-in-its-task", bodies: true });
       try {
         // p2 overlaps p1's lower right and stands above it (later in the
         // array). p1's title bar is clear of p2, so it can be pressed.

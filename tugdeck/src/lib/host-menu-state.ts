@@ -56,6 +56,7 @@ import type { SidebarMenuFact } from "../components/tugways/command-registry";
 import { keymapRegistry } from "../components/tugways/keymap-registry";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { chordCaptureState } from "./chord-capture-state";
+import { bodyChordCaptureStore } from "./body-chord-capture-store";
 import { appModalStore } from "./app-modal-store";
 import { dictationStore } from "./dictation-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
@@ -1407,8 +1408,14 @@ export function initHostMenuState(deck: IDeckManagerStore): void {
   // equivalent while the pane records, so a bound chord falls through to be
   // captured instead of firing ([P15] — AppKit resolves ahead of the web
   // view, and detaching is the only way through its scan).
+  // A capture armed in a body parks the same bar: the body says so over the
+  // bus and the shell keeps the answer in `bodyChordCaptureStore`.
+  const captureArmed = (): boolean => chordCaptureState.isArmed() || bodyChordCaptureStore.isArmed();
   chordCaptureState.subscribe(() => {
-    publisher.setCaptureArmed(chordCaptureState.isArmed());
+    publisher.setCaptureArmed(captureArmed());
+  });
+  bodyChordCaptureStore.subscribe(() => {
+    publisher.setCaptureArmed(captureArmed());
   });
   // The two dictation items are gated on which composer registered which
   // handler, and a claim moving re-registers handlers without bumping the
@@ -1471,11 +1478,25 @@ const CARD_SCOPED_MENU_ITEMS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * The ids whose gate folds in the deck's app-modal flag. A body never sees
+ * the modal — it is the shell's — so a body's gate for one of these, mirrored
+ * from its own chain, would light an item the shell had just darkened: Open
+ * Quickly… stayed enabled under UpdateTug while a body was the key card.
+ * The shell's gate is the deck's answer, and a body posts none.
+ */
+const DECK_COUNT_MENU_ITEMS: ReadonlySet<string> = new Set(
+  COMMANDS.flatMap((entry) =>
+    entry.changesCardCount === true && entry.menuItemId !== undefined ? [entry.menuItemId] : [],
+  ),
+);
+
+/**
  * What a body posts of a payload: the card-scoped blocks and the gates of the
  * key card's own menu items. The host merges these over the shell's payload
  * while the body's card is the key card; the deck's own facts —
  * panes, workspaces, recents, theme, the capture and modal flags — and the
- * gates of the deck's own commands stay the shell's.
+ * gates of the deck's own commands, every `changesCardCount` entry among
+ * them, stay the shell's.
  */
 export function bodyMenuPayload(payload: MenuStatePayload): Pick<
   MenuStatePayload,
@@ -1483,7 +1504,7 @@ export function bodyMenuPayload(payload: MenuStatePayload): Pick<
 > {
   const commands: Record<string, MenuCommandGate> = {};
   for (const [id, gate] of Object.entries(payload.commands)) {
-    if (CARD_SCOPED_MENU_ITEMS.has(id)) commands[id] = gate;
+    if (CARD_SCOPED_MENU_ITEMS.has(id) && !DECK_COUNT_MENU_ITEMS.has(id)) commands[id] = gate;
   }
   return {
     session: payload.session,

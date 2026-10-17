@@ -458,7 +458,7 @@ function insideHeldInterior(entries: unknown[]): boolean {
       const target = (entry as { target?: unknown }).target;
       return (
         target instanceof Element &&
-        target.closest(".tug-pane[data-still-crossing] .tug-pane-content") !== null
+        target.closest(":is(.tug-pane, .body-pane-frame)[data-still-crossing] .tug-pane-content") !== null
       );
     })
   );

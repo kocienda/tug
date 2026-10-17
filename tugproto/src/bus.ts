@@ -88,7 +88,11 @@ export type CardCommandKind =
   /** Show a section of the Settings card; `payload` carries `section`. */
   | "reveal-settings"
   /** The shell's dev log, for the devtools card: `payload` carries `entries`, opaque to the bus. */
-  | "dev-log";
+  | "dev-log"
+  /** A session the shell decided for a card already in its body: `payload` is the intent, opaque to the bus. */
+  | "intent"
+  /** Capture a jot in the Jots card: create an empty one and open its editor, the shell's ⌘J. */
+  | "new-jot";
 
 /** `card-command`: the chrome asking a card to act. */
 export interface CardCommand {
@@ -179,6 +183,12 @@ export type CardAdvice =
   | { advice: "close-guard"; asks: boolean }
   /** The card's close guard decided, in answer to a `close-decision` command. */
   | { advice: "close-decision"; answer: "close" | "cancel" }
+  /**
+   * The card's chord capture armed (`true`) or disarmed. The host parks every
+   * menu key equivalent while a capture records, and the menu state is the
+   * shell's to push, so a body says when its capture arms.
+   */
+  | { advice: "capture-armed"; armed: boolean }
   /** The card's session inspection, for the devtools card that follows it. Opaque to the bus. */
   | { advice: "inspection"; inspection: unknown };
 
@@ -203,6 +213,14 @@ export interface DeckFacts {
    * instead. Absent on a shell that has not projected yet.
    */
   menu?: DeckMenuFacts;
+  /**
+   * The deck's frontmost bound card's session binding, under `binding`
+   * (null when no card is bound): the project a card with no session of its
+   * own, the Jots card, resolves a relative path against. A body's one-card
+   * deck cannot say which card stands in front. The binding is opaque to the
+   * bus: `lib/frontmost-project.ts` writes and reads it.
+   */
+  frontmostProject?: { binding: unknown };
 }
 
 /** The shell's menu projection, opaque to the bus: `host-menu-state.ts` writes and reads it. */
@@ -238,6 +256,13 @@ export interface CardContext {
    * the content surface; a pinned rail paints the rail's own.
    */
   railSide?: "left" | "right";
+  /**
+   * The crossing the card's pane stands under — a fold, a settle's height
+   * tween, a sash drag — for the body to hold its card root through, as the
+   * shell holds an in-document card's. Absent when none stands. Opaque to the
+   * bus: `lib/fold-crossing.ts` reads and writes it.
+   */
+  crossing?: unknown;
 }
 
 /** One bus message: a `kind` and its `payload`. */

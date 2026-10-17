@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -42,6 +43,9 @@ const TEST_TIMEOUT_MS = 60_000;
 
 const CARD = ".jots-card";
 const EDITOR = ".jots-list .jot-editor";
+
+/** The Jots card's own page, where its rows and editor stand. */
+const jots = (app: App) => kindBody(app, "jots");
 /** Enough rows that the card overflows in the harness window. Forty did not. */
 const JOT_COUNT = 200;
 
@@ -55,18 +59,20 @@ function seedJots(path: string): void {
 }
 
 /**
- * Wait until the Jots sidebar has finished sliding in: its left edge has
- * stopped moving between polls and the whole card stands inside the viewport.
+ * Wait until the Jots sidebar has finished sliding in: its rail pane's left
+ * edge has stopped moving between polls and the whole pane stands inside the
+ * window. The card is a body the host places over that pane.
  */
 async function settleSidebar(app: App): Promise<void> {
+  // card-dom: shell — the rail pane the host places the card's body over.
   await app.waitForCondition<boolean>(
     `(() => {
-       const c = document.querySelector('${CARD}');
-       if (c === null) return false;
-       const box = c.getBoundingClientRect();
+       const pane = document.querySelector('.tug-pane[data-rail-side="right"]');
+       if (pane === null) return false;
+       const box = pane.getBoundingClientRect();
        const x = Math.round(box.left);
-       const settled = window.__jotsCardX === x && box.right <= window.innerWidth;
-       window.__jotsCardX = x;
+       const settled = window.__jotsPaneX === x && box.right <= window.innerWidth;
+       window.__jotsPaneX = x;
        return settled;
      })()`,
     { timeoutMs: 5_000 },
@@ -82,22 +88,22 @@ async function openCardAtBottom(app: App): Promise<void> {
     { timeoutMs: 5_000 },
   );
   await app.dispatchControlAction("toggle-jots");
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector('[data-jot-id="s1"]') !== null`,
     { timeoutMs: 5_000 },
   );
   // The sidebar SLIDES in, and the rows exist from the first frame of that
   // slide — the card stands a full card-width off the right edge until it
-  // lands. A native click posted before it lands is aimed at a viewport
-  // coordinate outside the web view, which the harness refuses outright.
+  // lands. A native click posted before it lands is aimed at a point the
+  // card has not reached.
   await settleSidebar(app);
-  await app.evalJS(
+  await jots(app).evalJS(
     `(() => { const c = document.querySelector('${CARD}');
               c.scrollTop = c.scrollHeight; return 1; })()`,
   );
   // The card must actually have somewhere to scroll, or the whole gesture is
   // unobservable and a green run would mean nothing.
-  const scrollTop = await app.waitForCondition<number>(
+  const scrollTop = await jots(app).waitForCondition<number>(
     `(() => { const c = document.querySelector('${CARD}');
               return c.scrollTop > 100 ? c.scrollTop : false; })()`,
     { timeoutMs: 3_000 },
@@ -111,7 +117,7 @@ async function openCardAtBottom(app: App): Promise<void> {
  * one near the end of the list.
  */
 async function visibleTargetId(app: App): Promise<string> {
-  return app.waitForCondition<string>(
+  return jots(app).waitForCondition<string>(
     `(() => {
        const card = document.querySelector('${CARD}');
        if (card === null) return false;
@@ -140,6 +146,7 @@ describe.skipIf(!SHOULD_RUN)("at0632 — a jot click holds the card's scroll", (
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0632-jot-click-holds-the-scroll",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
@@ -150,19 +157,19 @@ describe.skipIf(!SHOULD_RUN)("at0632 — a jot click holds the card's scroll", (
           const row = `.jot-row-content[data-jot-id="${target}"]`;
           note(`at0632: pressing ${target}`);
 
-          const before = await app.evalJS<number>(
+          const before = await jots(app).evalJS<number>(
             `document.querySelector('${CARD}').scrollTop`,
           );
 
           // The press. It selects the row and re-places the list as the
           // keyboard key view — and that is all it may do.
-          await app.nativeClickAtElement(`${row} .jot-row-label`);
-          await app.waitForCondition<boolean>(
+          await jots(app).nativeClickAtElement(`${row} .jot-row-label`);
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector('${CARD} .jots-list[data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
           expect(
-            await app.evalJS<number>(
+            await jots(app).evalJS<number>(
               `document.querySelector('${CARD}').scrollTop`,
             ),
           ).toBe(before);
@@ -170,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("at0632 — a jot click holds the card's scroll", (
           // once the press has had time to settle.
           await new Promise((r) => setTimeout(r, 400));
           expect(
-            await app.evalJS<number>(
+            await jots(app).evalJS<number>(
               `document.querySelector('${CARD}').scrollTop`,
             ),
           ).toBe(before);
@@ -178,13 +185,13 @@ describe.skipIf(!SHOULD_RUN)("at0632 — a jot click holds the card's scroll", (
           // The double-click. Its second press lands wherever the first press
           // left the list, so the jot that opens is the assertion that the
           // scroll held through the whole gesture.
-          await app.nativeDoubleClickAtElement(`${row} .jot-row-label`);
-          await app.waitForCondition<boolean>(
+          await jots(app).nativeDoubleClickAtElement(`${row} .jot-row-label`);
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector('${EDITOR}') !== null`,
             { timeoutMs: 3_000 },
           );
           expect(
-            await app.evalJS<string | null>(
+            await jots(app).evalJS<string | null>(
               `(() => {
                  const header = document.querySelector('${EDITOR} [data-jot-id]');
                  return header === null ? null : header.getAttribute('data-jot-id');

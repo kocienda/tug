@@ -46,6 +46,18 @@ describe("the codemod", () => {
 
   test("reports a call naming two cards, or a card it cannot resolve, manual", () => {
     expect(codemod(`await app.evalJS(cardHost("a") + cardHost("b"));\n`).manual[0].reason).toBe("no single card");
-    expect(codemod(`await app.evalJS(cardHost(someId));\n`).manual[0].reason).toBe("card id not a literal");
+    expect(codemod(`await app.evalJS(cardHost(some.id));\n`).manual[0].reason).toBe("card id not a literal");
+  });
+
+  test("a card named through one plain variable in scope takes that variable as its body handle", () => {
+    expect(codemod(`await app.evalJS(cardHost(someId));\n`).source).toBe(`await app.body(someId).evalJS(cardHost(someId));\n`);
+  });
+
+  test("a reach naming no card, in a file seeding one card of its kind, lands on that card", () => {
+    const vocab: CensusVocabulary = { kindRoots: [{ componentId: "jots", root: ".jots-list" }], extraSelectors: [], coversKinds: [] };
+    const src = `const J = "j1";\nawait app.seedDeckState({ state: { cards: [{ id: J, componentId: "jots" }] } });\nawait app.evalJS(\`document.querySelector(".jots-list")\`);\n`;
+    const result = rewriteSource(src, censusOfSource("at9999.test.ts", src, vocab));
+    expect(result.manual).toEqual([]);
+    expect(result.source).toContain(`await app.body(J).evalJS(`);
   });
 });

@@ -28,6 +28,11 @@ export interface TestSeedDeps {
   /** Seed a bag into the card-state cache without marking it dirty. */
   seedCardState(cardId: string, bag: CardStateBag): void;
   notifyCardDidFinishConstruction(cardId: string): void;
+  /**
+   * The notice a real removal sends before the store drops a card: what
+   * closes its services and, under bodies, destroys its body page.
+   */
+  notifyCardWillBeginDestruction(cardId: string): void;
   discardComponentStateRegistry(cardId: string): void;
   notify(caller: string): void;
   activateCard(cardId: string): void;
@@ -76,6 +81,15 @@ export function seedDeckState(deps: TestSeedDeps, args: SeedDeckStateArgs): void
   // below picks up the id set that resulted from the replace.
   const previousCardIds = new Set(deps.deck().cards.map((c) => c.id));
   const nextCardIds = new Set(args.state.cards.map((c) => c.id));
+
+  // A card the seed drops is removed, as `_removeCard` / `_closePane` remove
+  // one, and the notice goes out before the store loses the card, as the
+  // lifecycle contract says. In this document the replace unmounted the
+  // card's DOM on its own; a body page is destroyed by nothing but this
+  // notice, and a seed that re-introduces the id later gets a fresh one.
+  for (const prevId of previousCardIds) {
+    if (!nextCardIds.has(prevId)) deps.notifyCardWillBeginDestruction(prevId);
+  }
 
   // Atomic state replace: one assignment, one notify, one snapshot
   // transition for useSyncExternalStore consumers. hasFocus is

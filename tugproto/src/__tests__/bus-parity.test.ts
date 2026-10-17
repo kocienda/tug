@@ -90,6 +90,13 @@ const DELIVERED: BusDelivered[] = [
     kind: "card-command",
     payload: { command: "dev-log", payload: { entries: [{ level: "info", source: "body", message: "ready", timestamp: 1700000000000 }] } },
   },
+  {
+    from: SHELL,
+    to: { card: "c2" },
+    kind: "card-command",
+    payload: { command: "intent", payload: { kind: "resume", tugSessionId: "s1", projectDir: "/p", reason: "launch" } },
+  },
+  { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "new-jot" } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-advice", waive: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", heightPx: 240 } },
@@ -135,6 +142,7 @@ const DELIVERED: BusDelivered[] = [
   },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-guard", asks: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-decision", answer: "cancel" } },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "capture-armed", armed: true } },
   {
     from: BODY_C1,
     to: "shell",
@@ -149,6 +157,20 @@ const DELIVERED: BusDelivered[] = [
   },
   {
     from: SHELL,
+    to: "body",
+    kind: "deck-facts",
+    payload: {
+      theme: "ironclad",
+      zoom: 1,
+      keyboardAccess: false,
+      modifierLatch: [],
+      focusRingModality: "keyboard",
+      appActive: true,
+      frontmostProject: { binding: { tugSessionId: "s1", lineId: "l1", workspaceKey: "w1", projectDir: "/p" } },
+    },
+  },
+  {
+    from: SHELL,
     to: { card: "c1" },
     kind: "card-context",
     payload: { folded: false, arriving: true, firstResponderCardId: "c1", layerShown: true, spaceId: "space-1" },
@@ -158,6 +180,19 @@ const DELIVERED: BusDelivered[] = [
     to: { card: "c2" },
     kind: "card-context",
     payload: { folded: true, arriving: false, firstResponderCardId: null, layerShown: false, spaceId: null },
+  },
+  {
+    from: SHELL,
+    to: { card: "c1" },
+    kind: "card-context",
+    payload: {
+      folded: false,
+      arriving: false,
+      firstResponderCardId: "c1",
+      layerShown: true,
+      spaceId: null,
+      crossing: { still: 7, settled: false, width: false, heightFree: false, fold: null, held: { "--tugx-still-held-height": "842px" } },
+    },
   },
   {
     from: SHELL,
@@ -210,6 +245,7 @@ describe("bus envelope parity", () => {
       "deck-call": true,
       "close-guard": true,
       "close-decision": true,
+      "capture-armed": true,
       inspection: true,
     };
     const allCommands: Record<CardCommandKind, true> = {
@@ -230,6 +266,8 @@ describe("bus envelope parity", () => {
       "reveal-line": true,
       "reveal-settings": true,
       "dev-log": true,
+      intent: true,
+      "new-jot": true,
     };
     expect([...advice].sort()).toEqual(Object.keys(allAdvice).sort());
     expect([...commands].sort()).toEqual(Object.keys(allCommands).sort());

@@ -116,6 +116,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         // ── Phase A: seed deck, scroll, quitGracefully. ──
         {
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0014-cold-boot-scroll-A",
             // Foreground: the test's resign leg needs a really-active app.
             foreground: true,
@@ -136,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
           // Wait for the baked content to render — scrollHeight grows
           // past clientHeight when blocks land. Same gate as
           // `at0014-scroll-persistence.test.ts`.
-          await app.waitForCondition<boolean>(
+          await app.body(CARD_ID).waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
               return el !== null && el.scrollHeight > el.clientHeight + 200;
@@ -152,7 +153,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
           // bake-in would have re-slammed scrollTop to the bottom.
           // Routing through the event tells SmartScroll to disengage
           // follow-bottom AND apply the requested position.
-          await app.evalJS<void>(
+          await app.body(CARD_ID).evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
               el.dispatchEvent(new CustomEvent('tug-region-scroll-set', {
@@ -162,7 +163,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
               }));
             })()`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body(CARD_ID).waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
               return Math.abs(el.scrollTop - ${REGION_SCROLL_TARGET}) <= ${SCROLL_TOL_PX};
@@ -194,6 +195,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         // ── Phase B: relaunch, re-seed bag from disk, assert live. ──
         {
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0014-cold-boot-scroll-B",
             foreground: true,
             env: { TUGBANK_PATH: tugbankPath },
@@ -218,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
             );
 
             // Wait for content to render so scrollHeight is meaningful.
-            await app.waitForCondition<boolean>(
+            await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
                 return el !== null && el.scrollHeight > el.clientHeight + 200;
@@ -231,7 +233,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
             // can momentarily place it near the target before
             // ResizeObserver-driven height refinement nudges it
             // again. 3 stable polls @ ~16ms = ~48ms of stability.
-            const settled = await app.waitForCondition<boolean>(
+            const settled = await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
                 if (!el) return false;
@@ -256,7 +258,7 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
             );
             expect(settled).toBe(true);
 
-            const live = await app.evalJS<number>(
+            const live = await app.body(CARD_ID).evalJS<number>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(markdownScrollSelectorFor(CARD_ID))});
                 return el ? el.scrollTop : -1;

@@ -52,7 +52,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -174,8 +175,12 @@ function attr(selector: string, name: string): string {
   })()`;
 }
 
-/** Open the gear's sheet and wait for the named body to stand. */
-async function openGear(app: App, sheet: string): Promise<void> {
+/**
+ * Open the gear's sheet and wait for the named body to stand. The gear is a
+ * pane title-bar item, so it is the shell's; the sheet it opens is the
+ * card's own, so it stands in the card's page.
+ */
+async function openGear(app: App, page: BodyApp, sheet: string): Promise<void> {
   await app.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(GEAR_BUTTON)}) !== null`,
     { timeoutMs: 10_000 },
@@ -184,7 +189,7 @@ async function openGear(app: App, sheet: string): Promise<void> {
   // Pin the row open first or the press lands on the bar behind it.
   await app.revealPaneControls();
   await app.nativeClickAtElement(GEAR_BUTTON);
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(sheet)}) !== null`,
     { timeoutMs: 10_000 },
   );
@@ -197,12 +202,12 @@ async function openGear(app: App, sheet: string): Promise<void> {
  * context menu's rows.
  */
 async function chooseSegment(
-  app: App,
+  page: BodyApp,
   groupTestId: string,
   label: string,
 ): Promise<void> {
   const point = JSON.parse(
-    await app.evalJS<string>(
+    await page.evalJS<string>(
       `(function () {
          var group = document.querySelector(
            "[data-testid=" + JSON.stringify(${JSON.stringify(groupTestId)}) + "]",
@@ -221,7 +226,7 @@ async function chooseSegment(
     ),
   ) as { x: number; y: number } | null;
   if (point === null) throw new Error(`[at0416] segment ${label} not found`);
-  await app.nativeClick(point);
+  await page.nativeClick(point);
 }
 
 describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => {
@@ -234,11 +239,13 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
       const app = await launchTugApp({
         ...NO_AX,
+        bodies: true,
         testName: "at0416-viewer-card-settings-image",
       });
       try {
+        const viewer = kindBody(app, "file-view");
         await app.dispatchControlAction("open-file", { path: file });
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIGURE)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -257,27 +264,27 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
         // The resting state, before anyone has chosen anything: the built-in
         // defaults, which is what an untouched card resolves to.
-        expect(await app.evalJS<string>(attr(FIGURE, "data-tugx-image-fit"))).toBe(
+        expect(await viewer.evalJS<string>(attr(FIGURE, "data-tugx-image-fit"))).toBe(
           "fit",
         );
         expect(
-          await app.evalJS<string>(attr(FIGURE, "data-tugx-image-ground")),
+          await viewer.evalJS<string>(attr(FIGURE, "data-tugx-image-ground")),
         ).toBe("checker");
         expect(
-          await app.evalJS<string>(attr(FIGURE, "data-tugx-image-smoothing")),
+          await viewer.evalJS<string>(attr(FIGURE, "data-tugx-image-smoothing")),
         ).toBe("on");
         // The info strip is off by default, so nothing says the file's size.
         expect(
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(INFO)}).length`,
           ),
         ).toBe(0);
 
-        await openGear(app, IMAGE_SHEET);
+        await openGear(app, viewer, IMAGE_SHEET);
 
         // ---- Scaling: the choice reaches both the block and the card frame.
-        await chooseSegment(app, "image-option-scaling", "Actual Size");
-        await app.waitForCondition<boolean>(
+        await chooseSegment(viewer, "image-option-scaling", "Actual Size");
+        await viewer.waitForCondition<boolean>(
           `${attr(FIGURE, "data-tugx-image-fit")} === "actual"`,
           { timeoutMs: 10_000 },
         );
@@ -285,27 +292,27 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // the choice too — a settings write that reached only the block would
         // leave an oversized image uncentered and unscrollable.
         expect(
-          await app.evalJS<string>(attr(CARD, "data-file-view-image-fit")),
+          await viewer.evalJS<string>(attr(CARD, "data-file-view-image-fit")),
         ).toBe("actual");
 
         // ---- Background: what shows through the transparent column.
-        await chooseSegment(app, "image-option-background", "Black");
-        await app.waitForCondition<boolean>(
+        await chooseSegment(viewer, "image-option-background", "Black");
+        await viewer.waitForCondition<boolean>(
           `${attr(FIGURE, "data-tugx-image-ground")} === "black"`,
           { timeoutMs: 10_000 },
         );
 
         // ---- Smoothing off: nearest-neighbour, which is the whole point of
         // opening a 6-pixel-wide swatch in a card hundreds of pixels wide.
-        await app.nativeClickAtElement(
+        await viewer.nativeClickAtElement(
           `${IMAGE_SHEET} [data-testid="image-option-smoothing"]`,
         );
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `${attr(FIGURE, "data-tugx-image-smoothing")} === "off"`,
           { timeoutMs: 10_000 },
         );
         expect(
-          await app.evalJS<string>(
+          await viewer.evalJS<string>(
             `(function () {
                var img = document.querySelector(${JSON.stringify(`${FIGURE} img`)});
                return img === null ? "" : getComputedStyle(img).imageRendering;
@@ -315,14 +322,14 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
         // ---- The info strip: the file's own facts, and the dimensions this
         // test encoded rather than whatever the card felt like reporting.
-        await app.nativeClickAtElement(
+        await viewer.nativeClickAtElement(
           `${IMAGE_SHEET} [data-testid="image-option-show-info"]`,
         );
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INFO)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        const info = await app.evalJS<string>(
+        const info = await viewer.evalJS<string>(
           `document.querySelector(${JSON.stringify(INFO)}).innerText`,
         );
         expect(info).toContain(`${IMAGE_WIDTH} × ${IMAGE_HEIGHT}`);
@@ -330,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // The byte count comes from a HEAD against the same blob route the
         // `<img>` is pointed at, so it is the real file's size on disk.
         const bytes = fs.statSync(file).size;
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INFO)}).innerText.indexOf(${JSON.stringify(
             `${bytes} bytes`,
           )}) !== -1`,
@@ -345,8 +352,10 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
              (c) => c.componentId === "file-view",
            ).id`,
         );
+        // Read in the card's page: a tugbank cache is per page, and the card's
+        // is the one its writes landed in.
         const persisted = JSON.parse(
-          await app.evalJS<string>(
+          await viewer.evalJS<string>(
             `JSON.stringify(window.__tug.getTugbankValue("dev.image-card", ${JSON.stringify(
               cardId,
             )}))`,
@@ -375,13 +384,16 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
       const app = await launchTugApp({
         ...NO_AX,
+        bodies: true,
         testName: "at0416-viewer-card-defaults",
       });
       try {
+        const viewer = kindBody(app, "file-view");
+        const settings = kindBody(app, "settings");
         // A card standing with nothing of its own — the state in which the
         // deck defaults are what it is following.
         await app.dispatchControlAction("open-file", { path: file });
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIGURE)}) !== null`,
           { timeoutMs: 20_000 },
         );
@@ -391,12 +403,12 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         );
         // The dispatch returns before the Settings card's body has committed,
         // so its sidebar is waited for rather than assumed.
-        await app.waitForCondition<boolean>(
+        await settings.waitForCondition<boolean>(
           `document.querySelector('[data-testid="tug-tab-view-tab-viewerCard"]') !== null`,
           { timeoutMs: 10_000 },
         );
-        await app.click('[data-testid="tug-tab-view-tab-viewerCard"]');
-        await app.waitForCondition<boolean>(
+        await settings.click('[data-testid="tug-tab-view-tab-viewerCard"]');
+        await settings.waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-viewer-card"]') !== null`,
           { timeoutMs: 10_000 },
         );
@@ -405,12 +417,12 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // reader should not have to learn that images and PDFs keep their
         // preferences in different rooms.
         expect(
-          await app.evalJS<number>(
+          await settings.evalJS<number>(
             `document.querySelectorAll('[data-testid="image-card-controls"]').length`,
           ),
         ).toBe(1);
         expect(
-          await app.evalJS<number>(
+          await settings.evalJS<number>(
             `document.querySelectorAll('[data-testid="pdf-card-controls"]').length`,
           ),
         ).toBe(1);
@@ -418,8 +430,11 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // A default changed here reaches the open card that never pinned
         // anything — which is the whole difference between a default and a
         // setting, and the reason the card resolves live rather than at mount.
-        await chooseSegment(app, "image-option-background", "White");
-        await app.waitForCondition<boolean>(
+        // The segment is aimed at with a real click, so the Settings body
+        // has to be placed with a size first; `ready` alone is not that.
+        await waitForBodyPainted(app, "settings");
+        await chooseSegment(settings, "image-option-background", "White");
+        await viewer.waitForCondition<boolean>(
           `${attr(FIGURE, "data-tugx-image-ground")} === "white"`,
           { timeoutMs: 10_000 },
         );
@@ -440,18 +455,20 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
       const app = await launchTugApp({
         ...NO_AX,
+        bodies: true,
         testName: "at0416-viewer-card-settings-pdf",
       });
       try {
+        const viewer = kindBody(app, "file-view");
         await app.dispatchControlAction("open-file", { path: file });
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(PDF_PAGE)}).length > 1`,
           { timeoutMs: 30_000 },
         );
 
         /** The gap between the first two laid-out pages, as rendered. */
         const gapBetweenPages = (): Promise<number> =>
-          app.evalJS<number>(
+          viewer.evalJS<number>(
             `(function () {
                var pages = Array.from(
                  document.querySelectorAll(${JSON.stringify(PDF_PAGE)}),
@@ -466,21 +483,25 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
         // The gear opens the PDF sheet, not the image one: one command, and
         // the card decides which room it opens onto.
-        await openGear(app, PDF_SHEET);
+        await openGear(app, viewer, PDF_SHEET);
         expect(
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(IMAGE_SHEET)}).length`,
           ),
         ).toBe(0);
 
         // ---- The page gap re-lays out the document that is already open.
-        await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.pdf-card", window.tugdeck.diag
-             .getDeckState().cards.find((c) => c.componentId === "file-view").id,
+        // The card is its own page, and a tugbank value a test sets is local
+        // to the page it sets it in, so the write goes to the card's page.
+        const pdfCardId = await app.evalJS<string>(
+          `window.tugdeck.diag.getDeckState().cards.find((c) => c.componentId === "file-view").id`,
+        );
+        await viewer.evalJS<null>(
+          `(window.__tug.setTugbankValue("dev.pdf-card", ${JSON.stringify(pdfCardId)},
              { kind: "json", value: { pageMode: "continuous", openingZoom: "fit-width",
                pageGap: 40, invertInDark: true } }), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `(function () {
              var pages = Array.from(
                document.querySelectorAll(${JSON.stringify(PDF_PAGE)}),
@@ -494,7 +515,7 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
         // answer, which is why the surface carries the preference as an
         // attribute and the stylesheet reads the theme beside it.
         expect(
-          await app.evalJS<string>(attr(PDF_SURFACE, "data-pdf-invert-in-dark")),
+          await viewer.evalJS<string>(attr(PDF_SURFACE, "data-pdf-invert-in-dark")),
         ).toBe("on");
       } finally {
         await app.close();

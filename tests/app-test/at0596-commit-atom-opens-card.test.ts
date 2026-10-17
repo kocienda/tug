@@ -45,6 +45,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -122,9 +123,9 @@ const replayStarted = () => ({ type: "replay_started", tug_session_id: SID });
 const replayComplete = () => ({
   type: "replay_complete",
   tug_session_id: SID,
-  count: 1,
+  count: 2,
   firstLoadedTurnIndex: 0,
-  totalTurns: 1,
+  totalTurns: 2,
   hasOlder: false,
 });
 
@@ -151,6 +152,13 @@ async function openBoundCard(app: App): Promise<void> {
   await ingest(userMsg("hello"));
   await ingest(asstText("m0", "Ready."));
   await ingest(turnDone("m0"));
+  // The mention's turn rides in with the replay: a frame ingested after
+  // `replay_complete` opens no turn, and a `send` would go out on the wire
+  // for a session tugcast never spawned, whose `session_unknown` reply
+  // errors the card.
+  await ingest(userMsg("how did step 9 go"));
+  await ingest(asstText("m1", SENTENCE));
+  await ingest(turnDone("m1"));
   await ingest(replayComplete());
 }
 
@@ -162,6 +170,7 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
       try {
         seedTugbankForLaunch(tugbankPath, { sourceTreePath: REPO });
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0596-commit-atom-opens-card",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -170,19 +179,14 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
           await openBoundCard(app);
 
           // ---- 1. A prose mention's primary click.
-          await app.driveSession("S", { op: "send", text: "how did step 9 go" });
-          await app.driveSession("S", {
-            op: "ingestFrame",
-            feedId: CODE_OUTPUT_FEED,
-            decoded: asstText("m1", SENTENCE),
-          });
+          // The sentence came in with the replay (`openBoundCard`).
           // The label is a round trip to the git feed, so it is waited for.
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENTION_PILL)}) !== null`,
             { timeoutMs: 20_000 },
           );
 
-          await app.click(MENTION_PILL);
+          await app.body("S").click(MENTION_PILL);
           await app.waitForCondition<boolean>(
             `${countByComponent("commit")} === 1`,
             { timeoutMs: 15_000 },
@@ -195,20 +199,27 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
           // is read below is the DOM. So the wait is on the DOM: waiting on
           // the deck's own count and then reading the document is a race the
           // card wins only by how fast the pane happens to commit.
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "commit").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMMIT_CARD)}) !== null`,
             { timeoutMs: 15_000 },
           );
 
-          const masthead = await app.evalJS<string | null>(
+          // The masthead is the shell's pane chrome; the card is its own page.
+          // The pane is found through the deck's record of which pane holds
+          // the commit card, and the masthead is waited for, since the shell's
+          // chrome commits a beat after the body's document stands.
+          const masthead = await app.waitForCondition<string>(
             `(() => {
-               const card = document.querySelector(${JSON.stringify(COMMIT_CARD)});
-               const pane = card === null ? null : card.closest(".tug-pane");
-               const el = pane === null
+               const s = window.tugdeck.diag.getDeckState();
+               const card = s.cards.find((c) => c.componentId === "commit");
+               const pane = card === undefined ? undefined : s.panes.find((p) => p.cardIds.includes(card.id));
+               const el = pane === undefined
                  ? null
-                 : pane.querySelector('[data-testid="commit-masthead"]');
-               return el === null ? null : el.innerText.replace(/\\s+/g, " ").trim();
+                 : document.querySelector('.tug-pane[data-pane-id="' + pane.id + '"] [data-testid="commit-masthead"]');
+               const text = el === null ? "" : el.innerText.replace(/\\s+/g, " ").trim();
+               return text === "" ? false : text;
              })()`,
+            { timeoutMs: 15_000 },
           );
           note("at0596 card raised from prose", JSON.stringify(masthead));
           expect(masthead).toContain(HEAD_SHA.slice(0, 8));
@@ -217,29 +228,31 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
           //
           // Prose wrote nine characters and the card holds forty; the open
           // index matches on either being a prefix of the other.
-          await app.click(MENTION_PILL);
+          await app.body("S").click(MENTION_PILL);
           expect(await app.evalJS<number>(countByComponent("commit"))).toBe(1);
 
           // ---- 3. A PLACED pill answers a click, and its row does not fold.
           //
           // The commit card the clicks just raised is the active one now, and
           // the History shade belongs to the Session card — so the session's
-          // pane is activated first, by a click on its own title bar.
-          await app.click('[data-pane-id="pS"] .tug-pane-title-bar');
+          // card is activated first, by the deck's own verb: its pane's title
+          // bar may sit under the commit card's pane, where a click would
+          // land on the wrong one.
+          await app.evalJS<null>(`(window.__tug.activateCard("S"), null)`);
           await app.dispatchControlAction("toggle-history-view");
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HISTORY_ROW)}).length > 0`,
             { timeoutMs: 20_000 },
           );
-          const foldedBefore = await app.evalJS<number>(
+          const foldedBefore = await app.body("S").evalJS<number>(
             `document.querySelectorAll('${HISTORY_VIEW} .tugx-commit-detail').length`,
           );
-          await app.click(HISTORY_PILL);
+          await app.body("S").click(HISTORY_PILL);
           // The History shade's newest row is this repo's HEAD, the commit the
           // card is already showing — so the count holding at one is both the
           // placed pill's click working and the reuse holding.
           expect(await app.evalJS<number>(countByComponent("commit"))).toBe(1);
-          const foldedAfter = await app.evalJS<number>(
+          const foldedAfter = await app.body("S").evalJS<number>(
             `document.querySelectorAll('${HISTORY_VIEW} .tugx-commit-detail').length`,
           );
           note(

@@ -184,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the right edge alone, later slots travelling with it, and nothing lands after",
       async () => {
-        const app = await launchTugApp({ testName: "at0693-resize-keeps-slot-flow" });
+        const app = await launchTugApp({ testName: "at0693-resize-keeps-slot-flow", bodies: true });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

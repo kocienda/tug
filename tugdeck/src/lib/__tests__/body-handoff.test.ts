@@ -4,8 +4,9 @@
  * always did; with it, such a card becomes a body card once, the host is
  * told its kind, and the funnel sends nothing; a card whose kind's
  * registration does not say `body`, and a card whose body failed, stay in
- * the shell; and the
- * reconnect pass's second fire for a body card asks the host for nothing.
+ * the shell; a card that already is a body card is sent the intent its
+ * funnel has just decided, once; and the reconnect pass's fire for a body
+ * card asks the host for nothing and sends its body nothing.
  * The intent a card was handed is kept while it is a body card, so a body
  * that failed before its session was bound can re-run it in the shell, and a
  * bound card's arrival waits on its body's ready, or its failure.
@@ -17,6 +18,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { replayBodyIntent } from "../../body/body-intent";
+import type { BodyIntent } from "../../body/body-intent";
 import type { TugConnection } from "../../connection";
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import { BodyCardsStore, bodyCardsStore, bodyReadyQuiet } from "../body-cards-store";
@@ -28,6 +30,7 @@ import {
   handOffToBody,
   isBodyKind,
   isMountBodyKind,
+  setBodyIntentForwarder,
   suppressHandOff,
 } from "../body-handoff";
 import { registerDeckStore } from "../deck-store-registry";
@@ -37,9 +40,11 @@ import {
   fireFreshSpawn,
   fireNewSpawn,
   fireRestore,
+  restoreSessions,
   sessionRestoreRegistry,
   stashOpeningCommand,
 } from "../session-restore";
+import { publishListCardBindingsOk } from "../session-ledger-events";
 
 let controlActions: string[];
 let posted: Array<{ name: string; body: unknown }>;
@@ -210,13 +215,39 @@ describe("with the capability", () => {
     expect(posted).toEqual([]);
   });
 
-  test("the reconnect pass's second fire for a body card posts nothing and sends nothing", () => {
+  test("a card already a body card is sent the intent its funnel just decided, once", () => {
+    const forwarded: Array<{ cardId: string; intent: BodyIntent }> = [];
+    setBodyIntentForwarder((cardId, intent) => forwarded.push({ cardId, intent }));
     fireRestore("s1", "tug-1", "/p", connection, "launch");
     posted = [];
-    fireRestore("s1", "tug-1", "/p", connection, "launch");
-    fireFreshSpawn("s1", "tug-1", "/p", connection, "launch");
+    fireNewSpawn("s1", "tug-2", "/p", connection, "restore-open", { lineId: "line-2", tag: "odd-kiln" });
+    const intent: BodyIntent = {
+      kind: "new",
+      tugSessionId: "tug-2",
+      projectDir: "/p",
+      reason: "restore-open",
+      lineId: "line-2",
+      tag: "odd-kiln",
+    };
+    expect(forwarded).toEqual([{ cardId: "s1", intent }]);
     expect(posted).toEqual([]);
     expect(controlActions).toEqual([]);
+    // A body that fails later re-runs the latest decision, not the first.
+    expect(bodyIntentOf("s1")).toEqual(intent);
+  });
+
+  test("the reconnect pass's fire for a body card posts nothing and sends its body nothing", () => {
+    const forwarded: Array<{ cardId: string; intent: BodyIntent }> = [];
+    setBodyIntentForwarder((cardId, intent) => forwarded.push({ cardId, intent }));
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
+    posted = [];
+    restoreSessions(deck, connection, { reason: "server-restart", reassert: true, cardIds: new Set(["s1"]) });
+    publishListCardBindingsOk({
+      bindings: [{ card_id: "s1", session_id: "tug-1", project_dir: "/p", turn_count: 2, state: "live" }],
+    });
+    expect(posted).toEqual([]);
+    expect(forwarded).toEqual([]);
+    expect(controlActions).toEqual(["list_card_bindings"]);
   });
 
   test("the intent a card was handed is kept until the card is no longer a body card", () => {

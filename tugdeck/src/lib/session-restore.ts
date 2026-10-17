@@ -129,7 +129,7 @@ import { cardServicesStore } from "./card-services-store";
 import { pickerNoticeStore } from "./picker-notice-store";
 import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
-import { handOffToBody } from "./body-handoff";
+import { handOffToBody, isBodyCard } from "./body-handoff";
 import { FeedId } from "../protocol";
 import type { CardBinding } from "../protocol";
 import {
@@ -389,6 +389,41 @@ export class RestorePassGate extends Subscribable {
 }
 
 export const restorePassGate = new RestorePassGate();
+
+/**
+ * The cards a `restoreSessions` pass has asked the ledger about and not yet
+ * heard back on. The gate above answers for the startup pass alone; a later
+ * pass (a workspace's cards the bindings cache could not answer for) decides
+ * for its cards just as late, and the shell's deck scan hands an unbound
+ * Session card to its body as a `restore` only once no pass is still deciding
+ * for it — otherwise the pass's resume would follow the body's own restore,
+ * and the card would be resumed twice.
+ */
+export class RestorePassCards extends Subscribable {
+  private counts = new Map<string, number>();
+
+  has = (cardId: string): boolean => this.counts.has(cardId);
+
+  /** Hold `cardIds` for one pass; the returned release is idempotent. */
+  _hold(cardIds: Iterable<string>): () => void {
+    const held = [...cardIds];
+    for (const id of held) this.counts.set(id, (this.counts.get(id) ?? 0) + 1);
+    this.notify();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of held) {
+        const n = (this.counts.get(id) ?? 1) - 1;
+        if (n <= 0) this.counts.delete(id);
+        else this.counts.set(id, n);
+      }
+      this.notify();
+    };
+  }
+}
+
+export const restorePassCards = new RestorePassCards();
 
 // ---------------------------------------------------------------------------
 // Automatic restore retry
@@ -734,6 +769,12 @@ export interface RestoreOptions {
    * its first read was made.
    */
   readonly rebind?: boolean;
+  /**
+   * The shell's reconnect pass ({@link reassertOnReconnect}). A body card is
+   * passed over: its body reconnects and re-asserts the card on its own, so
+   * the shell has nothing to send it.
+   */
+  readonly reassert?: boolean;
 }
 
 /**
@@ -790,8 +831,10 @@ export function restoreSessions(
   // never lands, so an unbound session card is not stranded on the
   // restore placeholder. Cleared in the response handler below; a
   // late fire is a harmless no-op (`_settle` is idempotent).
+  const releasePass = restorePassCards._hold(sessionCardIds);
   const passSettleTimeout = setTimeout(() => {
     restorePassGate._settle();
+    releasePass();
   }, RESTORE_PASS_SETTLE_TIMEOUT_MS);
 
   // Subscribe once for the matching response, then drop the
@@ -814,6 +857,7 @@ export function restoreSessions(
       if (!sessionCardIds.has(binding.card_id)) continue;
       if (fired.has(binding.card_id)) continue;
       fired.add(binding.card_id);
+      if (opts?.reassert === true && isBodyCard(binding.card_id)) continue;
       let cardReason = rebind
         ? (sessionRestoreRegistry.get(binding.card_id)?.reason ?? reason)
         : reason;
@@ -913,6 +957,7 @@ export function restoreSessions(
     // in flight). An unbound card with neither is genuinely a fresh
     // card and may fall through to the picker.
     restorePassGate._settle();
+    releasePass();
   });
 
   // Fire the request. `action-dispatch` decodes the response and
@@ -1032,10 +1077,10 @@ export function reassertOnReconnect(
 ): ReconnectKind {
   const kind = connection.serverIdentity.lastReconnect() ?? "server-restart";
   if (kind === "same-server") {
-    restoreSessions(deck, connection, { reason: "launch", rebind: true });
+    restoreSessions(deck, connection, { reason: "launch", rebind: true, reassert: true });
   } else {
     cardSessionBindingStore.clearAll();
-    restoreSessions(deck, connection, { reason: "server-restart" });
+    restoreSessions(deck, connection, { reason: "server-restart", reassert: true });
   }
   return kind;
 }

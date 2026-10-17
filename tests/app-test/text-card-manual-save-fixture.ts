@@ -11,7 +11,7 @@
  */
 
 import { expect } from "bun:test";
-import type { App } from "./_harness";
+import type { App, BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 120_000;
@@ -65,8 +65,12 @@ export async function seedTextCard(
   });
 }
 
-export async function waitForEditor(app: App, sentinel: string, timeoutMs = 15000): Promise<void> {
-  await app.waitForCondition<boolean>(
+/**
+ * `page` is the Text card's own page — `app.body("A")` for a body card, the
+ * shell `app` for a card the shell still mounts.
+ */
+export async function waitForEditor(page: App | BodyApp, sentinel: string, timeoutMs = 15000): Promise<void> {
+  await page.waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT}');
       return el !== null && el.innerText.indexOf(${JSON.stringify(sentinel)}) !== -1;
@@ -75,8 +79,8 @@ export async function waitForEditor(app: App, sentinel: string, timeoutMs = 1500
   );
 }
 
-export async function typeIntoEditor(app: App, text: string): Promise<void> {
-  const ok = await app.evalJS<boolean>(
+export async function typeIntoEditor(page: App | BodyApp, text: string): Promise<void> {
+  const ok = await page.evalJS<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT}');
       if (!el) return false;
@@ -127,11 +131,29 @@ export async function waitMenuEnabled(app: App, id: string, want: boolean, timeo
   expect(last.enabled, `${id} enabled=${want}`).toBe(want);
 }
 
-export async function waitSheetButton(app: App, result: string, timeoutMs = 15000): Promise<void> {
-  await app.waitForCondition<boolean>(
+/** The save sheet is the card's own, so `page` is the page of the card it asks about. */
+export async function waitSheetButton(page: App | BodyApp, result: string, timeoutMs = 15000): Promise<void> {
+  await page.waitForCondition<boolean>(
     `document.querySelector('[data-testid="file-save-sheet-${result}"]') !== null`,
     { timeoutMs },
   );
+}
+
+/**
+ * Wait until the host holds no body for `cardId`: a closed body card's page
+ * is gone with it, so "the editor is gone" is read off the host's record
+ * rather than off a document that no longer exists.
+ */
+export async function waitForCardGone(app: App, cardId: string, timeoutMs = 15000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const bodies = await app.bodies();
+    if (!bodies.some((b) => b.cardId === cardId)) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`[at0212] card ${cardId} still has a body after ${timeoutMs}ms`);
+    }
+    await Bun.sleep(50);
+  }
 }
 
 // NSEvent.ModifierFlags: .command = 1<<20, .shift = 1<<17.

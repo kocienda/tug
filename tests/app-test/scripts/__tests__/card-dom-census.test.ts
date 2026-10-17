@@ -34,6 +34,15 @@ describe("an entry", () => {
     expect(census(`${SEED}const page = app.body("a");\nawait page.waitForCondition(\`document.querySelector('.cm-content') !== null\`);\n`)).toEqual([]);
   });
 
+  test("is not a call on a name bound to a kind's body, or on an arrow that finds one", () => {
+    expect(census(`${SEED}const jots = kindBody(app, "jots");\nawait jots.evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toEqual([]);
+    expect(census(`${SEED}const jots = (app: App) => kindBody(app, "jots");\nawait jots(app).evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toEqual([]);
+  });
+
+  test("is a call on an arrow that finds no body", () => {
+    expect(census(`${SEED}const page = (app: App) => app;\nawait page(app).evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toHaveLength(1);
+  });
+
   test("is not a window.__tug read with no card selector", () => {
     expect(census(`${SEED}await app.evalJS(\`window.__tug.getActiveCardId()\`);\n`)).toEqual([]);
   });

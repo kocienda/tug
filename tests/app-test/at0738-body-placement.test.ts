@@ -10,8 +10,9 @@
  * the rest of the corpus runs every card in the shell. Shared helpers live in
  * `session-body-fixture.ts`.
  *
- * **Placement and the pointer.** One Session card, spawned onto a stub
- * session, becomes a body card. Its body's frame must equal the shell
+ * **Placement and the pointer.** Both Session cards are body cards from the
+ * moment the deck holds them, unbound, and the spawn onto a stub session is
+ * sent to the first card's body, which binds it. Its body's frame must equal the shell
  * placeholder's viewport rect within a point after every commit — at zoom
  * 1.0, at 0.8, and after a column split, a settle, has landed (a body snaps
  * at the land). A native click inside the body's rect must reach the body —
@@ -62,7 +63,7 @@ const TEST_NAME = "at0738-body-placement";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
-/** The body card, and the unbound neighbour sharing its column. */
+/** The spawned body card, and the unbound neighbour (a body too) sharing its column. */
 const BODY_CARD = "at0738-a";
 const NEIGHBOUR = "at0738-b";
 
@@ -228,7 +229,8 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       try {
         await app.seedDeckState({ state: twoInAColumn, focusCardId: BODY_CARD });
 
-        // Spawn the card onto a stub session: the funnel hands it to a body.
+        // Spawn the card onto a stub session. The card is already a body
+        // card, so the funnel sends the spawn to its body, which binds it.
         const tugSessionId = randomUUID();
         const projectDir = realpathSync(mkdtempSync(join(tmpdir(), "tug-at0738-project-")));
         onTestRunEnd(() => rmSync(projectDir, { recursive: true, force: true }));
@@ -241,6 +243,19 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         );
         note(`body: ${JSON.stringify(ready)}`);
         expect(ready?.state, "the card's body reports ready").toBe("ready");
+        await app.body(BODY_CARD).waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PROMPT_INPUT)}) !== null`,
+          { timeoutMs: BODY_READY_MS },
+        );
+        const neighbour = await pollFor(
+          () => app.bodies(),
+          (all) => all.some((b) => b.cardId === NEIGHBOUR),
+          PLACED_MS,
+        );
+        expect(
+          neighbour.some((b) => b.cardId === NEIGHBOUR),
+          "the unbound neighbour is a body card too",
+        ).toBe(true);
 
         // ---- Placement at zoom 1.0, at 0.8, and after a settle lands ----
 

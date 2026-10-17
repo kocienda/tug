@@ -67,7 +67,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "canvas-click deselect → previous-tab / next-tab each re-activate the card",
       async () => {
-        const app = await launchTugApp({ testName: "at0193-deselect-renav" });
+        const app = await launchTugApp({ bodies: true, testName: "at0193-deselect-renav" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: oneCard(), focusCardId: "A" });

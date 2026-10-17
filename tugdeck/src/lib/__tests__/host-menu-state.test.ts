@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  bodyMenuPayload,
   computeEditCapabilities,
   computeFileMenuGates,
   EMPTY_EDIT_CAPABILITIES,
@@ -815,6 +816,20 @@ describe("edit-caps refresher registry", () => {
     registerMenuCapsRefresher(null);
     requestMenuStateRefresh(); // no registered refresher → no-op
     expect(calls).toBe(1);
+  });
+});
+
+describe("bodyMenuPayload", () => {
+  test("posts the key card's own gates and never a deck-count item's, whose modal gate is the shell's", () => {
+    const payload = {
+      commands: {
+        "edit.copy": { enabled: true },
+        "file.openQuickly": { enabled: true },
+        "file.newTextCard": { enabled: true },
+        "window.columnSplit": { enabled: true },
+      },
+    } as unknown as MenuStatePayload;
+    expect(Object.keys(bodyMenuPayload(payload).commands)).toEqual(["edit.copy", "window.columnSplit"]);
   });
 });
 

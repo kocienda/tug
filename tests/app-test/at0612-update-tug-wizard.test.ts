@@ -424,7 +424,7 @@ describe.skipIf(!SHOULD_RUN)("AT0612: the update pill and the UpdateTug wizard",
   test(
     "a find only lights the pill, both doors only raise the wizard, closing is pause, and every control posts its action",
     async () => {
-      const app = await launchTugApp({ testName: "at0612-update-tug-wizard" });
+      const app = await launchTugApp({ testName: "at0612-update-tug-wizard", bodies: true });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

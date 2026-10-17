@@ -40,7 +40,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
 import { inputSelectorFor, INPUT_PERSIST_KEY } from "./_harness/fixtures";
 import {
   mkTempTugbank,
@@ -70,6 +70,30 @@ interface TerminationVerdict {
   elapsedMs: number;
 }
 
+/** Run the page's `prepareForTermination()` and return its verdict. */
+async function runTermination(page: App | BodyApp): Promise<TerminationVerdict> {
+  await page.evalJS<null>(
+    `(function(){
+      if (!window.tugdeck || typeof window.tugdeck.prepareForTermination !== "function") {
+        throw new Error("window.tugdeck.prepareForTermination missing");
+      }
+      window.__quitVerdict = null;
+      window.__quitError = null;
+      window.tugdeck.prepareForTermination().then(
+        function (v) { window.__quitVerdict = v; },
+        function (e) { window.__quitError = String(e); },
+      );
+      return null;
+    })()`,
+  );
+  await page.waitForCondition<boolean>(
+    `window.__quitVerdict !== null || window.__quitError !== null`,
+    { timeoutMs: 15_000 },
+  );
+  expect(await page.evalJS<string | null>(`window.__quitError`)).toBeNull();
+  return page.evalJS<TerminationVerdict>(`window.__quitVerdict`);
+}
+
 describe.skipIf(!SHOULD_RUN)("m279: typing survives the termination pipeline", () => {
   test(
     "prepareForTermination writes the typed bag and the layout, and reports it",
@@ -78,7 +102,7 @@ describe.skipIf(!SHOULD_RUN)("m279: typing survives the termination pipeline", (
       seedTugbankForLaunch(tugbankPath);
 
       const app = await launchTugApp({
-        testName: "at0279-quit-draft-survival",
+        bodies: true, testName: "at0279-quit-draft-survival",
         env: { TUGBANK_PATH: tugbankPath },
         skipAccessibilityPreflight: true,
         persistInTestMode: true,
@@ -111,47 +135,33 @@ describe.skipIf(!SHOULD_RUN)("m279: typing survives the termination pipeline", (
         );
 
         // Type into the card — the user state the whole pipeline exists for.
-        await app.nativeClickAtElement(inputSelectorFor(CARD_ID));
-        await app.waitForCondition<boolean>(
+        await app.body(CARD_ID).nativeClickAtElement(inputSelectorFor(CARD_ID));
+        await app.body(CARD_ID).waitForCondition<boolean>(
           `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(inputSelectorFor(CARD_ID))})`,
         );
-        await app.type(inputSelectorFor(CARD_ID), TYPED);
+        await app.body(CARD_ID).type(inputSelectorFor(CARD_ID), TYPED);
         expect(await app.getFormControlValue(CARD_ID, INPUT_PERSIST_KEY)).toBe(TYPED);
 
-        // Drive the production quit RPC. `evaluateJavaScript` does not
-        // await a promise, so park the verdict and poll for it — the same
-        // thing the host does with `callAsyncJavaScript`, minus the native
-        // await.
-        await app.evalJS<null>(
-          `(function(){
-            if (!window.tugdeck || typeof window.tugdeck.prepareForTermination !== "function") {
-              throw new Error("window.tugdeck.prepareForTermination missing");
-            }
-            window.__quitVerdict = null;
-            window.__quitError = null;
-            window.tugdeck.prepareForTermination().then(
-              function (v) { window.__quitVerdict = v; },
-              function (e) { window.__quitError = String(e); },
-            );
-            return null;
-          })()`,
-        );
-        await app.waitForCondition<boolean>(
-          `window.__quitVerdict !== null || window.__quitError !== null`,
-          { timeoutMs: 15_000 },
-        );
-        expect(await app.evalJS<string | null>(`window.__quitError`)).toBeNull();
+        // Drive the production quit RPC in each page the host asks: the
+        // shell's, which owns the layout, and the card's body, which owns
+        // the card's bag (`AppDelegate.applicationShouldTerminate` runs it
+        // in every view). `evaluateJavaScript` does not await a promise, so
+        // each verdict is parked and polled for — the same thing the host
+        // does with `callAsyncJavaScript`, minus the native await.
+        const shellVerdict = await runTermination(app);
+        const bodyVerdict = await runTermination(app.body(CARD_ID));
 
-        const verdict = await app.evalJS<TerminationVerdict>(`window.__quitVerdict`);
-
-        // An idle quit: nothing to interrupt, nothing left unwritten.
-        expect(verdict.interrupted).toEqual([]);
-        expect(verdict.unacknowledged).toEqual([]);
-        expect(verdict.failedCards).toEqual([]);
-        expect(verdict.layoutSaved).toBe(true);
-        expect(verdict.flushedCards).toBeGreaterThan(0);
-        expect(verdict.ok).toBe(true);
-        expect(typeof verdict.elapsedMs).toBe("number");
+        // An idle quit: nothing to interrupt, nothing left unwritten, in
+        // either page.
+        for (const verdict of [shellVerdict, bodyVerdict]) {
+          expect(verdict.interrupted).toEqual([]);
+          expect(verdict.unacknowledged).toEqual([]);
+          expect(verdict.failedCards).toEqual([]);
+          expect(verdict.ok).toBe(true);
+          expect(typeof verdict.elapsedMs).toBe("number");
+        }
+        expect(shellVerdict.layoutSaved).toBe(true);
+        expect(shellVerdict.flushedCards + bodyVerdict.flushedCards).toBeGreaterThan(0);
 
         // The verdict claims the writes landed. Check the file it wrote to.
         const bag = tugbankRead<{ formControls?: Record<string, unknown> }>(

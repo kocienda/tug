@@ -32,7 +32,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { mkTextFixture } from "./_harness/fixtures";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -70,7 +72,7 @@ function mkCrlfFixture(): { dir: string; file: string } {
 
 /** Type into the editor through CM6's real beforeinput pipeline. */
 async function typeIntoEditor(app: App, text: string): Promise<void> {
-  await app.evalJS<boolean>(
+  await app.body("A").evalJS<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT)});
       if (!el) return false;
@@ -98,12 +100,9 @@ async function waitForDisk(
 
 async function seedTextCard(app: App, filePath: string): Promise<void> {
   // Manual is the shipping default ([P01]); this test's clean-file "Saved"
-  // cell and the CRLF-autosave scenario are automatic-mode behaviors, so
-  // opt into automatic before the card mounts (populates the same client
-  // cache `readSaveMode` reads).
-  await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
-  );
+  // cell and the CRLF-autosave scenario are automatic-mode behaviors. The
+  // card reads the mode from its own page's tugbank snapshot, so the launch
+  // seeds it into the tugbank (`AUTOMATIC_SAVE_MODE`) before the app opens.
   await app.seedDeckState({
     state: {
       cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
@@ -154,12 +153,16 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
     "the masthead names the file; the gear's options reconfigure the live editor",
     async () => {
       const { dir, file } = mkTextFixture("at0210-", FIXTURE_CONTENT);
-      const app = await launchTugApp({ testName: "at0210-text-card-options" });
+      const app = await launchTugApp({
+        bodies: true,
+        testName: "at0210-text-card-options",
+        env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) },
+      });
       try {
         await seedTextCard(app, file);
 
         // Editor mounts with the fixture content.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT)});
             return el !== null && el.innerText.indexOf("fixture line 1") !== -1;
@@ -188,18 +191,18 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // The bottom status bar keeps the settable pair and the caret; the
         // save state is no longer one of its cells.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll('${CARD} [data-testid="text-card-status-save"]').length`,
           ),
         ).toBe(0);
-        const statusText = await app.evalJS<string>(
+        const statusText = await app.body("A").evalJS<string>(
           `document.querySelector('${CARD} [data-slot="text-card-status-bar"]').innerText`,
         );
         // The settable popups render their current values (file type +
         // line ending).
         expect(statusText).toContain("Plain Text");
         expect(statusText).toContain("Unix (LF)");
-        const caretCell = await app.evalJS<string>(
+        const caretCell = await app.body("A").evalJS<string>(
           `document.querySelector('${CARD} [data-testid="text-card-status-caret"]').innerText`,
         );
         expect(caretCell).toContain("L: 1");
@@ -208,38 +211,38 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // is a column of text in a window the user sizes, so a fresh one never
         // scrolls sideways — the first attachment link would put it there.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(LINE_NUMBERS)}) !== null`,
           ),
         ).toBe(true);
-        expect(await app.evalJS<boolean>(WRAP_STATE)).toBe(true);
+        expect(await app.body("A").evalJS<boolean>(WRAP_STATE)).toBe(true);
 
         // Open the options through the title bar's gear button.
         await pressEditorOptions(app);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OPTIONS_PANEL)}) !== null`,
           { timeoutMs: 15000 },
         );
 
         // Toggle Line numbers off → the CM6 gutter drops.
-        await app.nativeClickAtElement(LINE_NUMBERS_SWITCH);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(LINE_NUMBERS_SWITCH);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(LINE_NUMBERS)}) === null`,
           { timeoutMs: 15000 },
         );
 
         // Toggle Soft wrap off → the CM6 content loses cm-lineWrapping.
-        await app.nativeClickAtElement(LINE_WRAP_SWITCH);
-        await app.waitForCondition<boolean>(`${WRAP_STATE} === false`, {
+        await app.body("A").nativeClickAtElement(LINE_WRAP_SWITCH);
+        await app.body("A").waitForCondition<boolean>(`${WRAP_STATE} === false`, {
           timeoutMs: 15000,
         });
-        expect(await app.evalJS<boolean>(WRAP_STATE)).toBe(false);
+        expect(await app.body("A").evalJS<boolean>(WRAP_STATE)).toBe(false);
 
         // Done puts the sheet away. Every control wrote as it was touched, so
         // there is nothing to confirm — but a sheet with no way out but
         // Escape is a sheet a reader can be stuck in.
-        await app.nativeClickAtElement('[data-testid="card-settings-done"]');
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement('[data-testid="card-settings-done"]');
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OPTIONS_PANEL)}) === null`,
           { timeoutMs: 10000 },
         );
@@ -262,12 +265,13 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
   test(
     "an untitled draft keeps its Reveal button, dimmed, and says why",
     async () => {
-      const app = await launchTugApp({ testName: "at0210-untitled-reveal" });
+      const app = await launchTugApp({ bodies: true, testName: "at0210-untitled-reveal" });
       try {
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("new-text-card", {}), null)`,
         );
-        await app.waitForCondition<boolean>(
+        // The draft's card id is minted by the deck, so its body is found by kind.
+        await kindBody(app, "text").waitForCondition<boolean>(
           `document.querySelector('[data-slot="tug-text-card-editor"]') !== null`,
           { timeoutMs: 15000 },
         );
@@ -297,6 +301,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         // hovering the button itself would tell the reader nothing.
         const anchor = `document.querySelector(${JSON.stringify(REVEAL)}).closest('.tug-pane-title-bar-tooltip-anchor')`;
         expect(await app.evalJS<boolean>(`${anchor} !== null`)).toBe(true);
+        // card-dom: shell — the anchor is the pane title bar's, drawn by the shell.
         await app.evalJS<null>(
           `(function () {
              var el = ${anchor};
@@ -326,10 +331,14 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
     "autosave preserves a file's CRLF line endings on write",
     async () => {
       const { dir, file } = mkCrlfFixture();
-      const app = await launchTugApp({ testName: "at0210-crlf" });
+      const app = await launchTugApp({
+        bodies: true,
+        testName: "at0210-crlf",
+        env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) },
+      });
       try {
         await seedTextCard(app, file);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT)});
             return el !== null && el.innerText.indexOf("line 1") !== -1;
@@ -338,13 +347,13 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         );
 
         // The status bar detected the file's newline style.
-        const statusText = await app.evalJS<string>(
+        const statusText = await app.body("A").evalJS<string>(
           `document.querySelector('${CARD} [data-slot="text-card-status-bar"]').innerText`,
         );
         expect(statusText).toContain("Windows (CRLF)");
 
         // Word count (middle of "lines / words / characters") before edit.
-        const wordsBefore = await app.evalJS<number>(
+        const wordsBefore = await app.body("A").evalJS<number>(
           `parseInt(document.querySelector('${CARD} [data-testid="text-card-status-counts"]').innerText.split("/")[1].replace(/[^0-9]/g,""), 10)`,
         );
 
@@ -354,7 +363,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
         await typeIntoEditor(app, "EDIT ");
 
         // The incremental word count picked up the one new word.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `parseInt(document.querySelector('${CARD} [data-testid="text-card-status-counts"]').innerText.split("/")[1].replace(/[^0-9]/g,""), 10) === ${wordsBefore + 1}`,
           { timeoutMs: 8000 },
         );

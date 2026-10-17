@@ -10,11 +10,16 @@
  * that's very likely the one the user means, and Open Quickly stays live.
  * When no card is bound, the result is `null` and Open Quickly is disabled.
  *
+ * A body page cannot walk the deck: its deck holds its own card and its
+ * binding store that card's binding alone. The shell sends its answer in its
+ * deck facts, and a body answers with that ({@link relayFrontmostProjectBinding}).
+ *
  * @module lib/frontmost-project
  */
 
 import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
+import { createSubscribable } from "@/lib/subscribable";
 
 import { getDeckStore } from "./deck-store-registry";
 import {
@@ -23,12 +28,35 @@ import {
 } from "./card-session-binding-store";
 
 /**
+ * The shell's answer, on a body page that has heard it; `undefined` on the
+ * shell's page, which walks its own deck.
+ */
+let relayed: CardSessionBinding | null | undefined;
+const relayedChanged = createSubscribable();
+
+/**
+ * Take the shell's frontmost binding on a body page. An equal one keeps the
+ * held reference, so a reader's snapshot does not churn.
+ */
+export function relayFrontmostProjectBinding(binding: CardSessionBinding | null): void {
+  if (relayed !== undefined && JSON.stringify(relayed) === JSON.stringify(binding)) return;
+  relayed = binding;
+  relayedChanged.notify();
+}
+
+/** For tests: back to a page that has heard nothing. */
+export function _resetRelayedFrontmostProjectForTest(): void {
+  relayed = undefined;
+}
+
+/**
  * The binding of the most-frontmost bound card, or `null` when no card is
  * bound to a project. Panes are back-to-front, so the last is topmost;
  * within a pane the active (visible) card is checked before its background
  * tabs.
  */
 export function frontmostProjectBinding(): CardSessionBinding | null {
+  if (relayed !== undefined) return relayed;
   const store = getDeckStore();
   if (store === null) return null;
   const { panes } = store.getSnapshot();
@@ -55,9 +83,11 @@ export function useFrontmostProjectBinding(): CardSessionBinding | null {
     const deck = getDeckStore();
     const unDeck = deck ? deck.subscribe(onChange) : () => {};
     const unBind = cardSessionBindingStore.subscribe(onChange);
+    const unRelay = relayedChanged.subscribe(onChange);
     return () => {
       unDeck();
       unBind();
+      unRelay();
     };
   }, []);
   return useSyncExternalStore(

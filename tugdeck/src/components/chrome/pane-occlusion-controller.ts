@@ -132,7 +132,25 @@ interface PaintFacts {
   radius: number;
 }
 
-function readPaintFacts(frame: HTMLElement): PaintFacts {
+/**
+ * The alpha of what paints a frame's surface. A body card's chrome and content
+ * stop painting so its body shows through (`tug-pane.css`,
+ * `.tug-pane[data-body-card]`), and the pane's rect is then the title bar's own
+ * background over the placeholder's lid before the host shows the body and the
+ * body's page after — each opaque — so the title bar is the fact to read. Read
+ * from the chrome, every body card's transparent background would refuse it
+ * as a coverer, and no pane under one could ever hide.
+ */
+function surfaceAlpha(frame: HTMLElement, chromeStyle: CSSStyleDeclaration): number {
+  if (!frame.hasAttribute("data-body-card")) return colorAlpha(chromeStyle.backgroundColor);
+  const bar = frame.querySelector<HTMLElement>(".tug-pane-title-bar");
+  const lid = frame.querySelector<HTMLElement>(".tug-pane-content [data-body-placeholder]");
+  if (bar === null || lid === null) return 0;
+  return colorAlpha(getComputedStyle(bar).backgroundColor);
+}
+
+/** Exported for its unit test; the controller is the only other reader. */
+export function readPaintFacts(frame: HTMLElement): PaintFacts {
   const chrome = frame.querySelector<HTMLElement>(".tug-pane-chrome");
   if (chrome === null) return { opaque: false, radius: 0 };
   const chromeStyle = getComputedStyle(chrome);
@@ -143,7 +161,7 @@ function readPaintFacts(frame: HTMLElement): PaintFacts {
   // us still covers what it contains — its own hide was licensed by a
   // visible opaque pane containing it, and containment is transitive.
   const opaque =
-    colorAlpha(chromeStyle.backgroundColor) >= 1 &&
+    surfaceAlpha(frame, chromeStyle) >= 1 &&
     parseFloat(chromeStyle.opacity) >= 1 &&
     parseFloat(frameStyle.opacity) >= 1;
   // The chrome rounds all four corners with one token; take the largest

@@ -488,16 +488,16 @@
    The anchor resolves to this card's seat alone: an anchor must sit inside
    the strip's containing block, and every other card's seat is inside
    another pane. */
-.tug-pane[data-still-crossing] .session-card-z2-seat {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing] .session-card-z2-seat {
   height: var(--tugx-z2-seat-height);
   anchor-name: --z2-seat;
 }
 
-.tug-pane[data-still-crossing] .session-card-top-column {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing] .session-card-top-column {
   position: static;
 }
 
-.tug-pane[data-still-crossing] .session-card-status-bar {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing] .session-card-status-bar {
   position: absolute;
   left: anchor(--z2-seat left);
   right: anchor(--z2-seat right);
@@ -511,11 +511,11 @@
    column's own edges instead — its first child's top and the seat's bottom,
    which is the column's last in-flow box — so a shade standing over a card
    through a stack or a split covers exactly what it covered at rest. */
-.tug-pane[data-still-crossing] .session-card-top-column > :first-child {
+:is(.tug-pane, .body-pane-frame)[data-still-crossing] .session-card-top-column > :first-child {
   anchor-name: --session-column-head;
 }
 
-.tug-pane[data-still-crossing]
+:is(.tug-pane, .body-pane-frame)[data-still-crossing]
   .session-card-top-column
   > .session-view-pane[data-view="changes"] {
   top: anchor(--session-column-head top);

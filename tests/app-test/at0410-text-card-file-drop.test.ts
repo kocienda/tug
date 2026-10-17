@@ -101,7 +101,7 @@ function deckShape() {
  * the bytes for the caller to read back afterwards.
  */
 async function dropPngOnEditor(app: App, fileName: string): Promise<Buffer> {
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     `(function(){
       window.__at0410Dropped = false;
       window.__at0410Bytes = null;
@@ -135,15 +135,15 @@ async function dropPngOnEditor(app: App, fileName: string): Promise<Buffer> {
       }, "image/png");
     })()`,
   );
-  await app.waitForCondition<boolean>(`window.__at0410Dropped === true`, {
+  await app.body("A").waitForCondition<boolean>(`window.__at0410Dropped === true`, {
     timeoutMs: 10_000,
   });
-  return Buffer.from(await app.evalJS<string>(`window.__at0410Bytes`), "base64");
+  return Buffer.from(await app.body("A").evalJS<string>(`window.__at0410Bytes`), "base64");
 }
 
 /** The editor's whole document, read off CM6's rendered lines. */
 function docText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `Array.from(document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT_SELECTOR} .cm-line`)}))
       .map(function(l){ return l.textContent || ""; })
       .join("\\n")`,
@@ -159,7 +159,7 @@ function docText(app: App): Promise<string> {
  * inside a text node.
  */
 async function accelClickText(app: App, needle: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return app.body("A").evalJS<boolean>(
     `(function(){
       var content = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
       if (content === null) return false;
@@ -201,36 +201,83 @@ async function accelClickText(app: App, needle: string): Promise<boolean> {
 }
 
 /**
- * The paths every open file-view card is showing.
- *
- * A viewer card points an `<img>` at `/api/fs/blob?path=…`, so its `src` is
- * where the path it opened on is legible from the DOM.
+ * The card ids of every body of `componentId` the host holds a page for. A
+ * card the editor opens — a viewer, a second Text card — is minted by the
+ * deck under an id this file never names, so it is found by kind.
  */
-function viewerPaths(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
-    `Array.from(document.querySelectorAll('[data-slot="file-view-card"] img'))
-      .map(function(img){
-        var m = /[?&]path=([^&]+)/.exec(img.getAttribute("src") || "");
-        return m === null ? "" : decodeURIComponent(m[1]);
-      })
-      .filter(function(p){ return p.length > 0; })`,
-  );
+async function bodyIdsOfKind(app: App, componentId: string): Promise<string[]> {
+  return (await app.bodies())
+    .filter((b) => b.componentId === componentId && b.cardId !== null && (b.state === "bound" || b.state === "ready"))
+    .map((b) => b.cardId as string);
 }
 
-/** A condition that holds once some viewer card is showing `target`. */
-function viewerShowing(target: string): string {
-  return `(function(){
-    return Array.from(document.querySelectorAll('[data-slot="file-view-card"] img'))
-      .some(function(img){
-        var m = /[?&]path=([^&]+)/.exec(img.getAttribute("src") || "");
-        return m !== null && decodeURIComponent(m[1]) === ${JSON.stringify(target)};
-      });
-  })()`;
+/** Every body the host holds, for an error message. */
+async function heldBodies(app: App): Promise<string> {
+  return (await app.bodies()).map((b) => `${b.cardId}:${b.componentId}:${b.state}`).join(", ") || "none";
 }
 
 /**
- * Intercept the host's `openPath` bridge and record what is posted to it,
- * WITHOUT calling through.
+ * The paths every open file-view card is showing.
+ *
+ * A viewer card points an `<img>` at `/api/fs/blob?path=…`, so its `src` is
+ * where the path it opened on is legible from the DOM — each viewer's own
+ * page, read in turn.
+ */
+async function viewerPaths(app: App): Promise<string[]> {
+  const paths: string[] = [];
+  for (const id of await bodyIdsOfKind(app, "file-view")) {
+    try {
+      paths.push(
+        ...(await app.body(id).evalJS<string[]>(
+          `Array.from(document.querySelectorAll('[data-slot="file-view-card"] img'))
+            .map(function(img){
+              var m = /[?&]path=([^&]+)/.exec(img.getAttribute("src") || "");
+              return m === null ? "" : decodeURIComponent(m[1]);
+            })
+            .filter(function(p){ return p.length > 0; })`,
+        )),
+      );
+    } catch {
+      // A body still arriving answers nothing yet; the next poll reads it.
+    }
+  }
+  return paths;
+}
+
+/** Wait until some viewer card is showing `target`. */
+async function waitForViewerShowing(app: App, target: string, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if ((await viewerPaths(app)).includes(target)) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`[at0410] no viewer shows ${target} within ${timeoutMs}ms (the host holds ${await heldBodies(app)})`);
+    }
+    await Bun.sleep(100);
+  }
+}
+
+/** Wait until some Text card's editor renders `marker`. */
+async function waitForTextCardShowing(app: App, marker: string, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    for (const id of await bodyIdsOfKind(app, "text")) {
+      try {
+        if (await app.body(id).evalJS<boolean>(textCardShowing(marker))) return;
+      } catch {
+        // A body still arriving answers nothing yet; the next poll reads it.
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`[at0410] no Text card shows ${JSON.stringify(marker)} within ${timeoutMs}ms (the host holds ${await heldBodies(app)})`);
+    }
+    await Bun.sleep(100);
+  }
+}
+
+/**
+ * Intercept the host's `openPath` bridge in the Text card's own page — the
+ * page `openPathInOS` runs in — and record what is posted to it, WITHOUT
+ * calling through.
  *
  * Swallowing is the point, not a shortcut: calling through would open a real
  * Finder window on the machine running the tests and steal the focus the
@@ -239,23 +286,45 @@ function viewerShowing(target: string): string {
  * test can observe anyway.
  */
 async function captureOpenPathRequests(app: App): Promise<void> {
-  await app.evalJS<null>(
+  // `window.webkit` cannot be replaced (an unconfigurable property), and the
+  // bridge's wrapper objects — the namespace, its `messageHandlers`, the
+  // `openPath` handler — are only kept while something in the page holds
+  // them: once collected, the next access hands out fresh ones, and an own
+  // property set on the old one is gone with it. The shell page never ran
+  // long enough between the capture and the click to notice; the card's own
+  // page does. So every wrapper the capture touches is pinned on `window`
+  // for the page's life, the namespace's `messageHandlers` is redefined to
+  // answer `openPath` with the recorder and every other name from the real
+  // bridge, and the real handler's `postMessage` is replaced too, for a
+  // bridge whose namespace refuses the redefinition. The install is read
+  // back through `window.webkit` before it is trusted.
+  const installed = await app.body("A").evalJS<boolean>(
     `(function(){
       window.__at0410OpenPath = [];
-      var handler = window.webkit.messageHandlers.openPath;
-      handler.postMessage = function(payload){
-        window.__at0410OpenPath.push(payload);
+      var recorder = function(payload){ window.__at0410OpenPath.push(payload); };
+      var ns = window.webkit;
+      var real = ns.messageHandlers;
+      var handler = real.openPath;
+      window.__at0410Pins = { ns: ns, real: real, handler: handler };
+      var reads = function(){
+        try { return window.webkit.messageHandlers.openPath.postMessage === recorder; } catch (e) { return false; }
       };
-      return null;
+      try {
+        var handlers = new Proxy({}, { get: function(_t, name){ return name === "openPath" ? { postMessage: recorder } : real[name]; } });
+        Object.defineProperty(ns, "messageHandlers", { configurable: true, value: handlers });
+      } catch (e) {}
+      try { handler.postMessage = recorder; } catch (e) {}
+      return reads();
     })()`,
   );
+  if (!installed) throw new Error("[at0410] the openPath capture did not take in the Text card's page");
 }
 
 /** Everything posted to `openPath` since the capture was installed. */
 function openPathRequests(
   app: App,
 ): Promise<Array<{ path: string; kind: string }>> {
-  return app.evalJS<Array<{ path: string; kind: string }>>(
+  return app.body("A").evalJS<Array<{ path: string; kind: string }>>(
     `window.__at0410OpenPath`,
   );
 }
@@ -284,7 +353,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.writeFileSync(docPath, DOC_SEED, "utf8");
 
         try {
-          const app = await launchTugApp({ testName: "at0410-text-card-file-drop" });
+          const app = await launchTugApp({ bodies: true, testName: "at0410-text-card-file-drop" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -295,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("Drop lands here") !== -1;
@@ -306,7 +375,7 @@ describe.skipIf(!SHOULD_RUN)(
             // ── First drop ────────────────────────────────────────────────
             const dropped = await dropPngOnEditor(app, "dropped.png");
             const assetPath = path.join(dir, "assets", "dropped.png");
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var lines = document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT_SELECTOR} .cm-line`)});
                 return Array.from(lines).some(function(l){
@@ -326,7 +395,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // ── Second drop of the same name ──────────────────────────────
             await dropPngOnEditor(app, "dropped.png");
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var lines = document.querySelectorAll(${JSON.stringify(`${EDITOR_CONTENT_SELECTOR} .cm-line`)});
                 return Array.from(lines).some(function(l){
@@ -377,7 +446,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ testName: "at0410-asset-link-click" });
+          const app = await launchTugApp({ bodies: true, testName: "at0410-asset-link-click" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -388,7 +457,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("IMAGEFORM") !== -1;
@@ -399,17 +468,11 @@ describe.skipIf(!SHOULD_RUN)(
             // The image form. The click lands on the `!`, which the grammar
             // has to include in the token's extent for the two to line up.
             expect(await accelClickText(app, "![shown]")).toBe(true);
-            await app.waitForCondition<boolean>(
-              viewerShowing(path.join(assetsDir, "shown.png")),
-              { timeoutMs: 15_000 },
-            );
+            await waitForViewerShowing(app, path.join(assetsDir, "shown.png"));
 
             // The plain form — the branch the `!` test cannot reach.
             expect(await accelClickText(app, "[plain.png]")).toBe(true);
-            await app.waitForCondition<boolean>(
-              viewerShowing(path.join(assetsDir, "plain.png")),
-              { timeoutMs: 15_000 },
-            );
+            await waitForViewerShowing(app, path.join(assetsDir, "plain.png"));
 
             // Both, not one card retargeted.
             const paths = await viewerPaths(app);
@@ -458,7 +521,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ testName: "at0410-asset-link-open" });
+          const app = await launchTugApp({ bodies: true, testName: "at0410-asset-link-open" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -469,7 +532,7 @@ describe.skipIf(!SHOULD_RUN)(
               },
               focusCardId: "A",
             });
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
                 return el !== null && el.innerText.indexOf("TEXTFORM") !== -1;
@@ -480,15 +543,13 @@ describe.skipIf(!SHOULD_RUN)(
 
             // ── Textual → a Text card ──────────────────────────────────────
             expect(await accelClickText(app, "[brief.md]")).toBe(true);
-            await app.waitForCondition<boolean>(textCardShowing("OPENEDBRIEF"), {
-              timeoutMs: 15_000,
-            });
+            await waitForTextCardShowing(app, "OPENEDBRIEF");
             // Opened in the app, not handed to the OS.
             expect(await openPathRequests(app)).toEqual([]);
 
             // ── Binary → the Finder ────────────────────────────────────────
             expect(await accelClickText(app, "[bundle.zip]")).toBe(true);
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `window.__at0410OpenPath.length > 0`,
               { timeoutMs: 15_000 },
             );
@@ -503,11 +564,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // And emphatically NOT opened as text — a zip in an editor paints
             // its bytes as mojibake, which is the failure this replaces.
-            expect(
-              await app.evalJS<number>(
-                `document.querySelectorAll('[data-slot="tug-text-card-editor"]').length`,
-              ),
-            ).toBe(2);
+            expect((await bodyIdsOfKind(app, "text")).length).toBe(2);
           } finally {
             await app.close();
           }

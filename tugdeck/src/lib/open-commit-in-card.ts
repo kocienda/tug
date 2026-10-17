@@ -34,6 +34,7 @@ import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 import {
   findCommitCardByTarget,
+  sameCommitTarget,
   type CommitCardTarget,
 } from "./commit-card-open-registry";
 import { flashCardPane } from "./flash-pane-border";
@@ -56,6 +57,31 @@ export interface CommitCardSeed {
   };
 }
 
+/**
+ * The deck's Commit card already pointed at `target`, found by the target its
+ * bag holds rather than by a mounted component. The open registry knows only
+ * the cards mounted in this page, and a card that is its own page is mounted
+ * there, not here; its bag — the seed `addCard` was handed, and what the card
+ * writes back — is the shell's record of what it holds. Prefix-matched on the
+ * sha either way, as the registry matches.
+ */
+export function findCommitCardInDeck(
+  store: Pick<IDeckManagerStore, "getSnapshot" | "getCardState">,
+  target: CommitCardTarget,
+): string | null {
+  for (const card of store.getSnapshot().cards) {
+    if (card.componentId !== "commit") continue;
+    const content = store.getCardState(card.id)?.content;
+    if (typeof content !== "object" || content === null) continue;
+    const held = (content as { target?: unknown }).target;
+    if (typeof held !== "object" || held === null) continue;
+    const { root, sha } = held as { root?: unknown; sha?: unknown };
+    if (typeof root !== "string" || typeof sha !== "string") continue;
+    if (sameCommitTarget({ root, sha }, target)) return card.id;
+  }
+  return null;
+}
+
 export function openCommitInCard(
   store: IDeckManagerStore,
   target: CommitCardTarget,
@@ -63,18 +89,20 @@ export function openCommitInCard(
   originCardId: string | null = null,
 ): void {
   const existing = findCommitCardByTarget(target);
-  if (existing) {
+  const existingId = existing?.cardId ?? findCommitCardInDeck(store, target);
+  if (existingId !== null) {
     transferFocusForActivation({
       outgoingCardId: store.getFirstResponderCardId(),
-      incomingCardId: existing.cardId,
+      incomingCardId: existingId,
       store,
-      commitMutation: () => store.activateCard(existing.cardId),
-      deferCommit: mayDeferCommit(store, existing.cardId),
+      commitMutation: () => store.activateCard(existingId),
+      deferCommit: mayDeferCommit(store, existingId),
     });
     // Re-point defensively — a same-commit open is a no-op re-request, which
-    // is harmless and refreshes the record.
-    existing.entry.setTarget(target);
-    flashCardPane(store, existing.cardId);
+    // is harmless and refreshes the record. A card mounted in its own page
+    // has no entry here; its record is its own.
+    existing?.entry.setTarget(target);
+    flashCardPane(store, existingId);
     return;
   }
   const seed: CommitCardSeed = hint === undefined ? { target } : { target, hint };

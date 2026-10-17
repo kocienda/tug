@@ -488,6 +488,12 @@ function useJotAnnotationLinks(jot: Jot): Extension {
   useEffect(() => {
     return subscribe(() => listeners.notify());
   }, [subscribe, listeners]);
+  // A resolver that changed under an open jot — its origins landing from a
+  // paste, a project coming to the front — re-reads the buffer through it:
+  // nothing else would, until some unrelated verdict happened to arrive.
+  useEffect(() => {
+    listeners.notify();
+  }, [resolvePath, listeners]);
 
   return useMemo(
     () =>

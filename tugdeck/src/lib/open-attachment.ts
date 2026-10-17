@@ -27,12 +27,22 @@
  * click rather than on the hover: the link lights up for every file, and the
  * decision happens where waiting is free.
  *
+ * ## Why the open is a command, not a store call
+ *
+ * A Text card may be a body — a page of its own — whose deck store is the
+ * body's bridge, and the bridge cannot add a card: the deck's arrangement is
+ * the shell's. So the card branches dispatch `OPEN_FILE`, the command the
+ * shell's deck answers with `openFileInCard` (reuse an open card, viewer or
+ * Text card by kind). In the shell it is answered in place; in a body the
+ * page's unanswered-command fallback carries it to the shell, the same way a
+ * Session card opens a `/ref`.
+ *
  * @module lib/open-attachment
  */
 
-import type { IDeckManagerStore } from "@/deck-manager-store";
+import { dispatchCommand } from "@/command-dispatch";
+import { TUG_ACTIONS } from "./action-vocabulary";
 import { bytesUrl, isViewableFile } from "./file-kinds";
-import { openFileInCard } from "./open-file-in-card";
 import { revealPathInFinder } from "./os-open";
 
 /**
@@ -101,20 +111,27 @@ async function firstBlock(path: string): Promise<Uint8Array | null> {
  * Finder.
  */
 export async function openAttachmentPath(
-  store: IDeckManagerStore,
   path: string,
   originCardId: string | null = null,
 ): Promise<void> {
   // A viewable kind is settled by its extension — the viewer card is built
   // around exactly that table — so it needs no probe and no round trip.
   if (isViewableFile(path)) {
-    openFileInCard(store, path, undefined, undefined, undefined, originCardId);
+    openInCard(path, originCardId);
     return;
   }
   const head = await firstBlock(path);
   if (head !== null && looksTextual(head)) {
-    openFileInCard(store, path, undefined, undefined, undefined, originCardId);
+    openInCard(path, originCardId);
     return;
   }
   revealPathInFinder(path);
+}
+
+/** Open `path` as a card, wherever this page stands — see the module doc. */
+function openInCard(path: string, originCardId: string | null): void {
+  dispatchCommand(TUG_ACTIONS.OPEN_FILE, {
+    path,
+    ...(originCardId !== null ? { originCardId } : {}),
+  });
 }

@@ -55,6 +55,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { waitForKeyboardInCard } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 60_000;
@@ -225,7 +226,7 @@ const COPY_SENTINEL = "at0188-sentinel-nothing-copied";
 
 async function copyAndRead(app: Awaited<ReturnType<typeof launchTugApp>>): Promise<string> {
   Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(COPY_SENTINEL) });
-  await app.evalJS<unknown>(`(window.__copyEvent = null, true)`);
+  await app.body("A").evalJS<unknown>(`(window.__copyEvent = null, true)`);
   await app.nativeKey("c", ["cmd"]);
   const deadline = Date.now() + 3000;
   let seen = COPY_SENTINEL;
@@ -260,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "inline-accurate, atomic-widen, and cross-block selections via ⌘C",
       async () => {
-        const app = await launchTugApp({ testName: "at0188-transcript-copy-wiring", foreground: true });
+        const app = await launchTugApp({ bodies: true, testName: "at0188-transcript-copy-wiring", foreground: true });
         try {
           await app.seedDeckState({
             state: {
@@ -275,7 +276,7 @@ describe.skipIf(!SHOULD_RUN)(
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var md = document.querySelector('${BODY} .tugx-md-block');
               var tool = document.querySelector('${BODY} [data-slot="tool-block-chrome"]');
@@ -284,11 +285,11 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 6000 },
           );
 
-          const captureReady = await app.evalJS<boolean>(INSTALL_CLIPBOARD_CAPTURE);
+          const captureReady = await app.body("A").evalJS<boolean>(INSTALL_CLIPBOARD_CAPTURE);
           expect(captureReady).toBe(true);
 
-          await app.nativeClickAtElement(`${BODY} .tugx-md-block`);
-          await app.waitForCondition<boolean>(`window.__tug.getHasFocus() === true`, { timeoutMs: 2000 });
+          await app.body("A").nativeClickAtElement(`${BODY} .tugx-md-block`);
+          await waitForKeyboardInCard(app, "A", { timeoutMs: 4000 });
 
           // The probe runs the production resolver over the current
           // selection deterministically; the ⌘C smoke below confirms the
@@ -296,22 +297,22 @@ describe.skipIf(!SHOULD_RUN)(
           const probe = `(function(){ var f = window.__tugCopyWiringProbe; return f ? f() : "__NO_PROBE__"; })()`;
 
           // ---- inline-accurate: "First" (rendered 0..5) → exactly "First" ----
-          const plain1 = await app.evalJS<string>(selectInBlockScript("First paragraph", 0, 5));
+          const plain1 = await app.body("A").evalJS<string>(selectInBlockScript("First paragraph", 0, 5));
           expect(plain1).toBe("First");
-          const copied1 = await app.evalJS<string>(probe);
+          const copied1 = await app.body("A").evalJS<string>(probe);
           expect(copied1).toBe("First"); // narrowed, NOT the whole paragraph
 
           // ---- full construct: selecting all of "bold" keeps its markers
           // (markers aren't text — stripping them yields exactly "bold") ----
-          const plainBold = await app.evalJS<string>(selectExactNodeScript("bold"));
+          const plainBold = await app.body("A").evalJS<string>(selectExactNodeScript("bold"));
           expect(plainBold).toBe("bold");
-          const copiedBold = await app.evalJS<string>(probe);
+          const copiedBold = await app.body("A").evalJS<string>(probe);
           expect(copiedBold).toBe("**bold**");
 
           // ---- partial construct (the reported bug): selecting PART of a
           // bold span must copy exactly the selected text — never the whole
           // construct, never its unselected leading chars or markers ----
-          const plainPartial = await app.evalJS<string>(`(function(){
+          const plainPartial = await app.body("A").evalJS<string>(`(function(){
             var root = document.querySelector('${BODY}');
             var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
             for (var n=w.nextNode(); n!==null; n=w.nextNode()){
@@ -325,7 +326,7 @@ describe.skipIf(!SHOULD_RUN)(
             return "__NOT_FOUND__";
           })()`);
           expect(plainPartial).toBe("old");
-          const copiedPartial = await app.evalJS<string>(probe);
+          const copiedPartial = await app.body("A").evalJS<string>(probe);
           // Styling applied to EXACTLY the selected text: bold wraps "old"
           // (not "bold"), no unselected "b", no leading "First paragraph…".
           expect(copiedPartial).toBe("**old**");
@@ -333,21 +334,21 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- cross-block: styling is applied across the span, clipped to
           // the selection — paragraph A keeps its `**bold**`, paragraph B's
           // selected head comes through, and nothing outside the range. ----
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             selectAcrossScript("First paragraph", "Closing paragraph", 8),
           );
-          const copied2 = await app.evalJS<string>(probe);
+          const copied2 = await app.body("A").evalJS<string>(probe);
           expect(copied2).toContain("**bold**"); // inline styling preserved
           expect(copied2).toContain("Closing"); // paragraph B's selected head
           expect(copied2).not.toContain("Faraday"); // never content above the selection
 
           // ---- multi-block message: one paragraph must NOT overshoot ----
           // Clean range over the whole first paragraph's text node.
-          const plainMultiClean = await app.evalJS<string>(
+          const plainMultiClean = await app.body("A").evalJS<string>(
             selectInBlockScript("Alpha paragraph one only", 0, 25),
           );
           expect(plainMultiClean).toBe("Alpha paragraph one only.");
-          const copiedMultiClean = await app.evalJS<string>(probe);
+          const copiedMultiClean = await app.body("A").evalJS<string>(probe);
           expect(copiedMultiClean).toBe("Alpha paragraph one only.");
 
           // Range that ends at the START of the heading two blocks down
@@ -364,8 +365,8 @@ describe.skipIf(!SHOULD_RUN)(
             var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
             return "ok";
           })()`;
-          await app.evalJS<string>(overshoot);
-          const copiedOvershoot = await app.evalJS<string>(probe);
+          await app.body("A").evalJS<string>(overshoot);
+          const copiedOvershoot = await app.body("A").evalJS<string>(probe);
           // Exactly the selected paragraph — no rule, no heading below it.
           expect(copiedOvershoot).toBe("Alpha paragraph one only.");
 
@@ -373,15 +374,15 @@ describe.skipIf(!SHOULD_RUN)(
           // all the way to the system pasteboard. The chord never enters the
           // responder chain (Edit ▸ Copy is performed natively), so this
           // proves the `onCopy` substitution, not the menu path. ----
-          expect(await app.evalJS<boolean>(WATCH_COPY_FLAVORS)).toBe(true);
-          await app.evalJS<string>(selectExactNodeScript("bold"));
+          expect(await app.body("A").evalJS<boolean>(WATCH_COPY_FLAVORS)).toBe(true);
+          await app.body("A").evalJS<string>(selectExactNodeScript("bold"));
           const viaCmdC = await copyAndRead(app);
           expect(viaCmdC).toBe("**bold**");
 
           // ---- dual-format clipboard ([#step-11]): the same ⌘C write
           // also exposes text/html, the markdown re-rendered. text/plain
           // stays the markdown; text/html carries the rendered emphasis. ----
-          const flavors = await app.evalJS<{ plain: string; html: string } | null>(
+          const flavors = await app.body("A").evalJS<{ plain: string; html: string } | null>(
             `window.__copyEvent`,
           );
           expect(flavors?.plain).toBe("**bold**");
@@ -393,7 +394,7 @@ describe.skipIf(!SHOULD_RUN)(
           // order, via the real ⌘C gesture. No host handler — the
           // first-responder cell's handler reads the live cross-cell
           // selection and the range-global serializer reconstructs it. ----
-          const crossSel = await app.evalJS<string>(
+          const crossSel = await app.body("A").evalJS<string>(
             selectAcrossCellsScript("Closing paragraph", "Alpha paragraph one only", 25),
           );
           expect(crossSel).toContain("Closing paragraph after the tool call.");
@@ -415,45 +416,45 @@ describe.skipIf(!SHOULD_RUN)(
           // rendered glyph/highlight text. ----
 
           // Heading → `### …`.
-          await app.evalJS<string>(selectRichBlockScript("Rich Heading"));
-          expect(await app.evalJS<string>(probe)).toBe("### Rich Heading");
+          await app.body("A").evalJS<string>(selectRichBlockScript("Rich Heading"));
+          expect(await app.body("A").evalJS<string>(probe)).toBe("### Rich Heading");
 
           // List → one `- ` line per item.
-          await app.evalJS<string>(selectRichBlockScript("List item alpha"));
-          const listMd = await app.evalJS<string>(probe);
+          await app.body("A").evalJS<string>(selectRichBlockScript("List item alpha"));
+          const listMd = await app.body("A").evalJS<string>(probe);
           expect(listMd).toContain("- List item alpha");
           expect(listMd).toContain("- List item beta");
 
           // Fenced code → fence-wrapped source (not the highlighted spans).
-          await app.evalJS<string>(selectRichBlockScript("const y = 1"));
-          const codeMd = await app.evalJS<string>(probe);
+          await app.body("A").evalJS<string>(selectRichBlockScript("const y = 1"));
+          const codeMd = await app.body("A").evalJS<string>(probe);
           expect(codeMd).toContain("```");
           expect(codeMd).toContain("const y = 1;");
 
           // Inline math → `$…$` from the KaTeX TeX annotation, inline in
           // the surrounding prose (wait for KaTeX to render first).
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-testid="gallery-transcript-copy-cell-c"] .katex') !== null`,
             { timeoutMs: 8000 },
           );
-          await app.evalJS<string>(selectRichBlockScript("Inline math"));
-          expect(await app.evalJS<string>(probe)).toBe(
+          await app.body("A").evalJS<string>(selectRichBlockScript("Inline math"));
+          expect(await app.body("A").evalJS<string>(probe)).toBe(
             "Inline math $E = mc^2$ in a sentence.",
           );
 
           // Display math → `$$…$$`, never the rendered MathML/glyph text.
-          const dispSel = await app.evalJS<string>(SELECT_DISPLAY_MATH);
+          const dispSel = await app.body("A").evalJS<string>(SELECT_DISPLAY_MATH);
           expect(dispSel).not.toBe("__NO_KATEX__");
-          expect(await app.evalJS<string>(probe)).toBe("$$x = a + b$$");
+          expect(await app.body("A").evalJS<string>(probe)).toBe("$$x = a + b$$");
 
           // ---- numbered list via the real ⌘C path: the text/plain flavor
           // keeps each item's ordinal and puts one newline between tight
           // items — never bullets, never a blank line per item. ----
-          const numberedSel = await app.evalJS<string>(selectRichBlockScript("Numbered one"));
+          const numberedSel = await app.body("A").evalJS<string>(selectRichBlockScript("Numbered one"));
           expect(numberedSel).toContain("Numbered three");
           const numberedMd = await copyAndRead(app);
           expect(numberedMd).toBe("1. Numbered one\n2. Numbered two\n3. Numbered three");
-          const numberedFlavors = await app.evalJS<{ plain: string; html: string } | null>(
+          const numberedFlavors = await app.body("A").evalJS<{ plain: string; html: string } | null>(
             `window.__copyEvent`,
           );
           expect(numberedFlavors?.plain).toBe(numberedMd);

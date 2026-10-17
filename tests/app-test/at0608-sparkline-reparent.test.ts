@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "dragging the card into another pane, then rebinding it, leaves the instrument ticking",
       async () => {
-        const app = await launchTugApp({ testName: "at0608-sparkline-reparent" });
+        const app = await launchTugApp({ bodies: true, testName: "at0608-sparkline-reparent" });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

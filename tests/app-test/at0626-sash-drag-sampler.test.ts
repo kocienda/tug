@@ -43,7 +43,8 @@
  *     of `mouseDragged` events the trail posted — what WebKit's event merger
  *     coalesced, observed rather than avoided;
  *   - every `ResizeObserver` delivery and every DOM mutation inside the
- *     divided members, on the boxes a still crossing holds, carried over from
+ *     divided members — read in each card's own body, where its root and
+ *     transcript stand — on the boxes a still crossing holds, carried over from
  *     the previous arc's instrument because the hold it proved is still the
  *     hold this drag rides.
  *
@@ -101,6 +102,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -344,8 +346,11 @@ async function openColumn(app: App): Promise<void> {
     { timeoutMs: 10_000 },
   );
   await app.waitForCondition<boolean>(
-    `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 3 &&
-     document.querySelector('.jots-card .jot-row-label') !== null`,
+    `document.querySelectorAll('.tug-pane[data-rail-side="right"]').length === 3`,
+    { timeoutMs: 20_000 },
+  );
+  await kindBody(app, "jots").waitForCondition<boolean>(
+    `document.querySelector('.jots-card .jot-row-label') !== null`,
     { timeoutMs: 20_000 },
   );
   await settled(app);
@@ -415,23 +420,18 @@ interface Run {
   displacements: Record<string, number>;
 }
 
-/** The divided members' `data-scroll-displacements` counters, right now. */
-function displacements(app: App): Promise<Record<string, number>> {
-  return app.evalJS<Record<string, number>>(
-    `(function () {
-      var out = {};
-      var panes = ${JSON.stringify(DIVIDED.map((c) => [c, pane(c)]))};
-      panes.forEach(function (entry) {
-        var el = document.querySelector(entry[1]);
-        if (el === null) return;
-        var list = el.querySelector(${JSON.stringify(LIST)});
-        out[entry[0]] = list === null
-          ? -1
-          : Number(list.getAttribute("data-scroll-displacements") || "0");
-      });
-      return out;
-    })()`,
-  );
+/** The divided members' `data-scroll-displacements` counters, right now, each read in its card's body. */
+async function displacements(app: App): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const member of DIVIDED) {
+    out[member] = await app.body(member).evalJS<number>(
+      `(function () {
+        var list = document.querySelector(${JSON.stringify(LIST)});
+        return list === null ? -1 : Number(list.getAttribute("data-scroll-displacements") || "0");
+      })()`,
+    );
+  }
+  return out;
 }
 
 /**
@@ -495,11 +495,7 @@ async function arm(app: App): Promise<void> {
   const observed = await app.evalJS<number>(
     `(function () {
       var panes = ${JSON.stringify(DIVIDED.map((c) => [c, pane(c)]))};
-      var boxes = {
-        content: ".tug-pane-content",
-        root: ${JSON.stringify(ROOT)},
-        list: ${JSON.stringify(LIST)},
-      };
+      var boxes = { content: ".tug-pane-content" };
       var prior = window.__at0626;
       if (prior !== undefined) {
         prior.armed = false;
@@ -538,27 +534,6 @@ async function arm(app: App): Promise<void> {
           state.labels.set(target, { member: member, box: box });
           state.resize.observe(target);
         });
-        var list = el.querySelector(boxes.list);
-        if (list === null) return;
-        var mutator = new MutationObserver(function (records) {
-          if (!state.armed) return;
-          var r = records[0];
-          var target = r.target.nodeType === 1 ? r.target : r.target.parentElement;
-          var kind = r.type === "attributes"
-            ? "attr:" + r.attributeName
-            : r.type + ":" + (r.addedNodes.length + r.removedNodes.length);
-          state.mutations.push({
-            t: performance.now(),
-            member: member,
-            box: "list",
-            kind: kind + " on " + (target === null ? "?" : target.tagName.toLowerCase() +
-              (target.className && typeof target.className === "string"
-                ? "." + target.className.split(" ")[0]
-                : "")),
-          });
-        });
-        mutator.observe(list, { attributes: true, childList: true, subtree: true });
-        state.mutators.push(mutator);
       });
       // Capture phase, on the document: the seam takes pointer capture, so the
       // events retarget to it, and a capture listener above it still sees
@@ -571,9 +546,12 @@ async function arm(app: App): Promise<void> {
       return state.labels.size;
     })()`,
   );
-  note("at0626 instrument", `observing ${observed} interior box(es)`);
+  let interior = 0;
+  for (const member of DIVIDED) interior += await app.body(member).evalJS<number>(armInteriorJS(member));
+  note("at0626 instrument", `observing ${observed + interior} interior box(es)`);
   // The initial resize deliveries land on the next frame; let them, then arm.
   await wait(200);
+  for (const member of DIVIDED) await app.body(member).evalJS<null>(`(window.__at0626b.armed = true, null)`);
   await app.evalJS<null>(
     `(function () {
       var state = window.__at0626;
@@ -641,21 +619,88 @@ async function arm(app: App): Promise<void> {
   );
 }
 
+/**
+ * The interior half of the instrument, for one divided member's body: its
+ * card root and its transcript stand in the card's own page. Stamped on the
+ * epoch clock (`timeOrigin + now`), which {@link harvest} carries onto the
+ * shell's, so a delivery here reads against the mark the shell's heartbeat saw.
+ */
+function armInteriorJS(member: SessionId): string {
+  return `(function () {
+    var prior = window.__at0626b;
+    if (prior !== undefined) {
+      prior.armed = false;
+      prior.resize.disconnect();
+      if (prior.mutator !== null) prior.mutator.disconnect();
+    }
+    var clock = function () { return performance.timeOrigin + performance.now(); };
+    var state = { armed: false, deliveries: [], mutations: [], labels: new Map(), resize: null, mutator: null };
+    state.resize = new ResizeObserver(function (entries) {
+      if (!state.armed) return;
+      var now = clock();
+      entries.forEach(function (entry) {
+        state.deliveries.push({ t: now, member: ${JSON.stringify(member)}, box: state.labels.get(entry.target) });
+      });
+    });
+    var root = document.querySelector(${JSON.stringify(ROOT)});
+    if (root !== null) { state.labels.set(root, "root"); state.resize.observe(root); }
+    var list = document.querySelector(${JSON.stringify(LIST)});
+    if (list !== null) {
+      state.labels.set(list, "list");
+      state.resize.observe(list);
+      state.mutator = new MutationObserver(function (records) {
+        if (!state.armed) return;
+        var r = records[0];
+        var target = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        var kind = r.type === "attributes"
+          ? "attr:" + r.attributeName
+          : r.type + ":" + (r.addedNodes.length + r.removedNodes.length);
+        state.mutations.push({
+          t: clock(),
+          member: ${JSON.stringify(member)},
+          box: "list",
+          kind: kind + " on " + (target === null ? "?" : target.tagName.toLowerCase() +
+            (target.className && typeof target.className === "string"
+              ? "." + target.className.split(" ")[0]
+              : "")),
+        });
+      });
+      state.mutator.observe(list, { attributes: true, childList: true, subtree: true });
+    }
+    window.__at0626b = state;
+    return state.labels.size;
+  })()`;
+}
+
 /** Disarm, let the cost loop finish its sample in flight, and read it all. */
 async function harvest(app: App): Promise<Omit<Run, "displacements">> {
   await app.evalJS<null>(`(window.__at0626.armed = false, null)`);
+  for (const member of DIVIDED) await app.body(member).evalJS<null>(`(window.__at0626b.armed = false, null)`);
   await app.waitForCondition<boolean>(`window.__at0626.costLoopDone === true`, {
     timeoutMs: 10_000,
   });
-  return app.evalJS<Omit<Run, "displacements">>(
+  const shell = await app.evalJS<Omit<Run, "displacements"> & { origin: number }>(
     `({
       ticks: window.__at0626.ticks,
       costs: window.__at0626.costs,
       moves: window.__at0626.moves,
       deliveries: window.__at0626.deliveries,
       mutations: window.__at0626.mutations,
+      origin: performance.timeOrigin,
     })`,
   );
+  const { origin, ...run } = shell;
+  const onShellClock = (e: Event): Event => ({ ...e, t: e.t - origin });
+  for (const member of DIVIDED) {
+    const body = await app.body(member).evalJS<{ deliveries: Event[]; mutations: Event[] }>(
+      `({ deliveries: window.__at0626b.deliveries, mutations: window.__at0626b.mutations })`,
+    );
+    run.deliveries.push(...body.deliveries.map(onShellClock));
+    run.mutations.push(...body.mutations.map(onShellClock));
+  }
+  run.deliveries.sort((a, b) => a.t - b.t);
+  run.mutations.sort((a, b) => a.t - b.t);
+  return run;
 }
 
 /** How many of the divided members carry the still-crossing mark, right now. */
@@ -695,6 +740,7 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const jotsPath = seedJotsFile();
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0626-sash-drag-sampler",
           env: { TUG_JOTS_PATH: jotsPath },
         });

@@ -22,26 +22,36 @@ struct BodyHitRegion: Equatable {
 
     /// The frames of the bodies placed visible. A hidden body is never here.
     var visibleFrames: [CGRect] = []
+    /// Each visible body's pane grips — the resize handles, which lie half
+    /// over the body — parallel to `visibleFrames`. In a document the handle
+    /// is above the content, so a point on one is the shell's.
+    var visibleGrips: [[CGRect]] = []
     var claim: Claim = .none
 
     /// Whether a viewport point belongs to a body rather than to the shell.
     func passesThrough(_ point: CGPoint) -> Bool {
-        switch claim {
-        case .all:
-            return false
-        case .rects(let rects):
-            if rects.contains(where: { $0.contains(point) }) { return false }
-        case .none:
-            break
-        }
-        return visibleFrames.contains(where: { $0.contains(point) })
+        frameIndex(at: point) != nil
     }
 
     /// The index into `visibleFrames` of the body a point passes through to,
-    /// or nil when the point is the shell's.
+    /// or nil when the point is the shell's. Front to back, the first body
+    /// whose grips or frame hold the point answers: a grip keeps the point
+    /// in the shell — a front pane's handle hanging over the body behind it
+    /// included — and a frame passes it through.
     func frameIndex(at point: CGPoint) -> Int? {
-        guard passesThrough(point) else { return nil }
-        return visibleFrames.firstIndex(where: { $0.contains(point) })
+        switch claim {
+        case .all:
+            return nil
+        case .rects(let rects):
+            if rects.contains(where: { $0.contains(point) }) { return nil }
+        case .none:
+            break
+        }
+        for (index, frame) in visibleFrames.enumerated() {
+            if index < visibleGrips.count, visibleGrips[index].contains(where: { $0.contains(point) }) { return nil }
+            if frame.contains(point) { return index }
+        }
+        return nil
     }
 
     /// Read a `pointerClaim` body: `{all: true}`, `{rects: [...]}`; anything

@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   bodyHoles,
   bodyVisible,
+  gripRects,
   inReadingOrder,
   mirrorInsets,
   paneClipPath,
@@ -26,6 +27,31 @@ const SHOWN: BodyShownFacts = {
   arriving: false,
   layerShown: true,
 };
+
+describe("a body's grips", () => {
+  const rect = (x: number, y: number, width: number, height: number) => ({
+    x, y, width, height, left: x, top: y, right: x + width, bottom: y + height, toJSON: () => ({}),
+  });
+  const handle = (cls: string, r: ReturnType<typeof rect>) => ({
+    className: cls,
+    getBoundingClientRect: () => r,
+  });
+  const frame = (handles: ReturnType<typeof handle>[]) =>
+    ({ querySelectorAll: (sel: string) => (sel === ":scope > .tug-pane-resize" ? handles : []) }) as unknown as Element;
+
+  test("are the pane's resize handles, grown to whole points, and nothing for a pane with none", () => {
+    expect(gripRects(frame([handle("tug-pane-resize tug-pane-resize-s", rect(48.5, 456.25, 544, 8)), handle("tug-pane-resize tug-pane-resize-e", rect(596, 48, 8, 404))]))).toEqual([
+      { x: 48, y: 456, width: 545, height: 9 },
+      { x: 596, y: 48, width: 8, height: 404 },
+    ]);
+    expect(gripRects(frame([]))).toEqual([]);
+    expect(gripRects(null)).toEqual([]);
+  });
+
+  test("a handle with no area is no grip", () => {
+    expect(gripRects(frame([handle("tug-pane-resize tug-pane-resize-s", rect(0, 0, 0, 8))]))).toEqual([]);
+  });
+});
 
 describe("bodyVisible", () => {
   const cases: Array<[string, Partial<BodyShownFacts>, boolean]> = [
@@ -46,7 +72,7 @@ describe("bodyVisible", () => {
 
 describe("the order bodies are posted in", () => {
   test("is the deck's reading order, left to right and then down a column, whatever order they came in", () => {
-    const at = (cardId: string, x: number, y: number) => ({ cardId, x, y, width: 300, height: 200, visible: true, z: 0 });
+    const at = (cardId: string, x: number, y: number) => ({ cardId, x, y, width: 300, height: 200, visible: true, z: 0, grips: [] });
     // Pane-id order — the canvas's — is a, b, text; the deck stands a, text, b.
     const posted = inReadingOrder([at("a", 0, 40), at("b", 640, 40), at("text", 320, 40), at("under-a", 0, 260)]);
     expect(posted.map((b) => b.cardId)).toEqual(["a", "under-a", "text", "b"]);
@@ -58,8 +84,8 @@ describe("the holes bodies cut", () => {
     const holes = bodyHoles({
       radius: 6,
       bodies: [
-        { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
-        { cardId: "b", x: 320, y: 40, width: 300, height: 200, visible: false, z: 0 },
+        { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0, grips: [] },
+        { cardId: "b", x: 320, y: 40, width: 300, height: 200, visible: false, z: 0, grips: [] },
       ],
     });
     expect(holes).toEqual([{ x: 10, y: 40, width: 300, height: 200 }]);
@@ -69,8 +95,8 @@ describe("the holes bodies cut", () => {
     const holes = bodyHoles({
       radius: 6,
       bodies: [
-        { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
-        { cardId: "b", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0 },
+        { cardId: "a", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0, grips: [] },
+        { cardId: "b", x: 10, y: 40, width: 300, height: 200, visible: true, z: 0, grips: [] },
       ],
     });
     expect(holes).toEqual([{ x: 10, y: 40, width: 300, height: 200 }]);
@@ -80,8 +106,8 @@ describe("the holes bodies cut", () => {
     const holes = bodyHoles({
       radius: 6,
       bodies: [
-        { cardId: "a", x: 0, y: 0, width: 100, height: 100, visible: true, z: 0 },
-        { cardId: "b", x: 50, y: 50, width: 100, height: 100, visible: true, z: 0 },
+        { cardId: "a", x: 0, y: 0, width: 100, height: 100, visible: true, z: 0, grips: [] },
+        { cardId: "b", x: 50, y: 50, width: 100, height: 100, visible: true, z: 0, grips: [] },
       ],
     });
     const area = holes.reduce((s, h) => s + h.width * h.height, 0);
@@ -120,7 +146,7 @@ describe("the holes bodies cut", () => {
 function placement(x: number, visible = true): PlaceBodies {
   return {
     radius: 6,
-    bodies: [{ cardId: "a", x, y: 40, width: 300, height: 200, visible, z: 0 }],
+    bodies: [{ cardId: "a", x, y: 40, width: 300, height: 200, visible, z: 0, grips: [] }],
   };
 }
 
@@ -128,8 +154,8 @@ describe("a pane behind bodies", () => {
   const placement: PlaceBodies = {
     radius: 6,
     bodies: [
-      { cardId: "front", x: 500, y: 100, width: 400, height: 300, visible: true, z: 5 },
-      { cardId: "hidden", x: 100, y: 100, width: 400, height: 300, visible: false, z: 5 },
+      { cardId: "front", x: 500, y: 100, width: 400, height: 300, visible: true, z: 5, grips: [] },
+      { cardId: "hidden", x: 100, y: 100, width: 400, height: 300, visible: false, z: 5, grips: [] },
     ],
   };
 

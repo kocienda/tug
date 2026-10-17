@@ -35,6 +35,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -96,11 +97,12 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          testName: "at0527-jot-copies-out-as-a-chip",
+          bodies: true, testName: "at0527-jot-copies-out-as-a-chip",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
         });
         try {
+          const jots = kindBody(app, "jots");
           await app.seedDeckState({ state: sessionDeck(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
             `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
@@ -114,8 +116,8 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
 
           // The seeded jot draws its chip before anything is copied — the copy
           // reads the record, and this is that record having survived the read.
-          await openFirstJotEditor(app);
-          await app.waitForCondition<boolean>(
+          await openFirstJotEditor(app, jots);
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(JOT_CHIP)}) !== null`,
             { timeoutMs: 10_000 },
           );
@@ -125,12 +127,12 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
           // 1 session") while its replay reveals, and a click under it lands
           // on the gate's overlay rather than the row's Copy — which is the
           // gate doing its job. Reach for the button once the gate has let go.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-slot="tug-restore-gate"]') === null`,
             { timeoutMs: 15_000 },
           );
           Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(COPY_SENTINEL) });
-          await app.nativeClickAtElement(
+          await jots.nativeClickAtElement(
             `.jot-editor-header [aria-label="Copy jot"]`,
           );
 
@@ -157,13 +159,13 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
           });
 
           // ---- Paste into the prompt entry. ----------------------------
-          await pasteInto(app, PROMPT_INPUT);
-          await app.waitForCondition<boolean>(
+          await pasteInto(app.body("A"), PROMPT_INPUT);
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(PROMPT_INPUT)} + ' img:not(.cm-widgetBuffer)').length === 1`,
             { timeoutMs: 10_000 },
           );
           const chips = JSON.parse(
-            await app.evalJS<string>(chipsJS(PROMPT_INPUT)),
+            await app.body("A").evalJS<string>(chipsJS(PROMPT_INPUT)),
           ) as string[];
           note("at0527d prompt chips", chips.join(" / "));
           expect(chips).toEqual([`file:${realPath}`]);
@@ -171,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
           // A chip, not the words it would have flattened into — the prose
           // around it survives, the path does not appear as characters, and no
           // placeholder is left standing on its own.
-          const flat = await app.evalJS<string>(flatTextJS(PROMPT_INPUT));
+          const flat = await app.body("A").evalJS<string>(flatTextJS(PROMPT_INPUT));
           note("at0527d prompt text", JSON.stringify(flat));
           expect(flat).toContain("see ");
           expect(flat).toContain(" for the table");

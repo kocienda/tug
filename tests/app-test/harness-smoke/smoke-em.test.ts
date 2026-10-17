@@ -53,7 +53,7 @@ const PROMPT_INPUT_SELECTOR = '[data-slot="tug-text-editor"] .cm-content';
 
 describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
   test("engine-ready fires when a TugTextEditor-backed EM card mounts", async () => {
-    const app = await launchTugApp({ testName: "smoke-em-engine-ready" });
+    const app = await launchTugApp({ testName: "smoke-em-engine-ready", bodies: true });
     try {
       await app.enableDeckTrace(true);
 
@@ -99,10 +99,11 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
       await app.awaitEngineReady("A");
 
       // Probe the trace ring directly to assert the engine-ready
-      // event carries the expected fields. TugTextEditor stamps
-      // `engine: "tug-text-editor"` regardless of which wrapper
+      // event carries the expected fields. The editor mounts in the
+      // card's body, so the event is in the body's ring. TugTextEditor
+      // stamps `engine: "tug-text-editor"` regardless of which wrapper
       // mounts it (TugPromptInput, TugPromptEntry, etc.).
-      const events = await app.getDeckTrace();
+      const events = await app.body("A").getDeckTrace();
       const engineReady = events.find(
         (e) => e.kind === "engine-ready" && (e as { cardId?: string }).cardId === "A",
       );
@@ -119,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
   });
 
   test("getEmCardState reflects current engine text after typing", async () => {
-    const app = await launchTugApp({ testName: "smoke-em-get-state" });
+    const app = await launchTugApp({ testName: "smoke-em-get-state", bodies: true });
     try {
       await app.enableDeckTrace(true);
       await app.seedDeckState({
@@ -157,8 +158,8 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
       // Click into the prompt input to focus it, then type some
       // text. The selector matches TugTextEditor's contenteditable
       // (`.cm-content`) inside the gallery card.
-      await app.nativeClickAtElement(`[data-card-id="A"] ${PROMPT_INPUT_SELECTOR}`);
-      await app.waitForCondition<boolean>(
+      await app.body("A").nativeClickAtElement(`[data-card-id="A"] ${PROMPT_INPUT_SELECTOR}`);
+      await app.body("A").waitForCondition<boolean>(
         `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(PROMPT_INPUT_SELECTOR)})`,
       );
       await app.nativeType("hello em");
@@ -168,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
       // may not reflect every keystroke by the time `nativeType`
       // resolves. Wait for the engine to report the full text
       // before asserting.
-      await app.waitForCondition<boolean>(
+      await app.body("A").waitForCondition<boolean>(
         `(typeof window.__tug !== "undefined") && (window.__tug.getEmCardState("A")?.text === "hello em")`,
         { timeoutMs: 2000 },
       );
@@ -191,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
   });
 
   test("getEmCardState returns null for an FC card", async () => {
-    const app = await launchTugApp({ testName: "smoke-em-fc-returns-null" });
+    const app = await launchTugApp({ testName: "smoke-em-fc-returns-null", bodies: true });
     try {
       await app.seedDeckState({
         state: {

@@ -45,6 +45,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
+import { holdModifier } from "./_harness/client";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -130,7 +132,10 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           testName: "at0417-jot-annotation-links",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
+          bodies: true,
         });
+        const jots = kindBody(app, "jots");
+        const textCard = kindBody(app, "text");
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: priorCardDeck({ size: { width: 900, height: 700 } }), focusCardId: "A" });
@@ -141,24 +146,24 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
 
           // 1. Open the Jots card and the seeded row's editor.
           await app.dispatchControlAction("toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector('.jots-card .jot-row-label') !== null`,
             { timeoutMs: 5_000 },
           );
-          await app.nativeClickAtElement(".jots-card .jot-row-label");
-          await app.waitForCondition<boolean>(
+          await jots.nativeClickAtElement(".jots-card .jot-row-label");
+          await jots.waitForCondition<boolean>(
             `document.querySelector('.jots-card .jots-list[data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
 
           // 2. The stat round trip lands and the cited run is marked. The
           //    resolver answers asynchronously, so this is a wait, not a read.
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LINK)}) !== null`,
             { timeoutMs: 12_000 },
           );
@@ -166,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           // Exactly one run is marked — the file that exists, with its line
           // citation inside the mark (the click opens AT the line, so the
           // characters that spell it have to be part of the target).
-          const marked = await app.evalJS<string[]>(
+          const marked = await jots.evalJS<string[]>(
             `Array.from(document.querySelectorAll(${JSON.stringify(LINK)}))
                .map((el) => el.textContent ?? '')`,
           );
@@ -178,21 +183,21 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           //    client rect rather than its bounding box: the editor soft-wraps
           //    and a wrapped inline box's union rect has a center that lands in
           //    neither fragment.
-          const viewportPoint = await app.evalJS<{ x: number; y: number }>(
+          const viewportPoint = await jots.evalJS<{ x: number; y: number }>(
             `(() => {
                const el = document.querySelector(${JSON.stringify(LINK)});
                const rect = el.getClientRects()[0];
                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
              })()`,
           );
-          await app.holdModifier(["cmd"], async (inner) => {
+          await holdModifier(jots, ["cmd"], async (inner) => {
             await inner.rpcCall<void>("nativeClick", { viewportPoint });
           });
 
           // 4. The file opens in a Text card, showing its content.
-          await app.waitForCondition<boolean>(
+          await textCard.waitForCondition<boolean>(
             `(() => {
-               const ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
+ ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
                return ed !== null && (ed.textContent ?? '').includes(${JSON.stringify(MARKER)});
              })()`,
             { timeoutMs: 12_000 },
@@ -250,7 +255,10 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           testName: "at0417-jot-relative-path",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
+          bodies: true,
         });
+        const jots = kindBody(app, "jots");
+        const textCard = kindBody(app, "text");
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: sessionDeck(), focusCardId: "A" });
@@ -267,47 +275,47 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           });
 
           await app.dispatchControlAction("toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector('.jots-card .jot-row-label') !== null`,
             { timeoutMs: 5_000 },
           );
-          await app.nativeClickAtElement(".jots-card .jot-row-label");
-          await app.waitForCondition<boolean>(
+          await jots.nativeClickAtElement(".jots-card .jot-row-label");
+          await jots.waitForCondition<boolean>(
             `document.querySelector('.jots-card .jots-list[data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
 
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LINK)}) !== null`,
             { timeoutMs: 12_000 },
           );
           // The backticks are punctuation around the reference, not part of
           // it: the mark covers the path and its line citation, nothing else.
-          const marked = await app.evalJS<string[]>(
+          const marked = await jots.evalJS<string[]>(
             `Array.from(document.querySelectorAll(${JSON.stringify(LINK)}))
                .map((el) => el.textContent ?? '')`,
           );
           expect(marked).toEqual([`${relative}:${CITED_LINE}`]);
 
-          const viewportPoint = await app.evalJS<{ x: number; y: number }>(
+          const viewportPoint = await jots.evalJS<{ x: number; y: number }>(
             `(() => {
                const el = document.querySelector(${JSON.stringify(LINK)});
                const rect = el.getClientRects()[0];
                return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
              })()`,
           );
-          await app.holdModifier(["cmd"], async (inner) => {
+          await holdModifier(jots, ["cmd"], async (inner) => {
             await inner.rpcCall<void>("nativeClick", { viewportPoint });
           });
 
-          await app.waitForCondition<boolean>(
+          await textCard.waitForCondition<boolean>(
             `(() => {
-               const ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
+ ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
                return ed !== null && (ed.textContent ?? '').includes(${JSON.stringify(MARKER)});
              })()`,
             { timeoutMs: 12_000 },

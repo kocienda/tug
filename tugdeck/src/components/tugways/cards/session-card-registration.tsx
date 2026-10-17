@@ -169,7 +169,11 @@ export function registerSessionCard(): void {
     openingForm: (cardId) => sessionPickerPanel({ cardId }),
     // What the hidden card waits on before it is revealed ([B03]): the
     // picker's listing settling or filling its cap, and its rows' synopses.
-    arrivalQuiet: () => sessionPickerQuiet(),
+    // On a host that makes bodies the picker is drawn in the card's body,
+    // so the shell has no listing to watch: the card waits on its body's
+    // paint, as a bound card does.
+    arrivalQuiet: (cardId) =>
+      hostCapabilitiesStore.get().bodyViews ? bodyReadyQuiet(cardId) : sessionPickerQuiet(),
     // A card opened bound on a host that makes bodies is handed to a body,
     // and is held hidden until that body has painted it, or the bound.
     boundArrivalQuiet: (cardId) =>

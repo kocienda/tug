@@ -47,6 +47,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -67,6 +68,9 @@ const WRITTEN_TEXT = "the second jot\nwith a *middle* line\nand a last one";
 const BLANK = "s3";
 
 const rowOf = (id: string): string => `[data-jot-id="${id}"]`;
+
+/** The Jots card's own page, where its rows and their menu stand. */
+const jots = (app: App) => kindBody(app, "jots");
 
 /** Distinguishes "the copy wrote this" from "the copy never happened". */
 const SENTINEL = "at0615-sentinel-nothing-copied";
@@ -117,7 +121,7 @@ async function openJotsCard(app: App): Promise<void> {
     { timeoutMs: 5_000 },
   );
   await app.dispatchControlAction("toggle-jots");
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector('${rowOf(WRITTEN)}') !== null`,
     { timeoutMs: 5_000 },
   );
@@ -126,8 +130,8 @@ async function openJotsCard(app: App): Promise<void> {
 /** Right-click the row's LABEL — its ground, not an accessory — and wait for
  *  the menu. */
 async function openRowMenu(app: App, id: string): Promise<void> {
-  await app.nativeRightClickAtElement(`${rowOf(id)} .jot-row-label`);
-  await app.waitForCondition<boolean>(
+  await jots(app).nativeRightClickAtElement(`${rowOf(id)} .jot-row-label`);
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) !== null`,
     { timeoutMs: 8_000 },
   );
@@ -144,6 +148,7 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0615-jot-row-menu",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
@@ -155,12 +160,12 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           // Nothing else answered the same press — no stack of menus, and no
           // fallback "No Actions" underneath.
           expect(
-            await app.evalJS<number>(
+            await jots(app).evalJS<number>(
               `document.querySelectorAll('.tug-menu-content').length`,
             ),
           ).toBe(1);
 
-          const rows = await app.evalJS<
+          const rows = await jots(app).evalJS<
             ReadonlyArray<{ action: string; label: string; disabled: boolean }>
           >(menuRows());
           note("at0615 menu", JSON.stringify(rows));
@@ -196,8 +201,8 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
 
           // ---- Copy carries the WHOLE jot, not the row's incipit. ---------
           setPasteboard(SENTINEL);
-          await app.nativeClickAtElement(`${MENU} [data-item-action="copy-jot"]`);
-          await app.waitForCondition<boolean>(
+          await jots(app).nativeClickAtElement(`${MENU} [data-item-action="copy-jot"]`);
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -213,8 +218,8 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           // ---- Paste REPLACES the jot it landed on. ----------------------
           setPasteboard(PASTED);
           await openRowMenu(app, WRITTEN);
-          await app.nativeClickAtElement(`${MENU} [data-item-action="paste-into-jot"]`);
-          await app.waitForCondition<boolean>(
+          await jots(app).nativeClickAtElement(`${MENU} [data-item-action="paste-into-jot"]`);
+          await jots(app).waitForCondition<boolean>(
             `(() => {
                const row = document.querySelector('${rowOf(WRITTEN)}');
                return row !== null &&
@@ -226,7 +231,7 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           // …and the document on disk agrees: the target replaced, its
           // neighbours untouched. A paste that appended, or that landed on the
           // wrong row, fails here and only here.
-          await app.waitForCondition<boolean>(
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -266,6 +271,7 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0615b-jot-row-menu-empty",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
@@ -274,7 +280,7 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           await openJotsCard(app);
           await openRowMenu(app, BLANK);
 
-          const rows = await app.evalJS<
+          const rows = await jots(app).evalJS<
             ReadonlyArray<{ action: string; disabled: boolean }>
           >(menuRows());
           note("at0615b menu", JSON.stringify(rows));
@@ -296,25 +302,25 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
           // fails silently if it fails at all, which is why it is pinned here.
           // An EMPTY jot has no written words to guard, so this one deletes
           // outright: `requestDeleteJot`'s carve-out, reached through the menu.
-          await app.nativeClickAtElement(
+          await jots(app).nativeClickAtElement(
             `${MENU} [data-item-action="delete-jot"]`,
           );
-          await app.waitForCondition<boolean>(
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector('${rowOf(BLANK)}') === null`,
             { timeoutMs: 8_000 },
           );
 
           // ---- New Jot lands BELOW the row it was asked from. -------------
           await openRowMenu(app, "s1");
-          await app.nativeClickAtElement(
+          await jots(app).nativeClickAtElement(
             `${MENU} [data-item-action="new-jot-below"]`,
           );
           // The new jot opens for editing, which is the gesture's whole point.
-          await app.waitForCondition<boolean>(
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector('.jots-list .jot-editor') !== null`,
             { timeoutMs: 8_000 },
           );
-          const order = await app.evalJS<ReadonlyArray<string>>(
+          const order = await jots(app).evalJS<ReadonlyArray<string>>(
             `Array.prototype.map.call(
                document.querySelectorAll('.jots-list [data-jot-id]'),
                function (r) { return r.getAttribute('data-jot-id'); })`,

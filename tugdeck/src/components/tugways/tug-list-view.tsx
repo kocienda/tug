@@ -1757,6 +1757,12 @@ type TugListViewComponent = <DS extends TugListViewDataSource>(
  * omits `estimatedHeightForKind`. Matches the JSDoc on
  * `TugListViewDelegate.estimatedHeightForKind`.
  */
+/**
+ * The pane frame a held interior stands in: the shell's pane, or a body
+ * page's own frame, which wears its pane's crossing as the shell relays it.
+ */
+const HELD_FRAME_SELECTOR = ".tug-pane[data-pane-id], .body-pane-frame[data-pane-id]";
+
 const DEFAULT_ESTIMATED_HEIGHT = 60;
 
 /**
@@ -4256,7 +4262,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       // commit pins it — the land hop. So the pane is RESOLVED LIVE on every
       // use (`closest` is a tree walk, no layout).
       const resolveHeldFrame = (): HTMLElement | null =>
-        el.closest<HTMLElement>(".tug-pane[data-pane-id]");
+        el.closest<HTMLElement>(HELD_FRAME_SELECTOR);
       // Both doors are split into a half that READS and a half that WRITES
       // ([P03] of the engine-time plan), so the settle engine can read every
       // interior in its read phase before it writes any: each list view's
@@ -5316,7 +5322,7 @@ const TugListViewInner = React.forwardRef<TugListViewHandle, TugListViewProps>(
       {
         const floorEl = extentFloorRef.current;
         if (floorEl !== null) {
-          const heldFrame = el.closest<HTMLElement>(".tug-pane[data-pane-id]");
+          const heldFrame = el.closest<HTMLElement>(HELD_FRAME_SELECTOR);
           if (heldFrame !== null && isInteriorHeld(heldFrame)) {
             owedRebaseRef.current = true;
           } else {

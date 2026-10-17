@@ -78,8 +78,8 @@ function deckShape() {
 }
 
 async function focusEditor(app: App): Promise<void> {
-  await app.nativeClickAtElement(CONTENT_SELECTOR);
-  await app.waitForCondition<boolean>(
+  await app.body("A").nativeClickAtElement(CONTENT_SELECTOR);
+  await app.body("A").waitForCondition<boolean>(
     `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(CONTENT_SELECTOR)})`,
     { timeoutMs: 2000 },
   );
@@ -107,7 +107,7 @@ interface RunStyle {
  * contains `needle`. Null before the grammar resolves and the spans mint.
  */
 async function runStyle(app: App, needle: string): Promise<RunStyle | null> {
-  return app.evalJS<RunStyle | null>(
+  return app.body("A").evalJS<RunStyle | null>(
     `(function(){
       var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
       if (!content) return null;
@@ -138,7 +138,7 @@ async function runStyle(app: App, needle: string): Promise<RunStyle | null> {
  * has no glyphs.
  */
 async function hardBreakBackground(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("A").evalJS<string | null>(
     `(function(){
       var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
       if (!content) return null;
@@ -158,7 +158,7 @@ async function hardBreakBackground(app: App): Promise<string | null> {
 
 /** Live document text straight from the engine. */
 async function docText(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("A").evalJS<string | null>(
     `(function(){
       var s = window.__tug.getEmCardState("A");
       return s !== null && typeof s.text === "string" ? s.text : null;
@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
         seedTugbankForLaunch(tugbankPath);
 
         const app = await launchTugApp({
-          testName: "at0269-markdown-text-style-constructs",
+          bodies: true, testName: "at0269-markdown-text-style-constructs",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
           foreground: true,
@@ -211,7 +211,7 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
 
           // The grammar resolves through the substrate's effect; wait until
           // the struck run actually paints its decoration.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
               if (!content) return false;
@@ -252,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
           // code run keeps the mono stack while the prose beside it follows
           // the host — the cascade this treatment exists for.
           expect(code!.fontFamily.toLowerCase()).toContain("mono");
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `(function(){
               var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
               if (!content) return false;
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
           expect(plainSans!.fontFamily.toLowerCase()).toContain("sans");
           expect(codeSans!.fontFamily.toLowerCase()).toContain("mono");
           expect(codeSans!.fontFamily).not.toBe(plainSans!.fontFamily);
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `(function(){
               var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
               if (content) content.style.fontFamily = "";
@@ -289,14 +289,14 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
           await focusEditor(app);
           await app.nativeKey("a", ["cmd"]);
           await app.nativeKey("Delete");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){ var s = window.__tug.getEmCardState("A"); return s !== null && s.text === ""; })()`,
             { timeoutMs: 2000 },
           );
           await typeChunked(app, "```ts");
           await app.nativeKey("Return");
           await typeChunked(app, "const fencedZ = 1;");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
               if (!content) return false;
@@ -323,7 +323,7 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
           await focusEditor(app);
           await app.nativeKey("a", ["cmd"]);
           await app.nativeKey("Delete");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){ var s = window.__tug.getEmCardState("A"); return s !== null && s.text === ""; })()`,
             { timeoutMs: 2000 },
           );

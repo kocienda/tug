@@ -120,7 +120,10 @@ async function selectWord(
   rootSelector: string,
   word: string,
 ): Promise<void> {
-  const measured = await app.evalJS<string>(
+  // Both surfaces are card A's, and card A is a body: the word is measured,
+  // double-clicked and read back in its own page.
+  const page = app.body("A");
+  const measured = await page.evalJS<string>(
     `(function(){
       var root = document.querySelector(${JSON.stringify(rootSelector)});
       if (root === null) return "__NO_ROOT__";
@@ -156,14 +159,14 @@ async function selectWord(
     throw new Error(`could not locate "${word}" in ${rootSelector}: ${measured}`);
   }
   const point = JSON.parse(measured) as { x: number; y: number; hit: string };
-  await app.nativeDoubleClick({ x: point.x, y: point.y });
+  await page.nativeDoubleClick({ x: point.x, y: point.y });
   try {
-    await app.waitForCondition<boolean>(
+    await page.waitForCondition<boolean>(
       `(window.getSelection() || { toString: () => "" }).toString().trim() === ${JSON.stringify(word)}`,
       { timeoutMs: 6000 },
     );
   } catch {
-    const got = await app.evalJS<string>(
+    const got = await page.evalJS<string>(
       `String((window.getSelection() || { toString: () => "" }).toString())`,
     );
     throw new Error(
@@ -183,7 +186,7 @@ async function waitForQuery(
   inputSelector: string,
   query: string,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(() => {
       const el = document.querySelector(${JSON.stringify(inputSelector)});
       return el !== null && (el.innerText || "").trim() === ${JSON.stringify(query)};
@@ -206,7 +209,7 @@ async function seedSession(app: App): Promise<void> {
     { timeoutMs: 15_000 },
   );
   await app.bindSession("A", { tugSessionId: SID });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('${CARD} [data-slot="session-telemetry-status-row"]') !== null`,
     { timeoutMs: 8000 },
   );
@@ -214,8 +217,14 @@ async function seedSession(app: App): Promise<void> {
   // Two committed turns. `quartzite` appears in both, `ridge` only in the
   // first — so a re-seed on it changes the count as well as the query, and it
   // sits on the same line as the match the first search scrolled into view.
+  // The turns arrive as a replay — `add_user_message` rather than a live
+  // `send`, bracketed by `replay_started`/`replay_complete` — the shape
+  // every bodies-on Session file seeds with (`at0191`, `at0418`). A live
+  // `send` followed by a synthetic `assistant_text` left the reply unrendered
+  // in the card's own page: the user turn showed, its text never did.
+  await app.driveSession("A", f({ type: "replay_started" }));
   for (const [i, tail] of ["ridge", "mesa"].entries()) {
-    await app.driveSession("A", { op: "send", text: `ask ${i}` });
+    await app.driveSession("A", f({ type: "add_user_message", content: [{ type: "text", text: `ask ${i}` }] }));
     await app.driveSession(
       "A",
       f({
@@ -225,12 +234,16 @@ async function seedSession(app: App): Promise<void> {
         text: `${PROBE} ${tail} sits in reply ${i}.`,
         is_partial: false,
         rev: 0,
-        seq: 0,
+        seq: i + 1,
       }),
     );
     await app.driveSession("A", f({ type: "turn_complete", seq: 0, msg_id: `m${i}`, result: "success" }));
   }
-  await app.waitForCondition<boolean>(
+  await app.driveSession(
+    "A",
+    f({ type: "replay_complete", count: 2, firstLoadedTurnIndex: 0, totalTurns: 2, hasOlder: false }),
+  );
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelectorAll('${CARD} [data-tug-list-cell-index]').length >= 4`,
     { timeoutMs: 10_000 },
   );
@@ -238,7 +251,7 @@ async function seedSession(app: App): Promise<void> {
 
 /** Ranges painted across both transcript find registries. */
 async function waitForPainted(app: App, expected: number): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(() => {
       let n = 0;
       for (const name of ['transcript-find-match', 'transcript-find-active']) {
@@ -270,7 +283,7 @@ async function mountTextCard(app: App): Promise<void> {
     },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(TEXT_EDITOR)});
       return el !== null && el.innerText.indexOf("alpha meridian") !== -1;
@@ -283,13 +296,13 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
   test(
     "session card: ⌘E summons the bar on the selected word, then re-seeds it in place",
     async () => {
-      const app = await launchTugApp({ testName: "at0403-session" });
+      const app = await launchTugApp({ bodies: true, testName: "at0403-session" });
       try {
         await seedSession(app);
 
         // Nothing is searching yet — the bar is not mounted until asked for.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(SESSION_BAR)}) === null`,
           ),
           "the bar is not mounted before ⌘E",
@@ -299,18 +312,18 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
         await selectWord(app, SESSION_TRANSCRIPT, PROBE);
         await useSelectionForFind(app);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SESSION_BAR)}) !== null`,
           { timeoutMs: 6000 },
         );
         await waitForQuery(app, SESSION_INPUT, PROBE);
         // The search RAN: both occurrences are painted and one is active.
         await waitForPainted(app, 2);
-        expect(await app.evalJS<string>(activeMatchTextExpr())).toBe(PROBE);
+        expect(await app.body("A").evalJS<string>(activeMatchTextExpr())).toBe(PROBE);
         // The bar took the caret, as it does on ⌘F, and the seeded query is
         // selected whole so the next keystroke replaces it.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `(() => {
               const input = document.querySelector(${JSON.stringify(SESSION_INPUT)});
               return input !== null && document.activeElement !== null &&
@@ -326,14 +339,14 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
         await selectWord(app, SESSION_TRANSCRIPT, "ridge");
         await useSelectionForFind(app);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(SESSION_BAR)}) !== null`,
           ),
           "⌘E never dismisses the bar",
         ).toBe(true);
         await waitForQuery(app, SESSION_INPUT, "ridge");
         await waitForPainted(app, 1);
-        expect(await app.evalJS<string>(activeMatchTextExpr())).toBe("ridge");
+        expect(await app.body("A").evalJS<string>(activeMatchTextExpr())).toBe("ridge");
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0403-session] log tail:\n${tail}\n`);
@@ -348,7 +361,7 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
   test(
     "text card: ⌘E searches the editor's selection, and re-seeds an open bar",
     async () => {
-      const app = await launchTugApp({ testName: "at0403-text" });
+      const app = await launchTugApp({ bodies: true, testName: "at0403-text" });
       try {
         await mountTextCard(app);
 
@@ -357,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
         await selectWord(app, TEXT_EDITOR, "meridian");
         await useSelectionForFind(app);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(TEXT_BAR)}) !== null`,
           { timeoutMs: 6000 },
         );
@@ -367,7 +380,7 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
         // the anchor rather than past it, so ⌘E lands on the very text the
         // double-click selected. `selectWord` takes the first visible
         // occurrence, which is the one on line 1, so the ordinal is still 1.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
             const el = document.querySelector(${JSON.stringify(TEXT_CHIP)});
             return el !== null && (el.textContent || '').trim() === "1 of 3";
@@ -375,7 +388,7 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
           { timeoutMs: 8000 },
         );
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll('${CARD} [data-slot="tug-text-card-editor"] .cm-searchMatch-selected').length`,
           ),
           "the first match is selected in the document",
@@ -385,13 +398,13 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
         await selectWord(app, TEXT_EDITOR, "epsilon");
         await useSelectionForFind(app);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(TEXT_BAR)}) !== null`,
           ),
           "⌘E never dismisses the bar",
         ).toBe(true);
         await waitForQuery(app, TEXT_INPUT, "epsilon");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(() => {
             const el = document.querySelector(${JSON.stringify(TEXT_CHIP)});
             return el !== null && (el.textContent || '').trim() === "1 of 1";

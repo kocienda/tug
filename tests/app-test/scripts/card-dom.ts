@@ -17,7 +17,11 @@
  * beside it, three names deep, so a selector held in a constant still counts.
  */
 
-/** The page-evaluating verbs a test calls on `App` (and on `BodyApp`). */
+/**
+ * The page-evaluating verbs a test calls on `App` (and on `BodyApp`): the
+ * evaluators, and the gestures and element reads that take a selector and
+ * resolve it in the page they are sent to.
+ */
 export const EVALUATORS = [
   "evalJS",
   "waitForCondition",
@@ -26,6 +30,16 @@ export const EVALUATORS = [
   "getComputedStyleValue",
   "getSelection",
   "screenshot",
+  "click",
+  "type",
+  "focusElement",
+  "getElementText",
+  "getElementValue",
+  "getElementAttribute",
+  "getElementBounds",
+  "nativeClickAtElement",
+  "nativeRightClickAtElement",
+  "nativeDoubleClickAtElement",
 ] as const;
 
 /** Selectors that enter a card's DOM whatever the card's kind. */
@@ -33,6 +47,18 @@ export const CARD_SELECTORS = [
   "[data-card-host]",
   "cardHost(",
   "keyboardIsInCard(",
+  "inputSelectorFor(",
+  "__tug.getCaretState(",
+  "__tug.getFormControlValue(",
+  "__tug.getEmCardState(",
+  "__tug.isEngineReady(",
+  "__tug.sessionSettled(",
+  "__tug.inkRestoreFacts(",
+  "__tug.refreshInkRestore(",
+  "__tug.lastSentUserMessage(",
+  "__tug.ingestSessionMetadata(",
+  "__tug.getSessionPerf(",
+  "__tug.getCardStateBag(",
   "keyboardInCardHost(",
   "ROUTE_CHOICE",
   '[data-slot="tug-choice-group"][aria-label="Route"]',
@@ -294,25 +320,45 @@ interface NamedCards {
   ids: string[];
   /** As written, for each resolved id. */
   sources: Map<string, string>;
+  /** The expression each unresolved `?` was written as (`cardId`, `arc.cardId`). */
+  unresolved: string[];
 }
 
-/** The card ids `text` names, through `cardHost(…)`, the keyboard helpers and `data-card-id=`. */
+/** The card ids `text` names, through `cardHost(…)`, `inputSelectorFor(…)`, the keyboard helpers and `data-card-id=`. */
 export function cardsNamed(text: string, bindings: Map<string, string>): NamedCards {
   const ids: string[] = [];
   const sources = new Map<string, string>();
+  const unresolved: string[] = [];
   const add = (id: string | null, source: string): void => {
     if (id === null) {
       ids.push("?");
+      unresolved.push(source);
       return;
     }
     ids.push(id);
     if (!sources.has(id)) sources.set(id, source);
   };
-  const helper = /\b(?:cardHost|keyboardIsInCard|keyboardInCardHost)\(\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?(["'`][^"'`$]*["'`]|[A-Za-z_$][\w$.]*)\s*[,)]/g;
+  const helper = /\b(?:cardHost|inputSelectorFor|keyboardIsInCard|keyboardInCardHost|__tug\.(?:getCaretState|getFormControlValue|getEmCardState|isEngineReady|sessionSettled|inkRestoreFacts|refreshInkRestore|lastSentUserMessage|ingestSessionMetadata|getSessionPerf|getCardStateBag))\(\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?(["'`][^"'`$]*["'`]|["'`]?\$\{[^}]*\}["'`]?|[A-Za-z_$][\w$.]*)\s*[,)]/g;
+  let helperNamed = 0;
   for (const m of text.matchAll(helper)) {
     const arg = m[1];
-    if (/^["'`]/.test(arg)) add(arg.slice(1, -1), JSON.stringify(arg.slice(1, -1)));
+    // `${JSON.stringify(CARD)}` or `"${CARD}"`, written inside an evaluated string.
+    const interp = /^["'`]?\$\{\s*(?:JSON\.stringify\(\s*)?([A-Za-z_$][\w$]*)\s*\)?\s*\}["'`]?$/.exec(arg);
+    if (interp !== null) add(literalOf(bindings, interp[1]), interp[1]);
+    else if (/^["'`]/.test(arg)) add(arg.slice(1, -1), JSON.stringify(arg.slice(1, -1)));
     else add(literalOf(bindings, arg), arg);
+    helperNamed++;
+  }
+  // A function the file binds (or imports) whose body scopes a selector by
+  // its first parameter — `function xFor(cardId) { return \`[data-card-id="${cardId}"] …\` }`
+  // — is a card-selector builder like `cardHost`: its call names its card.
+  for (const name of selectorBuilders(bindings)) {
+    for (const m of text.matchAll(new RegExp(`\\b${name}\\(\\s*(["'\`][^"'\`$]*["'\`]|[A-Za-z_$][\\w$.]*)\\s*[,)]`, "g"))) {
+      const arg = m[1];
+      if (/^["'`]/.test(arg)) add(arg.slice(1, -1), JSON.stringify(arg.slice(1, -1)));
+      else add(literalOf(bindings, arg), arg);
+      helperNamed++;
+    }
   }
   const attr = /data-card-id=\\*["']?(\$\{\s*([^}]*?)\s*\}|[^"'\\\]\s]+)/g;
   for (const m of text.matchAll(attr)) {
@@ -320,34 +366,75 @@ export function cardsNamed(text: string, bindings: Map<string, string>): NamedCa
       const inner = m[2];
       const call = /^JSON\.stringify\(\s*([A-Za-z_$][\w$]*)\s*\)$/.exec(inner);
       const name = call !== null ? call[1] : /^[A-Za-z_$][\w$]*$/.test(inner) ? inner : null;
-      add(name === null ? null : literalOf(bindings, name), name ?? inner);
+      const id = name === null ? null : literalOf(bindings, name);
+      // An interpolation nothing binds, in text that already named its card
+      // through a helper call, is that helper's own body written in beside
+      // the call: its parameter is the card the call named, not another.
+      if (id === null && helperNamed > 0) continue;
+      add(id, name ?? inner);
     } else {
       add(m[1], JSON.stringify(m[1]));
     }
   }
-  return { ids, sources };
+  return { ids, sources, unresolved };
+}
+
+/** A selector scoped by a card's `data-card-id` with something inside it (not the shell's placeholder). */
+const SCOPED_IN_CARD = /(?<!\[data-body-placeholder\])\[data-card-id=[^\]]*\]\s+[[.#A-Za-z]/;
+
+/** Whether `text` composes `${NAME} <descendant>` where `NAME` is bound to a bare card scope, `[data-card-id="…"]`. */
+function scopedThroughConst(text: string, bindings: Map<string, string>): boolean {
+  for (const m of text.matchAll(/\$\{\s*([A-Za-z_$][\w$]*)\s*\}\s+[[.#A-Za-z]/g)) {
+    const value = (bindings.get(m[1]) ?? "").trim().replace(/^["'`]|["'`]$/g, "");
+    if (/^\[data-card-id=[^\]]*\]$/.test(value)) return true;
+  }
+  return false;
+}
+
+/** The bound functions whose body writes `data-card-id="${<first parameter>}"`. */
+function selectorBuilders(bindings: Map<string, string>): string[] {
+  const names: string[] = [];
+  for (const [name, value] of bindings) {
+    const param = /^(?:function\b[^(]*|(?:async\s+)?)\(\s*([A-Za-z_$][\w$]*)/.exec(value.trim());
+    if (param === null) continue;
+    if (new RegExp(`data-card-id=\\\\*["']?\\$\\{\\s*(?:JSON\\.stringify\\(\\s*)?${param[1]}\\b`).test(value)) names.push(name);
+  }
+  return names;
+}
+
+/** One card the file seeds: its kind, and its id as the source spells it (a literal, or the const's name). */
+export interface SeededCard {
+  readonly kind: string;
+  readonly source: string;
+}
+
+/** Each card the file seeds as `{ id: …, componentId: "…" }`, by id. */
+export function seededCards(src: string, bindings: Map<string, string>): Map<string, SeededCard> {
+  const cards = new Map<string, SeededCard>();
+  const idValue = (raw: string): { id: string; source: string } | null => {
+    const v = raw.trim();
+    const lit = /^(["'`])([^"'`$]*)\1$/.exec(v);
+    if (lit !== null) return { id: lit[2], source: JSON.stringify(lit[2]) };
+    if (!/^[A-Za-z_$][\w$]*$/.test(v)) return null;
+    const id = literalOf(bindings, v);
+    return id === null ? null : { id, source: v };
+  };
+  const forward = /\bid:\s*([^,{}\n]+?)\s*,[^{}]*?\bcomponentId:\s*["']([\w-]+)["']/g;
+  for (const m of src.matchAll(forward)) {
+    const v = idValue(m[1]);
+    if (v !== null) cards.set(v.id, { kind: m[2], source: v.source });
+  }
+  const backward = /\bcomponentId:\s*["']([\w-]+)["']\s*,[^{}]*?\bid:\s*([^,{}\n]+?)\s*[,}]/g;
+  for (const m of src.matchAll(backward)) {
+    const v = idValue(m[2]);
+    if (v !== null && !cards.has(v.id)) cards.set(v.id, { kind: m[1], source: v.source });
+  }
+  return cards;
 }
 
 /** The kind of each card the file seeds as `{ id: …, componentId: "…" }`. */
 export function seededKinds(src: string, bindings: Map<string, string>): Map<string, string> {
-  const kinds = new Map<string, string>();
-  const idValue = (raw: string): string | null => {
-    const v = raw.trim();
-    const lit = /^(["'`])([^"'`$]*)\1$/.exec(v);
-    if (lit !== null) return lit[2];
-    return /^[A-Za-z_$][\w$]*$/.test(v) ? literalOf(bindings, v) : null;
-  };
-  const forward = /\bid:\s*([^,{}\n]+?)\s*,[^{}]*?\bcomponentId:\s*["']([\w-]+)["']/g;
-  for (const m of src.matchAll(forward)) {
-    const id = idValue(m[1]);
-    if (id !== null) kinds.set(id, m[2]);
-  }
-  const backward = /\bcomponentId:\s*["']([\w-]+)["']\s*,[^{}]*?\bid:\s*([^,{}\n]+?)\s*[,}]/g;
-  for (const m of src.matchAll(backward)) {
-    const id = idValue(m[2]);
-    if (id !== null && !kinds.has(id)) kinds.set(id, m[1]);
-  }
-  return kinds;
+  return new Map([...seededCards(src, bindings)].map(([id, c]) => [id, c.kind]));
 }
 
 /** Every kind the file seeds a card of. */
@@ -388,15 +475,51 @@ function receiverStart(src: string, dot: number): number {
   return j + 1;
 }
 
-/** Names the file binds to a body: `x = ….body(…)` or one of the harness's body finders, or a parameter typed `BodyApp`. */
+/**
+ * Names the file binds to a body: `x = ….body(…)` or one of the harness's
+ * body finders (an arrow returning one, too, called as `x(app)`), or a
+ * parameter typed `BodyApp`.
+ */
 function bodyNames(src: string): Set<string> {
   const names = new Set<string>();
-  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bstandUpKind\(|\bcardPage\()/g)) names.add(m[1]);
+  for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bkindBody\(|\bstandUpKind\(|\bcardPage\()/g)) names.add(m[1]);
   for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*BodyApp\b/g)) names.add(m[1]);
   return names;
 }
 
-const SHELL_READ = /window\.__tug\b|window\.tugdeck\b|\b__tug\./;
+/**
+ * The `window.__tug` verbs a body's page answers too — the view methods
+ * (`createViewSurfaceMethods` in `tugdeck/src/test-surface.ts`) and the
+ * Overview store's — so a call to one of them moves onto a body with the
+ * rest of its reach. Any other `__tug` verb, and `window.tugdeck`, is the
+ * shell's deck.
+ */
+const BODY_TUG_VERBS = new Set([
+  "getFirstResponderId", "getKeyCardId", "ringFollowsPointer", "click", "type", "focusElement",
+  "enableDeckTrace", "getElementText", "getElementValue", "getElementAttribute", "getElementBounds",
+  "getElementState", "getActiveElement", "getEmCardState", "isEngineReady", "getCaretState",
+  "getFormControlValue", "assertHostRootRegistered", "sessionSettled", "driveSession",
+  "publishOverviewPost", "publishOverviewPostsPage", "overviewPosts",
+  "getDeckTrace", "markDeckTrace", "clearDeckTrace",
+  "inkRestoreFacts", "refreshInkRestore", "lastSentUserMessage", "ingestSessionMetadata", "getSessionPerf",
+  "getCardStateBag", "rowParsesByIdentity",
+]);
+
+/** Whether `text` reads the shell's deck: `window.tugdeck`, a bare `__tug` reference, or a `__tug` verb only the shell answers. */
+function readsShellDeck(text: string): boolean {
+  if (/window\.tugdeck\b/.test(text)) return true;
+  for (const m of text.matchAll(/\b__tug\b(\.([A-Za-z_$][\w$]*))?/g)) {
+    const verb = m[2];
+    if (verb === undefined) {
+      // `typeof window.__tug !== "undefined"` guards a read; it reads nothing itself.
+      const before = text.slice(Math.max(0, m.index! - 14), m.index!);
+      if (/typeof\s+(window\.)?$/.test(before)) continue;
+      return true;
+    }
+    if (!BODY_TUG_VERBS.has(verb)) return true;
+  }
+  return false;
+}
 
 /**
  * The mark that says a call reads the shell's page on purpose — a check that
@@ -415,7 +538,8 @@ export function censusOfSource(
   const masked = maskComments(src);
   const bindings = new Map([...context.imported, ...fileBindings(masked)]);
   const seeding = [masked, ...context.imported.values()].join("\n");
-  const seeded = seededKinds(seeding, bindings);
+  const cards = seededCards(seeding, bindings);
+  const seeded = new Map([...cards].map(([id, c]) => [id, c.kind]));
   const fileKinds = kindsSeeded(seeding);
   const covered = coveredKind(src, vocabulary.coversKinds);
   const onBody = bodyNames(masked);
@@ -429,20 +553,68 @@ export function censusOfSource(
     const start = receiverStart(masked, dot);
     const receiver = masked.slice(start, dot).trim().replace(/\?$/, "");
     // A body, or the page a card lives in (`cardPage` answers its body when it has one).
-    // `x.body` is a helper's answer carrying the body beside the card's id.
-    if (receiver === "" || receiver.includes(".body(") || receiver.endsWith(".body") || receiver.includes("cardPage(")) continue;
-    if (onBody.has(receiver)) continue;
+    // `x.body` is a helper's answer carrying the body beside the card's id;
+    // `kindBody(app, "…")` is the body of the deck's card of a kind.
+    if (receiver === "" || receiver.includes(".body(") || receiver.endsWith(".body") || receiver.includes("cardPage(") || receiver.includes("kindBody(")) continue;
+    if (onBody.has(receiver) || onBody.has(receiver.replace(/\([^()]*\)$/, ""))) continue;
     const close = skipBalanced(masked, open, "(", ")");
     const line = masked.slice(0, dot).split("\n").length;
     if ((lines[line - 1] ?? "").includes(SHELL_ON_PURPOSE) || (lines[line - 2] ?? "").includes(SHELL_ON_PURPOSE)) continue;
     const args = masked.slice(open + 1, close - 1);
     const text = expandText(args, bindings);
-    const found = selectors.filter((s) => text.includes(s));
+    const found: string[] = selectors.filter((s) => text.includes(s));
+    // `[data-card-id="…"] <descendant>` can only be card content: in the
+    // shell's page that attribute is on a body card's empty placeholder.
+    // The same scope composed through a constant — `${CARD} [data-testid=…]`
+    // with `CARD = '[data-card-id="A"]'` — is the same reach.
+    if (SCOPED_IN_CARD.test(text) || scopedThroughConst(text, bindings)) found.push("[data-card-id] …");
     if (found.length === 0) continue;
     const named = cardsNamed(text, bindings);
     const resolved = [...new Set(named.ids.filter((id) => id !== "?"))];
-    const cardId = resolved.length === 1 && !named.ids.includes("?") ? resolved[0] : null;
+    let cardId = resolved.length === 1 && !named.ids.includes("?") ? resolved[0] : null;
     const kind = kindOf(cardId, resolved, found, seeded, fileKinds, vocabulary.kindRoots, covered);
+    // A reach that names no card, in a file seeding exactly one card of its
+    // kind, is that card's: the kind came from the selectors or the file,
+    // and there is no other card of it the reach could mean.
+    let cardIdSource = cardId === null ? null : (named.sources.get(cardId) ?? null);
+    if (cardId === null && named.ids.length === 0 && kind !== "unknown") {
+      const ofKind = [...cards].filter(([, c]) => c.kind === kind);
+      if (ofKind.length === 1) {
+        cardId = ofKind[0][0];
+        cardIdSource = ofKind[0][1].source;
+      }
+    }
+    // A reach naming its card through one plain variable in scope at the
+    // call (`data-card-id="${cardId}"` in a helper) is that variable's card:
+    // the body handle takes the same expression.
+    if (cardId === null && resolved.length === 0 && named.ids.length > 0) {
+      const names = [...new Set(named.unresolved)];
+      // The name has to be written in the call itself: one reached through a
+      // constant's initialiser may belong to another scope.
+      if (names.length === 1 && /^[A-Za-z_$][\w$]*$/.test(names[0]) && new RegExp(`\\b${names[0]}\\b`).test(args)) cardIdSource = names[0];
+    }
+    // The full expansion can drag in a literal from a helper's other call
+    // sites. Read the call's own text first, then one and two levels of its
+    // constants: at the first depth that names a card, a card named only
+    // through one plain variable is that variable's, and nothing else is.
+    if (cardId === null && cardIdSource === null) {
+      const inScope = (name: string): boolean => {
+        if (new RegExp(`\\b${name}\\b`).test(args)) return true;
+        // Written in a constant the call names: that constant's scope is the call's, so its free names are too; a function's body is not.
+        for (const m of args.matchAll(/\b([A-Za-z_$][\w$]*)\b/g)) {
+          const value = bindings.get(m[1]);
+          if (value !== undefined && !/^(?:async\s+)?(?:function\b|\()/.test(value.trim()) && new RegExp(`\\b${name}\\b`).test(value)) return true;
+        }
+        return false;
+      };
+      for (const depth of [0, 1, 2]) {
+        const shallow = cardsNamed(depth === 0 ? args : expandText(args, bindings, depth), bindings);
+        if (shallow.ids.length === 0) continue;
+        const names = [...new Set(shallow.unresolved)];
+        if (shallow.ids.every((id) => id === "?") && names.length === 1 && /^[A-Za-z_$][\w$]*$/.test(names[0]) && inScope(names[0])) cardIdSource = names[0];
+        break;
+      }
+    }
     entries.push({
       file,
       line,
@@ -456,8 +628,11 @@ export function censusOfSource(
       receiverEnd: dot,
       argsEnd: close,
       cardIds: named.ids,
-      cardIdSource: cardId === null ? null : (named.sources.get(cardId) ?? null),
-      readsShell: SHELL_READ.test(text),
+      cardIdSource,
+      // Read on the call's own text and the constants it names, one level
+      // down: a deeper expansion reaches the harness's own source through
+      // `app`, and every call would read as the shell's.
+      readsShell: readsShellDeck(expandText(args, bindings, 1)),
     });
   }
   return entries;
@@ -551,8 +726,7 @@ export type ManualReason = "no single card" | "card id not a literal" | "reads t
 /** Whether `entry` is in the provable shape, and why not when it is not. */
 export function provable(entry: CensusEntry): ManualReason | null {
   if (entry.readsShell) return "reads the shell's deck";
-  if (entry.cardIds.includes("?")) return "card id not a literal";
-  if (entry.cardId === null || entry.cardIdSource === null) return "no single card";
+  if (entry.cardIdSource === null) return entry.cardIds.includes("?") ? "card id not a literal" : "no single card";
   if (!/^[A-Za-z_$][\w$]*$/.test(entry.receiver)) return "receiver not a name";
   return null;
 }
@@ -567,7 +741,7 @@ export function provable(entry: CensusEntry): ManualReason | null {
 export function rewriteSource(
   src: string,
   entries: readonly CensusEntry[],
-  into: string | null = null,
+  into: string | ((entry: CensusEntry) => string | null) | null = null,
 ): { source: string; rewritten: CensusEntry[]; manual: Array<{ entry: CensusEntry; reason: ManualReason }> } {
   const rewritten: CensusEntry[] = [];
   const manual: Array<{ entry: CensusEntry; reason: ManualReason }> = [];
@@ -575,9 +749,12 @@ export function rewriteSource(
   for (const entry of [...entries].sort((a, b) => b.receiverEnd - a.receiverEnd)) {
     const reason = provable(entry);
     if (reason === "no single card" && into !== null && /^[A-Za-z_$][\w$]*$/.test(entry.receiver)) {
-      out = `${out.slice(0, entry.receiverStart)}${into}${out.slice(entry.receiverEnd)}`;
-      rewritten.push(entry);
-      continue;
+      const handle = typeof into === "function" ? into(entry) : into;
+      if (handle !== null) {
+        out = `${out.slice(0, entry.receiverStart)}${handle}${out.slice(entry.receiverEnd)}`;
+        rewritten.push(entry);
+        continue;
+      }
     }
     if (reason !== null) {
       manual.push({ entry, reason });

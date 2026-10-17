@@ -30,6 +30,8 @@ const STATUS: Record<string, string> = {
   ERR: "error",
   WEDGED: "wedged",
   SKIP: "skipped",
+  // Green past the per-file budget: a red, because a slow test is a defect of the test.
+  OVERTIME: "fail",
 };
 
 export interface UnitRow {
@@ -110,7 +112,9 @@ export function unitRows(rundir: string, capsText: string | null, files: readonl
         row.total = total;
       }
       if (Number.isFinite(secs) && status !== "skipped") row.secs = secs;
-      if (status === "fail" || status === "error") {
+      if (parts[0] === "OVERTIME") {
+        row.message = `green, but ${secs}s is over the per-file budget: split it or make it faster`;
+      } else if (status === "fail" || status === "error") {
         const first = (readOr(`${base}.fails`) ?? "").split(RS)[0] ?? "";
         const [title, message] = first.split(US);
         if (title) row.title = title.trim();

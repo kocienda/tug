@@ -51,6 +51,7 @@ import { TUG_ACTIONS } from "../lib/action-vocabulary";
 import { bodyCardFilter, registerSessionControlActions } from "../lib/session-control-actions";
 import { cardSessionBindingStore } from "../lib/card-session-binding-store";
 import { cardServicesStore } from "../lib/card-services-store";
+import { chordCaptureState } from "../lib/chord-capture-state";
 import { attachSessionLedgerStore } from "../lib/session-ledger-store";
 import { attachSessionStateChangesStore } from "../lib/session-state-changes-store";
 import { attachDigestStore } from "../lib/digest-store";
@@ -96,6 +97,9 @@ import { getOpenTextCard } from "../lib/text-card-open-registry";
 import { getCardCloseGuard } from "../lib/card-close-guard";
 import { appInfoStore } from "../lib/app-info-store";
 import { requestSettingsReveal } from "../lib/settings-reveal";
+import { getJotsStore } from "../lib/jots-store";
+import { relayFrontmostProjectBinding } from "../lib/frontmost-project";
+import { applyCrossingMirror, type CrossingMirror } from "../lib/fold-crossing";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "../lib/settings-sections-pref";
 import { isTelemetryInspection, telemetryInspectionStore } from "../lib/telemetry-inspection-store";
 import { TUG_DEV_LOG_LEVELS, type TugDevLogEntry, type TugDevLogLevel } from "../lib/tug-dev-log-store/types";
@@ -292,6 +296,25 @@ function createCardFactsMirror(ownCardId: string): (
   };
 }
 
+/** The shell's crossing as this page reads it: a mirror, or null for none or for a shape it is not. */
+function asCrossingMirror(value: unknown): CrossingMirror | null {
+  if (typeof value !== "object" || value === null) return null;
+  const m = value as Record<string, unknown>;
+  const stamp = (v: unknown): boolean => v === null || typeof v === "number";
+  return stamp(m.still) && stamp(m.fold) && typeof m.held === "object" && m.held !== null
+    ? (value as CrossingMirror)
+    : null;
+}
+
+/** The shell's frontmost binding as this page reads it: a binding, or null for none or for a shape it is not. */
+function asFrontmostBinding(value: unknown): CardSessionBinding | null {
+  if (typeof value !== "object" || value === null) return null;
+  const b = value as Record<string, unknown>;
+  return typeof b.tugSessionId === "string" && typeof b.workspaceKey === "string" && typeof b.projectDir === "string"
+    ? (value as CardSessionBinding)
+    : null;
+}
+
 /** Take the shell's deck facts this page renders against. */
 function applyDeckFacts(facts: Partial<DeckFacts>, bridge: BodyDeckBridge | null): Promise<void> {
   if (typeof facts.keyboardAccess === "boolean") {
@@ -304,6 +327,9 @@ function applyDeckFacts(facts: Partial<DeckFacts>, bridge: BodyDeckBridge | null
   }
   if (Array.isArray(facts.modifierLatch)) applyShellModifierLatch(facts.modifierLatch);
   if (typeof facts.appActive === "boolean") bridge?.setHasFocus(facts.appActive);
+  if (facts.frontmostProject !== undefined) {
+    relayFrontmostProjectBinding(asFrontmostBinding(facts.frontmostProject.binding));
+  }
   if (typeof facts.zoom === "number") {
     if (bridge === null) pageZoomStore.report(facts.zoom);
     else void pageZoomStore.apply(facts.zoom);
@@ -459,6 +485,16 @@ async function bindBody(bind: BodyBind): Promise<void> {
   setLogoutForwarder(() => {
     sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "logout" } });
   });
+  // A chord capture armed in this card parks the host's menu bar, and the
+  // menu state is the shell's to push: the body says when its capture arms
+  // and disarms, and the shell folds that into its own flag. The page is
+  // bound once, so the subscription lives as long as it does.
+  chordCaptureState.subscribe(() => {
+    sendBus(connection, "shell", {
+      kind: "card-advice",
+      payload: { advice: "capture-armed", armed: chordCaptureState.isArmed() },
+    });
+  });
   const appLifecycle = new AppLifecycle();
   registerAppLifecycle(appLifecycle);
   const sheetLifecycle = new SheetLifecycle();
@@ -532,6 +568,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
   const mirror = createCardFactsMirror(cardId);
   let lastSpaceVerbToken = 0;
   onBus(connection, "card-context", (message) => {
+    // The crossing the shell's pane stands under, held here on this page's
+    // own frame so the card root holds through it as an in-document one does.
+    const frame = document.querySelector<HTMLElement>(".body-pane-frame");
+    if (frame !== null) applyCrossingMirror(frame, asCrossingMirror(message.payload.crossing));
     const arrangement = message.payload.arrangement as BodyArrangement | undefined;
     const followed = message.payload.followed as
       | { cardId: string; binding: CardSessionBinding | null }
@@ -575,6 +615,18 @@ async function bindBody(bind: BodyBind): Promise<void> {
       surfaces.dismiss();
       return;
     }
+    // A session the shell decided for this card after handing it here — a
+    // harness spawn, a resume asked for elsewhere — replayed as the bind's
+    // own intent was.
+    if (message.payload.command === "intent") {
+      const forwarded = parseBodyIntent(message.payload.payload);
+      if (forwarded === null) {
+        tugDevLogStore.error("body", "a forwarded intent did not parse; ignored", { cardId });
+        return;
+      }
+      replayBodyIntent(forwarded, cardId, connection, bridge);
+      return;
+    }
     // The shell's close gesture asks this card's own close guard: its sheet
     // comes up here, in the card it concerns, and the answer goes back.
     if (message.payload.command === "close-decision") {
@@ -613,6 +665,11 @@ async function bindBody(bind: BodyBind): Promise<void> {
     if (message.payload.command === "inspection") {
       const inspection = message.payload.inspection;
       telemetryInspectionStore.relay(isTelemetryInspection(inspection) ? inspection : null);
+      return;
+    }
+    // ⌘J's capture, for this Jots card: the editor opens from this page's store.
+    if (message.payload.command === "new-jot") {
+      getJotsStore().createJot(null);
       return;
     }
     // A reveal the shell parked for the Settings card, now that this page

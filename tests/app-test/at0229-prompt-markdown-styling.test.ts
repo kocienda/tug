@@ -71,8 +71,8 @@ function deckShape() {
 }
 
 async function focusEditor(app: App): Promise<void> {
-  await app.nativeClickAtElement(CONTENT_SELECTOR);
-  await app.waitForCondition<boolean>(
+  await app.body("A").nativeClickAtElement(CONTENT_SELECTOR);
+  await app.body("A").waitForCondition<boolean>(
     `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(CONTENT_SELECTOR)})`,
     { timeoutMs: 2000 },
   );
@@ -102,7 +102,7 @@ interface TokenStyle {
  * the token spans are minted).
  */
 async function tokenStyle(app: App, needle: string): Promise<TokenStyle | null> {
-  return app.evalJS<TokenStyle | null>(
+  return app.body("A").evalJS<TokenStyle | null>(
     `(function(){
       var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
       if (!content) return null;
@@ -123,7 +123,7 @@ async function tokenStyle(app: App, needle: string): Promise<TokenStyle | null> 
 
 /** Inline `style` attribute of the `.cm-line` whose text starts with `prefix`. */
 async function lineStyle(app: App, prefix: string): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("A").evalJS<string | null>(
     `(function(){
       var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
       if (!content) return null;
@@ -140,7 +140,7 @@ async function lineStyle(app: App, prefix: string): Promise<string | null> {
 
 /** Live document text straight from the engine ([Q07] single-draft shape). */
 async function docText(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(
+  return app.body("A").evalJS<string | null>(
     `(function(){
       var s = window.__tug.getEmCardState("A");
       return s !== null && typeof s.text === "string" ? s.text : null;
@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)(
           seedTugbankForLaunch(tugbankPath);
 
           const app = await launchTugApp({
-            testName: "at0229-prompt-markdown-styling",
+            bodies: true, testName: "at0229-prompt-markdown-styling",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
             foreground: true,
@@ -200,7 +200,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // Grammar lazy-loads; wait until the strong token actually paints
             // bold (proves the chunk resolved AND the compartment reconfigured).
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
                 if (!content) return false;
@@ -240,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(styledDoc).toContain(`*${EM}*`);
             expect(styledDoc).toContain(`\`${CODE}\``);
             // ...and on screen (the `.cm-content` renders them verbatim).
-            const visibleMarkers = await app.evalJS<boolean>(
+            const visibleMarkers = await app.body("A").evalJS<boolean>(
               `(function(){
                 var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
                 var t = content ? content.textContent : "";
@@ -256,7 +256,7 @@ describe.skipIf(!SHOULD_RUN)(
             await app.nativeKey("Return");
             await app.nativeKey("Return");
             await typeChunked(app, `${LIST_PREFIX} one two three`);
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var content = document.querySelector(${JSON.stringify(CONTENT_SELECTOR)});
                 if (!content) return false;
@@ -288,13 +288,13 @@ describe.skipIf(!SHOULD_RUN)(
             await focusEditor(app);
             await app.nativeKey("a", ["cmd"]);
             await app.nativeKey("Delete");
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){ var s = window.__tug.getEmCardState("A"); return s !== null && s.text === ""; })()`,
               { timeoutMs: 2000 },
             );
             await typeChunked(app, "- item");
             await app.nativeKey("Return");
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){ var s = window.__tug.getEmCardState("A"); return s !== null && s.text === "- item\\n"; })()`,
               { timeoutMs: 2000 },
             );

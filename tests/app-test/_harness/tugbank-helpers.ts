@@ -232,6 +232,39 @@ function defaultRepoRoot(): string {
   return pathResolve(import.meta.dir, "..", "..", "..");
 }
 
+/** One tugbank key to seed before launch — the arguments of {@link tugbankWrite} after the path. */
+export interface TugbankSeed {
+  domain: string;
+  key: string;
+  type: TugbankWriteType;
+  value: string;
+}
+
+/**
+ * A fresh temp tugbank, seeded for launch and with `values` written into it,
+ * for a launch that hands it over as `TUGBANK_PATH`.
+ *
+ * This is how a test sets a value a body card reads at mount. The shell's
+ * `setTugbankValue` writes the shell page's own client cache and nothing
+ * else, so a card in its own page never sees it; a value in the tugbank the
+ * app opens reaches every page's snapshot. The caller removes the tugbank
+ * with {@link rmTempTugbank} when the app has closed.
+ */
+export function mkSeededTugbank(values: ReadonlyArray<TugbankSeed>): string {
+  const path = mkTempTugbank();
+  seedTugbankForLaunch(path);
+  for (const v of values) tugbankWrite(path, v.domain, v.key, v.type, v.value);
+  return path;
+}
+
+/** The Text card's save mode, set to automatic: `dev.tugapp.text-card/save-mode`. */
+export const AUTOMATIC_SAVE_MODE: TugbankSeed = {
+  domain: "dev.tugapp.text-card",
+  key: "save-mode",
+  type: "string",
+  value: "automatic",
+};
+
 interface TugbankSpawnResult {
   exitCode: number;
   stdout: string;

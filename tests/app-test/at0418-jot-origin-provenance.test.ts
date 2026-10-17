@@ -54,6 +54,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -137,7 +138,10 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
           foreground: true,
+          bodies: true,
         });
+        const sessionA = app.body("A");
+        const jots = kindBody(app, "jots");
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -198,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           });
 
           const CODE = `[data-card-id="A"] .session-card-transcript-code-body code`;
-          await app.waitForCondition<boolean>(
+          await sessionA.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(CODE)}))
                .some((c) => (c.textContent ?? '') === ${JSON.stringify(CITED)})`,
             { timeoutMs: 10_000 },
@@ -206,7 +210,7 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
 
           // The card stamps its project, which is what the copy reads.
           expect(
-            await app.evalJS<string | null>(
+            await sessionA.evalJS<string | null>(
               `document.querySelector('[data-card-id="A"] .session-card')
                  ?.getAttribute('data-tug-clipboard-origin') ?? null`,
             ),
@@ -224,18 +228,18 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           // The LAST Copy in the card — every turn row has one, and the first
           // belongs to the user's question.
           const COPY_BUTTON = `[data-card-id="A"] [data-slot="session-z1b-copy"]`;
-          await app.waitForCondition<boolean>(
+          await sessionA.waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(COPY_BUTTON)}).length >= 2`,
             { timeoutMs: 5_000 },
           );
-          const copyPoint = await app.evalJS<{ x: number; y: number }>(
+          const copyPoint = await sessionA.evalJS<{ x: number; y: number }>(
             `(() => {
                const all = document.querySelectorAll(${JSON.stringify(COPY_BUTTON)});
                const r = all[all.length - 1].getBoundingClientRect();
                return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
              })()`,
           );
-          await app.nativeClick(copyPoint);
+          await sessionA.nativeClick(copyPoint);
 
           // The pasteboard is where the write lands, so it is where "the copy
           // happened" is observable at all.
@@ -249,17 +253,17 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
 
           // --- paste into a jot, with the OTHER project frontmost ----------
           await app.dispatchControlAction("toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector('.jots-card .jot-row-label') !== null`,
             { timeoutMs: 5_000 },
           );
-          await app.nativeClickAtElement(".jots-card .jot-row-label");
-          await app.waitForCondition<boolean>(
+          await jots.nativeClickAtElement(".jots-card .jot-row-label");
+          await jots.waitForCondition<boolean>(
             `document.querySelector('.jots-card .jots-list[data-key-view-kbd]') !== null`,
             { timeoutMs: 3_000 },
           );
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
@@ -267,13 +271,13 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           // is why this waits for the caret rather than assuming it: without
           // focus the chord would need the main menu, which a background
           // instance does not have.
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.activeElement !== null &&
              document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
           await app.nativeKey("v", ["cmd"]);
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `((document.querySelector('${EDITOR} .cm-content')?.textContent) ?? '')
                .includes(${JSON.stringify(CITED)})`,
             { timeoutMs: 5_000 },
@@ -297,12 +301,12 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           expect(origins).toEqual([source]);
 
           // --- and the citation resolves, through the carried root ---------
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LINK)}) !== null`,
             { timeoutMs: 12_000 },
           );
           expect(
-            await app.evalJS<string>(
+            await jots.evalJS<string>(
               `document.querySelector(${JSON.stringify(LINK)}).textContent`,
             ),
           ).toBe(CITED);

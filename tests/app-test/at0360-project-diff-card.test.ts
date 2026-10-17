@@ -43,6 +43,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -73,10 +74,10 @@ afterAll(() => {
 const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
 
 async function runDiff(app: Awaited<ReturnType<typeof launchTugApp>>): Promise<void> {
-  await app.nativeClickAtElement(PROMPT_INPUT);
+  await app.body("A").nativeClickAtElement(PROMPT_INPUT);
   await app.nativeType("/diff");
   await settle();
-  await app.nativeClickAtElement(SUBMIT_BTN);
+  await app.body("A").nativeClickAtElement(SUBMIT_BTN);
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => {
@@ -86,6 +87,7 @@ describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => 
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
       const app = await launchTugApp({
+        bodies: true,
         testName: "at0360-project-diff-card",
         env: { TUGBANK_PATH: tugbankPath },
       });
@@ -104,7 +106,7 @@ describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => 
 
         // ── /diff opens the Project Diff card ──────────────────────────────
         await runDiff(app);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "diff").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(DIFF_CARD)}) !== null`,
           { timeoutMs: 10000 },
         );
@@ -114,25 +116,33 @@ describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => 
         // the bar's icon-and-title pair — so the name is on the masthead's
         // lead line rather than in `tug-pane-title`, which no longer renders
         // on this pane at all.
-        const paneTitle = await app.evalJS<string | null>(
+        //
+        // The pane and its masthead are the shell's; the card is its own page.
+        // So the pane is found through the deck's record of which pane holds
+        // the diff card, and the title is waited for: the shell's chrome
+        // commits on its own clock, a beat after the body's document stands.
+        // card-dom: shell
+        const paneTitle = await app.waitForCondition<string>(
           `(() => {
-             const card = document.querySelector(${JSON.stringify(DIFF_CARD)});
-             const pane = card === null ? null : card.closest(".tug-pane");
-             const title = pane === null
+             const s = window.tugdeck.diag.getDeckState();
+             const diffCard = s.cards.find((c) => c.componentId === "diff");
+             const diffPane = diffCard === undefined ? undefined : s.panes.find((p) => p.cardIds.includes(diffCard.id));
+             const mastheadTitle = diffPane === undefined
                ? null
-               : pane.querySelector('[data-testid="card-masthead-title"]');
-             return title === null ? null : title.textContent;
+               : document.querySelector('.tug-pane[data-pane-id="' + diffPane.id + '"] [data-testid="card-masthead-title"]');
+             return mastheadTitle === null || mastheadTitle.textContent === "" ? false : mastheadTitle.textContent;
            })()`,
+          { timeoutMs: 10000 },
         );
         expect(paneTitle).toBe("Project Diff");
 
         // The document resolves the REAL git round-trip: the scratch file is
         // in the rendered file list under the repo-wide label.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "diff").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(DIFF_FILE)}).length >= 1`,
           { timeoutMs: 15000 },
         );
-        const doc = await app.evalJS<{ label: string | null; hasScratch: boolean }>(
+        const doc = await kindBody(app, "diff").evalJS<{ label: string | null; hasScratch: boolean }>(
           `(() => {
              const card = document.querySelector(${JSON.stringify(DIFF_CARD)});
              const label = card.querySelector(".tug-diff-document-header-label");
@@ -152,8 +162,10 @@ describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => 
         // ── A second /diff reuses the open card ([P20]) ────────────────────
         await runDiff(app);
         await settle(600);
+        // One card, read off the deck: each card is its own page, so a page's
+        // document can only ever hold one.
         const cardCount = await app.evalJS<number>(
-          `document.querySelectorAll(${JSON.stringify(DIFF_CARD)}).length`,
+          `window.tugdeck.diag.getDeckState().cards.filter((c) => c.componentId === "diff").length`,
         );
         expect(cardCount).toBe(1);
       } finally {

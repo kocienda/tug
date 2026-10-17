@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -43,6 +44,9 @@ const EDITOR = `.jots-list .jot-editor`;
 const TARGET = "s6";
 const TARGET_ROW = `[data-jot-id="${TARGET}"]`;
 
+/** The Jots card's own page, where its rows and editor stand. */
+const jots = (app: App) => kindBody(app, "jots");
+
 interface Frame {
   t: number;
   h: number;
@@ -56,14 +60,15 @@ async function withJots(
   const tugbankPath = mkTempTugbank();
   const jotsDir = mkdtempSync(join(tmpdir(), "tug-at0676-"));
   const jotsPath = join(jotsDir, "jots.json");
-  const jots = Array.from({ length: 12 }, (_, k) => ({
+  const seeded = Array.from({ length: 12 }, (_, k) => ({
     id: `s${k + 1}`,
     text: `s${k + 1}` === TARGET ? targetText : `Jot number ${k + 1}`,
   }));
-  writeFileSync(jotsPath, `${JSON.stringify({ version: 1, jots }, null, 2)}\n`);
+  writeFileSync(jotsPath, `${JSON.stringify({ version: 1, jots: seeded }, null, 2)}\n`);
   try {
     seedTugbankForLaunch(tugbankPath);
     const app = await launchTugApp({
+      bodies: true,
       testName,
       env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
       persistInTestMode: true,
@@ -88,20 +93,27 @@ async function selectTarget(app: App): Promise<void> {
     { timeoutMs: 5_000 },
   );
   await app.dispatchControlAction("toggle-jots");
+  await jots(app).waitForCondition<boolean>(
+    `document.querySelector('${TARGET_ROW}') !== null`,
+    { timeoutMs: 5_000 },
+  );
+  // The slide-in has landed when the card's rail pane holds still between
+  // polls, wholly inside the window; the card is a body placed over it.
+  // card-dom: shell
   await app.waitForCondition<boolean>(
     `(() => {
-       const c = document.querySelector('.jots-card');
-       if (c === null || document.querySelector('${TARGET_ROW}') === null) return false;
-       const box = c.getBoundingClientRect();
+       const pane = document.querySelector('.tug-pane[data-rail-side="right"]');
+       if (pane === null) return false;
+       const box = pane.getBoundingClientRect();
        const x = Math.round(box.left);
-       const settled = window.__jotsCardX === x && box.right <= window.innerWidth;
-       window.__jotsCardX = x;
+       const settled = window.__jotsPaneX === x && box.right <= window.innerWidth;
+       window.__jotsPaneX = x;
        return settled;
      })()`,
     { timeoutMs: 5_000 },
   );
-  await app.nativeClickAtElement(`${TARGET_ROW} .jot-row-label`);
-  await app.waitForCondition<boolean>(
+  await jots(app).nativeClickAtElement(`${TARGET_ROW} .jot-row-label`);
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector('.jots-card .jots-list[data-key-view-kbd]') !== null`,
     { timeoutMs: 3_000 },
   );
@@ -109,7 +121,7 @@ async function selectTarget(app: App): Promise<void> {
 
 /** Arm the recorder, press Return, and hand back every frame of the open. */
 async function recordOpen(app: App): Promise<Frame[]> {
-  await app.evalJS(
+  await jots(app).evalJS(
     `(() => {
        const frames = [];
        window.__at0676Frames = frames;
@@ -136,12 +148,12 @@ async function recordOpen(app: App): Promise<Frame[]> {
      })()`,
   );
   await app.nativeKey("Return");
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
     { timeoutMs: 3_000 },
   );
   await new Promise((r) => setTimeout(r, 1_200));
-  return app.evalJS<Frame[]>(`window.__at0676Frames`);
+  return jots(app).evalJS<Frame[]>(`window.__at0676Frames`);
 }
 
 /** What the record says about the open: the heights it passed through and

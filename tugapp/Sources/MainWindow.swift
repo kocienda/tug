@@ -277,8 +277,16 @@ final class ClickThroughWebView: WKWebView {
     /// view: the user's own click, which takes the keyboard wherever it
     /// lands. A stale event is not one — the location of a click made
     /// seconds ago says nothing about a view since placed under it.
+    ///
+    /// Read from the event the window is dispatching, ahead of
+    /// `NSApp.currentEvent`: that names only an event that came through the
+    /// app's queue, and a click handed to the window's `sendEvent` directly
+    /// (the harness's own-pid mode) would read as no click at all, so the
+    /// view it landed in could never take the keyboard from a body the
+    /// shell had named.
     var liveClickInside: Bool {
-        guard let event = NSApp.currentEvent, event.window === window else { return false }
+        guard let event = (window as? MainWindow)?.dispatchingEvent ?? NSApp.currentEvent,
+              event.window === window else { return false }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             return ProcessInfo.processInfo.systemUptime - event.timestamp < 0.5
@@ -1053,6 +1061,17 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// is bound and ready, labelled for the verdict line.
     func terminationViews() -> [(label: String, webView: WKWebView)] {
         [("shell", webView)] + (bodies?.terminable ?? []).map { ("body:\($0.cardId)", $0.webView) }
+    }
+
+    /// The event `sendEvent` is dispatching now, for a view asking whether it
+    /// is the target of a live click (`ClickThroughWebView.liveClickInside`).
+    private(set) var dispatchingEvent: NSEvent?
+
+    override func sendEvent(_ event: NSEvent) {
+        let prior = dispatchingEvent
+        dispatchingEvent = event
+        defer { dispatchingEvent = prior }
+        super.sendEvent(event)
     }
 
     /// Make the WKWebView the window's first responder so keyboard focus lands

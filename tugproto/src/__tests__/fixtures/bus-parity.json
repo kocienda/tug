@@ -139,6 +139,18 @@
       "payload": { "command": "dev-log", "payload": { "entries": [{ "level": "info", "source": "body", "message": "ready", "timestamp": 1700000000000 }] } }
     },
     {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "intent", "payload": { "kind": "resume", "tugSessionId": "s1", "projectDir": "/p", "reason": "launch" } }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "new-jot" }
+    },
+    {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
@@ -267,6 +279,12 @@
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
+      "payload": { "advice": "capture-armed", "armed": true }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
       "payload": { "advice": "inspection", "inspection": { "transportState": "live", "turns": 3 } }
     },
     {
@@ -274,6 +292,12 @@
       "to": "body",
       "kind": "deck-facts",
       "payload": { "theme": "ironclad", "zoom": 1.25, "keyboardAccess": true, "modifierLatch": ["shift"], "focusRingModality": "pointer", "appActive": true }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": "body",
+      "kind": "deck-facts",
+      "payload": { "theme": "ironclad", "zoom": 1, "keyboardAccess": false, "modifierLatch": [], "focusRingModality": "keyboard", "appActive": true, "frontmostProject": { "binding": { "tugSessionId": "s1", "lineId": "l1", "workspaceKey": "w1", "projectDir": "/p" } } }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
@@ -286,6 +310,12 @@
       "to": { "card": "c2" },
       "kind": "card-context",
       "payload": { "folded": true, "arriving": false, "firstResponderCardId": null, "layerShown": false, "spaceId": null }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c1" },
+      "kind": "card-context",
+      "payload": { "folded": false, "arriving": false, "firstResponderCardId": "c1", "layerShown": true, "spaceId": null, "crossing": { "still": 7, "settled": false, "width": false, "heightFree": false, "fold": null, "held": { "--tugx-still-held-height": "842px" } } }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },

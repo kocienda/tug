@@ -15,11 +15,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import {
+  AUTOMATIC_SAVE_MODE,
   mkTempTugbank,
   rmTempTugbank,
   seedTugbankForLaunch,
+  tugbankWrite,
 } from "./_harness/tugbank-helpers";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -46,6 +48,11 @@ export function rmFixture(dir: string): void {
 
 export const EDITOR_CONTENT_SELECTOR =
   '[data-card-id="A"] [data-slot="tug-text-card-editor"] .cm-content';
+
+/** The Text card's own page: every editor reach below runs there. */
+function editorPage(app: App): BodyApp {
+  return app.body("A");
+}
 
 export const EDITOR_SCROLLER_SELECTOR =
   '[data-card-id="A"] [data-slot="tug-text-card-editor"] .cm-scroller';
@@ -85,10 +92,13 @@ export function deckShape() {
 }
 
 /**
- * Seed the deck-wide save-mode default to "automatic" BEFORE the card
- * mounts. Manual is now the shipping default ([P01]); this test exercises
- * the retained automatic live-autosave path, so it opts in explicitly —
- * `setTugbankValue` populates the same client cache `readSaveMode` reads.
+ * Seed the shell page's save-mode default to "automatic". Manual is the
+ * shipping default ([P01]); these files exercise the retained automatic
+ * live-autosave path. A Text card in its own page reads its own tugbank
+ * snapshot, not the shell's client cache, so a body card's mode is seeded
+ * into the tugbank the app launches on instead — `AUTOMATIC_SAVE_MODE`
+ * through `mkSeededTugbank`, or `tugbankWrite` as `launchOnWatchedFixture`
+ * does. This remains for a card the shell mounts.
  */
 export async function seedAutomaticSaveMode(app: App): Promise<void> {
   await app.evalJS<null>(
@@ -97,7 +107,6 @@ export async function seedAutomaticSaveMode(app: App): Promise<void> {
 }
 
 export async function seedTextCard(app: App, filePath: string): Promise<void> {
-  await seedAutomaticSaveMode(app);
   await app.seedDeckState({
     state: deckShape(),
     cardStates: {
@@ -119,7 +128,7 @@ export async function waitForEditorShowing(
   sentinel: string,
   timeoutMs = 8000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await editorPage(app).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       return el !== null && el.innerText.indexOf(${JSON.stringify(sentinel)}) !== -1;
@@ -134,7 +143,7 @@ export async function waitForEditorShowing(
  * fires beforeinput exactly like a keystroke.
  */
 export async function typeIntoEditor(app: App, text: string): Promise<void> {
-  const ok = await app.evalJS<boolean>(
+  const ok = await editorPage(app).evalJS<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       if (!el) return false;
@@ -154,7 +163,7 @@ export async function typeIntoEditor(app: App, text: string): Promise<void> {
  * editor is focused first so the action resolves to this card.
  */
 export async function undoOnce(app: App): Promise<void> {
-  await app.evalJS<null>(
+  await editorPage(app).evalJS<null>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       if (el !== null) el.focus();
@@ -247,7 +256,7 @@ export async function warmUpWatcher(app: App, file: string): Promise<void> {
   fs.writeFileSync(file, WARMUP_BODY, "utf8");
   await waitForEditorShowing(app, "WARMUP marker", 60_000);
   fs.writeFileSync(file, FIXTURE_CONTENT, "utf8");
-  await app.waitForCondition<boolean>(
+  await editorPage(app).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('${EDITOR_CONTENT_SELECTOR}');
       if (el === null) return false;
@@ -269,7 +278,9 @@ export async function launchOnWatchedFixture(
 ): Promise<{ app: App; tugbankPath: string }> {
   const tugbankPath = mkTempTugbank();
   seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
+  tugbankWrite(tugbankPath, AUTOMATIC_SAVE_MODE.domain, AUTOMATIC_SAVE_MODE.key, AUTOMATIC_SAVE_MODE.type, AUTOMATIC_SAVE_MODE.value);
   const app = await launchTugApp({
+    bodies: true,
     testName,
     env: { TUGBANK_PATH: tugbankPath },
   });
@@ -282,7 +293,7 @@ export async function launchOnWatchedFixture(
 
 /** The rendered buffer text. */
 export function editorText(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return editorPage(app).evalJS<string>(
     `document.querySelector('${EDITOR_CONTENT_SELECTOR}').innerText`,
   );
 }

@@ -6424,6 +6424,7 @@ export class DeckManager implements IDeckManagerStore {
         seedCardState: (cardId, bag) => this.cardStates.seed(cardId, bag),
         notifyCardDidFinishConstruction: (cardId) =>
           this.cardLifecycle.notifyCardDidFinishConstruction(cardId),
+        notifyCardWillBeginDestruction: (cardId) => this.cardLifecycle.notifyCardWillBeginDestruction(cardId),
         discardComponentStateRegistry: (cardId) => this.componentStateRegistries.discard(cardId),
         notify: (caller) => this.notify(caller),
         activateCard: (cardId) => {

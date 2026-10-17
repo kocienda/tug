@@ -38,6 +38,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -92,11 +93,14 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
         // ── Phase A: copy an atom, paste it into a jot, close and reopen. ──
         {
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0527-jot-keeps-its-chips",
             env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
             persistInTestMode: true,
           });
+          const jots = kindBody(app, "jots");
           try {
+            const sessionA = app.body("A");
             await app.seedDeckState({ state: sessionDeck(), focusCardId: "A" });
             await app.waitForCondition<boolean>(
               `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
@@ -149,12 +153,12 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             });
 
             const SPAN = `[data-card-id="A"] code[data-tug-annotation="file-path"]`;
-            await app.waitForCondition<boolean>(
+            await sessionA.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
               { timeoutMs: 15_000 },
             );
             stampedPath =
-              (await app.evalJS<string | null>(
+              (await sessionA.evalJS<string | null>(
                 `(function(){
                   var el = document.querySelector(${JSON.stringify(SPAN)});
                   return el === null ? null : el.getAttribute('data-path');
@@ -168,21 +172,21 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             // write and its read is a second another test can overwrite it in.
             // Mounting the card first takes the card's own mount out of that
             // window, and the re-read below closes what is left of it.
-            await openJotsCard(app);
+            await openJotsCard(app, jots);
 
             // ---- Copy as Atom: the object, not the characters. -----------
             Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(COPY_SENTINEL) });
-            await app.evalJS<boolean>(revealJS(SPAN));
-            await app.nativeRightClickAtElement(SPAN);
-            await app.waitForCondition<boolean>(
+            await sessionA.evalJS<boolean>(revealJS(SPAN));
+            await sessionA.nativeRightClickAtElement(SPAN);
+            await sessionA.waitForCondition<boolean>(
               `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
               { timeoutMs: 5_000 },
             );
-            const copyPoint = await app.evalJS<{ x: number; y: number } | null>(
+            const copyPoint = await sessionA.evalJS<{ x: number; y: number } | null>(
               menuItemPointJS("copy-annotation-atom"),
             );
             expect(copyPoint).not.toBeNull();
-            await app.nativeClick(copyPoint as { x: number; y: number });
+            await sessionA.nativeClick(copyPoint as { x: number; y: number });
 
             const sidecar = await readSidecar(app);
             note("at0527 sidecar", JSON.stringify(sidecar));
@@ -192,8 +196,8 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             });
 
             // ---- Paste it into a jot, after some prose. ------------------
-            await enterFirstJotEditor(app);
-            await app.waitForCondition<boolean>(
+            await enterFirstJotEditor(app, jots);
+            await jots.waitForCondition<boolean>(
               `document.activeElement !== null &&
                document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`,
               { timeoutMs: 5_000 },
@@ -201,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
             // Words first, so the atom lands INSIDE prose rather than alone —
             // a position the substrate has to carry, not just a lone chip.
             await app.nativeType("see ");
-            await app.waitForCondition<boolean>(
+            await jots.waitForCondition<boolean>(
               `(${flatTextJS(JOT_CONTENT)}).indexOf("see ") !== -1`,
               { timeoutMs: 5_000 },
             );
@@ -214,22 +218,22 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
               text: OBJ,
               atoms: [{ type: "file", label: FILE_NAME, value: stampedPath }],
             });
-            await pasteInto(app, JOT_CONTENT);
-            await app.waitForCondition<boolean>(
+            await pasteInto(jots, JOT_CONTENT);
+            await jots.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(JOT_CHIP)}) !== null`,
               { timeoutMs: 8_000 },
             );
             expect(
-              JSON.parse(await app.evalJS<string>(chipsJS(JOT_CONTENT))) as string[],
+              JSON.parse(await jots.evalJS<string>(chipsJS(JOT_CONTENT))) as string[],
             ).toEqual([`file:${stampedPath}`]);
             // The path never landed as characters — a chip, not a spelling.
-            expect(await app.evalJS<string>(flatTextJS(JOT_CONTENT))).not.toContain(
+            expect(await jots.evalJS<string>(flatTextJS(JOT_CONTENT))).not.toContain(
               FILE_NAME,
             );
 
             // ---- Level one: the editor closes. --------------------------
             await app.nativeKey("Escape");
-            await app.waitForCondition<boolean>(
+            await jots.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(EDITOR)}) === null`,
               { timeoutMs: 5_000 },
             );
@@ -249,17 +253,26 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
 
             // ---- Level two: the card closes and reopens. ----------------
             await app.dispatchControlAction("toggle-jots");
-            await app.waitForCondition<boolean>(
-              `document.querySelector('.jots-card') === null`,
-              { timeoutMs: 5_000 },
-            );
-            await openFirstJotEditor(app);
-            await app.waitForCondition<boolean>(
+            // The card's DOM is gone: its body with it, or held hidden with
+            // no Jots card left mounted in it.
+            const closedBy = Date.now() + 5_000;
+            for (;;) {
+              const held = (await app.bodies()).filter((b) => b.componentId === "jots" && b.cardId !== null);
+              let mounted = false;
+              for (const b of held) {
+                mounted ||= await app.body(b.cardId!).evalJS<boolean>(`document.querySelector('.jots-card') !== null`);
+              }
+              if (!mounted) break;
+              if (Date.now() > closedBy) throw new Error("a Jots card was still mounted after its close");
+              await Bun.sleep(50);
+            }
+            await openFirstJotEditor(app, jots);
+            await jots.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(JOT_CHIP)}) !== null`,
               { timeoutMs: 8_000 },
             );
             expect(
-              JSON.parse(await app.evalJS<string>(chipsJS(JOT_CONTENT))) as string[],
+              JSON.parse(await jots.evalJS<string>(chipsJS(JOT_CONTENT))) as string[],
             ).toEqual([`file:${stampedPath}`]);
           } catch (err) {
             const tail = app.tailLog(200);
@@ -273,29 +286,31 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
         // ── Phase B: level three — a new app, reading the same file. ──────
         {
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0527-jot-keeps-its-chips-relaunch",
             env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
             persistInTestMode: true,
           });
+          const jots = kindBody(app, "jots");
           try {
             await app.seedDeckState({ state: plainDeck(), focusCardId: "A" });
             await app.waitForCondition<boolean>(
               `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
               { timeoutMs: 30_000 },
             );
-            await openFirstJotEditor(app);
-            await app.waitForCondition<boolean>(
+            await openFirstJotEditor(app, jots);
+            await jots.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(JOT_CHIP)}) !== null`,
               { timeoutMs: 10_000 },
             );
             const chips = JSON.parse(
-              await app.evalJS<string>(chipsJS(JOT_CONTENT)),
+              await jots.evalJS<string>(chipsJS(JOT_CONTENT)),
             ) as string[];
             note("at0527 chips after relaunch", chips.join(" / "));
             // The same chip, in a process that never saw the copy — read off
             // `jots.json` through the Rust model and the TypeScript one.
             expect(chips).toEqual([`file:${stampedPath}`]);
-            expect(await app.evalJS<string>(flatTextJS(JOT_CONTENT))).not.toContain(
+            expect(await jots.evalJS<string>(flatTextJS(JOT_CONTENT))).not.toContain(
               FILE_NAME,
             );
           } catch (err) {

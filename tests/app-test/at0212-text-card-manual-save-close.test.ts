@@ -50,6 +50,7 @@ import {
   seedTextCard,
   settle,
   typeIntoEditor,
+  waitForCardGone,
   waitForEditor,
   waitForSaveCell,
   waitSheetButton,
@@ -60,11 +61,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "dirty close via X-click and control both gate on the close sheet",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ testName: "at0212-close" });
+      const app = await launchTugApp({ bodies: true, testName: "at0212-close" });
       try {
         await seedTextCard(app, file);
-        await waitForEditor(app, "alpha");
-        await typeIntoEditor(app, "UNSAVED ");
+        await waitForEditor(app.body("A"), "alpha");
+        await typeIntoEditor(app.body("A"), "UNSAVED ");
         await waitForSaveCell(app, "Edited");
         await settle();
 
@@ -72,11 +73,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // the sheet, not a silent close. Cancel keeps the card + edits.
         await app.nativeClickAtElement(CLOSE_BUTTON);
         await settle();
-        await waitSheetButton(app, "cancel");
+        await waitSheetButton(app.body("A"), "cancel");
         await settle();
-        await app.click(`[data-testid="file-save-sheet-cancel"]`);
+        await app.body("A").click(`[data-testid="file-save-sheet-cancel"]`);
         await settle();
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_CONTENT}') !== null`,
         );
         expect(await saveCell(app)).toBe("Edited");
@@ -85,14 +86,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // writing the buffer to disk.
         await dispatchControl(app, "close");
         await settle();
-        await waitSheetButton(app, "dont-save");
+        await waitSheetButton(app.body("A"), "dont-save");
         await settle();
-        await app.click(`[data-testid="file-save-sheet-dont-save"]`);
+        await app.body("A").click(`[data-testid="file-save-sheet-dont-save"]`);
         await settle();
-        await app.waitForCondition<boolean>(
-          `document.querySelector('${EDITOR_CONTENT}') === null`,
-          { timeoutMs: 15000 },
-        );
+        await waitForCardGone(app, "A");
         expect(fs.readFileSync(file, "utf8")).toBe(ORIGINAL);
       } finally {
         await app.close();
@@ -109,7 +107,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       const fileB = path.join(dir, "b.txt");
       fs.writeFileSync(fileA, ORIGINAL, "utf8");
       fs.writeFileSync(fileB, "other\n", "utf8");
-      const app = await launchTugApp({ testName: "at0212-tab-close" });
+      const app = await launchTugApp({ bodies: true, testName: "at0212-tab-close" });
       try {
         // Two text cards in ONE pane so the tab bar renders; A is active.
         await app.seedDeckState({
@@ -138,8 +136,8 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
           },
           focusCardId: "A",
         });
-        await waitForEditor(app, "alpha");
-        await typeIntoEditor(app, "UNSAVED ");
+        await waitForEditor(app.body("A"), "alpha");
+        await typeIntoEditor(app.body("A"), "UNSAVED ");
         await waitForSaveCell(app, "Edited");
         await settle();
 
@@ -147,11 +145,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // close sheet for a dirty card, never destroy it silently.
         await app.click(`[data-testid="tug-tab-close-A"]`);
         await settle();
-        await waitSheetButton(app, "cancel");
+        await waitSheetButton(app.body("A"), "cancel");
         await settle();
-        await app.click(`[data-testid="file-save-sheet-cancel"]`);
+        await app.body("A").click(`[data-testid="file-save-sheet-cancel"]`);
         await settle();
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${EDITOR_CONTENT}') !== null`,
         );
         expect(await saveCell(app)).toBe("Edited");
@@ -159,9 +157,9 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // Don't Save via the tab × closes the tab without writing.
         await app.click(`[data-testid="tug-tab-close-A"]`);
         await settle();
-        await waitSheetButton(app, "dont-save");
+        await waitSheetButton(app.body("A"), "dont-save");
         await settle();
-        await app.click(`[data-testid="file-save-sheet-dont-save"]`);
+        await app.body("A").click(`[data-testid="file-save-sheet-dont-save"]`);
         await settle();
         await app.waitForCondition<boolean>(
           `document.querySelector('[data-testid="tug-tab-close-A"]') === null`,
@@ -184,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       const fileB = path.join(dir, "b.txt");
       fs.writeFileSync(fileA, ORIGINAL, "utf8");
       fs.writeFileSync(fileB, "other\n", "utf8");
-      const app = await launchTugApp({ testName: "at0212-visit-dirty" });
+      const app = await launchTugApp({ bodies: true, testName: "at0212-visit-dirty" });
       const B_EDITOR = `[data-card-id="B"] [data-slot="tug-text-card-editor"] .cm-content`;
       // Same pane, so the same masthead — it reads B while B is the frontmost tab.
       const B_SAVE_LINE = SAVE_LINE;
@@ -215,12 +213,12 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
           },
           focusCardId: "A",
         });
-        await waitForEditor(app, "alpha");
+        await waitForEditor(app.body("A"), "alpha");
 
         // Dirty card B, then return to the (clean) card A — the user's
         // scenario: the dirty buffer sits in a BACKGROUND tab.
         await app.click(`[data-testid="tug-tab-B"]`);
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${B_EDITOR}');
             return el !== null && el.innerText.indexOf("other") !== -1;
@@ -228,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
           { timeoutMs: 15000 },
         );
         await settle();
-        const typed = await app.evalJS<boolean>(
+        const typed = await app.body("B").evalJS<boolean>(
           `(function(){
             var el = document.querySelector('${B_EDITOR}');
             if (!el) return false;
@@ -237,6 +235,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
           })()`,
         );
         expect(typed).toBe(true);
+        // card-dom: shell — the masthead is the pane's, drawn by the shell for the frontmost tab.
         await app.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${B_SAVE_LINE}');
@@ -252,10 +251,11 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // behind the Close-N-Tabs popover.
         await app.nativeClickAtElement(CLOSE_BUTTON);
         await settle();
-        await waitSheetButton(app, "dont-save");
+        // The sheet is the dirty card's — B's — so it is read in B's page.
+        await waitSheetButton(app.body("B"), "dont-save");
         // Visited: B's editor is the visible one while its sheet asks.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("B").evalJS<boolean>(
             `(function(){
               var el = document.querySelector('${B_EDITOR}');
               return el !== null && el.offsetParent !== null;
@@ -265,7 +265,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         await settle();
 
         // Cancel aborts the whole pane close; the edits survive.
-        await app.click(`[data-testid="file-save-sheet-cancel"]`);
+        await app.body("B").click(`[data-testid="file-save-sheet-cancel"]`);
         await settle();
         expect(
           await app.evalJS<string>(`document.querySelector('${B_SAVE_LINE}').innerText`),
@@ -277,13 +277,10 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
         // never reach disk.
         await app.nativeClickAtElement(CLOSE_BUTTON);
         await settle();
-        await waitSheetButton(app, "dont-save");
+        await waitSheetButton(app.body("B"), "dont-save");
         await settle();
-        await app.click(`[data-testid="file-save-sheet-dont-save"]`);
-        await app.waitForCondition<boolean>(
-          `document.querySelector('[data-card-id="B"]') === null`,
-          { timeoutMs: 15000 },
-        );
+        await app.body("B").click(`[data-testid="file-save-sheet-dont-save"]`);
+        await waitForCardGone(app, "B");
         expect(fs.readFileSync(fileB, "utf8")).toBe("other\n");
       } finally {
         await app.close();

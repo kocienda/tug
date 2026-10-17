@@ -1,10 +1,22 @@
 [
   {
-    "file": "at0010-cold-boot-selection.test.ts",
-    "kind": "fixture-markdown-1kb"
+    "file": "at0017-savestate-rpc-parity.test.ts",
+    "kind": "gallery-input"
+  },
+  {
+    "file": "at0018-async-content-race.test.ts",
+    "kind": "gallery-prompt-entry"
+  },
+  {
+    "file": "at0019-pane-teardown-flush.test.ts",
+    "kind": "gallery-input"
   },
   {
     "file": "at0024-prompt-state-roundtrip.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0084-session-lifecycle-coordination.test.ts",
     "kind": "session"
   },
   {
@@ -12,7 +24,55 @@
     "kind": "session"
   },
   {
+    "file": "at0090-permissions-rules-editor.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0093-permission-buckets.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0094-permission-scope-routing.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0096-effort-chip.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0096-effort-chip.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0097-rewind-sheet.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0099-resume-command.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0140-cycle-session-card.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0145-permission-dialog-keyboard.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0145-permission-dialog-keyboard.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0148-dialog-survives-reactivation.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0148-dialog-survives-reactivation.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0172-session-menu-live-state.test.ts",
     "kind": "session"
   },
   {
@@ -21,6 +81,18 @@
   },
   {
     "file": "at0175-session-mount-focus.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0189-transcript-atbottom-no-slam.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0191-turns-end-to-end.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0192-z2-cold-replay.test.ts",
     "kind": "session"
   },
   {
@@ -36,24 +108,8 @@
     "kind": "session"
   },
   {
-    "file": "at0209-text-card-live-autosave-loop.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0209-text-card-live-autosave-undo.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0210-text-card-options.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0212-text-card-manual-save-close.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0212-text-card-manual-save-save.test.ts",
-    "kind": "text"
+    "file": "at0216-shell-exchange.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0223-text-card-find-bar.test.ts",
@@ -64,20 +120,16 @@
     "kind": "session"
   },
   {
-    "file": "at0229-prompt-markdown-styling.test.ts",
-    "kind": "gallery-prompt-entry"
+    "file": "at0226-usage-sheet.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0231-sidebar-toggle.test.ts",
     "kind": "layout"
   },
   {
-    "file": "at0241-jots-editor.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0252-accessibility-focus-follows.test.ts",
-    "kind": "jots"
+    "file": "at0239-session-history-view.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0253-commit-dialog.test.ts",
@@ -100,10 +152,6 @@
     "kind": "jots"
   },
   {
-    "file": "at0269-markdown-text-style-constructs.test.ts",
-    "kind": "gallery-prompt-entry"
-  },
-  {
     "file": "at0280-shared-agent-absent.test.ts",
     "kind": "cards"
   },
@@ -112,7 +160,15 @@
     "kind": "session"
   },
   {
+    "file": "at0286-multi-compaction-seating.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0293-typing-latency.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0298-transcript-shift-extend.test.ts",
     "kind": "session"
   },
   {
@@ -120,16 +176,12 @@
     "kind": "layout"
   },
   {
-    "file": "at0303-space-allocator-retunes.test.ts",
+    "file": "at0303-space-allocator-greed.test.ts",
     "kind": "layout"
   },
   {
-    "file": "at0304-settings-default-project-dir.test.ts",
-    "kind": "settings"
-  },
-  {
-    "file": "at0306-open-quickly-default-dir.test.ts",
-    "kind": "settings"
+    "file": "at0303-space-allocator-retunes.test.ts",
+    "kind": "layout"
   },
   {
     "file": "at0307-transcript-file-path-links-prose.test.ts",
@@ -152,6 +204,54 @@
     "kind": "text"
   },
   {
+    "file": "at0320-app-test-ask-dialog.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0320-app-test-ask-dialog.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0330-eviction-hidden-backlog.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0330-eviction-hidden-restore.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0330-eviction-relaunch.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0332-changes-claim-disclaim.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0333-changes-hunk-ids.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0333-changes-hunk-ids.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0334-changes-hunk-election.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0334-changes-hunk-election.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0335-changes-hunk-contention.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0335-transport-reconnect-recovery.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0339-session-find-bar.test.ts",
     "kind": "session"
   },
@@ -164,16 +264,12 @@
     "kind": "session"
   },
   {
-    "file": "at0356-settings-sections-persist.test.ts",
-    "kind": "settings"
+    "file": "at0352-shell-row-copy.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0357-content-width-default.test.ts",
     "kind": "layout"
-  },
-  {
-    "file": "at0360-project-diff-card.test.ts",
-    "kind": "diff"
   },
   {
     "file": "at0365-overview-card.test.ts",
@@ -204,8 +300,20 @@
     "kind": "overview"
   },
   {
+    "file": "at0372-ai-config-mixer.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0372-ai-config-mixer.test.ts",
+    "kind": "unknown"
+  },
+  {
     "file": "at0376-session-atom-clipboard.test.ts",
     "kind": "session"
+  },
+  {
+    "file": "at0376-session-atom-clipboard.test.ts",
+    "kind": "spike-session-identity"
   },
   {
     "file": "at0376-session-atom-clipboard.test.ts",
@@ -224,15 +332,15 @@
     "kind": "session"
   },
   {
-    "file": "at0403-find-selection.test.ts",
-    "kind": "text"
-  },
-  {
     "file": "at0405-changes-arc-lane.test.ts",
     "kind": "dashes"
   },
   {
     "file": "at0405-changes-arc-lane.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0406-masthead-arc-run.test.ts",
     "kind": "session"
   },
   {
@@ -244,52 +352,40 @@
     "kind": "dashes"
   },
   {
-    "file": "at0410-text-card-file-drop.test.ts",
-    "kind": "text"
+    "file": "at0408-arc-gesture.test.ts",
+    "kind": "session"
   },
   {
-    "file": "at0412-text-card-asset-strip.test.ts",
-    "kind": "text"
+    "file": "at0411-atom-chip-label-survives-annotator.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0412-arc-review-verb.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0413-attachment-durability.test.ts",
     "kind": "session"
   },
   {
-    "file": "at0414-asset-trash-undo.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0415-asset-clipboard-interop.test.ts",
-    "kind": "text"
-  },
-  {
-    "file": "at0416-viewer-card-settings.test.ts",
-    "kind": "settings"
-  },
-  {
-    "file": "at0417-jot-annotation-links.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0418-jot-origin-provenance.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0418-jot-origin-provenance.test.ts",
+    "file": "at0419-join-receipt.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "at0420-case-transforms.test.ts",
-    "kind": "unknown"
   },
   {
     "file": "at0421-arc-picker.test.ts",
     "kind": "dashes"
   },
   {
+    "file": "at0421-arc-picker.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0423-session-atom-arc-mark.test.ts",
     "kind": "session"
+  },
+  {
+    "file": "at0420-case-transforms.test.ts",
+    "kind": "unknown"
   },
   {
     "file": "at0424-cards-arc-line.test.ts",
@@ -304,8 +400,24 @@
     "kind": "session"
   },
   {
+    "file": "at0425-arc-conflicted-join.test.ts",
+    "kind": "unknown"
+  },
+  {
     "file": "at0426-arc-resolution-audit.test.ts",
     "kind": "dashes"
+  },
+  {
+    "file": "at0426-arc-resolution-audit.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0427-arc-divergence-marks.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0427-arc-divergence-marks.test.ts",
+    "kind": "unknown"
   },
   {
     "file": "at0427-refs-match-search.test.ts",
@@ -314,6 +426,14 @@
   {
     "file": "at0427-refs-match-search.test.ts",
     "kind": "unknown"
+  },
+  {
+    "file": "at0430-resize-scroll-preservation-transcript.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0433-shell-autoroute-continuation.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0435-join-refusal-speaks.test.ts",
@@ -338,6 +458,10 @@
   {
     "file": "at0442-join-escalation.test.ts",
     "kind": "dashes"
+  },
+  {
+    "file": "at0442-join-escalation.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0443-no-git-notice.test.ts",
@@ -388,8 +512,12 @@
     "kind": "layout"
   },
   {
-    "file": "at0460-text-card-join-replace.test.ts",
-    "kind": "text"
+    "file": "at0461-ink-restore-windowed.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0462-ink-fork-restore.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0463-miniature-live-drag.test.ts",
@@ -414,6 +542,10 @@
   {
     "file": "at0469-arc-entry-points.test.ts",
     "kind": "dashes"
+  },
+  {
+    "file": "at0469-arc-entry-points.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0469-places-arrangement.test.ts",
@@ -448,7 +580,15 @@
     "kind": "session"
   },
   {
+    "file": "at0473-ink-anchor-order.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0474-paste-command-chip.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0475-arc-faces.test.ts",
     "kind": "session"
   },
   {
@@ -456,7 +596,23 @@
     "kind": "session"
   },
   {
+    "file": "at0476-second-arc-refused.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0477-transcript-copy-atoms.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0478-arc-fit-verified.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0478-arc-fit-verified.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0479-arc-documents-strip.test.ts",
     "kind": "session"
   },
   {
@@ -464,8 +620,32 @@
     "kind": "text"
   },
   {
+    "file": "at0479-arc-documents-strip.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0480-arc-compacts-seated-stage.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0481-session-line-rename.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0482-session-line-ink.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0483-arc-lifecycle-mark.test.ts",
     "kind": "unknown"
+  },
+  {
+    "file": "at0484-arc-z2-instrument.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0492-compaction-card-modality.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0494-find-paint.test.ts",
@@ -496,7 +676,23 @@
     "kind": "dashes"
   },
   {
+    "file": "at0504-plain-rotation-carries-the-binding.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0504-planned-opens-at-devise.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0505-arc-stage-kill.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0507-arc-note-quiet-row.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0508-arc-note-task-register.test.ts",
     "kind": "session"
   },
   {
@@ -517,7 +713,15 @@
   },
   {
     "file": "at0513-atom-surfaces-one-height.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0513-atom-surfaces-one-height.test.ts",
     "kind": "unknown"
+  },
+  {
+    "file": "at0520-whole-entity-press.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0522-empty-session-close.test.ts",
@@ -544,28 +748,16 @@
     "kind": "session"
   },
   {
-    "file": "at0526-settings-briefs-dir.test.ts",
-    "kind": "settings"
-  },
-  {
-    "file": "at0527-jot-keeps-its-chips-copies-out.test.ts",
-    "kind": "gallery-accordion"
-  },
-  {
-    "file": "at0527-jot-keeps-its-chips-survives.test.ts",
-    "kind": "jots"
-  },
-  {
     "file": "at0528-receipt-commit-copies-as-atom.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0530-commit-failure-speaks-at-the-seam.test.ts",
     "kind": "session"
   },
   {
     "file": "at0531-tab-inserts-at-the-caret.test.ts",
     "kind": "session"
-  },
-  {
-    "file": "at0532-keymap-chord-probe.test.ts",
-    "kind": "keyboard"
   },
   {
     "file": "at0534-overview-history.test.ts",
@@ -578,6 +770,14 @@
   {
     "file": "at0536-overview-atom-path-roots.test.ts",
     "kind": "overview"
+  },
+  {
+    "file": "at0543-z2-popup-newest-reading.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0544-commit-pill-holds-through-deltas.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0548-turn-chords-clear-the-composer.test.ts",
@@ -600,11 +800,23 @@
     "kind": "unknown"
   },
   {
+    "file": "at0562-folded-z2-occupant.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0568-background-session-resume.test.ts",
     "kind": "overview"
   },
   {
     "file": "at0568-background-session-resume.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0573-orphaned-chip-menu-no-fold.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0573-orphaned-chip-menu-no-fold.test.ts",
     "kind": "unknown"
   },
   {
@@ -648,6 +860,10 @@
     "kind": "session"
   },
   {
+    "file": "at0588-arc-stop-quiesces.test.ts",
+    "kind": "unknown"
+  },
+  {
     "file": "at0590-workspace-delete-crash.test.ts",
     "kind": "cards"
   },
@@ -660,19 +876,19 @@
     "kind": "cards"
   },
   {
-    "file": "at0593-jot-close-holds-its-place.test.ts",
-    "kind": "jots"
-  },
-  {
-    "file": "at0596-commit-atom-opens-card.test.ts",
-    "kind": "commit"
-  },
-  {
     "file": "at0597-drop-lands-then-reveals.test.ts",
     "kind": "layout"
   },
   {
+    "file": "at0599-menu-open-beside-host.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0602-find-fidelity-sweep.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0602-session-atom-reach.test.ts",
     "kind": "session"
   },
   {
@@ -720,6 +936,10 @@
     "kind": "session"
   },
   {
+    "file": "at0607-commit-hostile-filename.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0607-text-card-compare-sheet.test.ts",
     "kind": "text"
   },
@@ -732,16 +952,24 @@
     "kind": "session"
   },
   {
+    "file": "at0613-session-card-drop-surface.test.ts",
+    "kind": "session"
+  },
+  {
     "file": "at0614-parked-session-identity.test.ts",
     "kind": "cards"
   },
   {
-    "file": "at0615-jot-row-menu.test.ts",
-    "kind": "jots"
+    "file": "at0616-push-receipt.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0619-arc-card-reload-shape.test.ts",
     "kind": "dashes"
+  },
+  {
+    "file": "at0619-arc-card-reload-shape.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0619-session-dot-overlay.test.ts",
@@ -756,12 +984,28 @@
     "kind": "session"
   },
   {
+    "file": "at0625-type-baseline.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0625-type-baseline.test.ts",
+    "kind": "unknown"
+  },
+  {
     "file": "at0626-context-menu-scroll-referent.test.ts",
     "kind": "session"
   },
   {
-    "file": "at0626-sash-drag-sampler.test.ts",
-    "kind": "jots"
+    "file": "at0626-context-menu-scroll-referent.test.ts",
+    "kind": "unknown"
+  },
+  {
+    "file": "at0627-arc-survives-a-reconnect.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0627-shade-refusals-speak-in-the-shade.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0627-shade-refusals-speak-in-the-shade.test.ts",
@@ -777,7 +1021,19 @@
   },
   {
     "file": "at0628-shade-gestures-never-reach-the-corner-lane.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0628-shade-gestures-never-reach-the-corner-lane.test.ts",
     "kind": "unknown"
+  },
+  {
+    "file": "at0628-written-path-confirms-at-once.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0629-motion-render-cost-budget.test.ts",
+    "kind": "gallery-motion-bench-dot"
   },
   {
     "file": "at0629-motion-render-cost-offscreen.test.ts",
@@ -785,15 +1041,23 @@
   },
   {
     "file": "at0629-motion-render-cost-rest.test.ts",
+    "kind": "gallery-motion-bench-dot"
+  },
+  {
+    "file": "at0629-motion-render-cost-rest.test.ts",
     "kind": "session"
+  },
+  {
+    "file": "at0629-motion-render-cost-stream.test.ts",
+    "kind": "gallery-motion-bench-dot"
   },
   {
     "file": "at0630-arc-boundary-orphan.test.ts",
     "kind": "dashes"
   },
   {
-    "file": "at0632-jot-click-holds-the-scroll.test.ts",
-    "kind": "jots"
+    "file": "at0630-arc-boundary-orphan.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0633-arc-stopped-at-the-seam.test.ts",
@@ -829,6 +1093,22 @@
   },
   {
     "file": "at0648-dictation-finish.test.ts",
+    "kind": "gallery-input"
+  },
+  {
+    "file": "at0648-dictation-finish.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0652-loop-cost-and-life.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0653-ai-config-older-models.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0655-change-directory-carries-context.test.ts",
     "kind": "session"
   },
   {
@@ -842,6 +1122,10 @@
   {
     "file": "at0658-cards-unconnected-session-row.test.ts",
     "kind": "cards"
+  },
+  {
+    "file": "at0659-change-directory-no-flash.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0659-change-directory-no-flash.test.ts",
@@ -865,6 +1149,10 @@
   },
   {
     "file": "at0667-dictation-stop-and-send.test.ts",
+    "kind": "gallery-input"
+  },
+  {
+    "file": "at0667-dictation-stop-and-send.test.ts",
     "kind": "session"
   },
   {
@@ -876,8 +1164,12 @@
     "kind": "text"
   },
   {
-    "file": "at0676-jot-open-animates.test.ts",
-    "kind": "jots"
+    "file": "at0683-arc-row-join.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0683-arc-row-join.test.ts",
+    "kind": "unknown"
   },
   {
     "file": "at0685-flow-swipe-catch.test.ts",
@@ -908,12 +1200,24 @@
     "kind": "session"
   },
   {
-    "file": "at0712-zoom-overlays-anchor.test.ts",
-    "kind": "unknown"
+    "file": "at0710-zoom-same-layout.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0715-zoom-z2-pinned-to-entry.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0718-zoom-levels-and-toggle.test.ts",
     "kind": "layout"
+  },
+  {
+    "file": "at0720-restore-gate-holds-through-reveal.test.ts",
+    "kind": "session"
+  },
+  {
+    "file": "at0722-header-chip-ellipsis.test.ts",
+    "kind": "session"
   },
   {
     "file": "at0723-workspace-fold-survives-relaunch.test.ts",
@@ -940,6 +1244,10 @@
     "kind": "session"
   },
   {
+    "file": "at0730-tugcast-rendered-stream.test.ts",
+    "kind": "unknown"
+  },
+  {
     "file": "at0732-tugcast-hostile-render.test.ts",
     "kind": "session"
   },
@@ -960,8 +1268,8 @@
     "kind": "session"
   },
   {
-    "file": "harness-smoke/smoke-em.test.ts",
-    "kind": "unknown"
+    "file": "harness-smoke/smoke-capture-phase-save.test.ts",
+    "kind": "gallery-input"
   },
   {
     "file": "zz-probe-layout-miniature.test.ts",

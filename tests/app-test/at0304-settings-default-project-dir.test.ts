@@ -41,6 +41,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -63,6 +64,7 @@ describe.skipIf(!SHOULD_RUN)(
       const dir = mkdtempSync(`${tmpdir()}/at0304-projects-`);
       const app = await launchTugApp({
         ...NO_AX,
+        bodies: true,
         testName: "at0304-settings-default-project-dir",
       });
       try {
@@ -71,17 +73,17 @@ describe.skipIf(!SHOULD_RUN)(
         );
         // General is the selected section on a fresh profile, so its body is
         // rendered without a selection gesture.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "settings").waitForCondition<boolean>(
           `document.querySelector('[data-testid="settings-general"]') !== null`,
         );
 
         // Type the path, then move focus to another section's header. Focus
         // leaving is one of the gestures that settles the field, so the write
         // happens without an Enter press.
-        await app.focusElement(FIELD_INPUT);
-        await app.type(FIELD_INPUT, dir);
-        expect(await app.getElementValue(FIELD_INPUT)).toBe(dir);
-        await app.focusElement(BLUR_TARGET);
+        await kindBody(app, "settings").focusElement(FIELD_INPUT);
+        await kindBody(app, "settings").type(FIELD_INPUT, dir);
+        expect(await kindBody(app, "settings").getElementValue(FIELD_INPUT)).toBe(dir);
+        await kindBody(app, "settings").focusElement(BLUR_TARGET);
 
         // Read the value back over the defaults API. The field's write is a
         // fire-and-forget PUT, so a single GET can beat it to the server and
@@ -112,7 +114,7 @@ describe.skipIf(!SHOULD_RUN)(
 
         // The field settles on what tugbank holds — the canonical spelling it
         // just took, not the string that was typed at it.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "settings").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FIELD_INPUT)}).value ===
              ${JSON.stringify(realpathSync(dir))}`,
           { timeoutMs: 8000 },

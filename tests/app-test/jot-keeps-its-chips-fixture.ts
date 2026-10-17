@@ -8,7 +8,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { App } from "./_harness";
+import type { App, BodyApp } from "./_harness";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 export const TEST_TIMEOUT_MS = 180_000;
@@ -116,9 +116,9 @@ export const flatTextJS = (selector: string) =>
 /**
  * Reveal the Jots card and wait for its first row.
  */
-export async function openJotsCard(app: App): Promise<void> {
+export async function openJotsCard(app: App, jots: App | BodyApp = app): Promise<void> {
   await app.dispatchControlAction("toggle-jots");
-  await app.waitForCondition<boolean>(
+  await jots.waitForCondition<boolean>(
     `document.querySelector('.jots-card .jot-row-label') !== null`,
     { timeoutMs: 8_000 },
   );
@@ -126,25 +126,26 @@ export async function openJotsCard(app: App): Promise<void> {
 
 /**
  * Click the first row and Enter into its editor — the ordinary route a person
- * takes, and the one at0241 pins.
+ * takes, and the one at0241 pins. `jots` is the page holding the Jots card;
+ * the keys go to the app, whose key window routes them there.
  */
-export async function enterFirstJotEditor(app: App): Promise<void> {
-  await app.nativeClickAtElement(".jots-card .jot-row-label");
-  await app.waitForCondition<boolean>(
+export async function enterFirstJotEditor(app: App, jots: App | BodyApp = app): Promise<void> {
+  await jots.nativeClickAtElement(".jots-card .jot-row-label");
+  await jots.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(JOTS_KBD)}) !== null`,
     { timeoutMs: 5_000 },
   );
   await app.nativeKey("Return");
-  await app.waitForCondition<boolean>(
+  await jots.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
     { timeoutMs: 5_000 },
   );
 }
 
 /** The card and the row in one gesture, for the phases that need both. */
-export async function openFirstJotEditor(app: App): Promise<void> {
-  await openJotsCard(app);
-  await enterFirstJotEditor(app);
+export async function openFirstJotEditor(app: App, jots: App | BodyApp = app): Promise<void> {
+  await openJotsCard(app, jots);
+  await enterFirstJotEditor(app, jots);
 }
 
 /**
@@ -152,9 +153,9 @@ export async function openFirstJotEditor(app: App): Promise<void> {
  * Tug.app, where everything the paste needs is on the pasteboard and none of it
  * is in the event, because WebKit hides a private pasteboard type from the DOM.
  */
-export async function pasteInto(app: App, selector: string): Promise<void> {
-  await app.focusElement(selector);
-  await app.evalJS<null>(`(function(){
+export async function pasteInto(page: App | BodyApp, selector: string): Promise<void> {
+  await page.focusElement(selector);
+  await page.evalJS<null>(`(function(){
     var cm = document.querySelector(${JSON.stringify(selector)});
     cm.dispatchEvent(new ClipboardEvent("paste", {
       bubbles: true, cancelable: true, clipboardData: new DataTransfer(),

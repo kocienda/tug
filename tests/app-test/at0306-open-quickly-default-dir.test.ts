@@ -88,6 +88,7 @@ import {
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -145,6 +146,7 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${dir}/nested/other.txt`, "unrelated\n");
 
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0306-open-quickly-default-dir",
         });
         try {
@@ -264,6 +266,7 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${other}/${OTHER_MARKER}`, "somewhere else\n");
 
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0306-open-quickly-chooser",
         });
         try {
@@ -387,6 +390,7 @@ describe.skipIf(!SHOULD_RUN)(
         mkdirSync(`${base}/c/proj`, { recursive: true });
 
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0306-open-quickly-places",
         });
         try {
@@ -466,7 +470,7 @@ describe.skipIf(!SHOULD_RUN)(
         mkdirSync(`${base}/other`);
         writeFileSync(`${base}/other/${OTHER_MARKER}`, "elsewhere\n");
 
-        const app = await launchTugApp({ testName: "at0306-open-quickly-keys" });
+        const app = await launchTugApp({ testName: "at0306-open-quickly-keys", bodies: true });
         try {
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
@@ -634,6 +638,7 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${base}/tug/${MARKER}`, "in the default\n");
 
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0306-open-quickly-settle",
         });
         try {
@@ -758,6 +763,7 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${base}/tug/${MARKER}`, "in the default\n");
 
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0306-open-quickly-esc",
           // Foreground: the final leg is a real app resign, which only
           // happens to an app that is actually active (pid-mode default
@@ -842,9 +848,13 @@ describe.skipIf(!SHOULD_RUN)(
         mkdirSync(`${base}/after`);
         writeFileSync(`${base}/after/${OTHER_MARKER}`, "the new default\n");
 
-        const app = await launchTugApp({ testName: "at0306-open-quickly-live" });
-        const placeholder = `document.querySelector(${JSON.stringify(INPUT)})
-          .getAttribute("placeholder")`;
+        const app = await launchTugApp({ testName: "at0306-open-quickly-live", bodies: true });
+        // Null-safe: the wait polls while the dialog is still mounting, and a
+        // read that throws there is an exception, not a false.
+        const placeholder = `(function () {
+          var el = document.querySelector(${JSON.stringify(INPUT)});
+          return el === null ? null : el.getAttribute("placeholder");
+        })()`;
         const SETTINGS_FIELD =
           '[data-testid="settings-default-project-dir-field"] input';
         try {
@@ -852,8 +862,27 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
-          await app.evalJS<null>(
-            `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/before`)} }), null)`,
+          // Seeded over the same HTTP surface the Settings write below uses,
+          // not set locally: a local set bumps this page's generation for the
+          // domain, and the DEFAULTS frame that carries the Settings card's
+          // write — made in the card's own page — would then lose to it here.
+          await app.evalJS(`(() => {
+            window.__at0306_seeded = undefined;
+            fetch("/api/defaults/dev.tugapp.app/default-project-path", {
+              method: "PUT",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ kind: "string", value: ${JSON.stringify(`${base}/before`)} }),
+            })
+              .then((r) => { window.__at0306_seeded = r.ok; })
+              .catch(() => { window.__at0306_seeded = false; });
+          })()`);
+          expect(await app.waitForCondition<boolean>(`window.__at0306_seeded`, { timeoutMs: 10000 })).toBe(true);
+          await app.waitForCondition<boolean>(
+            `(function () {
+               var v = window.__tug.getTugbankValue("dev.tugapp.app", "default-project-path");
+               return v !== null && typeof v.value === "string" && v.value.endsWith("/before");
+             })()`,
+            { timeoutMs: 10000 },
           );
 
           // Baseline: the dialog opens on the directory that is set now.
@@ -876,26 +905,35 @@ describe.skipIf(!SHOULD_RUN)(
           );
           // The card's sections are all expanded on a fresh profile, so
           // General's body is rendered without a selection gesture.
-          await app.waitForCondition<boolean>(
+          const settings = kindBody(app, "settings");
+          await settings.waitForCondition<boolean>(
             `document.querySelector('[data-testid="settings-general"]') !== null`,
             { timeoutMs: 10000 },
           );
-          await app.focusElement(SETTINGS_FIELD);
+          // The field is reached with a real click, once the body is placed:
+          // the body has to be the window's first responder for the Return
+          // below to land in it.
+          await waitForBodyPainted(app, "settings");
+          await settings.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(SETTINGS_FIELD)}) !== null`,
+            { timeoutMs: 10000 },
+          );
+          await settings.nativeClickAtElement(SETTINGS_FIELD);
           // Type a PARTIAL path — replacing the field's contents, since the
           // field already shows the stored path and `app.type` types after it.
           // Partial so the completion list has something to offer, which is
           // what the real gesture ends on.
-          await app.evalJS<null>(
+          await settings.evalJS<null>(
             `(function(){
-               var input = document.querySelector(${JSON.stringify(SETTINGS_FIELD)});
+               var field = document.querySelector(${JSON.stringify(SETTINGS_FIELD)});
                var setter = Object.getOwnPropertyDescriptor(
                  window.HTMLInputElement.prototype, "value").set;
-               setter.call(input, ${JSON.stringify(`${base}/aft`)});
-               input.dispatchEvent(new Event("input", { bubbles: true }));
+               setter.call(field, ${JSON.stringify(`${base}/aft`)});
+               field.dispatchEvent(new Event("input", { bubbles: true }));
                return null;
              })()`,
           );
-          await app.waitForCondition<boolean>(
+          await settings.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(".tug-combo-box-item"))
                .some((el) => (el.textContent || "").indexOf("after") !== -1)`,
             { timeoutMs: 8000 },
@@ -936,7 +974,7 @@ describe.skipIf(!SHOULD_RUN)(
           // And the field shows what the store holds — no settled field ever
           // displays a path tugbank doesn't have.
           expect(
-            await app.evalJS<string>(
+            await settings.evalJS<string>(
               `document.querySelector(${JSON.stringify(SETTINGS_FIELD)}).value`,
             ),
           ).toBe(canonicalAfter);

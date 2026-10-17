@@ -42,7 +42,7 @@ function inset(r: Rect, i: Insets = INSETS): Rect {
 }
 
 function placed(cardId: string, r: Rect, visible = true): BodyPlacement {
-  return { cardId, x: r.x, y: r.y, width: r.width, height: r.height, visible, z: 1 };
+  return { cardId, x: r.x, y: r.y, width: r.width, height: r.height, visible, z: 1, grips: [] };
 }
 
 function moveBeat(dx: number, dy: number, delayMs = 0, durationMs = 300): FrameBeat {

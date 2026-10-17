@@ -119,6 +119,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
         // ── Phase A: seed deck, anchor selection, quitGracefully. ──
         {
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0010-cold-boot-selection-A",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
@@ -140,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           // through the event, which tells SmartScroll to disengage
           // follow-bottom AND apply the position (a raw `scrollTop` write
           // races the bake-in and gets re-slammed).
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(`[data-card-id="A"] [data-tug-scroll-key="markdown-view"]`)});
               if (el === null) return;
@@ -151,7 +152,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
               }));
             })()`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(`[data-card-id="A"] [data-tug-scroll-key="markdown-view"]`)});
               return el !== null && el.scrollTop <= 4;
@@ -170,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           // capture stable across the relaunch + restore (Phase B
           // mounts the same fixture, hits the same render window,
           // and resolves the saved path back to the same node).
-          await app.waitForCondition<boolean>(
+          await app.body(CARD_ID).waitForCondition<boolean>(
             `(function(){
               var first = document.querySelector('[data-card-id=${JSON.stringify(CARD_ID)}] .tugx-md-block');
               if (first === null || first.getAttribute("data-block-index") === null) return false;
@@ -188,9 +189,13 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
 
           // Anchor focus on the card before driving the selection
           // gesture (mirrors at0010-markdown-selection's preflight).
-          await app.nativeClickAtElement(`[data-card-id="${CARD_ID}"] [data-tug-scroll-key="markdown-view"]`);
+          await app.body(CARD_ID).nativeClickAtElement(`[data-card-id="${CARD_ID}"] [data-tug-scroll-key="markdown-view"]`);
+          // The click's anchor is the deck's: the card it activated. (The
+          // deck's `hasFocus` is seeded true by the fixture, so it never said
+          // anything, and a body's `document.hasFocus()` is false in a window
+          // the harness never activates.)
           await app.waitForCondition<boolean>(
-            `window.__tug.getHasFocus() === true`,
+            `window.__tug.getActiveCardId() === ${JSON.stringify(CARD_ID)}`,
             { timeoutMs: 2000 },
           );
 
@@ -199,7 +204,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           // at0010-markdown-selection — the selectionchange listener
           // installed by tug-markdown-view (selectionPublishKey="markdown-view")
           // publishes the Range to selectionGuard.cardRanges["A"].
-          const seededOpt = await app.evalJS<SeededSelection | null>(
+          const seededOpt = await app.body(CARD_ID).evalJS<SeededSelection | null>(
             `(function(){
               var blockEls = document.querySelectorAll('[data-card-id=${JSON.stringify(CARD_ID)}] .tugx-md-block');
               if (blockEls.length === 0) return null;
@@ -236,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
           seeded = seededOpt;
 
           // Wait for the publish to land in selectionGuard.
-          await app.waitForCondition<boolean>(
+          await app.body(CARD_ID).waitForCondition<boolean>(
             `(function(){
               var s = window.__tug.getCaretState(${JSON.stringify(CARD_ID)});
               return s !== null && s.kind === "range" && s.text === ${JSON.stringify(seeded.text)};
@@ -272,6 +277,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
         // ── Phase B: relaunch, re-seed bag, assert restore. ──
         {
           const app = await launchTugApp({
+            bodies: true,
             testName: "at0010-cold-boot-selection-B",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
@@ -297,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
             // through the event, which tells SmartScroll to disengage
             // follow-bottom AND apply the position (a raw `scrollTop` write
             // races the bake-in and gets re-slammed).
-            await app.evalJS<void>(
+            await app.body("A").evalJS<void>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(`[data-card-id="A"] [data-tug-scroll-key="markdown-view"]`)});
                 if (el === null) return;
@@ -308,7 +314,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
                 }));
               })()`,
             );
-            await app.waitForCondition<boolean>(
+            await app.body("A").waitForCondition<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(`[data-card-id="A"] [data-tug-scroll-key="markdown-view"]`)});
                 return el !== null && el.scrollTop <= 4;
@@ -319,7 +325,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
             // The fixture's `followBottom: false` keeps the scroll at
             // the head, so the virtualization window matches Phase
             // A's — same path indices, same resolved node.
-            await app.waitForCondition<boolean>(
+            await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var first = document.querySelector('[data-card-id=${JSON.stringify(CARD_ID)}] .tugx-md-block');
                 if (first === null || first.getAttribute("data-block-index") === null) return false;
@@ -338,7 +344,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
             // Wait for the restore to land the saved range in
             // selectionGuard.cardRanges["A"]. getCaretState reads
             // from there.
-            await app.waitForCondition<boolean>(
+            await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var s = window.__tug.getCaretState(${JSON.stringify(CARD_ID)});
                 return s !== null && s.kind === "range" && s.text === ${JSON.stringify(seeded.text)};
@@ -358,7 +364,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
             // updatePaint runs synchronously inside the deck-store
             // notify, but the seed flow may queue a selectionchange
             // we need to wait for.
-            await app.waitForCondition<boolean>(
+            await app.body(CARD_ID).waitForCondition<boolean>(
               `(function(){
                 var sel = window.getSelection();
                 if (!sel || sel.rangeCount === 0) return false;
@@ -367,7 +373,7 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
               { timeoutMs: 2000 },
             );
 
-            const nativeText = await app.evalJS<string>(
+            const nativeText = await app.body(CARD_ID).evalJS<string>(
               `(function(){
                 var sel = window.getSelection();
                 if (!sel || sel.rangeCount === 0) return "";

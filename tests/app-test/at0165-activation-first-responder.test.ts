@@ -137,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug B — closing a tab leaves the survivor first responder; Cmd-W closes it",
     async () => {
-      const app = await launchTugApp({ testName: "at0165-bugB" });
+      const app = await launchTugApp({ bodies: true, testName: "at0165-bugB" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: twoCards("gallery-input"), focusCardId: "A" });
@@ -176,7 +176,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug A — a card-modal dialog stays Cmd-.-dismissable after a tab round-trip",
     async () => {
-      const app = await launchTugApp({ testName: "at0165-bugA" });
+      const app = await launchTugApp({ bodies: true, testName: "at0165-bugA" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: twoCards("session"), focusCardId: "A" });
@@ -186,14 +186,30 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
 
-        // Present a card-modal permission dialog on A.
-        await app.driveSession("A", { op: "send", text: "count lines with tokei" });
-        await app.driveSession("A", {
-          op: "ingestFrame",
-          feedId: FEED_CODE_OUTPUT,
-          decoded: controlRequestForward(),
+        // Present a card-modal permission dialog on A. The request rides in
+        // on the replay as a turn blocked on a permission — the session
+        // card renders the dialog from its own (body) page's transcript. A
+        // frame ingested after `replay_complete` opens no turn, and a `send`
+        // would go out on the wire for a session tugcast never spawned,
+        // whose `session_unknown` reply errors the card's body.
+        const ingestA = (decoded: Record<string, unknown>) =>
+          app.driveSession("A", { op: "ingestFrame", feedId: FEED_CODE_OUTPUT, decoded });
+        await ingestA({ type: "replay_started", tug_session_id: SID });
+        await ingestA({
+          type: "add_user_message",
+          tug_session_id: SID,
+          content: [{ type: "text", text: "count lines with tokei" }],
         });
-        await app.waitForCondition<boolean>(exists(DIALOG), { timeoutMs: 8000 });
+        await ingestA(controlRequestForward());
+        await ingestA({
+          type: "replay_complete",
+          tug_session_id: SID,
+          count: 1,
+          firstLoadedTurnIndex: 0,
+          totalTurns: 1,
+          hasOlder: false,
+        });
+        await app.body("A").waitForCondition<boolean>(exists(DIALOG), { timeoutMs: 8000 });
 
         // Switch to B (displaces the chain's first responder), then back to A.
         // The dialog survives ([P20]/[P21]); the question is whether Cmd-. still
@@ -207,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
           "switching to B moves the first responder off A",
         ).toBe(false);
         await app.nativeClickAtElement(TAB("A"));
-        await app.waitForCondition<boolean>(exists(DIALOG), { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(exists(DIALOG), { timeoutMs: 6000 });
         await settle();
 
         // The fix: reactivating A restores its first responder (the per-card FR
@@ -226,7 +242,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         await app.evalJS<void>(
           `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true }))`,
         );
-        await app.waitForCondition<boolean>(`${exists(DIALOG)} === false`, { timeoutMs: 6000 });
+        await app.body("A").waitForCondition<boolean>(`${exists(DIALOG)} === false`, { timeoutMs: 6000 });
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0165-bugA] log tail:\n${tail}\n`);
@@ -241,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug C — a pane promoted to frontmost on close takes the first responder",
     async () => {
-      const app = await launchTugApp({ testName: "at0165-bugC" });
+      const app = await launchTugApp({ bodies: true, testName: "at0165-bugC" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: twoPanes(), focusCardId: "A" });
@@ -250,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         );
         // A was focused first (its context gets a key view); then activate p2/B.
         await app.waitForCondition<boolean>(`${exists(CARD("B"))} && ${exists(CARD("A"))}`, { timeoutMs: 6000 });
-        await app.nativeClickAtElement(`${CARD("B")} input`);
+        await app.body("B").nativeClickAtElement(`${CARD("B")} input`);
         await settle();
         expect(await app.evalJS<boolean>(frWithin(CARD("B"))), "B (frontmost pane) holds first responder").toBe(true);
 
@@ -285,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
     async () => {
       // Foreground: Cmd-W routing through the responder chain needs a
       // real key window.
-      const app = await launchTugApp({ testName: "at0165-bugD", foreground: true });
+      const app = await launchTugApp({ bodies: true, testName: "at0165-bugD", foreground: true });
       try {
         await app.enableDeckTrace(true);
         const state = {
@@ -305,7 +321,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
         await app.waitForCondition<boolean>(exists(TAB("A")), { timeoutMs: 6000 });
 
         // Click into card A so it (its card responder) is first responder.
-        await app.nativeClickAtElement(CARD("A"));
+        await app.body("A").nativeClickAtElement(CARD("A"));
         await settle();
         const d0 = await app.evalJS<string>(`'fr=' + (document.querySelector('[data-first-responder]')||{getAttribute:function(){return 'NONE'}}).getAttribute('data-first-responder')`);
         process.stderr.write(`\n[DIAG bugD after click A] ${d0}\n`);
@@ -336,7 +352,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug E — when the first responder is the canvas root, Cmd-W still closes the active card",
     async () => {
-      const app = await launchTugApp({ testName: "at0165-bugE" });
+      const app = await launchTugApp({ bodies: true, testName: "at0165-bugE" });
       try {
         await app.enableDeckTrace(true);
         const state = {

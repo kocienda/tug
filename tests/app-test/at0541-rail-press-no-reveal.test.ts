@@ -165,7 +165,7 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
   test(
     "the strip stays put under the press, and the click's release brings the member in",
     async () => {
-      const app = await launchTugApp({ testName: "at0541-rail-press-no-reveal" });
+      const app = await launchTugApp({ bodies: true, testName: "at0541-rail-press-no-reveal" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(
@@ -264,7 +264,7 @@ describe.skipIf(!SHOULD_RUN)("at0541 — a press on a clipped rail member moves 
   test(
     "a press on a seated member's title bar leaves the panel's frame alone",
     async () => {
-      const app = await launchTugApp({ testName: "at0541-rail-press-livery" });
+      const app = await launchTugApp({ bodies: true, testName: "at0541-rail-press-livery" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

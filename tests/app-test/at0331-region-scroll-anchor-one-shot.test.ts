@@ -116,7 +116,7 @@ interface ScrollSnapshot {
 }
 
 async function readScroll(app: App, cardId: string): Promise<ScrollSnapshot> {
-  return app.evalJS<ScrollSnapshot>(
+  return app.body(cardId).evalJS<ScrollSnapshot>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       if (el === null) {
@@ -143,7 +143,7 @@ async function waitForSettled(
   cardId: string,
   timeoutMs = 5000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       if (el === null) return false;
@@ -151,14 +151,14 @@ async function waitForSettled(
     })()`,
     { timeoutMs },
   );
-  const firstHeight = await app.evalJS<number>(
+  const firstHeight = await app.body(cardId).evalJS<number>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       return el === null ? -1 : el.scrollHeight;
     })()`,
   );
   await new Promise<void>((resolve) => setTimeout(resolve, 250));
-  const secondHeight = await app.evalJS<number>(
+  const secondHeight = await app.body(cardId).evalJS<number>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       return el === null ? -1 : el.scrollHeight;
@@ -169,7 +169,7 @@ async function waitForSettled(
       `waitForSettled: scrollHeight unstable (${firstHeight} → ${secondHeight})`,
     );
   }
-  await app.waitForCondition<boolean>(
+  await app.body(cardId).waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor(cardId))});
       var raw = el && el.getAttribute("data-tug-scroll-state");
@@ -197,6 +197,7 @@ describe.skipIf(!SHOULD_RUN)(
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0331-region-scroll-anchor-one-shot",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -216,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)(
           // follow-bottom engaged, the save records `atBottom`, and the
           // reload takes the at-bottom branch instead of the anchor branch
           // this test is about.
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               el.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true, cancelable: true }));
@@ -224,7 +225,7 @@ describe.skipIf(!SHOULD_RUN)(
               el.dispatchEvent(new Event('scroll', { bubbles: true }));
             })()`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               var raw = el && el.getAttribute("data-tug-scroll-state");
@@ -283,8 +284,8 @@ describe.skipIf(!SHOULD_RUN)(
           // standing policy instead of a one-shot.
           for (let i = 0; i < 3; i += 1) {
             const target = restored.itemCount + i + 1;
-            await app.click(buttonFor("A", "gallery-list-view-insert-top"));
-            await app.waitForCondition<boolean>(
+            await app.body("A").click(buttonFor("A", "gallery-list-view-insert-top"));
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(cellsSelectorFor("A"))}).length >= ${target}`,
               { timeoutMs: 2000 },
             );
@@ -299,8 +300,8 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(SCROLL_TOL_PX);
 
           // -------- Phase 4: take the live edge, then stream into it.
-          await app.click(buttonFor("A", "gallery-list-view-scroll-to-bottom"));
-          await app.waitForCondition<boolean>(
+          await app.body("A").click(buttonFor("A", "gallery-list-view-scroll-to-bottom"));
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               return el !== null &&
@@ -311,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Record every scroll position from here on, so a snap-back
           // shows up even if a later commit pins forward again.
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(scrollContainerSelectorFor("A"))});
               window.__at0331 = { tops: [], bottomAt: el.scrollHeight - el.clientHeight };
@@ -324,8 +325,8 @@ describe.skipIf(!SHOULD_RUN)(
           const atEdge = await readScroll(app, "A");
           for (let i = 0; i < 3; i += 1) {
             const target = atEdge.itemCount + i + 1;
-            await app.click(buttonFor("A", "gallery-list-view-insert-bottom"));
-            await app.waitForCondition<boolean>(
+            await app.body("A").click(buttonFor("A", "gallery-list-view-insert-bottom"));
+            await app.body("A").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(cellsSelectorFor("A"))}).length >= ${target}`,
               { timeoutMs: 2000 },
             );
@@ -344,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)(
           // Stronger signal: no recorded position regressed toward the
           // restore anchor. A re-armed restore lands `scrollTop` near the
           // anchored row, far above the growing bottom.
-          const recorded = await app.evalJS<{
+          const recorded = await app.body("A").evalJS<{
             tops: number[];
             bottomAt: number;
           }>(`window.__at0331`);

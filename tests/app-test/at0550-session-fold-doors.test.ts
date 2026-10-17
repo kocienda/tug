@@ -187,7 +187,7 @@ async function toolbarGeometry(app: App): Promise<{
   centerRight: number;
   submitLeft: number;
 }> {
-  return app.evalJS(
+  return app.body("A").evalJS(
     `(function () {
       var rect = function (sel) {
         var el = document.querySelector(sel);
@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "the control frame flips the pane flag, and the menu item says which way it goes",
     async () => {
-      const app = await launchTugApp({ testName: "at0550-fold-doors" });
+      const app = await launchTugApp({ bodies: true, testName: "at0550-fold-doors" });
       try {
         // `isEngineReady` reads the deck trace ring, so the trace has to be
         // recording before the engine reports.
@@ -261,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
 
         // ── The door: the exact control frame the Swift item posts ──
         // Focus the card first, so the key-card-scoped dispatch resolves it.
-        await app.nativeClickAtElement(PROMPT_INPUT);
+        await app.body("A").nativeClickAtElement(PROMPT_INPUT);
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("toggle-card-fold"), null)`,
         );
@@ -310,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "the control stands in Z2, and the composer's row lays out as it did before Z4-lead",
     async () => {
-      const app = await launchTugApp({ testName: "at0550-fold-button" });
+      const app = await launchTugApp({ bodies: true, testName: "at0550-fold-button" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -319,7 +319,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
         );
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FOLD_BUTTON)}) !== null`,
           { timeoutMs: 8000 },
         );
@@ -344,7 +344,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
         // And it is the third door: a click lands the same flag the wire and
         // the menu item land.
         expect(await paneFolded(app)).toBe(false);
-        await app.nativeClickAtElement(FOLD_BUTTON);
+        await app.body("A").nativeClickAtElement(FOLD_BUTTON);
         await app.waitForCondition<boolean>(
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === true`,
           { timeoutMs: 8000 },
@@ -359,7 +359,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "a non-Session key card enables the item",
     async () => {
-      const app = await launchTugApp({ testName: "at0550-fold-gate" });
+      const app = await launchTugApp({ bodies: true, testName: "at0550-fold-gate" });
       try {
         await app.seedDeckState({ state: plainCardDeck(), focusCardId: "B" });
         await app.waitForCondition<boolean>(

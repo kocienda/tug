@@ -26,6 +26,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -58,6 +59,7 @@ describe.skipIf(!SHOULD_RUN)("at0356: Settings remembers the selected section", 
   test("opens on General with no stored value, and a selection survives close and reopen", async () => {
     const app = await launchTugApp({
       ...NO_AX,
+      bodies: true,
       testName: "at0356-settings-sections-persist",
     });
     try {
@@ -67,6 +69,7 @@ describe.skipIf(!SHOULD_RUN)("at0356: Settings remembers the selected section", 
 
       // ---- Start from "never set" — not "set to empty", which is a state a
       //      reader can reach but a new profile cannot.
+      // card-dom: shell — a fetch from the shell's page; DOMAIN only looks like a selector.
       await app.evalJS(`(() => {
         window.__at0356_cleared = false;
         fetch("/api/defaults/${DOMAIN}/${KEY}", { method: "DELETE" })
@@ -77,23 +80,24 @@ describe.skipIf(!SHOULD_RUN)("at0356: Settings remembers the selected section", 
 
       // ---- First open: every section has a sidebar tab, General showing.
       await app.evalJS(SHOW_SETTINGS);
-      await app.waitForCondition<boolean>(`${TAB_COUNT} === 4`, {
+      await kindBody(app, "settings").waitForCondition<boolean>(`${TAB_COUNT} === 4`, {
         timeoutMs: 8000,
       });
-      await app.waitForCondition<boolean>(
+      await kindBody(app, "settings").waitForCondition<boolean>(
         `${SHOWING_SECTION_ID} === "general"`,
         { timeoutMs: 8000 },
       );
 
       // ---- Select another section, by the gesture a reader makes: clicking
       //      its sidebar tab.
-      await app.click('[data-testid="tug-tab-view-tab-textCard"]');
-      await app.waitForCondition<boolean>(
+      await kindBody(app, "settings").click('[data-testid="tug-tab-view-tab-textCard"]');
+      await kindBody(app, "settings").waitForCondition<boolean>(
         `${SHOWING_SECTION_ID} === "textCard"`,
         { timeoutMs: 8000 },
       );
 
       // The write landed in tugbank as the selected section.
+      // card-dom: shell — the same fetch, read back.
       await app.evalJS(`(() => {
         window.__at0356_stored = undefined;
         const poll = () => {
@@ -127,24 +131,31 @@ describe.skipIf(!SHOULD_RUN)("at0356: Settings remembers the selected section", 
       await app.evalJS(
         `window.__tug.closePane(${JSON.stringify(settingsPaneId)})`,
       );
+      // The card is its own page, so "its DOM is gone" is the deck no longer
+      // holding the card and the host no longer holding its body.
       await app.waitForCondition<boolean>(
-        `document.querySelector(${JSON.stringify(SETTINGS_CARD)}) === null`,
+        `!window.tugdeck.diag.getDeckState().cards.some((c) => c.componentId === "settings")`,
         { timeoutMs: 8000 },
       );
+      const gone = Date.now() + 8000;
+      while ((await app.bodies()).some((b) => b.componentId === "settings")) {
+        if (Date.now() >= gone) throw new Error("the Settings card's body outlived its card");
+        await Bun.sleep(50);
+      }
 
       await app.evalJS(SHOW_SETTINGS);
-      await app.waitForCondition<boolean>(`${TAB_COUNT} === 4`, {
+      await kindBody(app, "settings").waitForCondition<boolean>(`${TAB_COUNT} === 4`, {
         timeoutMs: 8000,
       });
 
       // ---- The reader's place came back: Text Card showing, its tab marked
       //      active.
-      await app.waitForCondition<boolean>(
+      await kindBody(app, "settings").waitForCondition<boolean>(
         `${SHOWING_SECTION_ID} === "textCard"`,
         { timeoutMs: 8000 },
       );
       expect(
-        await app.evalJS<string | null>(
+        await kindBody(app, "settings").evalJS<string | null>(
           `document.querySelector(
             '[data-testid="tug-tab-view-tab-textCard"]',
           ).getAttribute("data-active")`,

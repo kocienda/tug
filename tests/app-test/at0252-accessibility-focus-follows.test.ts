@@ -27,7 +27,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -44,12 +45,12 @@ const CURSOR = `${JOTS_LIST} [data-key-cursor]`;
 
 const ROWS = 5;
 
-async function activeElementProbe(app: App): Promise<{
+async function activeElementProbe(page: BodyApp): Promise<{
   isSink: boolean;
   isJotsList: boolean;
   accessAttr: string | null;
 }> {
-  return app.evalJS(
+  return page.evalJS(
     `(function(){
       var ae = document.activeElement;
       var list = document.querySelector(${JSON.stringify(JOTS_LIST)});
@@ -82,7 +83,9 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
         const app = await launchTugApp({
           testName: "at0252-accessibility-focus-follows",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
+          bodies: true,
         });
+        const jotsCard = kindBody(app, "jots");
         try {
           await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -95,13 +98,13 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
           // its section and every control on it is a stop, so the walk
           // crosses the band before it reaches the rows.
           await app.dispatchControlAction("toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jotsCard.waitForCondition<boolean>(
             `document.querySelector("[data-key-view-kbd]") !== null`,
             { timeoutMs: 5_000 },
           );
           for (let i = 0; i < 8; i += 1) {
             if (
-              await app.evalJS<boolean>(
+              await jotsCard.evalJS<boolean>(
                 `document.querySelector(${JSON.stringify(JOTS_KBD)}) !== null`,
               )
             ) {
@@ -109,11 +112,11 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
             }
             await app.nativeKey("Tab");
           }
-          await app.waitForCondition<boolean>(
+          await jotsCard.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(JOTS_KBD)}) !== null`,
             { timeoutMs: 5_000 },
           );
-          const standard = await activeElementProbe(app);
+          const standard = await activeElementProbe(jotsCard);
           expect(standard.accessAttr).toBe("standard");
           expect(standard.isSink).toBe(true);
           expect(standard.isJotsList).toBe(false);
@@ -121,14 +124,14 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
           // VoiceOver on → accessibility mode → the mirror grants the
           // key-view element real DOM focus (with a regained tabindex).
           await app.dispatchControlAction("voiceover-changed", { enabled: true });
-          await app.waitForCondition<boolean>(
+          await jotsCard.waitForCondition<boolean>(
             `(function(){
               var list = document.querySelector(${JSON.stringify(JOTS_LIST)});
               return list !== null && document.activeElement === list;
             })()`,
             { timeoutMs: 5_000 },
           );
-          const mirrored = await activeElementProbe(app);
+          const mirrored = await activeElementProbe(jotsCard);
           expect(mirrored.accessAttr).toBe("accessibility");
           expect(mirrored.isJotsList).toBe(true);
           // The invariant is "the list became programmatically focusable so the
@@ -136,7 +139,7 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
           // above. Which non-stop tabindex spelling the mirror uses is a
           // mechanism, so only its presence is pinned here.
           expect(
-            await app.evalJS<string | null>(
+            await jotsCard.evalJS<string | null>(
               `(function(){
                 var list = document.querySelector(${JSON.stringify(JOTS_LIST)});
                 return list === null ? null : list.getAttribute("tabindex");
@@ -147,17 +150,17 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
           // Arrows still move the cursor while the mirror holds focus on
           // the list, and the ring stays keyboard-held.
           await app.nativeKey("ArrowDown");
-          await app.waitForCondition<boolean>(
+          await jotsCard.waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(CURSOR)});
               return el !== null && (el.textContent || "").indexOf("row-1") !== -1;
             })()`,
             { timeoutMs: 3_000 },
           );
-          const midTour = await activeElementProbe(app);
+          const midTour = await activeElementProbe(jotsCard);
           expect(midTour.isJotsList).toBe(true);
           expect(
-            await app.evalJS<boolean>(
+            await jotsCard.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(JOTS_KBD)}) !== null`,
             ),
           ).toBe(true);
@@ -165,21 +168,21 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
           // VoiceOver off → the detection-driven flip is undone: the park
           // resumes on the sink and the mirror's added tabindex is removed.
           await app.dispatchControlAction("voiceover-changed", { enabled: false });
-          await app.waitForCondition<boolean>(
+          await jotsCard.waitForCondition<boolean>(
             `(function(){
               var ae = document.activeElement;
               return ae !== null && ae.hasAttribute("data-tug-key-sink");
             })()`,
             { timeoutMs: 5_000 },
           );
-          const restored = await activeElementProbe(app);
+          const restored = await activeElementProbe(jotsCard);
           expect(restored.accessAttr).toBe("standard");
           expect(restored.isSink).toBe(true);
           // Residue check, not a stop check: a leftover tabindex would leave the
           // list mouse-focusable and feed the mousedown focus churn the
           // watchdog then has to park.
           expect(
-            await app.evalJS<string | null>(
+            await jotsCard.evalJS<string | null>(
               `(function(){
                 var list = document.querySelector(${JSON.stringify(JOTS_LIST)});
                 return list === null ? null : list.getAttribute("tabindex");
@@ -187,15 +190,17 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
             ),
           ).toBe(null);
 
-          // The whole tour was engine-written focus: zero violations, an
-          // empty attributed steal ledger.
-          const report = await app.evalJS<{
-            violations: number;
-            steals: Record<string, number>;
-          } | null>(`window.__tug.getFocusInvariantReport()`);
-          expect(report).not.toBeNull();
-          expect(report!.violations).toBe(0);
-          expect(Object.keys(report!.steals)).toEqual([]);
+          // The whole tour was engine-written focus, in the card's page and
+          // in the shell's: zero violations, an empty attributed steal ledger.
+          for (const page of [app, jotsCard] as Array<App | BodyApp>) {
+            const report = await page.evalJS<{
+              violations: number;
+              steals: Record<string, number>;
+            } | null>(`window.__tug.getFocusInvariantReport()`);
+            expect(report).not.toBeNull();
+            expect(report!.violations).toBe(0);
+            expect(Object.keys(report!.steals)).toEqual([]);
+          }
         } finally {
           await app.close();
         }

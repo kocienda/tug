@@ -93,7 +93,7 @@ import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
-import { getJotsStore } from "@/lib/jots-store";
+import { captureJot } from "@/lib/jot-capture";
 import {
   bullseyePaneIdOf,
   columnDrawsSplit,
@@ -2953,11 +2953,12 @@ export function DeckCanvas(_props: DeckCanvasProps) {
         toggleSidebarRail(store, event.value);
       },
       // ⌘J — capture in one gesture: reveal the Jots rail if it is hidden,
-      // then open a fresh jot's editor. The reveal takes the same
-      // show-then-activate transfer an activation uses, with keyboard modality so
-      // the landing is visibly ringed; `createJot` runs after the transfer so
-      // the row it opens mounts into a card that already holds focus, and the
-      // editor's own descend claim lands the caret ([L03] registration order).
+      // then open a fresh jot's editor, in the card's own page. The reveal
+      // takes the same show-then-activate transfer an activation uses, with
+      // keyboard modality so the landing is visibly ringed; `captureJot` runs
+      // after the transfer so the row it opens mounts into a card that already
+      // holds focus, and the editor's own descend claim lands the caret ([L03]
+      // registration order).
       [TUG_ACTIONS.NEW_JOT]: (_event: ActionEvent) => {
         const incomingCardId = store.showSidebarPane(JOTS_CARD_ID);
         if (incomingCardId === null) return;
@@ -2969,7 +2970,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           deferCommit: mayDeferCommit(store, incomingCardId),
           modality: "keyboard",
         });
-        getJotsStore().createJot(null);
+        captureJot(incomingCardId);
       },
       /**
        * show-component-gallery — find or create the gallery card ([D05], [D07]).

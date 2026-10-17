@@ -23,6 +23,7 @@
  * @covers tugdeck/src/components/jots/jots-card.tsx
  * @covers tugdeck/src/lib/jots-store.ts
  * @covers tugdeck/src/lib/jots-doc.ts
+ * @covers tugdeck/src/lib/jot-capture.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */
@@ -32,7 +33,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -50,8 +52,8 @@ async function dispatch(app: App, action: string): Promise<void> {
   await app.dispatchControlAction(action);
 }
 
-async function exists(app: App, selector: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+async function exists(page: App | BodyApp, selector: string): Promise<boolean> {
+  return page.evalJS<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) !== null`,
   );
 }
@@ -77,8 +79,10 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           testName: "at0241-jots-editor",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
+          bodies: true,
         });
         try {
+          const jots = kindBody(app, "jots");
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -88,13 +92,13 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // 1. Open the Jots card; the seeded jot row renders; click the
           //    row → the jots list takes the keyboard key view.
           await dispatch(app, "toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll('.jot-row-label'))
                .some((el) => el.textContent === 'There is a tide')`,
             { timeoutMs: 5_000 },
           );
-          await app.nativeClickAtElement(".jots-card .jot-row-label");
-          await app.waitForCondition<boolean>(
+          await jots.nativeClickAtElement(".jots-card .jot-row-label");
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(JOTS_KBD)}) !== null`,
             { timeoutMs: 3_000 },
           );
@@ -102,11 +106,11 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // 2. Enter on the cursor row → the editor mounts and the CM6
           //    content receives DOM focus (the wrapper forwards it).
           await app.nativeKey("Return");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.activeElement !== null &&
              document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
@@ -116,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           //    (the data-loss regression guard — an empty editor here would
           //    clobber the jot on the next edit).
           expect(
-            await app.evalJS<boolean>(
+            await jots.evalJS<boolean>(
               `(() => {
                  const content = document.querySelector('${EDITOR} .cm-content');
                  return content !== null &&
@@ -128,7 +132,7 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // Type at the caret — the keystrokes land in the CM6 document
           // alongside the seeded text.
           await app.nativeType(" in the affairs");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `(() => {
                const content = document.querySelector('${EDITOR} .cm-content');
                const text = content?.textContent ?? '';
@@ -140,12 +144,12 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // 4. Escape → ascend to the list (key view back on the container),
           //    editor unmounts, and the committed incipit reflects the edit.
           await app.nativeKey("Escape");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) === null`,
             { timeoutMs: 3_000 },
           );
-          expect(await exists(app, JOTS_KBD)).toBe(true);
-          await app.waitForCondition<boolean>(
+          expect(await exists(jots, JOTS_KBD)).toBe(true);
+          await jots.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll('.jot-row-label'))
                .some((el) => (el.textContent ?? '').includes('in the affairs'))`,
             { timeoutMs: 3_000 },
@@ -181,8 +185,10 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           testName: "at0241-jots-space",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
+          bodies: true,
         });
         try {
+          const jots = kindBody(app, "jots");
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -190,13 +196,13 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
             { timeoutMs: 5_000 },
           );
           await dispatch(app, "toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll('.jot-row-label'))
                .some((el) => el.textContent === 'There is a tide')`,
             { timeoutMs: 5_000 },
           );
-          await app.nativeClickAtElement(".jots-card .jot-row-label");
-          await app.waitForCondition<boolean>(
+          await jots.nativeClickAtElement(".jots-card .jot-row-label");
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(JOTS_KBD)}) !== null`,
             { timeoutMs: 3_000 },
           );
@@ -204,7 +210,7 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // Space on the list (the Things-style gesture) creates a new jot
           // below the cursor and opens its editor — an empty CM6 field.
           await app.nativeKey(" ");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
@@ -213,12 +219,12 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // while the document is empty, so its presence proves the new row
           // carries no text (not a copy of the seeded jot).
           expect(
-            await app.evalJS<number>(
+            await jots.evalJS<number>(
               `document.querySelectorAll('.jots-list .jot-row-content, .jots-list .jot-editor').length`,
             ),
           ).toBe(2);
           expect(
-            await app.evalJS<boolean>(
+            await jots.evalJS<boolean>(
               `document.querySelector('${EDITOR} .cm-content .cm-placeholder') !== null`,
             ),
           ).toBe(true);
@@ -249,8 +255,10 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           testName: "at0241-new-jot",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
+          bodies: true,
         });
         try {
+          const jots = kindBody(app, "jots");
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: priorCardDeck(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -261,36 +269,36 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           // surface. `new-jot` is the wire ⌘J's menu item sends, so this is
           // the chord's path minus AppKit's key-equivalent lookup (which
           // at0168 and at0181 cover).
-          expect(await exists(app, ".jots-card")).toBe(false);
+          expect((await app.bodies()).some((b) => b.componentId === "jots")).toBe(false);
           await dispatch(app, "new-jot");
 
           // The rail appears with exactly one row, and that row is an OPEN
           // editor rather than a settled label — one gesture, caret included.
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 5_000 },
           );
           expect(
-            await app.evalJS<number>(
+            await jots.evalJS<number>(
               `document.querySelectorAll('.jots-list .jot-row-content, .jots-list .jot-editor').length`,
             ),
           ).toBe(1);
           // A fresh jot, not a resurrected one: CM6 shows its placeholder
           // only while the document is empty.
           expect(
-            await app.evalJS<boolean>(
+            await jots.evalJS<boolean>(
               `document.querySelector('${EDITOR} .cm-content .cm-placeholder') !== null`,
             ),
           ).toBe(true);
           // DOM focus is inside the CM6 content — typing goes to the jot
           // without any further gesture.
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `document.activeElement !== null &&
              document.activeElement.closest(${JSON.stringify(EDITOR)}) !== null`,
             { timeoutMs: 3_000 },
           );
           await app.nativeType("brevity");
-          await app.waitForCondition<boolean>(
+          await jots.waitForCondition<boolean>(
             `(document.querySelector('${EDITOR} .cm-content')?.textContent ?? '')
                .includes('brevity')`,
             { timeoutMs: 3_000 },

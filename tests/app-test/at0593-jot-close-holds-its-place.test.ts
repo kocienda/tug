@@ -39,6 +39,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { priorCardDeck } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -58,6 +59,9 @@ const MID = "s60";
 const END = "s148";
 
 const rowSel = (id: string): string => `[data-jot-id="${id}"]`;
+
+/** The Jots card's own page, where its rows and editor stand. */
+const jots = (app: App) => kindBody(app, "jots");
 
 /** The target row's top in the viewport, rounded. Matches the display row and
  *  the editor's header row alike — both carry `data-jot-id`. */
@@ -102,22 +106,22 @@ function seedJots(path: string, target: string, targetText: string): void {
 }
 
 /**
- * Wait until the Jots sidebar has finished sliding in: its left edge has
- * stopped moving between polls and the whole card stands inside the viewport.
- * The rows exist from the first frame of that slide, so waiting on a row is
- * not waiting on the card, and a native click posted while it is still
- * travelling is aimed at a viewport coordinate outside the web view — which
- * the harness refuses outright.
+ * Wait until the Jots sidebar has finished sliding in: its rail pane's left
+ * edge has stopped moving between polls and the whole pane stands inside the
+ * window. The card is a body the host places over that pane. The rows exist from the first frame of that slide, so waiting on a
+ * row is not waiting on the card, and a native click posted while it is still
+ * travelling is aimed at a point the card has not reached.
  */
 async function settleSidebar(app: App): Promise<void> {
+  // card-dom: shell — the rail pane the host places the card's body over.
   await app.waitForCondition<boolean>(
     `(() => {
-       const c = document.querySelector('.jots-card');
-       if (c === null) return false;
-       const box = c.getBoundingClientRect();
+       const pane = document.querySelector('.tug-pane[data-rail-side="right"]');
+       if (pane === null) return false;
+       const box = pane.getBoundingClientRect();
        const x = Math.round(box.left);
-       const settled = window.__jotsCardX === x && box.right <= window.innerWidth;
-       window.__jotsCardX = x;
+       const settled = window.__jotsPaneX === x && box.right <= window.innerWidth;
+       window.__jotsPaneX = x;
        return settled;
      })()`,
     { timeoutMs: 5_000 },
@@ -137,12 +141,12 @@ async function openCardAtTarget(app: App, id: string): Promise<void> {
     { timeoutMs: 5_000 },
   );
   await app.dispatchControlAction("toggle-jots");
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector('${rowSel(id)}') !== null`,
     { timeoutMs: 5_000 },
   );
   await settleSidebar(app);
-  await app.evalJS(
+  await jots(app).evalJS(
     `(() => { const c = document.querySelector('.jots-card');
               const r = document.querySelector('${rowSel(id)}');
               const portBottom =
@@ -150,7 +154,7 @@ async function openCardAtTarget(app: App, id: string): Promise<void> {
               c.scrollTop += r.getBoundingClientRect().bottom - portBottom;
               return 1; })()`,
   );
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `(() => { const r = document.querySelector('${rowSel(id)}');
               return r !== null && r.getBoundingClientRect().height > 0; })()`,
     { timeoutMs: 3_000 },
@@ -159,20 +163,20 @@ async function openCardAtTarget(app: App, id: string): Promise<void> {
 
 /** Select the target row and open its editor, settled at its full height. */
 async function openTargetEditor(app: App, id: string): Promise<void> {
-  await app.nativeClickAtElement(`${rowSel(id)} .jot-row-label`);
-  await app.waitForCondition<boolean>(
+  await jots(app).nativeClickAtElement(`${rowSel(id)} .jot-row-label`);
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector('.jots-card .jots-list[data-key-view-kbd]') !== null`,
     { timeoutMs: 3_000 },
   );
   await app.nativeKey("Return");
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
     { timeoutMs: 3_000 },
   );
   // The well opens on an animation, and the card's scroll rides it; wait for
   // both to stop moving so the measurement is of the settled card, not of a
   // frame mid-open.
-  await app.waitForCondition<boolean>(
+  await jots(app).waitForCondition<boolean>(
     `(() => {
        const w = document.querySelector('.jot-editor-well');
        const c = document.querySelector('.jots-card');
@@ -207,6 +211,7 @@ async function withJots(
   try {
     seedTugbankForLaunch(tugbankPath);
     const app = await launchTugApp({
+      bodies: true,
       testName,
       env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
       persistInTestMode: true,
@@ -233,7 +238,7 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
         async (app) => {
           await openCardAtTarget(app, MID);
           await openTargetEditor(app, MID);
-          const g = await app.evalJS<OpenGeometry>(OPEN_GEOMETRY);
+          const g = await jots(app).evalJS<OpenGeometry>(OPEN_GEOMETRY);
           note(`at0593 fits: ${JSON.stringify(g)}`);
           // The row started on the port's bottom edge, so everything the open
           // added was out of view: the reveal must have scrolled, and by no
@@ -261,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
 
             // Too tall to show whole, so the most of it: the header on the
             // port's top edge and the body under it to the bottom.
-            const g = await app.evalJS<OpenGeometry>(OPEN_GEOMETRY);
+            const g = await jots(app).evalJS<OpenGeometry>(OPEN_GEOMETRY);
             note(`at0593 tall: ${JSON.stringify(g)}`);
             expect(Math.abs(g.cellTop - g.portTop)).toBeLessThanOrEqual(1);
             expect(g.cellBottom).toBeGreaterThan(g.portBottom);
@@ -270,7 +275,7 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
             // — `--tug-text-editor-row-height`, not `1lh`, which at this font
             // is 18px against a real row of 24px.
             expect(
-              await app.evalJS<number>(
+              await jots(app).evalJS<number>(
                 `(() => {
                    const host = document.querySelector('.jot-editor-well .tug-text-editor');
                    const row = parseFloat(
@@ -283,25 +288,25 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
               ),
             ).toBe(4);
 
-            const openTop = await app.evalJS<number>(rowTop(MID));
+            const openTop = await jots(app).evalJS<number>(rowTop(MID));
             note(`at0593 ${route}: title line at ${openTop}px while open`);
 
             if (route === "Escape") {
               await app.nativeKey("Escape");
             } else {
-              await app.nativeClickAtElement('[aria-label="Close editor"]');
+              await jots(app).nativeClickAtElement('[aria-label="Close editor"]');
             }
-            await app.waitForCondition<boolean>(
+            await jots(app).waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(EDITOR)}) === null`,
               { timeoutMs: 3_000 },
             );
 
             // The collapse is an animation; the title line must stand still
             // for the whole of it, not merely land back where it started.
-            const closedTop = await app.evalJS<number>(rowTop(MID));
+            const closedTop = await jots(app).evalJS<number>(rowTop(MID));
             expect(closedTop).toBe(openTop);
             await new Promise((r) => setTimeout(r, 600));
-            expect(await app.evalJS<number>(rowTop(MID))).toBe(openTop);
+            expect(await jots(app).evalJS<number>(rowTop(MID))).toBe(openTop);
           },
         );
       },
@@ -315,14 +320,14 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
       await withJots("at0593-jot-close-end", END, tallJot(), async (app) => {
         await openCardAtTarget(app, END);
         await openTargetEditor(app, END);
-        const g = await app.evalJS<OpenGeometry>(OPEN_GEOMETRY);
+        const g = await jots(app).evalJS<OpenGeometry>(OPEN_GEOMETRY);
         expect(Math.abs(g.cellTop - g.portTop)).toBeLessThanOrEqual(1);
-        const openTop = await app.evalJS<number>(rowTop(END));
+        const openTop = await jots(app).evalJS<number>(rowTop(END));
 
         // Sample the title line every frame from before the gesture until
         // well after the editor is gone — a jump is one frame's story, so
         // nothing coarser than a frame can tell it from a slide.
-        await app.evalJS(
+        await jots(app).evalJS(
           `(() => {
              const tops = [];
              window.__at0593Tops = tops;
@@ -338,12 +343,12 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
            })()`,
         );
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await jots(app).waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(EDITOR)}) === null`,
           { timeoutMs: 3_000 },
         );
         await new Promise((r) => setTimeout(r, 600));
-        const tops = await app.evalJS<number[]>(`window.__at0593Tops`);
+        const tops = await jots(app).evalJS<number[]>(`window.__at0593Tops`);
         const steps = tops.slice(1).map((t, i) => t - tops[i]);
         const moving = steps.filter((s) => s > 0.5).length;
         const finalTop = tops[tops.length - 1];
@@ -386,6 +391,7 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
+          bodies: true,
           testName: "at0593-jot-empty-delete",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
@@ -398,7 +404,7 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
             { timeoutMs: 5_000 },
           );
           await app.dispatchControlAction("toggle-jots");
-          await app.waitForCondition<boolean>(
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector('[data-jot-id="e1"]') !== null`,
             { timeoutMs: 5_000 },
           );
@@ -406,26 +412,26 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
           await settleSidebar(app);
 
           // The empty jot: its ✕ takes it away with no question asked.
-          await app.nativeClickAtElement('[data-jot-id="e1"] .jot-row-delete');
-          await app.waitForCondition<boolean>(
+          await jots(app).nativeClickAtElement('[data-jot-id="e1"] .jot-row-delete');
+          await jots(app).waitForCondition<boolean>(
             `document.querySelector('[data-jot-id="e1"]') === null`,
             { timeoutMs: 3_000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await jots(app).evalJS<boolean>(
               `document.querySelector('[data-slot="tug-confirm-popover"]') !== null`,
             ),
           ).toBe(false);
 
           // The written one still does — the guard is over words, not rows.
-          await app.nativeClickAtElement('[data-jot-id="w1"] .jot-row-delete');
-          await app.waitForCondition<boolean>(
+          await jots(app).nativeClickAtElement('[data-jot-id="w1"] .jot-row-delete');
+          await jots(app).waitForCondition<boolean>(
             `Array.from(document.querySelectorAll('*'))
                .some((el) => el.textContent === 'Delete this jot?')`,
             { timeoutMs: 3_000 },
           );
           expect(
-            await app.evalJS<boolean>(
+            await jots(app).evalJS<boolean>(
               `document.querySelector('[data-jot-id="w1"]') !== null`,
             ),
           ).toBe(true);

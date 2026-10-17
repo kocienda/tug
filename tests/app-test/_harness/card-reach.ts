@@ -13,7 +13,7 @@
  * file that uses them keeps passing on either path.
  */
 
-import type { App, BodyApp } from "./index";
+import type { App, BodyApp, DeckTraceEvent } from "./index";
 import { enforcedTimeout } from "./rpc";
 import { keyboardInCardHost } from "./selectors";
 
@@ -24,6 +24,37 @@ import { keyboardInCardHost } from "./selectors";
 export async function cardPage(app: App, cardId: string): Promise<App | BodyApp> {
   const body = (await app.bodies()).find((b) => b.cardId === cardId);
   return body !== undefined && (body.state === "bound" || body.state === "ready") ? app.body(cardId) : app;
+}
+
+/** A mark in every page's deck trace: the shell's (under `null`) and each body's, by card id. */
+export type PageMarks = Map<string | null, number>;
+
+/**
+ * Mark the deck trace in every page — the shell and each card's body. Each
+ * page keeps its own ring, so "what happened since" is asked of each.
+ */
+export async function markEveryPage(app: App): Promise<PageMarks> {
+  const marks: PageMarks = new Map([[null, await app.markDeckTrace()]]);
+  for (const b of await app.bodies()) {
+    if (b.cardId !== null) marks.set(b.cardId, await app.body(b.cardId).markDeckTrace());
+  }
+  return marks;
+}
+
+/**
+ * Every page's trace events since its mark, page by page: the shell's, then
+ * each marked body's. The pages keep separate clocks, so events of two pages
+ * are never ordered against each other; a body that has gone since its mark
+ * contributes nothing.
+ */
+export async function traceSinceEveryPage(app: App, marks: PageMarks): Promise<DeckTraceEvent[]> {
+  const live = new Set((await app.bodies()).map((b) => b.cardId));
+  const events: DeckTraceEvent[] = [];
+  for (const [cardId, mark] of marks) {
+    if (cardId === null) events.push(...(await app.getDeckTrace({ since: mark })));
+    else if (live.has(cardId)) events.push(...(await app.body(cardId).getDeckTrace({ since: mark })));
+  }
+  return events;
 }
 
 /**
@@ -73,4 +104,50 @@ export async function bodyOfKind(app: App, componentId: string, timeoutMs = 30_0
     }
     await Bun.sleep(50);
   }
+}
+
+/**
+ * The body of the deck's card of `componentId`, once the host has painted it
+ * and placed it with a size: the state a native click or key can land in. A
+ * `ready` body is mounted but may still be unplaced (a zero frame), and a
+ * point computed in its viewport then lands outside the view. Throws when no
+ * such body stands in `timeoutMs`.
+ */
+export async function waitForBodyPainted(app: App, componentId: string, timeoutMs = 30_000): Promise<BodyApp> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const bodies = await app.bodies();
+    const placed = bodies.find(
+      (b) => b.componentId === componentId && b.painted && b.visible && b.frame.width > 0 && b.frame.height > 0,
+    );
+    if (placed?.cardId !== undefined && placed.cardId !== null) return app.body(placed.cardId);
+    if (Date.now() >= deadline) {
+      const held =
+        bodies
+          .map((b) => `${b.cardId}:${b.componentId}:${b.state}:${b.painted ? "painted" : "unpainted"}:${b.frame.width}x${b.frame.height}`)
+          .join(", ") || "none";
+      throw new Error(`no painted, placed body holds a ${componentId} card within ${timeoutMs} ms (the host holds ${held})`);
+    }
+    await Bun.sleep(50);
+  }
+}
+
+/**
+ * A body handle for the deck's card of `componentId`, resolved at each call:
+ * for a file that opens a card by its chord, menu or sidebar toggle rather
+ * than seeding one under an id it names, and reads it before and after the
+ * card is closed and opened again. Every call finds the ready body holding
+ * a card of the kind, as {@link bodyOfKind} does, and runs there; a call
+ * with no such body standing ready in `timeoutMs` throws as it would.
+ */
+export function kindBody(app: App, componentId: string, timeoutMs = 30_000): BodyApp {
+  const template = app.body(`kind:${componentId}`);
+  return new Proxy(template, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver) as unknown;
+      if (typeof value !== "function" || prop === "constructor") return value;
+      return (...args: unknown[]) =>
+        bodyOfKind(app, componentId, timeoutMs).then((body) => (body as unknown as Record<string | symbol, (...a: unknown[]) => unknown>)[prop](...args));
+    },
+  });
 }

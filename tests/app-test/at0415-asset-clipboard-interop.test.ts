@@ -42,7 +42,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -108,7 +108,7 @@ function deckShape() {
 
 /** The editor's whole document, read off CM6's rendered lines. */
 function docText(app: App, cardId: string): Promise<string> {
-  return app.evalJS<string>(
+  return app.body(cardId).evalJS<string>(
     `Array.from(document.querySelectorAll(${JSON.stringify(
       `${contentSelector(cardId)} .cm-line`,
     )})).map(function(l){ return l.textContent || ""; }).join("\\n")`,
@@ -124,18 +124,54 @@ function docText(app: App, cardId: string): Promise<string> {
  * which is the state the copy handler reads.
  */
 async function selectAllByKeys(app: App, cardId: string): Promise<void> {
-  await app.click(contentSelector(cardId));
+  await app.body(cardId).click(contentSelector(cardId));
   await app.nativeKey("ArrowUp", ["cmd"]);
   await app.nativeKey("ArrowDown", ["cmd", "shift"]);
 }
 
 /** Dispatch a DOM `copy` / `paste` on a card's editor — the real handler. */
+
+/**
+ * Wait until the system pasteboard carries the copy's atom sidecar.
+ *
+ * The copy handler writes the sidecar through the host bridge from the
+ * source card's page, and the paste reads it back through the same bridge
+ * from the target card's page. Each card is a page of its own, so the two
+ * requests travel separate queues to the host and a paste dispatched on the
+ * copy's heels can read before the write lands — a plain-text paste with no
+ * assets, which is what the user never does, since their paste comes
+ * seconds later. The read is the production parser's, through the shell's
+ * test surface (`readClipboardAtoms`); a read that times out under load
+ * answers null and is simply asked again.
+ */
+async function waitForSidecarOnPasteboard(app: App, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    await app.evalJS<null>(
+      `(window.__at0415Sidecar = undefined, window.__tug.readClipboardAtoms().then(function(r){ window.__at0415Sidecar = r; }), null)`,
+    );
+    try {
+      await app.waitForCondition<boolean>(`window.__at0415Sidecar !== undefined`, { timeoutMs: 2_000 });
+    } catch {
+      // The bridge read timed out in the page; ask again below.
+    }
+    const landed = await app.evalJS<boolean>(
+      `window.__at0415Sidecar !== undefined && window.__at0415Sidecar !== null && window.__at0415Sidecar.atoms.length > 0`,
+    );
+    if (landed) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`[at0415] the copy's sidecar did not reach the pasteboard within ${timeoutMs}ms`);
+    }
+    await Bun.sleep(100);
+  }
+}
+
 async function dispatchClipboardEvent(
   app: App,
   cardId: string,
   type: "copy" | "paste",
 ): Promise<void> {
-  await app.evalJS<null>(
+  await app.body(cardId).evalJS<null>(
     `(function(){
       var host = document.querySelector(${JSON.stringify(contentSelector(cardId))});
       host.dispatchEvent(new ClipboardEvent(${JSON.stringify(type)}, {
@@ -190,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.writeFileSync(targetDoc, "TARGET\n", "utf8");
 
         try {
-          const app = await launchTugApp({ testName: "at0415-asset-interop" });
+          const app = await launchTugApp({ bodies: true, testName: "at0415-asset-interop" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -216,7 +252,7 @@ describe.skipIf(!SHOULD_RUN)(
               ["A", "SEEDED"],
               ["B", "TARGET"],
             ] as const) {
-              await app.waitForCondition<boolean>(
+              await app.body(cardId).waitForCondition<boolean>(
                 `(function(){
                   var el = document.querySelector(${JSON.stringify(contentSelector(cardId))});
                   return el !== null && el.innerText.indexOf(${JSON.stringify(marker)}) !== -1;
@@ -228,6 +264,7 @@ describe.skipIf(!SHOULD_RUN)(
             // ── Copy the source document, attachments and all ──────────────
             await selectAllByKeys(app, "A");
             await dispatchClipboardEvent(app, "A", "copy");
+            await waitForSidecarOnPasteboard(app);
 
             // Nothing asserts on the pasteboard directly, and nothing needs
             // to: the paste below reads the sidecar *only* through the native
@@ -236,8 +273,11 @@ describe.skipIf(!SHOULD_RUN)(
             // fall through to plain text. A passing paste is the proof.
 
             // ── Paste it into the document next door ───────────────────────
-            await app.click(contentSelector("B"));
+            await app.body("B").click(contentSelector("B"));
             await app.nativeKey("ArrowDown", ["cmd"]);
+            // Record the target page's warnings for the note below.
+            await app.body("B").evalJS<null>(`(function(){ window.__at0415Warn = []; var w = console.warn.bind(console); console.warn = function(){ window.__at0415Warn.push(Array.prototype.slice.call(arguments).map(String).join(" ")); w.apply(console, arguments); }; return null; })()`);
+            const pasteStarted = Date.now();
             await dispatchClipboardEvent(app, "B", "paste");
 
             // Every attachment lands beside the TARGET document, under its own
@@ -255,6 +295,11 @@ describe.skipIf(!SHOULD_RUN)(
             ) {
               await new Promise((resolve) => setTimeout(resolve, 200));
             }
+
+            // What landed, how long it took, and anything the target page
+            // warned (the native clipboard read gives up after a second): the
+            // reading a batch-only red of this file is diagnosed from.
+            note(`at0415 paste: landed=${landedPaths.map((p) => fs.existsSync(p)).join(",")} after ${Date.now() - pasteStarted}ms; B warns=${JSON.stringify(await app.body("B").evalJS(`window.__at0415Warn`))}; B doc=${JSON.stringify((await docText(app, "B")).slice(0, 160))}`);
 
             for (const attachment of ATTACHMENTS) {
               const landed = path.join(targetAssets, attachment.name);

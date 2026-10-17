@@ -210,7 +210,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the four chords cross a split, the slots, and into a showing rail — and the run remembers its line",
       async () => {
-        const app = await launchTugApp({ testName: "at0547-crossing" });
+        const app = await launchTugApp({ bodies: true, testName: "at0547-crossing" });
         try {
           await seed(app, crossingShape(), 5, "A");
 
@@ -284,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a card outside the visible band is still a target, and the band travels to it",
       async () => {
-        const app = await launchTugApp({ testName: "at0547-off-band" });
+        const app = await launchTugApp({ bodies: true, testName: "at0547-off-band" });
         try {
           await seed(app, flowShape(), 5, "A");
 
