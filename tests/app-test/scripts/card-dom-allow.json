@@ -1152,10 +1152,6 @@
     "kind": "session"
   },
   {
-    "file": "body-grounding/row-04-slide.test.ts",
-    "kind": "session"
-  },
-  {
     "file": "harness-smoke/smoke-em.test.ts",
     "kind": "unknown"
   },

@@ -32,8 +32,9 @@
  * shipped leg also notes whether the program's escalation trigger is met:
  * the two edges more than one display period of travel apart.
  *
- * One launch per leg: `row-15-skew-offset-zero` (leg A),
- * `row-15-skew-shipped` (leg B) and `row-15-skew-streaming` (leg C).
+ * One launch per leg: `row-15-skew-shipped` (leg B) and
+ * `row-15-skew-streaming` (leg C); leg A is a reading, run by name as
+ * `readings/row-15-skew-offset-zero-reading`.
  */
 
 import { expect } from "bun:test";
