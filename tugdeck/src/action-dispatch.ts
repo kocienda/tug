@@ -34,6 +34,7 @@ import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
+import { forwardCycleFocus } from "@/lib/cycle-focus-forwarder";
 import { dispatchCommand, sendToCardContent } from "./command-dispatch";
 import { closeCard, closePane, deleteSpace } from "./lib/card-close-commands";
 import { requestSettingsReveal } from "./lib/settings-reveal";
@@ -329,6 +330,31 @@ export function registerEvalAction(connection: TugConnection): void {
     }
     reply(result);
   });
+}
+
+/**
+ * The ⌥⇥ gesture's handler — see its registration in
+ * {@link initActionDispatch} for why it asks the key card first. Exported so
+ * a body page registers the same handler for its own card: a registry command
+ * a page holds no handler for is handed to the shell, whose key card for a
+ * body is only its placeholder, so the shell would toggle its own cycle and
+ * the card in the body would never cycle. In the shell, a key card that is a
+ * body is handed the toggle (`lib/cycle-focus-forwarder.ts`).
+ */
+export function cycleFocusMode(): void {
+  const focusManager = getFocusManager();
+  if (focusManager === null) return;
+  if (focusManager.currentFocusMode() === BASE_FOCUS_MODE) {
+    if (forwardCycleFocus()) return;
+    const chain = getResponderChainManager();
+    const result = chain?.sendToKeyCardForContinuation({
+      action: TUG_ACTIONS.CYCLE_FOCUS_MODE,
+      phase: "discrete",
+    });
+    result?.continuation?.();
+    if (result?.handled === true) return;
+  }
+  if (focusManager.toggleKbfManual()) focusManager.seedKbfRing();
 }
 
 /**
@@ -630,20 +656,7 @@ export function initActionDispatch(
   // the only door. The View menu item and the palette dispatch the same
   // command id, and a tier sited at one door is a gesture that works from that
   // door alone.
-  registerAction(TUG_ACTIONS.CYCLE_FOCUS_MODE, () => {
-    const focusManager = getFocusManager();
-    if (focusManager === null) return;
-    if (focusManager.currentFocusMode() === BASE_FOCUS_MODE) {
-      const chain = getResponderChainManager();
-      const result = chain?.sendToKeyCardForContinuation({
-        action: TUG_ACTIONS.CYCLE_FOCUS_MODE,
-        phase: "discrete",
-      });
-      result?.continuation?.();
-      if (result?.handled === true) return;
-    }
-    if (focusManager.toggleKbfManual()) focusManager.seedKbfRing();
-  });
+  registerAction(TUG_ACTIONS.CYCLE_FOCUS_MODE, cycleFocusMode);
 
   // set-imposition: choose the deck's N-up arrangement, or turn it off.
   // Dispatched by the Layout card's kind picker. `kind: null` clears

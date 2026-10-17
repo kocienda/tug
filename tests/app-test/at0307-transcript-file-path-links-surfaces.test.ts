@@ -53,6 +53,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import {
   CODE_OUTPUT_FEED,
@@ -188,7 +189,9 @@ describe.skipIf(!SHOULD_RUN)(
           // And the delegated layer — not any handler the component owns
           // — turns a click on it into an open.
           await app.body("A").click(HEADER_REF);
-          await app.body("A").waitForCondition<boolean>(
+          // The Text card the click opened is its own body, not A's: its
+          // editor is read in that card's page.
+          await kindBody(app, "text").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;
@@ -295,7 +298,9 @@ describe.skipIf(!SHOULD_RUN)(
           expect(row.path).toBe(realPath);
 
           await app.body("A").click(ROW);
-          await app.body("A").waitForCondition<boolean>(
+          // The Text card the click opened is its own body, not A's: its
+          // editor is read in that card's page.
+          await kindBody(app, "text").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;
@@ -604,7 +609,9 @@ describe.skipIf(!SHOULD_RUN)(
           // And it opens, through the same delegated layer every other
           // annotation uses.
           await app.body("A").click(`${COMMAND} [data-tug-annotation="file-path"]`);
-          await app.body("A").waitForCondition<boolean>(
+          // The Text card the click opened is its own body, not A's: its
+          // editor is read in that card's page.
+          await kindBody(app, "text").waitForCondition<boolean>(
             `(function(){
               var ed = document.querySelector('[data-slot="tug-text-card-editor"] .cm-content');
               return ed !== null && (ed.textContent || '').indexOf("charlie") !== -1;

@@ -192,13 +192,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         });
         try {
           // ---- close ----
+          // The Session card A beside it is a body too: every card is one.
           await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
           await standUpKind(app, kind, K);
-          await expectBodiesMatchCards(app, "at the start", [K]);
+          await expectBodiesMatchCards(app, "at the start", [K, A]);
           await app.dispatchControlAction("focus-session-card", { cardId: K });
           await closeThrough(app, "file.closeCard", 1, `close ${K}`, kind.rail);
           expect(await pollFor(() => bodyOf(app, K), (b) => b === null, SETTLE_MS), "the host holds no body for the card after the close").toBeNull();
-          await expectBodiesMatchCards(app, "after the close", []);
+          await expectBodiesMatchCards(app, "after the close", [A]);
 
           // ---- reload ----
           await app.seedDeckState({ state: kindDeck(kind, K2, { sessions: [A] }), focusCardId: K2 });
@@ -226,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           const listed = await pollFor(() => app.evalJS<string[]>(CARD_IDS), (ids) => ids.includes(K2), SETTLE_MS);
           expect(listed, "the reloaded shell restored the card").toContain(K2);
           const again = await standUpKind(app, kind, K2);
-          await expectBodiesMatchCards(app, "after the reload", [K2]);
+          await expectBodiesMatchCards(app, "after the reload", [K2, A]);
           if (kind.field !== undefined) {
             const restored = await pollFor(() => again.evalJS<string>(`(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`), (t) => t.includes(draft), SETTLE_MS);
             expect(restored, "the body made again shows the draft the old one saved").toContain(draft);

@@ -47,7 +47,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { deflateSync } from "node:zlib";
 import { launchTugApp, note, type App } from "./_harness";
-import { kindBody } from "./_harness/card-reach";
+import { kindBody, waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -71,14 +71,15 @@ const IMAGE_HEIGHT = 32;
  *
  * Pane-scoped by construction rather than by id: the card is opened by
  * `open-file`, so its pane is whichever one the deck minted. The masthead
- * lives in the PANE's title bar, which is not a descendant of the card
- * element — a selector prefixed with the card would match nothing.
+ * lives in the PANE's title bar, which is the shell's — the card itself is
+ * its own body — so the pane is found from the deck's state: the one whose
+ * cards include the file-view card.
  */
 async function mastheadLine(app: App, testid: string): Promise<string | null> {
+  // card-dom: shell — the masthead is the pane's title bar, drawn by the shell.
   return app.evalJS<string | null>(
     `(() => {
-       const card = document.querySelector('[data-slot="file-view-card"]');
-       const pane = card === null ? null : card.closest(".tug-pane");
+       const pane = ${VIEWER_PANE};
        const el = pane === null
          ? null
          : pane.querySelector('[data-testid=${JSON.stringify(testid)}]');
@@ -89,13 +90,34 @@ async function mastheadLine(app: App, testid: string): Promise<string | null> {
 
 /** The title bar's tier, less the 1px divider that sits below it. */
 async function paneTier(app: App): Promise<number> {
+  // card-dom: shell — the title bar is the pane's, drawn by the shell.
   return app.evalJS<number>(
     `(() => {
-       const card = document.querySelector('[data-slot="file-view-card"]');
-       const bar = card.closest(".tug-pane").querySelector(".tug-pane-title-bar");
+       const bar = ${VIEWER_PANE}.querySelector(".tug-pane-title-bar");
        const border = parseFloat(getComputedStyle(bar).borderBottomWidth) || 0;
        return bar.getBoundingClientRect().height - border;
      })()`,
+  );
+}
+
+/**
+ * Expression, in the shell: the `.tug-pane` holding the deck's file-view
+ * card, or null. Read from the deck's state rather than from the card's DOM,
+ * which is in the card's own body.
+ */
+const VIEWER_PANE = `(function () {
+  var deck = window.tugdeck.diag.getDeckState();
+  var card = deck.cards.find(function (c) { return c.componentId === "file-view"; });
+  var pane = card === undefined ? undefined : deck.panes.find(function (p) { return p.cardIds.indexOf(card.id) >= 0; });
+  return pane === undefined ? null : document.querySelector('.tug-pane[data-pane-id="' + CSS.escape(pane.id) + '"]');
+})()`;
+
+/** The deck's one file-view card id, read from the deck's state in the shell. */
+async function viewerCardId(app: App): Promise<string> {
+  return app.evalJS<string>(
+    `window.tugdeck.diag.getDeckState().cards.find(
+      (c) => c.componentId === "file-view",
+    ).id`,
   );
 }
 
@@ -230,10 +252,13 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
           { timeoutMs: 15_000 },
         );
         expect(await app.evalJS<number>(countByComponent("text"))).toBe(0);
+        const viewerId = await viewerCardId(app);
+        // The viewer is its own body: its image is read in its page.
+        const viewer = await waitForBodyReady(app, viewerId, 15_000);
 
         // ---- The bytes reach WebKit through the real /api/fs/blob route.
         // naturalWidth is non-zero only after a successful fetch AND decode.
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector('${CARD_IMG}');
             return el !== null && el.naturalWidth > 0;
@@ -241,12 +266,12 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
           { timeoutMs: 15_000 },
         );
         expect(
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelector('${CARD_IMG}').naturalWidth`,
           ),
         ).toBe(IMAGE_WIDTH);
         expect(
-          await app.evalJS<number>(
+          await viewer.evalJS<number>(
             `document.querySelector('${CARD_IMG}').naturalHeight`,
           ),
         ).toBe(IMAGE_HEIGHT);
@@ -283,9 +308,10 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
           tail: string;
           natural: { headClipped: boolean; tailWhole: boolean; withinLine: boolean };
           squeezed: { headClipped: boolean; tailWhole: boolean; withinLine: boolean };
-        }>(`(() => {
-           const card = document.querySelector('[data-slot="file-view-card"]');
-           const pane = card.closest(".tug-pane");
+        }>(
+          // card-dom: shell — the masthead path is the pane's, drawn by the shell.
+          `(() => {
+           const pane = ${VIEWER_PANE};
            const path = pane.querySelector('[data-testid="card-masthead-description"]');
            const head = path.querySelector(".tug-path-head");
            const tail = path.querySelector(".tug-path-tail");
@@ -330,22 +356,17 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // button. Membership is the card's to publish; the control's label
         // and enablement are the command table's.
         expect(
+          // card-dom: shell — title-bar items are the pane's, drawn by the shell.
           await app.evalJS<number>(
             `document.querySelectorAll(
                '[data-testid="tug-pane-title-bar-item-reveal-card-file"]').length`,
           ),
         ).toBe(1);
 
-        const viewerCardId = await app.evalJS<string>(
-          `window.tugdeck.diag.getDeckState().cards.find(
-            (c) => c.componentId === "file-view",
-          ).id`,
-        );
-
         // ---- Opening the same path again fronts that card, never a second.
         await app.dispatchControlAction("open-file", { path: file });
         expect(await app.evalJS<number>(countByComponent("file-view"))).toBe(1);
-        expect(await app.getActiveCardId()).toBe(viewerCardId);
+        expect(await app.getActiveCardId()).toBe(viewerId);
 
         // ---- The Cards card's Files group lists it, read-only.
         await app.evalJS<null>(
@@ -407,8 +428,10 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
           `${countByComponent("file-view")} === 1`,
           { timeoutMs: 15_000 },
         );
+        // The viewer is its own body: the surface is read in its page.
+        const viewer = await waitForBodyReady(app, await viewerCardId(app), 15_000);
         // The same card family takes the PDF — one viewer, kind-branched body.
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector('${CARD_PDF}') !== null`,
           { timeoutMs: 15_000 },
         );
@@ -436,7 +459,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // A page reports "rendered" only after pdf.js has drawn its canvas
         // and laid out its text — a worker that failed to load never gets
         // here.
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector('${CARD_PAGE}[data-pdf-page-status="rendered"]') !== null`,
           { timeoutMs: 30_000 },
         );
@@ -445,7 +468,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // that mounted but never painted is exactly what a broken worker
         // produces, and an element-presence check would sail past it, so the
         // pixels are sampled and required to be non-uniform.
-        const distinctPixels = await app.evalJS<number>(
+        const distinctPixels = await viewer.evalJS<number>(
           `(function () {
              var canvas = document.querySelector('${CARD_CANVAS}');
              var ctx = canvas.getContext("2d");
@@ -466,11 +489,13 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // count arrives after the tier does — which is the point of [P11]:
         // the height was already 72 before this line had anything to say.
         expect(await paneTier(app)).toBeCloseTo(72, 0);
+        // card-dom: shell — the masthead is the pane's title bar, drawn by the shell.
         await app.waitForCondition<boolean>(
           `(() => {
-             const card = document.querySelector('[data-slot="file-view-card"]');
-             const el = card.closest(".tug-pane")
-               .querySelector('[data-testid="card-masthead-detail"]');
+             const pane = ${VIEWER_PANE};
+             const el = pane === null
+               ? null
+               : pane.querySelector('[data-testid="card-masthead-detail"]');
              return el !== null && el.innerText === "PDF · 2 pages";
            })()`,
           { timeoutMs: 15_000 },
@@ -481,7 +506,7 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
         // than a picture of a document. Selecting across its spans and
         // reading the selection back is the end-to-end check: the text is
         // present, positioned, and reachable by a real DOM selection.
-        const selected = await app.evalJS<string>(
+        const selected = await viewer.evalJS<string>(
           `(function () {
              var layer = document.querySelector('${CARD_PAGE} .textLayer');
              var range = document.createRange();
@@ -498,10 +523,10 @@ describe.skipIf(!SHOULD_RUN)("at0310 — image opens in a viewer card", () => {
 
         // The surface fills the card rather than collapsing to zero height —
         // the layout half of "the viewer is usable".
-        const width = await app.evalJS<number>(
+        const width = await viewer.evalJS<number>(
           `document.querySelector('${CARD_PDF}').getBoundingClientRect().width`,
         );
-        const height = await app.evalJS<number>(
+        const height = await viewer.evalJS<number>(
           `document.querySelector('${CARD_PDF}').getBoundingClientRect().height`,
         );
         expect(width).toBeGreaterThan(200);

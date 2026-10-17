@@ -474,7 +474,11 @@ export class IngestHost {
         timerSource: this.engineTimers(control.handle),
       },
       {
-        send: (feedId, payload) => this.sendForEngine(feedId, payload),
+        send: (feedId, payload) => {
+          // An `offWire` session's input goes nowhere; its CONTROL frames still do.
+          if (control.offWire === true && feedId === FeedId.CODE_INPUT) return;
+          this.sendForEngine(feedId, payload);
+        },
         emit: (patch) => this.emit(patch),
         sendRenderControl: (control) => this.sendRenderControl(control),
         tugcastRenders: () => this.tugcastRenders,

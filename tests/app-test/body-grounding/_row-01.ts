@@ -61,6 +61,13 @@ const BODY_READY_MS = 30_000;
 const PLACED_MS = 3_000;
 /** The burst over one arrival: hand-off, body ready, shown, lid lifted. */
 const BURST_MS = 4_000;
+/**
+ * The burst over a kind's arrival, read over the whole window. The lid lifts
+ * some 50 ms after the hand-off and the body is ready by 70 ms, so two
+ * seconds still watch it stand well past both, and the file keeps inside its
+ * 20 s budget, which the four-second full-window burst ran past.
+ */
+const KIND_BURST_MS = 2_000;
 const BURST_INTERVAL_MS = 33;
 
 const oneCard = {
@@ -219,7 +226,22 @@ async function arrive(app: App, cardId: string, stubDir: string, label: string):
   // The surface is calibrated from the last frame, the body standing.
   const palette = await readPalette(app, reading.windowBackground, reading.frames[reading.frames.length - 1]);
   note(`${label}: palette ${JSON.stringify(palette)}, crop ${JSON.stringify(crop)}, ${reading.frames.length} frames`);
-  const frames = reading.frames.map((f) => classifyFrame(f, palette));
+  // Judged over the rect the card stands in once it has landed, not the crop:
+  // the crop is the picker's content box before the hand-off, and a Session
+  // card's masthead grows by 52 pt at the hand-off, so the crop's top band
+  // becomes chrome that no lid paints.
+  const standing = await placeholderRect(app, cardId);
+  const s = reading.scale;
+  const region =
+    standing === null
+      ? undefined
+      : {
+          x: (Math.ceil(standing.x) + 2 - crop.x) * s,
+          y: (Math.ceil(standing.y) + 2 - crop.y) * s,
+          width: (Math.floor(standing.width) - 4) * s,
+          height: (Math.floor(standing.height) - 4) * s,
+        };
+  const frames = reading.frames.map((f) => classifyFrame(f, palette, 8, region));
   const firstLid = frames.findIndex((f) => f.wall >= handOffWall - BURST_INTERVAL_MS && f.surface > 0.9);
   expect(firstLid, `${label}: a lid frame follows the hand-off`).toBeGreaterThanOrEqual(0);
   const skewMs = frames[firstLid].wall - handOffWall;
@@ -278,14 +300,14 @@ async function arriveKind(app: App, kind: CardKind, label: string): Promise<Arri
   const inner = await app.evalJS<{ w: number; h: number }>(`({ w: window.innerWidth, h: window.innerHeight })`);
   const crop = { x: 0, y: 0, width: Math.floor(inner.w), height: Math.floor(inner.h) };
   await armPlaceholderSampler(app);
-  await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
+  await app.captureBurst({ op: "arm", durationMs: KIND_BURST_MS, intervalMs: BURST_INTERVAL_MS, crop });
   const openWall = Date.now();
   const cardId = await openKind(app, kind);
   const landed = Date.now() + PLACED_MS;
   while ((await placeholderRect(app, cardId)) === null && Date.now() < landed) await Bun.sleep(5);
   const handOffWall = Date.now();
   await pollFor(() => bodyOf(app, cardId), (b) => b !== null, PLACED_MS);
-  const armed = await app.hostFrames({ op: "arm", windowMs: BURST_MS, layer: cardId }).catch(() => null);
+  const armed = await app.hostFrames({ op: "arm", windowMs: KIND_BURST_MS, layer: cardId }).catch(() => null);
   const shown = await pollFor(
     () => bodyOf(app, cardId),
     (b) => b !== null && b.state === "ready" && b.painted && b.visible,
@@ -298,11 +320,11 @@ async function arriveKind(app: App, kind: CardKind, label: string): Promise<Arri
   const reading = await pollFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
     (r) => r.done,
-    BURST_MS + 5_000,
+    KIND_BURST_MS + 5_000,
   );
   let host: HostFrameReading | null = null;
   if (armed !== null) {
-    await Bun.sleep(Math.max(0, BURST_MS - (Date.now() - handOffWall)));
+    await Bun.sleep(Math.max(0, KIND_BURST_MS - (Date.now() - handOffWall)));
     host = (await app.hostFrames({ op: "read" })) as HostFrameReading;
   }
   const samples = await readPlaceholderSampler(app);

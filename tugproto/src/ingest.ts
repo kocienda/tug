@@ -212,6 +212,12 @@ export interface IngestSessionOpenControl {
   sessionMode: "new" | "resume";
   restoreWindowTurns: number;
   transcriptTurnCap?: number;
+  /**
+   * The session's input (`CODE_INPUT`) goes nowhere: a session the app-test
+   * harness bound by hand, which tugcast never spawned
+   * (`lib/harness-sessions.ts`). Its CONTROL frames still go.
+   */
+  offWire?: boolean;
 }
 
 /** A session mirror was disposed: drop its engine and cancel its timers. */

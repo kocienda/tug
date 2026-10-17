@@ -33,6 +33,7 @@ import { isReloadReason, type ReloadReason } from "../lib/reload-reasons";
 import { subscribeToListCardBindingsOk } from "../lib/session-ledger-events";
 import { cardSessionBindingStore, type CardSessionMode } from "../lib/card-session-binding-store";
 import { sessionLineStore } from "../lib/session-line-store";
+import { markHarnessSession } from "../lib/harness-sessions";
 
 export type BodyIntent =
   | {
@@ -175,6 +176,7 @@ export function replayBodyIntent(
       return;
     case "bind":
       if (typeof window === "undefined" || window.__tugTestMode !== true) return;
+      markHarnessSession(intent.tugSessionId);
       sessionLineStore.seat(intent.tugSessionId, intent.lineId);
       cardSessionBindingStore.setBinding(cardId, {
         tugSessionId: intent.tugSessionId,

@@ -604,7 +604,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         await app.nativeKey("Tab");
         await app.body("A").waitForCondition<boolean>(hasKeyView(AI_CHIP), { timeoutMs: 6000 });
         await app.nativeKey("Return");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET_OPTION)}) !== null`,
           { timeoutMs: 6000 },
         );
@@ -618,7 +618,7 @@ describe.skipIf(!SHOULD_RUN)("AT0140: the session card joins the focus cycle", (
         // to the originating chip — the user can keep cycling. (The framework
         // supports "relinquish" too: commit exits cycling, caret to the prompt.)
         await app.nativeKey("Return");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET_OPTION)}) === null`,
           { timeoutMs: 6000 },
         );

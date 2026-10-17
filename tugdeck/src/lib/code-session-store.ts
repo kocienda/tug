@@ -29,6 +29,7 @@ import {
   encodeCodeInputPayload,
   encodeRequestReplay,
   DEFAULT_REPLAY_WINDOW_TURNS,
+  type FeedIdValue,
 } from "@/protocol";
 import type { EditorView } from "@codemirror/view";
 import type { PermissionMode } from "@tugproto/inbound";
@@ -272,6 +273,12 @@ export interface CodeSessionStoreOptions {
    */
   transcriptTurnCap?: number;
   /**
+   * Keep the session's input (`CODE_INPUT`) off the wire: a session the
+   * app-test harness bound by hand, which tugcast never spawned
+   * (`lib/harness-sessions.ts`). Its CONTROL frames still go.
+   */
+  offWire?: boolean;
+  /**
    * The per-card queue of shell / `/btw` interactions staged to ride the next
    * code-route submission as attributed `<tug-context>` context. Consulted at
    * {@link CodeSessionStore.send}: a non-suppressed, non-command submission
@@ -321,6 +328,7 @@ export class CodeSessionStore extends Subscribable {
   private readonly _routedFrames = new Map<string, RoutedFrameStore>();
 
   private readonly conn: TugConnection;
+  private readonly offWire: boolean;
   private readonly lifecycle: ConnectionLifecycle;
   private readonly tugSessionId: string;
   private readonly displayLabel: string;
@@ -476,6 +484,7 @@ export class CodeSessionStore extends Subscribable {
   constructor(options: CodeSessionStoreOptions) {
     super();
     this.conn = options.conn;
+    this.offWire = options.offWire === true;
     this.lifecycle = options.lifecycle;
     this.tugSessionId = options.tugSessionId;
     this.displayLabel = options.displayLabel ?? options.tugSessionId.slice(0, 8);
@@ -530,6 +539,7 @@ export class CodeSessionStore extends Subscribable {
       ...(options.transcriptTurnCap !== undefined
         ? { transcriptTurnCap: options.transcriptTurnCap }
         : {}),
+      ...(this.offWire ? { offWire: true } : {}),
     };
     const local = { timerSource: options.timerSource, makePolicy: options.makeFlushPolicy };
     const opener = options.conn as Partial<SessionOpener>;
@@ -1186,7 +1196,13 @@ export class CodeSessionStore extends Subscribable {
         win.firstLoadedTurnIndex,
       ],
     });
-    this.conn.send(frame.feedId, frame.payload);
+    this.write(frame.feedId, frame.payload);
+  }
+
+  /** One of the store's own writes; an `offWire` session's input is kept off the wire. */
+  private write(feedId: FeedIdValue, payload: Uint8Array): void {
+    if (this.offWire && feedId === FeedId.CODE_INPUT) return;
+    this.conn.send(feedId, payload);
   }
 
   /**
@@ -1200,7 +1216,7 @@ export class CodeSessionStore extends Subscribable {
    */
   cancelLoadPrevious(): void {
     if (this._disposed) return;
-    this.conn.send(
+    this.write(
       FeedId.CODE_INPUT,
       encodeCodeInputPayload({ type: "cancel_replay" }, this.tugSessionId),
     );
@@ -1310,7 +1326,7 @@ export class CodeSessionStore extends Subscribable {
    */
   addDirectory(directory: string): void {
     if (this._disposed) return;
-    this.conn.send(
+    this.write(
       FeedId.CODE_INPUT,
       encodeCodeInputPayload({ type: "add_directory", directory }, this.tugSessionId),
     );
@@ -1328,7 +1344,7 @@ export class CodeSessionStore extends Subscribable {
    */
   stopJob(taskId: string): void {
     if (this._disposed) return;
-    this.conn.send(
+    this.write(
       FeedId.CODE_INPUT,
       encodeCodeInputPayload({ type: "stop_task", task_id: taskId }, this.tugSessionId),
     );

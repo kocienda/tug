@@ -43,7 +43,7 @@ import { AppLifecycle, registerAppLifecycle } from "../lib/app-lifecycle";
 import { SheetLifecycle, registerSheetLifecycle } from "../lib/sheet-lifecycle";
 import { BannerLifecycle, registerBannerLifecycle } from "../lib/banner-lifecycle";
 import { installLifecycleCascade } from "../lib/lifecycle-cascade";
-import { dispatchAction, registerAction, registerEvalAction, registerStoreTailActions } from "../action-dispatch";
+import { cycleFocusMode, dispatchAction, registerAction, registerEvalAction, registerStoreTailActions } from "../action-dispatch";
 import { dispatchCommand, sendToCardContent, setUnhandledCommandFallback } from "../command-dispatch";
 import { COMMANDS_BY_ID } from "../components/tugways/command-registry";
 import { setUnhandledTargetHook } from "../components/tugways/responder-chain";
@@ -481,6 +481,9 @@ async function bindBody(bind: BodyBind): Promise<void> {
   registerAction(TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS, () => {
     advanceKeyViewFocus(getFocusManager(), -1);
   });
+  // ⌥⇥ toggles the card's own cycle, so it is answered here, where the
+  // card's responders and stops are; unregistered, it would go to the shell.
+  registerAction(TUG_ACTIONS.CYCLE_FOCUS_MODE, cycleFocusMode);
   // What the card raises past its own content box — the Z2 placard — the
   // shell draws, and a logout is the app's, which only the shell mounts.
   const surfaces = createSurfaceMirror((surface) => {

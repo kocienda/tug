@@ -23,7 +23,7 @@
  * host instead — the ingest Worker, in production.
  */
 
-import type { FeedIdValue } from "@/protocol";
+import { FeedId, type FeedIdValue } from "@/protocol";
 import type { IngestFindControl, IngestSessionOpenControl } from "@tugproto/ingest";
 import type { CodeSessionEvent } from "@/lib/code-session-store/events";
 import type { TimerSource } from "@/lib/code-session-store/session-engine";
@@ -133,7 +133,11 @@ export function openInProcessSession(
   const handle = mintSessionHandle(open.tugSessionId);
   let live = true;
   const channel = new InProcessIngestChannel({
-    send: (feedId, payload) => source.send(feedId as FeedIdValue, payload),
+    send: (feedId, payload) => {
+      // An `offWire` session's input goes nowhere; its CONTROL frames still do.
+      if (open.offWire === true && feedId === FeedId.CODE_INPUT) return;
+      source.send(feedId as FeedIdValue, payload);
+    },
     sessionTimers: () => local.timerSource,
     replayOnOpen: false,
     ...(local.makePolicy !== undefined ? { makePolicy: local.makePolicy } : {}),

@@ -4,7 +4,7 @@
  *
  * One deck holds one card of each kind in a four-up flow, over real data
  * reached the production way — a text file and a picture on disk, and this
- * checkout's own HEAD commit read through git — beside a Cards rail, which
+ * checkout's own pinned one-file commit read through git — beside a Cards rail, which
  * reads every card's identity from the shell:
  *
  * - **Text** — the file's text is in its body; typing there makes the buffer
@@ -80,6 +80,14 @@ function git(...args: string[]): string {
 }
 
 /**
+ * The commit the Diff and Commit cards show: a fixed one-file commit, not
+ * HEAD. The Diff row's surface share is read over what the card shows, and
+ * HEAD's diff grows with whatever was last committed — a nine-file HEAD fills
+ * the body with sunken hunk panels and the share falls under its bar.
+ */
+const PINNED_COMMIT = "b7a4dcaed";
+
+/**
  * Focus `cardId` the deck's way, which brings a card the flow band holds
  * past the window's edge into view, and wait for its body to stand wholly
  * in the window, clear of the rail, before a gesture aims at it.
@@ -152,8 +160,8 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
   test(
     "each mounts as a body over its real data, and its own gestures — typing and saving, its title-bar verbs, its sections, its roster — work there",
     async () => {
-      const sha = git("rev-parse", "HEAD");
-      const subject = git("show", "-s", "--format=%s", "HEAD");
+      const sha = git("rev-parse", PINNED_COMMIT);
+      const subject = git("show", "-s", "--format=%s", PINNED_COMMIT);
       const scratch = mkdtempSync(join(tmpdir(), "tug-kind-documents-"));
       const textFile = join(scratch, "notes.md");
       writeFileSync(textFile, "alpha\nbeta\n");

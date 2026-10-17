@@ -69,6 +69,7 @@ import { dispatchCommand, setCardContentForwarder, setKeyCardForwarder } from ".
 import { enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { setFocusWalkEdge } from "./focus-walk-edge";
+import { setCycleFocusForwarder } from "./cycle-focus-forwarder";
 import { setKeyboardYield } from "./keyboard-yield";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
@@ -946,6 +947,17 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       const id = direction === 1 ? TUG_ACTIONS.NEXT_KEYBOARD_FOCUS : TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS;
       sendBus(connection, { card: fr }, { kind: "card-command", payload: { command: "dispatch", id } });
       postFocus(false);
+      return true;
+    }),
+  );
+  // ⌥⇥ dispatched here while a body card is key — the View menu's item, the
+  // palette, the chord while the shell holds the keyboard — toggles the
+  // card's own cycle, which is in its body with its stops.
+  releases.push(
+    setCycleFocusForwarder(() => {
+      const fr = deck.getFirstResponderCardId();
+      if (fr === null || !bodyCardsStore.has(fr)) return false;
+      sendBus(connection, { card: fr }, { kind: "card-command", payload: { command: "dispatch", id: TUG_ACTIONS.CYCLE_FOCUS_MODE } });
       return true;
     }),
   );

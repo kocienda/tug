@@ -42,6 +42,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { launchTugApp } from "./_harness";
+import { waitForBodyPainted } from "./_harness/card-reach";
 import { encodePdf } from "./fixtures/pdf";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -92,7 +93,11 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
       });
       try {
         await app.dispatchControlAction("open-file", { path: file });
-        await app.waitForCondition<boolean>(
+        // The viewer is its own body: the surface, its pages and its context
+        // menu are read and clicked in its page. Painted and placed, so a
+        // native click aims at a view that has a size.
+        const viewer = await waitForBodyPainted(app, "file-view", 15_000);
+        await viewer.waitForCondition<boolean>(
           `document.querySelector('${RENDERED}') !== null`,
           { timeoutMs: 30_000 },
         );
@@ -100,12 +105,12 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
         // A click into the surface is how a reader starts: it promotes the
         // surface to first responder, which is the seat the keys dispatch
         // from.
-        await app.nativeClickAtElement(SURFACE);
+        await viewer.nativeClickAtElement(SURFACE);
 
         const scrollTop = (): Promise<number> =>
-          app.evalJS<number>(`document.querySelector('${SURFACE}').scrollTop`);
+          viewer.evalJS<number>(`document.querySelector('${SURFACE}').scrollTop`);
         const geometry = async (): Promise<PageBox[]> =>
-          JSON.parse(await app.evalJS<string>(PAGE_GEOMETRY)) as PageBox[];
+          JSON.parse(await viewer.evalJS<string>(PAGE_GEOMETRY)) as PageBox[];
 
         /**
          * Right-click the document and pick a menu row by its label, clicked
@@ -113,13 +118,13 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
          * of their own, so the point comes from the row a reader would aim at.
          */
         const chooseMode = async (label: string): Promise<void> => {
-          await app.nativeRightClickAtElement(SURFACE);
-          await app.waitForCondition<boolean>(
+          await viewer.nativeRightClickAtElement(SURFACE);
+          await viewer.waitForCondition<boolean>(
             `document.querySelectorAll(".tug-menu-item").length > 0`,
             { timeoutMs: 5_000 },
           );
           const point = JSON.parse(
-            await app.evalJS<string>(
+            await viewer.evalJS<string>(
               `(function () {
                  var row = Array.from(document.querySelectorAll(".tug-menu-item"))
                    .find(function (el) {
@@ -134,8 +139,8 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
                })()`,
             ),
           ) as { x: number; y: number };
-          await app.nativeClick(point);
-          await app.waitForCondition<boolean>(
+          await viewer.nativeClick(point);
+          await viewer.waitForCondition<boolean>(
             `document.querySelectorAll(".tug-menu-item").length === 0`,
             { timeoutMs: 5_000 },
           );
@@ -186,7 +191,7 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
         // still means "first tab" and must leave the page mode alone.
         await app.nativeKey("1", ["cmd"]);
         expect(
-          await app.evalJS<string>(
+          await viewer.evalJS<string>(
             `String(document.querySelector('${SURFACE}').dataset.pdfPageMode)`,
           ),
         ).toBe("continuous");
@@ -197,6 +202,7 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
         // surface's `menuState.document` claim stands, so that is how it is
         // delivered here. A native chord would be intercepted by AppKit
         // before the web view and would prove nothing about the deck.
+        // card-dom: shell — the deck's own layout is the shell's document.
         const deckWidthBefore = await app.evalJS<number>(
           `Math.round(document.documentElement.getBoundingClientRect().width)`,
         );
@@ -207,17 +213,18 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
         // `zoom-in` instead of scaling the web view. This is the half that a
         // deck-only test cannot reach.
         await app.nativeKey("+", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector('${PAGE}').getBoundingClientRect().width > ${pageWidthBefore + 1}`,
           { timeoutMs: 5_000 },
         );
         // The claim is what made that chord reach the deck at all.
         expect(
-          await app.evalJS<string>(
+          await viewer.evalJS<string>(
             `String(document.querySelector('${SURFACE}').dataset.pdfZoom)`,
           ),
         ).not.toBe("fit-width");
 
+        // card-dom: shell — the deck's own layout is the shell's document.
         const deckWidthAfter = await app.evalJS<number>(
           `Math.round(document.documentElement.getBoundingClientRect().width)`,
         );
@@ -230,7 +237,7 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
         // rendered: the pages drawn at the previous scale still report
         // "rendered" until they are redrawn, so that condition is already
         // true and would let the assertion read the old geometry.
-        await app.waitForCondition<boolean>(
+        await viewer.waitForCondition<boolean>(
           `document.querySelector('${SURFACE}').dataset.pdfZoom === "1.00"`,
           { timeoutMs: 10_000 },
         );
@@ -244,13 +251,13 @@ describe.skipIf(!SHOULD_RUN)("at0311 — the PDF surface answers the keyboard", 
         // The reason the embed had to go: WebKit swallowed the right-click
         // before JS ever saw it, so there was no menu to hang these on.
 
-        await app.nativeRightClickAtElement(SURFACE);
-        await app.waitForCondition<boolean>(
+        await viewer.nativeRightClickAtElement(SURFACE);
+        await viewer.waitForCondition<boolean>(
           `document.querySelectorAll(".tug-menu-item").length > 0`,
           { timeoutMs: 5_000 },
         );
         const menu = JSON.parse(
-          await app.evalJS<string>(
+          await viewer.evalJS<string>(
             `JSON.stringify(
                Array.from(document.querySelectorAll(".tug-menu-item")).map(function (el) {
                  var label = el.querySelector(".tug-menu-item-label");

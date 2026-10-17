@@ -79,6 +79,7 @@ import { runOpeningCommand } from "./opening-command-runner";
 import { isDirectoryChangeRebind } from "./directory-change";
 import { bodyCardsStore } from "./body-cards-store";
 import { forgetPendingReload, type ReloadReason } from "./reload-reasons";
+import { isHarnessSession } from "./harness-sessions";
 
 export interface CardServices {
   /**
@@ -600,6 +601,9 @@ class CardServicesStore {
       // progress against the real target (the default N turns, or deeper for
       // a faithful restore) instead of a hard-coded default.
       restoreWindowTurns,
+      // A session the harness bound by hand has nothing behind it on the
+      // wire, so its writes stay off it (`harness-sessions.ts`).
+      offWire: isHarnessSession(binding.tugSessionId),
     });
     const editorStore = new EditorSettingsStore();
     const transcriptStore = new TranscriptSettingsStore();

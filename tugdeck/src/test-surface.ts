@@ -81,6 +81,7 @@ import {
   type CardSessionMode,
 } from "./lib/card-session-binding-store";
 import { publishListCardBindingsOk } from "./lib/session-ledger-events";
+import { markHarnessSession } from "./lib/harness-sessions";
 import type { CardBinding } from "./protocol";
 import { FeedId } from "./protocol";
 import type { IngestSpikeRequest, IngestSpikeResponse } from "./lib/workers/ingest-worker";
@@ -3455,6 +3456,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       // With bodies, a bind is the decision a spawn would be: the card's body
       // takes the binding into its own stores. The shell keeps it too, as it
       // would on hearing a real spawn's broadcast.
+      markHarnessSession(tugSessionId);
       handOffToBody(cardId, () => ({ kind: "bind", ...binding }));
       sessionLineStore.seat(tugSessionId, lineId);
       cardSessionBindingStore.setBinding(cardId, binding);

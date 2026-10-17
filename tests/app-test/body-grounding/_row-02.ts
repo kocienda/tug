@@ -455,9 +455,26 @@ export async function dragSession(launch: Launch): Promise<void> {
     // The masthead — whose lead line carries the grab handle — is bound.
     const body = app.body(CARD);
     await body.waitForCondition<boolean>(`${promptPhase} === "idle"`, { timeoutMs: 90_000 });
-    const handle = await pollFor(() => rectOf(app, handleSel(CARD, false)), (r) => r !== null && r.width > 0, PLACED_MS);
+    // The handle fills the lead line beside the masthead's identity, which
+    // keeps re-laying out as the body's facts land after the turn goes idle:
+    // a centre read straight away stood 8 px inside the handle's left edge by
+    // the press, so a run that settles a few px further misses it. So the
+    // handle is read once it has held still for half a second.
+    let last: Rect | null = null;
+    let still = 0;
+    const handle = await pollFor(
+      async () => {
+        const r = await rectOf(app, handleSel(CARD, false));
+        const same = r !== null && last !== null && r.x === last.x && r.y === last.y && r.width === last.width;
+        still = same ? still + 1 : 0;
+        last = r;
+        return r;
+      },
+      (r) => r !== null && r.width > 0 && still >= 10,
+      PLACED_MS,
+    );
     expect(handle, "the body card's masthead carries a grab handle").not.toBeNull();
-    await Bun.sleep(400);
+    expect(still, "and it holds still before the press").toBeGreaterThanOrEqual(10);
 
     await dragLeg(app, CARD, handle!);
   } finally {
