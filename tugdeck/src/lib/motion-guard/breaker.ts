@@ -111,6 +111,11 @@ export interface MotionBreaker {
    * nothing else. Returns the release ([L27]).
    */
   onResume(listener: () => void): () => void;
+  /**
+   * Be told on every demotion edge, either way: the shell republishes its
+   * deck facts so each body follows the switch. Returns the release ([L27]).
+   */
+  onChange(listener: () => void): () => void;
 }
 
 /** The slice of `<html>` the switch reads and writes. */
@@ -122,6 +127,7 @@ export interface DemoteRoot {
 
 class MotionBreakerImpl implements MotionBreaker {
   private readonly resumeListeners = createSubscribable();
+  private readonly changeListeners = createSubscribable();
 
   constructor(private readonly rootOf: () => DemoteRoot | null) {}
 
@@ -141,12 +147,15 @@ class MotionBreakerImpl implements MotionBreaker {
     const root = this.rootOf();
     if (root === null) return;
     if (on) {
+      if (root.hasAttribute(DEMOTED_ATTRIBUTE)) return;
       root.setAttribute(DEMOTED_ATTRIBUTE, "");
+      this.changeListeners.notify();
       return;
     }
     if (!root.hasAttribute(DEMOTED_ATTRIBUTE)) return;
     root.removeAttribute(DEMOTED_ATTRIBUTE);
     this.resumeListeners.notify();
+    this.changeListeners.notify();
   }
 
   reset(): void {
@@ -155,6 +164,10 @@ class MotionBreakerImpl implements MotionBreaker {
 
   onResume(listener: () => void): () => void {
     return this.resumeListeners.subscribe(listener);
+  }
+
+  onChange(listener: () => void): () => void {
+    return this.changeListeners.subscribe(listener);
   }
 }
 

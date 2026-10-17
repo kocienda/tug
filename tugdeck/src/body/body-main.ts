@@ -76,6 +76,8 @@ import { applyShellModifierLatch } from "../components/tugways/modifier-latch";
 import { applyTheme, followShellTheme, getOnScreenTheme } from "../contexts/theme-provider";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { initMotionObserver } from "../lib/scale-timing";
+import { installMotionGuard } from "../lib/motion-guard";
+import { motionBreaker } from "../lib/motion-guard/breaker";
 import { applyShellMenuFacts, initBodyHostMenuState } from "../lib/host-menu-state";
 import { scheduleAfterPaint } from "../lib/after-paint";
 import { setKeyboardYield } from "../lib/keyboard-yield";
@@ -327,6 +329,9 @@ function applyDeckFacts(facts: Partial<DeckFacts>, bridge: BodyDeckBridge | null
   }
   if (Array.isArray(facts.modifierLatch)) applyShellModifierLatch(facts.modifierLatch);
   if (typeof facts.appActive === "boolean") bridge?.setHasFocus(facts.appActive);
+  // The shell's hand switch, followed: the body's own root attribute stills
+  // its loops, and clearing it resumes them through the body's breaker.
+  if (typeof facts.motionDemoted === "boolean") motionBreaker.demote(facts.motionDemoted);
   if (facts.frontmostProject !== undefined) {
     relayFrontmostProjectBinding(asFrontmostBinding(facts.frontmostProject.binding));
   }
@@ -800,6 +805,11 @@ async function bindBody(bind: BodyBind): Promise<void> {
   keyboardAccessStore.initialize(normalizeKeyboardAccessMode(readKeyboardAccess(tugbankClient)));
   keymapOverrideStore.initialize(tugbankClient.readDomain(KEYMAP_DOMAIN));
   initMotionObserver();
+  // The body's own motion guard: its loops take holds in this page's
+  // registry, so the probe, the input-latency observer and
+  // `window.__tugMotion` have to be this page's too, or nothing measures or
+  // reports them.
+  installMotionGuard();
   // Every kind the shell registers, maker kinds included where the shell has
   // them, so a body — the spare above all — can mount whichever kind it is
   // bound to.

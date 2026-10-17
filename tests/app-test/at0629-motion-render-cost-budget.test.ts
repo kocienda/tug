@@ -194,7 +194,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         );
 
         // ---- The probe armed itself off the registry's rising edge. ------
-        const armed = await app.evalJS<{
+        const armed = await app.body("B").evalJS<{
           armed: boolean;
           holds: number;
           budgetMs: number;
@@ -229,13 +229,13 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // calibration did, and the record of it is in the doctrine. The
         // legs below park the rule and read the same population running, so
         // the two readings stand side by side in one run.
-        const shipped = await app.evalJS<OffscreenReading>(
+        const shipped = await app.body("B").evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen()`,
         );
         note("at0629 off-screen rule as shipped", shipped);
         expect(shipped.enabled).toBe(true);
-        const quietShipped = await cost(app, "__at0629quietShipped", 60);
-        const restShipped = await rest(app, "__at0629restShipped");
+        const quietShipped = await cost(app.body("B"), "__at0629quietShipped", 60);
+        const restShipped = await rest(app.body("B"), "__at0629restShipped");
         note("at0629 quiet render cost, rule on", {
           p50: quietShipped.p50,
           p95: quietShipped.p95,
@@ -266,7 +266,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // the pane clips still run: these legs are about the glyph's own
         // cost and the gauge's two ends, and the rule would take the
         // clipped population out of both. The rule's own legs come last.
-        const ruleOff = await app.evalJS<OffscreenReading>(
+        const ruleOff = await app.body("B").evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen(false)`,
         );
         note("at0629 off-screen rule parked for the flow bench", ruleOff);
@@ -274,7 +274,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(ruleOff.paused).toBe(0);
 
         // ---- The quiet reading: the claim. -------------------------------
-        const quiet = await cost(app, "__at0629quiet", 60);
+        const quiet = await cost(app.body("B"), "__at0629quiet", 60);
         note("at0629 quiet render cost", {
           p50: quiet.p50,
           p95: quiet.p95,
@@ -296,11 +296,11 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // The probe samples every 3 s while anything is moving, so two of them
         // is the shortest reading that says the sampler is running rather than
         // that one sample happened to land.
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `window.__tugMotion.probe().samples.length >= 2`,
           { timeoutMs: 12_000 },
         );
-        const sampled = await app.evalJS<{ costMs: number; inFlight: boolean }[]>(
+        const sampled = await app.body("B").evalJS<{ costMs: number; inFlight: boolean }[]>(
           `window.__tugMotion.probe().samples.map(function (s) {
              return { costMs: s.costMs, inFlight: s.inFlight };
            })`,
@@ -311,7 +311,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         }
 
         // ---- Residency: the loops are the qualifying form. ---------------
-        const census = await app.evalJS<{
+        const census = await app.body("B").evalJS<{
           longRunning: number;
           violations: string[];
           retained: number;
@@ -437,24 +437,24 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(afterRecalc.spreads).toEqual([0]);
 
         // ---- The forcing probe: what makes the quiet reading falsifiable.
-        const forcing = await app.evalJS<{ forcing: boolean }>(
+        const forcing = await app.body("B").evalJS<{ forcing: boolean }>(
           `window.__tugMotion.__force(true)`,
         );
         expect(forcing.forcing).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `(function(){
              var el = document.querySelector('.tug-progress-pulsing-dot-dot');
              return el !== null && el.style.transform !== "";
            })()`,
           { timeoutMs: 8_000 },
         );
-        const forced = await cost(app, "__at0629forced", 60);
+        const forced = await cost(app.body("B"), "__at0629forced", 60);
         note("at0629 forced render cost", {
           p50: forced.p50,
           p95: forced.p95,
           max: forced.max,
         });
-        await app.evalJS<unknown>(`window.__tugMotion.__force(false)`);
+        await app.body("B").evalJS<unknown>(`window.__tugMotion.__force(false)`);
         expect(
           forced.p50,
           `the driver that writes an inline transform every frame cost ` +

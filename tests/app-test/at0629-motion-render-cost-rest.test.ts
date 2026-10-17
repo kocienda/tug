@@ -130,7 +130,8 @@
  *
  * Cut from `at0629-motion-render-cost` to fit the 20 s budget, each piece on
  * its own launch of the same bench. This file carries the at-rest gauge, the
- * bisect, the composer chip and the switch, behind one cost reading that
+ * bisect, the composer chip and the switch — thrown in the bench's body, then
+ * thrown in the shell and followed by the body — behind one cost reading that
  * proves the window is painting before the first timer-chain reading;
  * `at0629-motion-render-cost-budget` carries the calibration, the quiet
  * claim, residency, the weld and the forcing probe, `-stream` the streamed
@@ -229,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // the pane clips still run: these legs are about the glyph's own
         // cost and the gauge's two ends, and the rule would take the
         // clipped population out of both. The rule's own legs come last.
-        const ruleOff = await app.evalJS<OffscreenReading>(
+        const ruleOff = await app.body("B").evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen(false)`,
         );
         note("at0629 off-screen rule parked for the flow bench", ruleOff);
@@ -239,10 +240,10 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // A cost reading first: it proves the window is painting before a
         // timer-chain reading is trusted (see `rest`), which the legs ahead
         // of these did in the uncut file.
-        await cost(app, "__at0629painting", 30);
+        await cost(app.body("B"), "__at0629painting", 30);
         // What the census reports long-running inside the bench — the count
         // the bisect's weld read is held against.
-        const longRunningInBench = await app.evalJS<number>(
+        const longRunningInBench = await app.body("B").evalJS<number>(
           `window.__tugMotion.list({ within: ${JSON.stringify(BENCH)} }).longRunning`,
         );
 
@@ -252,7 +253,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // record rather than a claim: the dots below the card's fold dirty
         // style every frame on this WebKit, and until off-screen content
         // reads zero this number says how much of the bench is off screen.
-        const restAll = await rest(app, "__at0629restAll");
+        const restAll = await rest(app.body("B"), "__at0629restAll");
         note("at0629 at rest, every dot running", restAll);
         expect(restAll.ticks).toBeGreaterThan(100);
         expect(restAll.windowMs).toBeGreaterThanOrEqual(1000);
@@ -281,7 +282,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
           return n;
         })()`);
         expect(pausedOff).toBeGreaterThan(0);
-        const restResident = await rest(app, "__at0629restResident");
+        const restResident = await rest(app.body("B"), "__at0629restResident");
         const resumedOff = await app.body("B").evalJS<number>(`(function(){
           var s = ${SPLIT_DOTS};
           var n = 0;
@@ -312,16 +313,16 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // so every frame is a rendering update that resolves style on the
         // main thread and pays the walk. The gauge must read the display
         // rate, or it is not reading updates.
-        await app.evalJS<unknown>(`window.__tugMotion.__force(true)`);
-        await app.waitForCondition<boolean>(
+        await app.body("B").evalJS<unknown>(`window.__tugMotion.__force(true)`);
+        await app.body("B").waitForCondition<boolean>(
           `(function(){
              var el = document.querySelector('.tug-progress-pulsing-dot-dot');
              return el !== null && el.style.transform !== "";
            })()`,
           { timeoutMs: 8_000 },
         );
-        const restForced = await rest(app, "__at0629restForced");
-        await app.evalJS<unknown>(`window.__tugMotion.__force(false)`);
+        const restForced = await rest(app.body("B"), "__at0629restForced");
+        await app.body("B").evalJS<unknown>(`window.__tugMotion.__force(false)`);
         note("at0629 at rest, forced", restForced);
         expect(
           restForced.updatesPerSecond,
@@ -342,18 +343,18 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // bench's dots by the pane's clip. What is asserted is the shape —
         // the dots are one family in two placements, every figure counted —
         // and the weld afterwards, which is the reading the user saw break.
-        await app.evalJS<null>(`(function(){
+        await app.body("B").evalJS<null>(`(function(){
           window.__at0629bisect = { done: false };
           window.__tugMotion.bisect({ frames: 10, cap: 4 }).then(function (r) {
             window.__at0629bisect = { done: true, reading: r };
           });
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `window.__at0629bisect !== undefined && window.__at0629bisect.done === true`,
           { timeoutMs: 30_000 },
         );
-        const bisect = await app.evalJS<{
+        const bisect = await app.body("B").evalJS<{
           baselineP50: number;
           floorP50: number;
           groupsFound: number;
@@ -474,7 +475,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
 
         note(
           "at0629 input latency supported",
-          await app.evalJS<boolean>(`window.__tugMotion.input().supported`),
+          await app.body("B").evalJS<boolean>(`window.__tugMotion.input().supported`),
         );
 
         // ---- The breaker, by hand: one attribute stills every loop. ------
@@ -519,6 +520,24 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         note("at0629 un-demoted", undemoted);
         expect(undemoted.attribute).toBe(false);
         expect(undemoted.longRunning).toBeGreaterThan(0);
+
+        // ---- The hand switch is the deck's: a body follows it. -----------
+        //
+        // `tugtool deck motion demote` calls `window.__tugMotion.demote()` in
+        // the shell, and the bench's loops run in its body's page. The shell
+        // publishes `motionDemoted` in its deck facts and every body applies
+        // it to its own `<html>`, so a demote thrown in the shell must still
+        // the bench's loops, and an un-demote there must start them again.
+        await app.evalJS<unknown>(`window.__tugMotion.demote(true)`);
+        await app.body("B").waitForCondition<boolean>(
+          `document.documentElement.hasAttribute("data-tug-motion-demoted") && window.__tugMotion.list().longRunning === 0`,
+          { timeoutMs: 5_000 },
+        );
+        await app.evalJS<unknown>(`window.__tugMotion.demote(false)`);
+        await app.body("B").waitForCondition<boolean>(
+          `!document.documentElement.hasAttribute("data-tug-motion-demoted") && window.__tugMotion.list().longRunning > 0`,
+          { timeoutMs: 5_000 },
+        );
       } finally {
         await app.close();
       }

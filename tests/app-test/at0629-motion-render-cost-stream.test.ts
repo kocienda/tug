@@ -196,7 +196,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         );
 
         // ---- The probe armed itself off the registry's rising edge. ------
-        const armed = await app.evalJS<{
+        const armed = await app.body("B").evalJS<{
           armed: boolean;
           holds: number;
           budgetMs: number;
@@ -222,7 +222,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // the pane clips still run: these legs are about the glyph's own
         // cost and the gauge's two ends, and the rule would take the
         // clipped population out of both. The rule's own legs come last.
-        const ruleOff = await app.evalJS<OffscreenReading>(
+        const ruleOff = await app.body("B").evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen(false)`,
         );
         note("at0629 off-screen rule parked for the flow bench", ruleOff);
@@ -230,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         expect(ruleOff.paused).toBe(0);
 
         // ---- The quiet reading: the claim. -------------------------------
-        const quiet = await cost(app, "__at0629quiet", 60);
+        const quiet = await cost(app.body("B"), "__at0629quiet", 60);
         note("at0629 quiet render cost", {
           p50: quiet.p50,
           p95: quiet.p95,
@@ -290,21 +290,21 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         const streamedPopulation = await app.body("B").evalJS<number>(
           `document.querySelectorAll(${JSON.stringify(BENCH_DOTS)}).length`,
         );
-        const streaming = await app.evalJS<{ streaming: boolean }>(
+        const streaming = await app.body("B").evalJS<{ streaming: boolean }>(
           `window.__tugMotion.__stream(true)`,
         );
         expect(streaming.streaming).toBe(true);
         // The driver is demonstrably running before anything is read off it.
         // A silently no-opping driver is how a measurement of this shape gets
         // decided the wrong way.
-        await app.waitForCondition<boolean>(
+        await app.body("B").waitForCondition<boolean>(
           `(function(){
              var el = document.querySelector('[data-tug-stream-node]');
              return el !== null && Number(el.getAttribute('data-tug-stream-tick')) > 5;
            })()`,
           { timeoutMs: 8_000 },
         );
-        const streamed = await cost(app, "__at0629streamed", 60);
+        const streamed = await cost(app.body("B"), "__at0629streamed", 60);
         note("at0629 streamed render cost", {
           population: streamedPopulation,
           p50: streamed.p50,
@@ -335,20 +335,20 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // The control. If the same cost comes back with every loop stilled,
         // the number is about the driver rather than about the dots — and the
         // assertion above would be measuring `setAttribute`.
-        const streamedDemoted = await app.evalJS<null>(`(function(){
+        const streamedDemoted = await app.body("B").evalJS<null>(`(function(){
           window.__tugMotion.demote(true);
           return null;
         })()`);
         expect(streamedDemoted).toBe(null);
-        const demotedStream = await cost(app, "__at0629streamdemoted", 60);
+        const demotedStream = await cost(app.body("B"), "__at0629streamdemoted", 60);
         note("at0629 streamed render cost, loops demoted", {
           p50: demotedStream.p50,
           p95: demotedStream.p95,
           max: demotedStream.max,
           mean: meanOf(demotedStream),
         });
-        await app.evalJS<unknown>(`window.__tugMotion.demote(false)`);
-        await app.evalJS<unknown>(`window.__tugMotion.__stream(false)`);
+        await app.body("B").evalJS<unknown>(`window.__tugMotion.demote(false)`);
+        await app.body("B").evalJS<unknown>(`window.__tugMotion.__stream(false)`);
         expect(
           mean(demotedStream.burst),
           `the same per-frame commit with every loop stilled cost ` +
@@ -359,7 +359,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // ...and the driver is off before the pause, demote and breaker legs
         // below, which would otherwise read a deck with a rAF loop on it.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("B").evalJS<boolean>(
             `document.querySelector('[data-tug-stream-node]') === null`,
           ),
         ).toBe(true);
@@ -370,19 +370,19 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // never written down: how many loops one glyph carries is a fact about
         // the stylesheet, and this test is about neither that number nor the
         // bench's count.
-        const longRunningInBench = await app.evalJS<number>(
+        const longRunningInBench = await app.body("B").evalJS<number>(
           `window.__tugMotion.list({ within: ${JSON.stringify(BENCH)} }).longRunning`,
         );
         const paused = await app.body("B").evalJS<number>(
           `window.__tugMotion.pause(${JSON.stringify(BENCH_LOOPS)}).paused`,
         );
-        const pausedStates = await app.evalJS<string[]>(
+        const pausedStates = await app.body("B").evalJS<string[]>(
           `Array.from(new Set(
              window.__tugMotion.list({ within: ${JSON.stringify(BENCH)} })
                .entries.map(function (e) { return e.playState; })
            ))`,
         );
-        const pausedCost = await cost(app, "__at0629paused", 60);
+        const pausedCost = await cost(app.body("B"), "__at0629paused", 60);
         const resumed = await app.body("B").evalJS<number>(
           `window.__tugMotion.resume(${JSON.stringify(BENCH_LOOPS)}).resumed`,
         );

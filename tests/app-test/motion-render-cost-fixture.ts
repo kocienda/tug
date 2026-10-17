@@ -7,7 +7,7 @@
  * keep each under the 20 s budget.
  */
 
-import { type App } from "./_harness";
+import { type App, type BodyApp } from "./_harness";
 import { waitForBodyReady } from "./_harness/card-reach";
 
 export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -235,17 +235,18 @@ export function meanOf(reading: CostReading): number {
  * result parked on a slot, and the slot waited on. The wait is what turns an
  * occluded window — where `requestAnimationFrame` never fires and the promise
  * never settles — into a failure that says which reading hung.
+ *
+ * Every page has its own `window.__tugMotion` — the shell's `main.tsx` and
+ * each body's `body-main.ts` install one — and each measures its own
+ * rendering update. So the reading is of `page`'s frame, and the caller
+ * passes the bench card's body, which is where the dots breathe.
  */
 export async function cost(
-  app: App,
+  page: App | BodyApp,
   slot: string,
   frames: number,
 ): Promise<CostReading> {
-  // `window.__tugMotion` is the shell's alone (`main.tsx` installs it; a
-  // body's page has none), so the reading is the shell's main thread, not
-  // the bench body's.
-  // card-dom: shell
-  await app.evalJS<null>(`(function(){
+  await page.evalJS<null>(`(function(){
     window.${slot} = { done: false };
     window.__tugMotion.cost(${frames}).then(function (reading) {
       window.${slot} = { done: true, reading: reading };
@@ -253,7 +254,7 @@ export async function cost(
     return null;
   })()`);
   try {
-    await app.waitForCondition<boolean>(
+    await page.waitForCondition<boolean>(
       `window.${slot} !== undefined && window.${slot}.done === true`,
       { timeoutMs: 60_000 },
     );
@@ -266,8 +267,7 @@ export async function cost(
       { cause },
     );
   }
-  // card-dom: shell
-  return app.evalJS<CostReading>(`(function(){
+  return page.evalJS<CostReading>(`(function(){
     var r = window.${slot}.reading;
     return { p50: r.p50, p95: r.p95, max: r.max, burst: r.burst };
   })()`);
@@ -289,22 +289,25 @@ export interface RestReading {
  * The chain runs on timers rather than frames, so it resolves even under an
  * occluded window — but the reading it takes there is of a throttled timer
  * queue, not of the deck, which is why every `rest` here follows a `cost`
- * that already proved the window is painting.
+ * that already proved the window is painting. Like `cost`, it reads `page`'s
+ * own main thread; the caller passes the bench card's body.
  */
-export async function rest(app: App, slot: string): Promise<RestReading> {
-  // card-dom: shell
-  await app.evalJS<null>(`(function(){
+export async function rest(
+  page: App | BodyApp,
+  slot: string,
+): Promise<RestReading> {
+  await page.evalJS<null>(`(function(){
     window.${slot} = { done: false };
     window.__tugMotion.rest().then(function (reading) {
       window.${slot} = { done: true, reading: reading };
     });
     return null;
   })()`);
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `window.${slot} !== undefined && window.${slot}.done === true`,
     { timeoutMs: 15_000 },
   );
-  return app.evalJS<RestReading>(`window.${slot}.reading`);
+  return page.evalJS<RestReading>(`window.${slot}.reading`);
 }
 
 /**
@@ -315,12 +318,17 @@ export async function rest(app: App, slot: string): Promise<RestReading> {
  * which is exactly the population the gauge has to be able to tell from the
  * one on screen. The card element itself is not the box to read — it is the
  * flow container, and it is as tall as its three hundred dots.
+ *
+ * In a body page there is no `.tug-pane`: the page is the card, and its
+ * viewport is the pane's content box, so the viewport is the clip there.
  */
 export const SPLIT_DOTS = `(function(){
   var roots = document.querySelectorAll(${JSON.stringify(BENCH_LOOPS)});
-  var pane = roots.length > 0 ? roots[0].closest('.tug-pane') : null;
-  if (pane === null) return { on: [], off: [] };
-  var box = pane.getBoundingClientRect();
+  if (roots.length === 0) return { on: [], off: [] };
+  var pane = roots[0].closest('.tug-pane');
+  var box = pane !== null
+    ? pane.getBoundingClientRect()
+    : { top: 0, left: 0, bottom: window.innerHeight, right: window.innerWidth };
   var on = [], off = [];
   for (var i = 0; i < roots.length; i++) {
     var r = roots[i].getBoundingClientRect();

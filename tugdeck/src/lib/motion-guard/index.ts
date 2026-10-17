@@ -12,8 +12,10 @@
  *   - `diagnostics.ts` — `window.__tugMotion`, so a release build can be
  *     asked what is ticking and which loop is paying for it ([B04]).
  *
- * `installMotionGuard()` is called unconditionally from `main.tsx`, in every
- * build. The cost at rest is one property assignment and one set of listeners:
+ * `installMotionGuard()` is called unconditionally from `main.tsx` and from
+ * each body's `body/body-main.ts`, in every build: a body's loops hold in its
+ * own page's registry, so each page measures and reports its own motion.
+ * The cost at rest is one property assignment and one set of listeners:
  * with no motion anywhere the probe is disarmed, and a disarmed probe holds
  * no timer and schedules no rendering update.
  *
@@ -82,7 +84,7 @@ export {
 
 let installed = false;
 
-/** Wire the guard. Idempotent; called once from `main.tsx`. */
+/** Wire the guard. Idempotent; called once per page, from `main.tsx` and `body/body-main.ts`. */
 export function installMotionGuard(): void {
   if (installed) return;
   installed = true;

@@ -221,6 +221,13 @@ export interface DeckFacts {
    * bus: `lib/frontmost-project.ts` writes and reads it.
    */
   frontmostProject?: { binding: unknown };
+  /**
+   * Whether the shell's motion breaker is demoting the deck: the hand switch
+   * (`tugtool deck motion demote`) is the deck's, and a body's loops are
+   * stilled by its own page's root attribute, which only this fact reaches.
+   * Absent on a shell that predates it.
+   */
+  motionDemoted?: boolean;
 }
 
 /** The shell's menu projection, opaque to the bus: `host-menu-state.ts` writes and reads it. */

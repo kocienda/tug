@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         );
 
         // ---- The probe armed itself off the registry's rising edge. ------
-        const armed = await app.evalJS<{
+        const armed = await app.body("B").evalJS<{
           armed: boolean;
           holds: number;
           budgetMs: number;
@@ -229,20 +229,23 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // nearly all of it under the fold. With the rule on, every figure out
         // of view carries the mark and no animation, and the deck reads under
         // the at-rest budget with three hundred dots mounted.
-        await app.evalJS<unknown>(`window.__tugMotion.offscreen(true)`);
+        //
+        // The rule is per page: the list card's body has its own, so it is
+        // switched there, once the body exists.
         await seatListBench(app, LIST_CARD, "gallery-motion-bench-dot-list");
-        await app.waitForCondition<boolean>(
+        await app.body(LIST_CARD).evalJS<unknown>(`window.__tugMotion.offscreen(true)`);
+        await app.body(LIST_CARD).waitForCondition<boolean>(
           `window.__tugMotion.offscreen().paused > 0`,
           { timeoutMs: 8_000 },
         );
         // A cost reading first: it proves the window is painting before a
         // timer-chain reading is trusted (see `rest`).
-        const listCost = await cost(app, "__at0629listCost", 30);
-        const ruleOn = await app.evalJS<OffscreenReading>(
+        const listCost = await cost(app.body(LIST_CARD), "__at0629listCost", 30);
+        const ruleOn = await app.body(LIST_CARD).evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen()`,
         );
         const figuresOn = await app.body(LIST_CARD).evalJS<ListFigures>(listFigures(LIST_CARD));
-        const restRuleOn = await rest(app, "__at0629restRuleOn");
+        const restRuleOn = await rest(app.body(LIST_CARD), "__at0629restRuleOn");
         note("at0629 list bench, rule on", {
           ...restRuleOn,
           costP50: listCost.p50,
@@ -270,11 +273,11 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // The untreated list: the rule off, every dot running, the disease
         // the rule exists for. Noted rather than asserted, because the
         // number is a property of this WebKit on this machine.
-        const ruleOffList = await app.evalJS<OffscreenReading>(
+        const ruleOffList = await app.body(LIST_CARD).evalJS<OffscreenReading>(
           `window.__tugMotion.offscreen(false)`,
         );
         const figuresOff = await app.body(LIST_CARD).evalJS<ListFigures>(listFigures(LIST_CARD));
-        const restRuleOff = await rest(app, "__at0629restRuleOff");
+        const restRuleOff = await rest(app.body(LIST_CARD), "__at0629restRuleOff");
         note("at0629 list bench, rule off", {
           ...restRuleOff,
           rule: ruleOffList,
@@ -288,7 +291,9 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // is `content-visibility: auto` on every measured row, read with the
         // rule off. Noted for the same reason. The rows have to have earned
         // their stamp first, which the cell observer does on measurement.
+        // A fresh body's rule starts on, so it is parked in this one too.
         await seatListBench(app, SKIP_CARD, "gallery-motion-bench-dot-list-skip");
+        await app.body(SKIP_CARD).evalJS<unknown>(`window.__tugMotion.offscreen(false)`);
         await app.body(SKIP_CARD).waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(`${listBench(SKIP_CARD)} .tug-list-view-cell[data-cv-ready]`)}).length === ${BENCH_COUNT}`,
           { timeoutMs: 15_000 },
@@ -300,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
              return f;
            })()`,
         );
-        const restSkip = await rest(app, "__at0629restSkip");
+        const restSkip = await rest(app.body(SKIP_CARD), "__at0629restSkip");
         note("at0629 list bench, content-visibility skip, rule off", {
           ...restSkip,
           figures: figuresSkip,
@@ -323,9 +328,9 @@ describe.skipIf(!SHOULD_RUN)("at0629 — the deck's own render cost", () => {
         // Back on the untreated list with the rule on, scrolled to its foot:
         // the figures that crossed in are breathing with their three loops on
         // one start time, and the ones that crossed out carry the mark.
-        await app.evalJS<unknown>(`window.__tugMotion.offscreen(true)`);
         await seatListBench(app, LIST_CARD, "gallery-motion-bench-dot-list");
-        await app.waitForCondition<boolean>(
+        await app.body(LIST_CARD).evalJS<unknown>(`window.__tugMotion.offscreen(true)`);
+        await app.body(LIST_CARD).waitForCondition<boolean>(
           `window.__tugMotion.offscreen().paused > 0`,
           { timeoutMs: 8_000 },
         );

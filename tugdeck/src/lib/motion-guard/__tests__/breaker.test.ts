@@ -79,3 +79,34 @@ describe("motion switch off edge", () => {
     expect(resumes).toBe(0);
   });
 });
+
+describe("motion switch change edge", () => {
+  test("every demotion edge, either way, tells change subscribers once", () => {
+    const root = standInRoot();
+    const breaker = createMotionBreaker(() => root);
+    let changes = 0;
+    breaker.onChange(() => changes++);
+
+    breaker.demote(true);
+    expect(changes).toBe(1);
+    // Demoting a demoted deck is not an edge: the shell republishes nothing.
+    breaker.demote(true);
+    expect(changes).toBe(1);
+
+    breaker.demote(false);
+    expect(changes).toBe(2);
+    breaker.demote(false);
+    expect(changes).toBe(2);
+  });
+
+  test("a released change subscription hears nothing", () => {
+    const root = standInRoot();
+    const breaker = createMotionBreaker(() => root);
+    let changes = 0;
+    const release = breaker.onChange(() => changes++);
+    release();
+    breaker.demote(true);
+    breaker.demote(false);
+    expect(changes).toBe(0);
+  });
+});

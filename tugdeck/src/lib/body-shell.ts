@@ -120,6 +120,7 @@ import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { setJotCaptureForwarder } from "./jot-capture";
 import { frontmostProjectBinding } from "./frontmost-project";
+import { motionBreaker } from "./motion-guard/breaker";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
 import type { TugDevLogEntry } from "./tug-dev-log-store/types";
 
@@ -229,6 +230,8 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
     // The project a card with no session of its own resolves against, which
     // a body's one-card deck cannot find.
     frontmostProject: { binding: frontmostProjectBinding() },
+    // The hand switch is the deck's; a body stills its own loops by it.
+    motionDemoted: motionBreaker.demoted,
   };
 }
 
@@ -702,6 +705,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     focusRingModalityStore.subscribe(publishDeckFacts),
     subscribeModifierLatch(publishDeckFacts),
     cardSessionBindingStore.subscribe(publishDeckFacts),
+    motionBreaker.onChange(publishDeckFacts),
   );
   // An arrangement card lists every card's binding and title, and a
   // following card names its followed card's binding: a change to either
