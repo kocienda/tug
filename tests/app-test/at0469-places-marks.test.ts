@@ -184,14 +184,13 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         );
         note(`rows: ${rows.join(", ")}`);
         expect(
-          rows.slice(0, 5),
-          "the five deck-wide rows lead, in a fixed order",
+          rows.slice(0, 4),
+          "the four deck-wide rows lead, in a fixed order",
         ).toEqual([
           "layout-card-kind",
           "layout-card-zoom",
           "layout-card-layout",
           "layout-card-width",
-          "layout-card-resize",
         ]);
         // Under them, the place rows — one per slot with something to arrange
         // (part 7); a rail gets none, because it is always divided — and under
@@ -200,14 +199,14 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         // what the picture does not draw. The registry is a boot step, so that
         // count is fixed too.
         const placeRows = rows
-          .slice(5)
+          .slice(4)
           .filter((id) => id.startsWith("layout-card-column-"));
         expect(
           rows.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row",
         ).toEqual([]);
         // The section closes on the sidebar rows.
-        const sidebarRows = rows.slice(5 + placeRows.length);
+        const sidebarRows = rows.slice(4 + placeRows.length);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",

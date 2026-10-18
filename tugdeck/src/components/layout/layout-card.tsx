@@ -182,8 +182,6 @@ import {
   columnModeOf,
   isImpositionLayout,
   impositionLayout,
-  isResizeSlot,
-  impositionResizeSlot,
   isSidebarSide,
   sidebarSide,
   clampSlot,
@@ -196,7 +194,6 @@ import {
   type DeckImposition,
   type ImpositionKind,
   type ImpositionLayout,
-  type ResizeSlot,
   type SidebarSide,
   type PlaceAllocation,
 } from "@/lib/layout-imposer";
@@ -248,7 +245,6 @@ const LAYOUT_FOCUS_GROUP = "layout-card";
 const KIND_SENDER_ID = "layout-card-kind";
 const LAYOUT_SENDER_ID = "layout-card-layout";
 const WIDTH_SENDER_ID = "layout-card-width";
-const RESIZE_SENDER_ID = "layout-card-resize";
 const ZOOM_SENDER_ID = "layout-card-zoom";
 const SIDE_SENDER_PREFIX = "layout-card-side:";
 
@@ -261,7 +257,6 @@ const COLUMN_ROW_SENDER_PREFIX = "layout-card-column-row:";
 const KIND_CAPTION_ID = "layout-card-kind-caption";
 const LAYOUT_CAPTION_ID = "layout-card-layout-caption";
 const WIDTH_CAPTION_ID = "layout-card-width-caption";
-const RESIZE_CAPTION_ID = "layout-card-resize-caption";
 const ZOOM_CAPTION_ID = "layout-card-zoom-caption";
 
 /** The deck rows' focus orders. Distinct, and declared rather than defaulted,
@@ -287,14 +282,13 @@ const LAYOUTS_KIND_FOCUS_ORDER = 0;
 const LAYOUTS_ZOOM_FOCUS_ORDER = 1;
 const LAYOUTS_LAYOUT_FOCUS_ORDER = 2;
 const LAYOUTS_WIDTH_FOCUS_ORDER = 3;
-const LAYOUTS_RESIZE_FOCUS_ORDER = 4;
 
-/** The column rows' orders, directly under Resizing — one per slot the kind
+/** The column rows' orders, directly under Width — one per slot the kind
  *  defines, dense over the rows actually rendered (a slot with nothing to
  *  arrange has no row, so its order is simply unused). The sidebar rows start
  *  past the last slot any kind can define, so no two stops can share an order
  *  however the deck is shaped. */
-const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 5;
+const LAYOUTS_FIRST_COLUMN_ROW_FOCUS_ORDER = 4;
 
 /** The first sidebar row's order; each further registered card takes the next.
  *  These rows are the registry's size, which is fixed at boot — they list every
@@ -352,13 +346,6 @@ const LAYOUT_LABELS: Record<ImpositionLayout, string> = {
   fit: "Fit",
   flow: "Flow",
 };
-
-/** The two resize rules, keeping first because it is the default, and labelled
- *  for what happens to the CARD's place rather than for the mechanism. */
-const RESIZE_SLOT_ITEMS: TugChoiceItem[] = [
-  { value: "keep", label: "Keeps Slot" },
-  { value: "release", label: "Releases" },
-] satisfies { value: ResizeSlot; label: string }[];
 
 const SIDE_LABELS: Record<SidebarSide, string> = {
   left: "Left",
@@ -1363,12 +1350,6 @@ export function LayoutContent(
           }
           return;
         }
-        if (sender === RESIZE_SENDER_ID) {
-          if (isResizeSlot(value)) {
-            dispatchCommand(TUG_ACTIONS.SET_RESIZE_SLOT, { resizeSlot: value });
-          }
-          return;
-        }
         if (sender === ZOOM_SENDER_ID) {
           // A request: the host owns the factor, reads it as its nearest
           // level, and its answer is what moves the row (`requestPageZoom`).
@@ -1907,31 +1888,6 @@ export function LayoutContent(
               focusOrder={LAYOUTS_WIDTH_FOCUS_ORDER}
               aria-labelledby={WIDTH_CAPTION_ID}
               data-testid="layout-card-width"
-            />
-          </div>
-
-          {/* A rule for a gesture rather than a picture of the deck, so it does
-              not audition: no `data-preview-axis`. */}
-          <div className="layouts-section-row">
-            <TugLabel
-              id={RESIZE_CAPTION_ID}
-              size="md"
-              emphasis="proposal"
-              className="layouts-section-caption"
-            >
-              Resizing
-            </TugLabel>
-            <TugChoiceGroup
-              items={RESIZE_SLOT_ITEMS}
-              value={impositionResizeSlot(imposition)}
-              senderId={RESIZE_SENDER_ID}
-              size="xs"
-              sidePadding="xs"
-              reselect
-              focusGroup={LAYOUT_FOCUS_GROUP}
-              focusOrder={LAYOUTS_RESIZE_FOCUS_ORDER}
-              aria-labelledby={RESIZE_CAPTION_ID}
-              data-testid="layout-card-resize"
             />
           </div>
 

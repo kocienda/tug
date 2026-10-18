@@ -3,6 +3,7 @@
 *How a session's file changes are captured, classified, and committed. The two-layer doctrine: **capture annotates, git status decides** — the attribution ledger records who changed what at the moment of change (best-effort by construction), and the read/commit side treats the working tree as the universe so a capture gap can narrow *attribution* but can never hide a file or shrink a commit.*
 
 *Cross-references: `[D##]` → [design-decisions.md](design-decisions.md), principally [D112] (point-of-change attribution, provenance-only capture, per-file contention, row liveness), [D113] (the aggregate changeset feed), [D120] (claiming, severing, and the orphaned bucket), and [D167] (a session id is a segment of a line of work — the identity every ownership question is asked of). `[LR#]` → [ledger-reliability.md](ledger-reliability.md), for the schema-version regime any change to the shared `changes.db` shape is governed by.*
+<!-- at0335 s 5 -->
 
 ---
 
@@ -63,6 +64,7 @@ All capture happens at one supervised point — tugcast's stdout relay loop (`ag
 | `exact` | proof | `Write`/`Edit`/`MultiEdit`/`NotebookEdit` | Path read straight from the tool input | Recorded on the **successful** `tool_result` (a denied/errored call records nothing) |
 | `bash` | correlation | `Bash` | Per-call working-tree fingerprint bracket | Snapshot on `tool_use`, delta on `tool_result` |
 | `turn` | correlation | `Turn` | Turn-scoped fallback bracket | Snapshot on the `user_message` forward, delta on the turn's non-replayed `turn_complete` |
+<!-- at0335 s 65 -->
 | `replay` | proof | (as original) | Exact-tool backfill during JSONL replay | Historical `timestamp` used as `at`; PK collapses re-streams |
 | `claim` | proof | `Claim` | A session explicitly claims paths (`tugtool changes claim` → `changeset_claim`) | On the claim request; records one `whole` span — a claim is a whole-file assertion by hand |
 | `cmd` | proof | `Bash` | The Bash command **literally names** the file (parsed operands) or a `tugtool file` receipt reports it | Live: parsed operands ∩ the bracket delta. Replay: parsed operands on a successful result. Receipt: any successful result whose output carries one |
@@ -123,6 +125,7 @@ The relay scans **every** successful Bash `tool_result` output for that sentinel
 The per-call Bash bracket has structural holes (G2/G3 below), so the relay also brackets the **whole turn**: pre-snapshot when a `user_message` is forwarded to tugcode stdin (seconds before the model can emit any command), post-snapshot on that turn's non-replayed `turn_complete`. Any delta path not already covered by an exact or per-call row this turn (tracked in a relay-local `turn_recorded_paths` set) becomes an `origin='turn'` row. A path an exact or Bash row already recorded this turn gets no turn row; replay never opens a turn bracket (user messages don't replay through `input_rx`, and a replayed `turn_complete` closes nothing).
 
 ### Capture is a private, per-session affair
+<!-- at0335 s 125 -->
 
 **Every bracket is relay-local.** There is no cross-session bracket registry: a relay's Bash brackets live in a per-relay map beside its turn bracket, a crashed relay simply drops them (no sweep ceremony — the read side's bucket surfacing covers the residual gap), and no capture path can observe, mark, or be marked by another session. A bracket delta is a *claim* of authorship, not a proof; competing claims are resolved where they can actually be seen — per file, at read time (Contention, below).
 
