@@ -139,6 +139,17 @@ body {
   color: var(--tugx-run-link-color);
 }
 
+/* a test run's line before it counts (`compiling tugcast`), in the facts */
+.tug-run-panel-now-text {
+  display: inline-block;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: var(--tug-font-family-mono);
+}
+
 /* ---- The track ---------------------------------------------------------- */
 
 .tug-run-panel-track {

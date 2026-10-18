@@ -9,7 +9,8 @@
  *   1. **Masthead** — the ring while running and the verdict word, PASS or
  *      FAIL, in its place once over; the label, the fraction with its unit
  *      word, the tally as words, and the run's facts: jobs and the projection
- *      while running, wall time once over.
+ *      while running, wall time once over. A test run's line before it has a
+ *      count (a crate compiling) is a fact too.
  *   2. **Track** — a cell per unit in run order, coloured as it lands, in one
  *      row whose cells shrink as the count grows, up to {@link CELLS_UP_TO};
  *      a density band past that, or whenever the report carries only some of
@@ -17,16 +18,19 @@
  *   3. **In flight** — a row per unit in flight, its name in full; a row is
  *      never emptied while the run goes, so the panel does not jump between
  *      units. A run counting phases shows every phase as a compact step row,
- *      its time on the right; a run counting tests shows the test it is on.
+ *      its time on the right. A run counting tests has no row here: it lists
+ *      only its reds, so the masthead's fraction and the band are its
+ *      progress, and its total is the runner's own count, never an estimate.
  *   4. **Reds** — the most recent failed or wedged unit open as a card, its
  *      first failure and what the record said of it before this run, and
  *      every earlier red folded under it, newest first, one tap away. While
  *      the run goes they land at the foot, under the folds, so a red
  *      arriving changes the card and the fold's count and moves nothing
  *      above them; once over they lead the body.
- *   5. **Folds**, collapsed: what passed (standing from the first report),
- *      the wall-time chart (one bar per unit, the recorded median a ghost
- *      tick), and the run's own output.
+ *   5. **Folds**, collapsed: what passed (standing from the first report,
+ *      for a run that lists its units — a test run counts its passes and has
+ *      none to fold), the wall-time chart (one bar per unit, the recorded
+ *      median a ghost tick), and the run's own output.
  *
  * {@link TugRunStrip} is the finished run for a collapsed block: rows 1 and 2,
  * and row 4 when the run went red, so the running panel, the strip and the
@@ -422,12 +426,18 @@ function Masthead({
   m,
   state,
   wallSecs,
+  text,
 }: {
   m: RunPanelModel;
   state: RunPanelState;
   wallSecs: number | undefined;
+  /** Running: the report's line, shown when the run has no rows to show it on. */
+  text?: string | undefined;
 }): React.ReactElement {
   const facts: React.ReactElement[] = [];
+  if (state === "running" && text !== undefined && text.length > 0 && text !== "running") {
+    facts.push(<span key="t" className="tug-run-panel-now-text">{text}</span>);
+  }
   if (m.jobs !== undefined && m.jobs > 1) facts.push(<span key="j">{m.jobs} jobs</span>);
   if (state === "running" && m.projectionSecs !== null) {
     facts.push(
@@ -472,6 +482,12 @@ export function TugRunPanel({
   const m = runPanelModel(run, state, nowMs, { callFailed });
   const landed = m.units.filter((u) => u.secs !== undefined);
   const running = state === "running";
+  // A test run counts its passes and lists only its reds: it has no in-flight
+  // rows, and no passing rows to fold. The masthead's fraction and the band
+  // are its progress, and a line it has before it counts (a crate compiling)
+  // rides the masthead, where it moves nothing.
+  const counted = m.unit === "test";
+  const passedFold = m.listed && (running || m.greens.length > 0);
   const reds = <Reds reds={m.reds} foldKey={foldKey} />;
   // The panel opens with the strip's two rows, so a finished block that
   // collapses to its strip keeps them where they were. While the run goes,
@@ -481,7 +497,7 @@ export function TugRunPanel({
   // Once over, the reds lead the body.
   return (
     <div className="tug-run-panel" data-slot="tug-run-panel" data-state={state} data-verdict={m.verdict}>
-      <Masthead m={m} state={state} wallSecs={wallSecs} />
+      <Masthead m={m} state={state} wallSecs={wallSecs} text={counted && m.total === undefined ? run.text : undefined} />
       <TugRunTrack m={m} />
 
       {!running && (
@@ -490,19 +506,19 @@ export function TugRunPanel({
         </div>
       )}
 
-      {running && <InFlight m={m} text={run.text} />}
+      {running && !counted && <InFlight m={m} text={run.text} />}
       {!running && m.unit === "phase" && <InFlight m={m} text={undefined} />}
 
       {!running && reds}
 
-      {(running || m.greens.length > 0 || landed.length > 1 || output !== undefined) && m.unit !== "phase" && (
+      {(passedFold || (state === "finished" && landed.length > 1) || output !== undefined) && m.unit !== "phase" && (
         <TugAccordion
           type="multiple"
           variant="plain"
           className="tug-run-panel-folds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: foldKey } : {})}
         >
-          {(running || m.greens.length > 0) && (
+          {passedFold && (
             <TugAccordionItem value="passed" trigger={<FoldTitle label="Passed" count={String(m.greens.length)} />}>
               <div className="tug-run-panel-landed-list">
                 {[...m.greens].reverse().map((u) => <LandedRow key={`${u.index ?? 0}-${u.name}`} unit={u} />)}

@@ -20,6 +20,15 @@
 //! unchanged. `cargo test` already prints one line per test, on stdout, and
 //! is followed there with nothing added or taken away.
 //!
+//! A run's total is the runner's own count, never an estimate. nextest and
+//! libtest say how many tests they will run before they run any. bun does
+//! not, so before a bun run the wrapper asks bun for it: the same command
+//! with a test-name pattern no test carries, which loads every file and
+//! registers every test, runs none, and says how many it skipped
+//! ([`collect_bun_total`]). A command that already filters by test name has
+//! no such count to ask for, and its run carries none. When a run ends, its
+//! last report carries the counts its junit document recorded.
+//!
 //! A run that writes no junit document — a `cargo test`, or a nextest run
 //! that named no `--junit` — is recorded from what the follower counted off
 //! the stream, with the failing tests it saw as the record's failures. So
@@ -35,7 +44,6 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use tugtool_core::apptest_ledger::resolve_base_root;
 use tugtool_core::test_ledger::{self, JunitFailure, JunitRun, TestRun};
 
 use crate::changes::AppError;
@@ -172,15 +180,17 @@ impl Poster {
             let (lock, wake) = &*theirs;
             let mut throttle = Throttle::default();
             loop {
-                let next = {
+                // `last` once the run is over: the state still waiting, if
+                // any, is posted at once — it is the one the block keeps.
+                let (next, last) = {
                     let mut state = lock.lock();
                     loop {
                         if state.stop {
-                            return;
+                            break (state.latest.take(), true);
                         }
                         let now = Instant::now();
                         match state.latest.as_ref().map(|p| throttle.due(p, now)) {
-                            Some(due) if due <= now => break state.latest.take(),
+                            Some(due) if due <= now => break (state.latest.take(), false),
                             Some(due) => {
                                 wake.wait_for(&mut state, due - now);
                             }
@@ -188,7 +198,12 @@ impl Poster {
                         }
                     }
                 };
-                let Some(progress) = next else { continue };
+                let Some(progress) = next else {
+                    if last {
+                        return;
+                    }
+                    continue;
+                };
                 let reached = post(&progress);
                 throttle.posted(&progress, Instant::now());
                 if let Some(id) = reached {
@@ -196,6 +211,9 @@ impl Poster {
                     if state.session.is_none() {
                         state.session = Some(id);
                     }
+                }
+                if last {
+                    return;
                 }
             }
         });
@@ -228,24 +246,8 @@ impl ProgressSink for Poster {
     }
 }
 
-/// The report a progress state becomes. A bun run's total is not known up
-/// front, so the suite's last recorded count stands in as the track's
-/// `total`, marked `~` in the text because it is history rather than a
-/// promise; a live count that passes it lifts it, which is an estimate
-/// drifting rather than an error.
-fn report_of(
-    progress: &Progress,
-    label: &str,
-    needles: &[String],
-    total_from_history: Option<u64>,
-) -> RunReport {
-    let (total, text) = match (progress.total, total_from_history) {
-        (None, Some(n)) => (
-            Some(n.max(progress.done)),
-            format!("{}/~{n} · {}", progress.done, progress.text),
-        ),
-        (total, _) => (total, progress.text.clone()),
-    };
+/// The report a progress state becomes.
+fn report_of(progress: &Progress, label: &str, needles: &[String]) -> RunReport {
     let units: Vec<serde_json::Value> = progress
         .failed
         .iter()
@@ -259,9 +261,9 @@ fn report_of(
         .collect();
     RunReport {
         label: Some(label.to_string()),
-        text,
+        text: progress.text.clone(),
         done: Some(progress.done),
-        total,
+        total: progress.total,
         failures: Some(progress.failures),
         unit: Some("test".to_string()),
         jobs: None,
@@ -270,14 +272,47 @@ fn report_of(
     }
 }
 
-/// The suite's last recorded test count, from the ledger, for this checkout.
-fn recorded_total(suite: &str) -> Option<u64> {
-    let cwd = std::env::current_dir().ok()?;
-    let base_root = resolve_base_root(&test_ledger::run_root_for(&cwd));
-    let conn = test_ledger::open_ledger(test_ledger::default_path()).ok()?;
-    let runs = test_ledger::latest_per_suite(&conn, &base_root, Some(suite)).ok()?;
-    let tests = runs.first()?.tests;
-    u64::try_from(tests).ok().filter(|n| *n > 0)
+/// A test-name pattern no test carries: bun loads and registers everything
+/// under it and runs nothing.
+const NO_TEST_NAME: &str = "tugtool-test-run-collects-no-test-has-this-name";
+
+/// Whether a bun command already narrows by test name, so that no pass can
+/// count what it will run without running it.
+fn bun_filters_by_name(command: &[String]) -> bool {
+    command.iter().take_while(|a| *a != "--").any(|a| {
+        a == "-t"
+            || a == "--only"
+            || a.starts_with("--test-name-pattern")
+            || (a.starts_with("-t") && !a.starts_with("--"))
+    })
+}
+
+/// The test count in bun's answer to a pattern that matched nothing:
+/// `… matched 0 tests. Searched 732 files (skipping 10998 tests) [2.47s]`.
+fn parse_bun_collected(output: &str) -> Option<u64> {
+    let tail = &output[output.find("(skipping ")? + "(skipping ".len()..];
+    tail[..tail.find(' ')?].parse().ok()
+}
+
+/// How many tests a bun command will run, from bun itself: the command with
+/// [`NO_TEST_NAME`] as its test-name pattern. `None` when the command filters
+/// by name already, or bun did not answer in the shape it is read in.
+fn collect_bun_total(command: &[String]) -> Option<u64> {
+    if bun_filters_by_name(command) {
+        return None;
+    }
+    let split = command
+        .iter()
+        .position(|a| a == "--")
+        .unwrap_or(command.len());
+    let out = Command::new(command.first()?)
+        .args(&command[1..split])
+        .args(["-t", NO_TEST_NAME])
+        .args(&command[split..])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    parse_bun_collected(&strip_ansi(&String::from_utf8_lossy(&out.stderr)))
 }
 
 /// The sink a run reports through: a [`Poster`] when there is a calling
@@ -288,12 +323,8 @@ fn sink_for(args: &RunArgs) -> Box<dyn ProgressSink> {
     }
     let label = args.label.clone().unwrap_or_else(|| args.suite.clone());
     let needles = args.needles.clone();
-    let history = match args.kind {
-        RunKind::Bun => recorded_total(&args.suite),
-        RunKind::Nextest | RunKind::CargoTest => None,
-    };
     Box::new(Poster::start(move |progress| {
-        post_run_progress(&report_of(progress, &label, &needles, history))
+        post_run_progress(&report_of(progress, &label, &needles))
     }))
 }
 
@@ -832,6 +863,13 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         &args.command,
         junit_path.as_deref().filter(|_| args.kind == RunKind::Bun),
     );
+    let sink = Arc::new(Mutex::new(sink_for(&args)));
+    // The count is for the block's report; with no block to report to, the
+    // run is not made to wait on it.
+    let collected = match args.kind {
+        RunKind::Bun if have_calling_session() => collect_bun_total(&args.command),
+        _ => None,
+    };
 
     let started_at = now_epoch();
     let started_wall = SystemTime::now();
@@ -854,7 +892,7 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
         swallow_marks: asks_for_marks(args.kind, &args.command),
         ..Follow::new(args.kind)
     }));
-    let sink = Arc::new(Mutex::new(sink_for(&args)));
+    follow.lock().progress.total = collected;
     let session: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
     let stdout = child.stdout.take().expect("stdout is piped");
@@ -904,9 +942,6 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
             let _ = std::io::stderr().lock().write_all(&tail);
         }
     }
-    if let Some(id) = sink.lock().finish() {
-        session.lock().get_or_insert(id);
-    }
     let code = match status {
         Ok(st) => exit_code_of(st),
         Err(err) => {
@@ -946,6 +981,14 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
     {
         follow.bun.merge_into(d);
     }
+    // The block's last report carries the record's counts, so the panel a
+    // finished run leaves says what the record says.
+    if let Some(d) = doc.as_ref() {
+        observe(&sink, &session, &final_progress(&follow.progress, d));
+    }
+    if let Some(id) = sink.lock().finish() {
+        session.lock().get_or_insert(id);
+    }
     if remove_junit && let Some(junit_path) = &junit_path {
         let _ = std::fs::remove_file(junit_path);
     }
@@ -982,6 +1025,18 @@ pub fn run(args: RunArgs) -> Result<(), AppError> {
     match code {
         0 => Ok(()),
         c => Err(AppError::ExitStatus(c)),
+    }
+}
+
+/// A run's last progress state: what the follower saw, with the counts its
+/// record holds.
+fn final_progress(seen: &Progress, record: &JunitRun) -> Progress {
+    let tests = u64::try_from(record.tests).unwrap_or(0);
+    Progress {
+        done: tests,
+        total: Some(tests),
+        failures: u64::try_from(record.failed).unwrap_or(0),
+        ..seen.clone()
     }
 }
 
@@ -1306,38 +1361,60 @@ mod tests {
     }
 
     #[test]
-    fn a_bun_report_uses_its_recorded_total_and_a_live_count_past_it_lifts_it() {
+    fn a_report_carries_the_runners_total_and_never_one_of_its_own() {
         let needles = vec!["just test".to_string()];
-        let bun = report_of(&state(120, 2), "bun test · tugdeck", &needles, Some(10191));
-        assert_eq!(bun.text, "120/~10191 · t120");
+        let counted = Progress {
+            total: Some(10998),
+            ..state(120, 2)
+        };
+        let bun = report_of(&counted, "bun test · tugdeck", &needles);
+        assert_eq!(bun.text, "t120");
         assert_eq!(
             (bun.done, bun.total, bun.failures),
-            (Some(120), Some(10191), Some(2))
+            (Some(120), Some(10998), Some(2))
         );
         assert_eq!(bun.needles, needles);
 
-        // The suite grew since the record: the total follows the count.
-        let past = report_of(
-            &state(10200, 0),
-            "bun test · tugdeck",
-            &needles,
-            Some(10191),
-        );
-        assert_eq!((past.done, past.total), (Some(10200), Some(10200)));
-        assert_eq!(past.text, "10200/~10191 · t10200");
+        // No count from the runner: no total, whatever the history says.
+        let filtered = report_of(&state(5, 0), "bun test · tugdeck", &needles);
+        assert_eq!((filtered.done, filtered.total), (Some(5), None));
+    }
 
-        // No record yet: no track, and a plain line.
-        let fresh = report_of(&state(5, 0), "bun test · tugdeck", &needles, None);
-        assert_eq!((fresh.done, fresh.total), (Some(5), None));
-        assert_eq!(fresh.text, "t5");
+    #[test]
+    fn bun_says_how_many_tests_it_collected_when_none_matched() {
+        let stderr = "bun test v1.3.9 (cf6cdbbb)\n\nerror: regex \"x\" matched 0 tests. Searched 732 files (skipping 10998 tests) [2.47s]\n";
+        assert_eq!(parse_bun_collected(stderr), Some(10998));
+        assert_eq!(parse_bun_collected("Ran 4 tests across 2 files."), None);
+    }
 
-        let nextest = Progress {
-            total: Some(7400),
-            ..state(3120, 0)
+    #[test]
+    fn a_command_that_filters_by_test_name_has_no_count_to_ask_for() {
+        let argv =
+            |words: &[&str]| -> Vec<String> { words.iter().map(|s| s.to_string()).collect() };
+        assert!(!bun_filters_by_name(&argv(&["bun", "test", "src/lib"])));
+        assert!(bun_filters_by_name(&argv(&["bun", "test", "-t", "drag"])));
+        assert!(bun_filters_by_name(&argv(&["bun", "test", "--test-name-pattern=drag"])));
+        assert!(bun_filters_by_name(&argv(&["bun", "test", "--only"])));
+        assert!(!bun_filters_by_name(&argv(&["bun", "test", "--", "-t"])));
+    }
+
+    #[test]
+    fn the_last_report_carries_the_records_counts() {
+        let seen = Progress {
+            total: Some(10998),
+            ..state(10990, 1)
         };
-        let rust = report_of(&nextest, "rust", &needles, None);
-        assert_eq!(rust.text, "t3120");
-        assert_eq!((rust.done, rust.total), (Some(3120), Some(7400)));
+        let record = JunitRun {
+            tests: 10998,
+            failed: 2,
+            ..JunitRun::default()
+        };
+        let last = final_progress(&seen, &record);
+        assert_eq!(
+            (last.done, last.total, last.failures),
+            (10998, Some(10998), 2)
+        );
+        assert_eq!(last.text, seen.text);
     }
 
     #[test]
@@ -1351,7 +1428,7 @@ mod tests {
         ] {
             follow.feed(line.as_bytes());
         }
-        let report = report_of(&follow.progress, "rust", &[], None);
+        let report = report_of(&follow.progress, "rust", &[]);
         assert_eq!(report.unit.as_deref(), Some("test"));
         assert_eq!(
             report.units,

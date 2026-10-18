@@ -48,6 +48,12 @@ export interface RunPanelModel {
   counts: { pass: number; red: number; fail: number; wedged: number; skipped: number; pending: number };
   /** One cell per unit, or a band. */
   track: "cells" | "band" | "none";
+  /**
+   * Whether the report lists every unit as a row — an app-test batch's files,
+   * a build's phases. A test run lists only its reds and counts the rest, so
+   * it has no passing rows to fold and no in-flight rows to show.
+   */
+  listed: boolean;
   lanes: RunLane[];
   reds: RunUnit[];
   greens: RunUnit[];
@@ -164,6 +170,7 @@ export function runPanelModel(
       pending: count("pending"),
     },
     track,
+    listed: full,
     lanes,
     reds,
     greens,

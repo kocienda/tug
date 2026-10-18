@@ -64,6 +64,7 @@ describe("runPanelModel", () => {
     };
     const m = runPanelModel(tests, "running", NOW);
     expect(m.track).toBe("band");
+    expect(m.listed).toBe(false);
     expect(m.counts.red).toBe(3);
     expect(m.counts.pass).toBe(809);
     expect(m.projectionSecs).toBeNull();
