@@ -11,6 +11,7 @@
  * @covers tugdeck/src/lib/body-shell.ts
  * @covers tugdeck/src/lib/body-cards-store.ts
  * @covers tugdeck/src/body/body-main.ts
+ * @covers tugdeck/src/components/tugways/cards/session-picker-quiet.ts
  * @covers tugdeck/src/components/tugways/tug-pane.css
  * @covers tugapp/Sources/BodyViewController.swift
  * @covers tugapp/Sources/HostFrameMeter.swift

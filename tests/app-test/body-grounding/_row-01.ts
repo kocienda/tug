@@ -319,6 +319,13 @@ export function arrivalWarm(launch: Launch): Promise<void> {
   return withSpare(launch, "warm", async (app) => {
     const warm = await arriveOpened(app, "warm", "session", () => pressNew(app, SEED), "landing");
     expect(warm.body.start, "the first card bound the spare").toBe("warm");
+    // The card is unbound, so its picker is all there is to wait on: the body
+    // says ready when the picker is quiet, not at its 250 ms arrival bound
+    // (`ARRIVAL_REVEAL_BOUND_MS`), and the shell reveals the card on that.
+    expect(
+      warm.body.readyMs ?? Infinity,
+      "warm: the body said ready on its picker's quiet, ahead of the arrival bound",
+    ).toBeLessThan(250);
     judge("warm", warm);
   });
 }

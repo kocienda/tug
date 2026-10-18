@@ -62,7 +62,7 @@ import { attachChangesetVerbStore } from "../lib/changeset-verb-store";
 import { attachChangesetDraftStore } from "../lib/changeset-draft-store";
 import { attachChangesetJoinStore } from "../lib/changeset-join-store";
 import { applyHostToolsOfferResultPayload, applyHostToolsResultPayload } from "../lib/host-tools-store";
-import { reassertOnReconnect } from "../lib/session-restore";
+import { reassertOnReconnect, restorePassGate, sessionRestoreRegistry } from "../lib/session-restore";
 import { interruptLiveSessions, type TerminationVerdict } from "../teardown";
 import {
   putCardState,
@@ -86,7 +86,8 @@ import { setLogoutForwarder } from "../lib/logout-store";
 import { createSurfaceMirror, setShellSurfaceHost } from "../lib/shell-surface";
 import { advanceKeyViewFocus, enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
 import { installDictationBridge } from "../lib/dictation-bridge";
-import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
+import { ARRIVAL_REVEAL_BOUND_MS, type ArrivalQuiet } from "../lib/arrival-reveal";
+import { sessionPickerQuiet } from "../components/tugways/cards/session-picker-quiet";
 import { onBus, sendBus } from "../lib/deck-bus";
 import { pendingAskStore } from "../lib/pending-ask-store";
 import { UsageStore } from "../lib/usage-store";
@@ -364,10 +365,19 @@ function bindSpare(cardId: string): Promise<boolean> {
  * Post `frontendReady` one paint after the card's session is quiet — out of
  * restoring and replaying — or once the arrival bound has passed since mount,
  * whichever is first; a card with no session (`mounting`) is quiet at mount
- * ([L05]: the paint is waited on with `scheduleAfterPaint`
+ * and an unbound one is quiet when its picker is ([L05]: the paint is waited
+ * on with `scheduleAfterPaint`
  * from the quiet's own notify; its deadline covers a page whose frames are
  * suspended). The layer turns shown just before, so the card's deferred
  * restore lands while the container is still hidden.
+ *
+ * An unbound card is its picker: the restore pass found no binding for it and
+ * none is in flight, the test the card's own render makes before it falls
+ * through to the picker. It has no session that will ever leave restoring,
+ * so it is quiet when the picker's content is — the rule the shell waits on
+ * for a picker it draws itself (`sessionPickerQuiet`). Waiting on the session
+ * instead held every ⌘N's reveal to the bound: the shell reveals the card on
+ * this page's ready.
  *
  * Then `painted`: the layer's showing re-renders the recede, and the frame
  * that carries it is handed to the compositor before the SECOND
@@ -403,8 +413,20 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge, mounting: 
       });
     });
   };
+  let picker: ArrivalQuiet | null | undefined;
+  const showsPicker = (): boolean =>
+    cardServicesStore.getServices(cardId) === null &&
+    restorePassGate.getSnapshot() &&
+    !sessionRestoreRegistry.has(cardId);
   const quiet = (): boolean => {
     if (mounting) return true;
+    if (showsPicker()) {
+      if (picker === undefined) {
+        picker = sessionPickerQuiet();
+        if (picker !== null) releases.push(picker.subscribe(follow));
+      }
+      return picker?.isQuiet() ?? true;
+    }
     const snapshot = cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot();
     return (
       snapshot !== undefined &&
@@ -424,7 +446,12 @@ function signalReadyWhenQuiet(cardId: string, bridge: BodyDeckBridge, mounting: 
         if (quiet()) ready();
       }) ?? null;
   };
-  releases.push(cardServicesStore.subscribe(follow), () => releaseSession?.());
+  releases.push(
+    cardServicesStore.subscribe(follow),
+    restorePassGate.subscribe(follow),
+    sessionRestoreRegistry.subscribe(follow),
+    () => releaseSession?.(),
+  );
   const bound = window.setTimeout(ready, ARRIVAL_REVEAL_BOUND_MS);
   releases.push(() => window.clearTimeout(bound));
   follow();
