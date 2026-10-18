@@ -38,8 +38,8 @@
  * expanded result all open on the same two rows and a red one says what
  * failed without being opened.
  *
- * Colour is never the only reading: every cell has a title, every row a mark
- * and a word, and the tally is words.
+ * Colour is never the only reading: every cell has a title, every row's dot
+ * is labelled and stands beside a word, and the tally is words.
  *
  * Laws: [L06] appearance via CSS and data attributes — status is
  *       `data-status`, a bar's length an inline width; [L16] every color
@@ -69,23 +69,39 @@ import type { RunProgress, RunUnit, RunUnitStatus } from "@/lib/run-progress-sto
 
 import { TugAccordion, TugAccordionItem } from "./tug-accordion";
 import { TugMetaRun } from "./tug-meta-run";
-import { TugProgressIndicator } from "./tug-progress-indicator";
+import {
+  TugProgressIndicator,
+  type TugProgressIndicatorRole,
+  type TugProgressIndicatorState,
+} from "./tug-progress-indicator";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
 
 export { CELLS_UP_TO };
 
-/** The letter a status wears, so colour is never the only reading. */
-const MARK: Record<RunUnitStatus, string> = {
-  pending: "·",
-  running: "›",
-  pass: "✓",
-  fail: "✗",
-  error: "✗",
-  wedged: "⏱",
-  skipped: "–",
+/**
+ * The dot a unit wears, by status: the same pulsing dot in every row, which
+ * breathes only while the unit runs and stands still in its verdict's colour
+ * once the result is in. One glyph in one box, so a row's lead never changes
+ * size as its unit lands.
+ */
+const DOT: Record<RunUnitStatus, { role: TugProgressIndicatorRole; state: TugProgressIndicatorState }> = {
+  pending: { role: "inherit", state: "stopped" },
+  running: { role: "action", state: "running" },
+  pass: { role: "success", state: "completed" },
+  fail: { role: "danger", state: "aborted" },
+  error: { role: "danger", state: "aborted" },
+  wedged: { role: "caution", state: "aborted" },
+  skipped: { role: "inherit", state: "stopped" },
 };
 
+/** The 10px dot at the head of a unit's row, still or breathing by its status. */
+function UnitDot({ status }: { status: RunUnitStatus }) {
+  const { role, state } = DOT[status];
+  return <TugProgressIndicator variant="pulsing-dot" size={10} role={role} state={state} aria-label={WORD[status]} />;
+}
+
+/** The word a status wears, so colour is never the only reading. */
 const WORD: Record<RunUnitStatus, string> = {
   pending: "pending",
   running: "running",
@@ -202,8 +218,9 @@ const MANY_CELLS = 24;
 
 /**
  * One in-flight row: the unit it shows, by name. A running unit wears the
- * pulsing dot; a unit that landed while no other has taken its row wears its
- * mark, so the row is never blank between one unit and the next. No gauge
+ * breathing dot; a unit that landed while no other has taken its row wears
+ * the same dot, still, in its verdict's colour, so the row is never blank
+ * between one unit and the next and its lead never changes size. No gauge
  * and no elapsed readout: a gauge that came and went with each unit made the
  * rows hop and cut the names short.
  */
@@ -211,11 +228,7 @@ function SlotRow({ name, unit }: { name: string; unit: RunUnit | undefined }) {
   const status = unit?.status ?? "running";
   return (
     <div className="tug-run-panel-lane" data-slot="tug-run-panel-lane" data-status={status}>
-      {status === "running" ? (
-        <TugProgressIndicator variant="pulsing-dot" size={10} state="running" role="action" aria-label="running" />
-      ) : (
-        <span className="tug-run-panel-mark" aria-hidden>{MARK[status]}</span>
-      )}
+      <UnitDot status={status} />
       <span className="tug-run-panel-name">{name}</span>
     </div>
   );
@@ -226,13 +239,13 @@ function secsOfMedian(u: RunUnit): string | null {
   return u.median !== undefined ? `${u.secs}s (~${u.median}s)` : `${u.secs}s`;
 }
 
-/** A landed unit: mark, name, and `PASS · 2/2 · 5s (~5s)`. */
+/** A landed unit: dot, name, and `PASS · 2/2 · 5s (~5s)`. */
 function LandedRow({ unit }: { unit: RunUnit }) {
   const slow = unit.median !== undefined && unit.secs !== undefined && unit.secs > unit.median * 1.5;
   const timing = secsOfMedian(unit);
   return (
     <div className="tug-run-panel-landed" data-slot="tug-run-panel-landed" data-status={unit.status}>
-      <span className="tug-run-panel-mark" aria-hidden>{MARK[unit.status]}</span>
+      <UnitDot status={unit.status} />
       <span className="tug-run-panel-name">{unit.name}</span>
       <TugMetaRun
         parts={[
@@ -251,7 +264,7 @@ function RedCard({ unit }: { unit: RunUnit }) {
   return (
     <div className="tug-run-panel-red" data-slot="tug-run-panel-red" data-status={unit.status}>
       <div className="tug-run-panel-red-head">
-        <span className="tug-run-panel-mark" aria-hidden>{MARK[unit.status]}</span>
+        <UnitDot status={unit.status} />
         <span className="tug-run-panel-name">{unit.name}</span>
         <span className="tug-run-panel-word">{WORD[unit.status]}</span>
         <span className="tug-run-panel-spacer" />
