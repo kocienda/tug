@@ -35,7 +35,16 @@ import { cardSessionBindingStore, type CardSessionMode } from "../lib/card-sessi
 import { sessionLineStore } from "../lib/session-line-store";
 import { markHarnessSession } from "../lib/harness-sessions";
 
-export type BodyIntent =
+/**
+ * What the body does, with the card's state as the shell held it when it
+ * asked for the body (`bag`). The shell's copy is the freshest there is at a
+ * card's first hand-off — a just-opened file's seed, a seeded deck — before
+ * anything has reached tugbank; without one the body reads what was last
+ * written.
+ */
+export type BodyIntent = BodyIntentKind & { bag?: CardStateBag };
+
+type BodyIntentKind =
   | {
       kind: "resume";
       tugSessionId: string;
@@ -60,11 +69,9 @@ export type BodyIntent =
     }
   | { kind: "restore" }
   /**
-   * A kind with no session, handed off as the deck holds it. `bag` is the
-   * card's state as the shell holds it at the hand-off — a just-opened
-   * file's seed is there before anything reaches tugbank.
+   * A kind with no session, handed off as the deck holds it.
    */
-  | { kind: "mount"; bag?: CardStateBag }
+  | { kind: "mount" }
   /**
    * The harness's fake bind (`window.__tug.bindSession`), handed to the
    * body as a spawn would be: the card takes the binding into its own
@@ -88,6 +95,12 @@ function str(value: unknown): value is string {
 export function parseBodyIntent(raw: unknown): BodyIntent | null {
   if (typeof raw !== "object" || raw === null) return null;
   const r = raw as Record<string, unknown>;
+  const kind = parseIntentKind(r);
+  if (kind === null) return null;
+  return typeof r.bag === "object" && r.bag !== null ? { ...kind, bag: r.bag as CardStateBag } : kind;
+}
+
+function parseIntentKind(r: Record<string, unknown>): BodyIntentKind | null {
   switch (r.kind) {
     case "restore":
       return { kind: "restore" };
@@ -102,9 +115,7 @@ export function parseBodyIntent(raw: unknown): BodyIntent | null {
         sessionMode: r.sessionMode === "resume" ? "resume" : "new",
       };
     case "mount":
-      return typeof r.bag === "object" && r.bag !== null
-        ? { kind: "mount", bag: r.bag as CardStateBag }
-        : { kind: "mount" };
+      return { kind: "mount" };
     case "resume":
       if (!str(r.tugSessionId) || !str(r.projectDir) || !isReloadReason(r.reason)) return null;
       return {
@@ -155,21 +166,15 @@ export function parseBodyIntent(raw: unknown): BodyIntent | null {
 /**
  * Act on `intent` for `cardId`. `deck` is the body's one-card deck, which is
  * what scopes a crash recovery's restore pass to this card.
- *
- * `inShell` is the fallback's replay: a card whose body failed before its
- * session was bound re-runs its intent through the shell's own funnels. The
- * shell's connection carries every session, so it is not narrowed, and a
- * restore pass is scoped to the one card rather than the deck.
  */
 export function replayBodyIntent(
   intent: BodyIntent,
   cardId: string,
   connection: TugConnection,
   deck: { getSnapshot(): DeckState },
-  options?: { inShell?: boolean },
 ): void {
   const narrow = (sessionId: string): void => {
-    if (options?.inShell !== true) connection.setSessions([sessionId]);
+    connection.setSessions([sessionId]);
   };
   switch (intent.kind) {
     case "mount":
@@ -210,10 +215,6 @@ export function replayBodyIntent(
       });
       return;
     case "restore": {
-      if (options?.inShell === true) {
-        restoreSessions(deck, connection, { cardIds: new Set([cardId]) });
-        return;
-      }
       // Subscribed before the restore pass, so the session set goes out
       // ahead of the resume that pass sends from the same answer.
       const release = subscribeToListCardBindingsOk(({ bindings }) => {

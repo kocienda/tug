@@ -3,9 +3,10 @@
  *
  * **Capability.** The host says whether it can make bodies before any of the
  * shell's script runs (`window.__tugHostCapabilities`, a document-start user
- * script); it is read once here. Absent — a browser on the Vite port, a body
- * page, the harness unless a test asks — means every card mounts in the shell
- * exactly as before.
+ * script); it is read once here. Tug.app installs it in the shell's page
+ * alone, so it answers which page this is: present in the shell, whose every
+ * card is a body, and absent in a body page, which mounts its one card itself
+ * and hands nothing off. There is no setting that turns bodies off.
  *
  * **Which cards.** A card whose kind's registration says `body: true`
  * ({@link isBodyKind}). A kind whose registration also says
@@ -28,6 +29,11 @@
  *
  * What the shell does with a body card afterwards is `lib/body-shell.ts`;
  * this module is the funnels' one import, so it stays light.
+ *
+ * **Failure.** A body that fails stays a body card: the shell has no other
+ * place for its card. The shell asks the host for it again
+ * ({@link askForBodyAgain}), and a card whose body fails again stands as a
+ * placard with a Reload, which asks once more ({@link reloadBody}).
  *
  * Laws: [L02] (membership is read through `useSyncExternalStore`), [L33]
  * (the capability is a constant nothing waits on).
@@ -71,9 +77,6 @@ export function _setHostCapabilitiesForTest(next: HostCapabilities): void {
 // Hand-off
 // ---------------------------------------------------------------------------
 
-/** Cards whose body failed: they stay in the shell for the rest of the run. */
-const suppressed = new Set<string>();
-
 /** The intent each body card was handed off with, for a fallback that must re-run it. */
 const intents = new Map<string, BodyIntent>();
 
@@ -85,16 +88,6 @@ export function bodyIntentOf(cardId: string): BodyIntent | null {
 /** The card is no longer a body card: forget what it was handed. */
 export function forgetBodyIntent(cardId: string): void {
   intents.delete(cardId);
-}
-
-/** Keep `cardId` in the shell from now on. */
-export function suppressHandOff(cardId: string): void {
-  suppressed.add(cardId);
-}
-
-/** Whether `cardId`'s body failed, so it stays in the shell. */
-export function isHandOffSuppressed(cardId: string): boolean {
-  return suppressed.has(cardId);
 }
 
 /** Whether `cardId` is a body card on this page: its body, not this page, acts for it. */
@@ -117,9 +110,9 @@ export function isMountBodyKind(componentId: string): boolean {
 
 /** For tests. */
 export function _resetHandOffForTest(): void {
-  suppressed.clear();
   intents.clear();
   forwarder = null;
+  reloader = null;
   bodyCardsStore._reset();
   bodyFactsStore._reset();
 }
@@ -143,6 +136,32 @@ export function postToHost(name: string, body: unknown): void {
 }
 
 /**
+ * Ask the host again for the body of `cardId`, a body card whose body
+ * failed: the card is `creating` again and the host makes it a new body,
+ * which acts on `intent`. Nothing when the deck no longer holds the card.
+ */
+export function askForBodyAgain(cardId: string, intent: BodyIntent): void {
+  const card = getDeckStore()?.getSnapshot().cards.find((c) => c.id === cardId);
+  if (card === undefined || !bodyCardsStore.has(cardId)) return;
+  intents.set(cardId, intent);
+  bodyCardsStore.setState(cardId, "creating");
+  postToHost("bodyCreate", { cardId, componentId: card.componentId, intent });
+}
+
+/** How a failed card's Reload asks for its body: the shell's, once it is installed. */
+let reloader: ((cardId: string) => void) | null = null;
+
+/** The shell answers a failed card's Reload through `reload`; null to stop. */
+export function setBodyReloader(reload: ((cardId: string) => void) | null): void {
+  reloader = reload;
+}
+
+/** A failed card's Reload: ask for its body once more. */
+export function reloadBody(cardId: string): void {
+  reloader?.(cardId);
+}
+
+/**
  * Hand `cardId` to a body, if it is one the shell hands off. Returns true
  * when the funnel must send nothing: the card is now a body card, or already
  * was one. `intent` is called only when a body is actually asked for, so a
@@ -161,13 +180,15 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
     forwarder(cardId, made);
     return true;
   }
-  if (suppressed.has(cardId)) return false;
   const deck = getDeckStore();
   if (deck === null) return false;
   const card = deck.getSnapshot().cards.find((c) => c.id === cardId);
   if (card === undefined || !isBodyKind(card.componentId)) return false;
   bodyCardsStore.mark(cardId);
-  const made = intent();
+  // The card's first body: it takes the state the shell holds for it.
+  const asked = intent();
+  const bag = asked.bag ?? deck.getCardState(cardId);
+  const made = bag === undefined ? asked : { ...asked, bag };
   intents.set(cardId, made);
   postToHost("bodyCreate", { cardId, componentId: card.componentId, intent: made });
   return true;

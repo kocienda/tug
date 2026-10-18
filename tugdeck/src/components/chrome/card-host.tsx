@@ -122,7 +122,8 @@ import * as paneFrameRegistry from "./pane-frame-registry";
 import * as paneRootRegistry from "./pane-root-registry";
 import { CardPortal } from "./card-portal";
 import { bodyCardsStore } from "@/lib/body-cards-store";
-import { isHandOffSuppressed, isMountBodyKind } from "@/lib/body-handoff";
+import { hostCapabilitiesStore, reloadBody } from "@/lib/body-handoff";
+import { TugPushButton } from "@/components/tugways/tug-push-button";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -648,24 +649,17 @@ function useHostStackFrameElement(hostStackId: string): HTMLDivElement | null {
 export const CardHost = React.memo(CardHostSwitch);
 
 /**
- * A body card's content is in another web view, placed by the host under
- * this card's content box, so the shell mounts none of it: the card stands
- * here as an empty placeholder filling the box — what the shell measures to
- * place the body. A card that leaves the bodies mounts its content again.
+ * In the shell every card is a body: its content is in another web view,
+ * placed by the host under this card's content box, so the shell mounts none
+ * of it. The card stands here as an empty placeholder filling the box — what
+ * the shell measures to place the body — from the commit that adds it, before
+ * any hand-off marks it.
  *
- * A card of a kind the shell hands off itself (`isMountBodyKind`) stands as
- * the placeholder before the hand-off marks it, so it never mounts here for
- * the commit between the deck holding it and the shell handing it on — one
- * whose body failed (`isHandOffSuppressed`) mounts here instead.
+ * A body page mounts its one card itself, through `CardHostImpl`: the page
+ * with no host capabilities (`lib/body-handoff.ts`) is the card's own.
  */
 function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
-  const isBody = useSyncExternalStore(
-    bodyCardsStore.subscribe,
-    () =>
-      bodyCardsStore.has(props.cardId) ||
-      (isMountBodyKind(props.componentId) && !isHandOffSuppressed(props.cardId)),
-  );
-  if (!isBody) return <CardHostImpl {...props} />;
+  if (!hostCapabilitiesStore.get().bodyViews) return <CardHostImpl {...props} />;
   return <BodyPlaceholder {...props} />;
 }
 
@@ -677,6 +671,10 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
  * walk started nowhere, and a Close or a Close All sent to a body card never
  * reached the pane that handles it. It answers no action itself — the card's
  * responders are in the body — so everything falls through to the pane.
+ *
+ * A card whose body failed, and failed again when the shell asked for it
+ * once more (`lib/body-shell.ts`), stands here as a placard saying so, with a
+ * Reload that asks for its body again.
  */
 function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps): React.ReactElement {
   const { ResponderScope, responderRef } = useResponder({
@@ -684,6 +682,7 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
     parentId: hostStackId,
     actions: {},
   });
+  const failed = useSyncExternalStore(bodyCardsStore.subscribe, () => bodyCardsStore.stateOf(cardId) === "failed");
   return (
     <CardPortal hostStackId={hostStackId}>
       <ResponderScope>
@@ -692,7 +691,16 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
           data-body-placeholder
           data-card-id={cardId}
           style={{ display: isActive ? undefined : "none" }}
-        />
+        >
+          {failed ? (
+            <div className="tug-body-failed" data-body-failed>
+              <p className="tug-body-failed-message">This card didn’t load.</p>
+              <TugPushButton emphasis="outlined" onClick={() => reloadBody(cardId)}>
+                Reload
+              </TugPushButton>
+            </div>
+          ) : null}
+        </div>
       </ResponderScope>
     </CardPortal>
   );

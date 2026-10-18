@@ -518,23 +518,13 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     /// Every body view: created, placed, focused and destroyed at the shell's
     /// word. Made in `init`, after the container exists.
     private(set) var bodies: BodyViewController!
-    /// Whether this host makes body views, decided once and told to the
-    /// shell before its first script (`HostCapabilitiesScript`). The setting
-    /// is read here, at window creation, so a change to it applies at the
-    /// next launch; `TugbankClient` is configured before the window is made.
-    let bodyViewsEnabled = BodyGeometry.bodyViewsEnabled(
-        environment: ProcessInfo.processInfo.environment,
-        setting: ProcessManager.readTugbankBool(
-            domain: BodyGeometry.bodyViewsDomain,
-            key: BodyGeometry.bodyViewsKey
-        )
-    )
     /// The body beats' offset against the chrome, in display periods
-    /// (`BodyGeometry.beatOffsetPeriods`), read beside the switch.
+    /// (`BodyGeometry.beatOffsetPeriods`), read once, at window creation;
+    /// `TugbankClient` is configured before the window is made.
     let bodyBeatOffsetPeriods = BodyGeometry.beatOffsetPeriods(
         environment: ProcessInfo.processInfo.environment,
         setting: ProcessManager.readTugbankDouble(
-            domain: BodyGeometry.bodyViewsDomain,
+            domain: BodyGeometry.deckDomain,
             key: BodyGeometry.beatOffsetKey
         )
     )
@@ -859,16 +849,12 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
         let bodyHost = BodyHostView(frame: containerView.bounds)
         bodyHost.autoresizingMask = [.width, .height]
         containerView.addSubview(bodyHost, positioned: .below, relativeTo: webView)
-        // The canvas beneath the bodies, on a host that makes them: above
-        // the splash, below every body, hidden until the shell describes it
-        // and the window has revealed the shell.
-        var floor: DeckFloorView?
-        if bodyViewsEnabled {
-            let view = DeckFloorView(frame: containerView.bounds)
-            view.autoresizingMask = [.width, .height]
-            containerView.addSubview(view, positioned: .below, relativeTo: bodyHost)
-            floor = view
-        }
+        // The canvas beneath the bodies: above the splash, below every body,
+        // hidden until the shell describes it and the window has revealed
+        // the shell.
+        let floor = DeckFloorView(frame: containerView.bounds)
+        floor.autoresizingMask = [.width, .height]
+        containerView.addSubview(floor, positioned: .below, relativeTo: bodyHost)
         bodies = BodyViewController(window: self, hostView: bodyHost, floorView: floor)
         self.spinnerView = splashView
         self.splashSpinnerStack = stack
@@ -1408,7 +1394,7 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
             config.defaultWebpagePreferences.allowsContentJavaScript = true
         }
         if forShell {
-            HostCapabilitiesScript.install(into: config, bodyViews: bodyViewsEnabled)
+            HostCapabilitiesScript.install(into: config)
         }
         #if DEBUG
         // Test harness: when TUGAPP_TEST_SOCKET is set, inject

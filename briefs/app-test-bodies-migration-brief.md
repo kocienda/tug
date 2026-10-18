@@ -267,6 +267,29 @@ Test-side, the census now counts a name bound to `kindBody(…)`, or an arrow re
 - **The rest rides along with product work.** A product change runs `just app-test-changed`, and a red among the files its `@covers` lines pick is fixed or deleted in that change. No sweep of the corpus.
 - **The census is not rewritten.** Teaching it the in-card selectors ahead of time was started and dropped: the timeout's body evidence finds the same reads at the moment they fail.
 
+**[B12] The cut-over comes first, and it is done; the next slice is the body-focus facet (2026-10-17).** Slice 2, the one run, is paused, not abandoned: its partial results stay under `.tug/slice2/` and nothing re-runs the corpus. The work is product-led from here: each slice finds a cause in `tugdeck`/`tugapp`, fixes it, and is verified by the few app-tests that show it.
+- **Why first.** Of [F12]'s three defects, [F14] found only the ⌥⇥ one real, and it is fixed. The viewer "hang" was shell reads. So nothing stood between the gate's 94 of 94 and the cut-over. Cutting over first also makes every red after it honest, which is [B10]'s reason.
+- **What the cut-over is.** There is no switch:
+  - The host always makes bodies and always stands the floor. Removed: `BodyGeometry.bodyViewsEnabled`, its tugbank key and `TUG_BODY_VIEWS`, `MainWindow.bodyViewsEnabled`, and `BodyViewController`'s guard on the spare.
+  - `HostCapabilitiesScript` always says `bodyViews: true` in the shell. It stays as the page's role: present in the shell, absent in a body page, which mounts its one card itself through `CardHostImpl`.
+  - The Layout card's Bodies row, its CSS and `settings-api.ts`'s `BODY_VIEWS_*`/`putBodyViews` are gone. `at0469-places-marks` no longer expects the row to close the section.
+- **No in-document card in the shell.** `CardHostSwitch` stands the placeholder for every card in the shell from the commit that adds it, a Session card before its hand-off included. `CardHostImpl` survives only as the body page's mount. The shell-side replay (`replayBodyIntent`'s `inShell`) and hand-off suppression (`suppressHandOff`, `isHandOffSuppressed`) are deleted.
+- **What a failed body does now** (the decision [the removal list](#removals) left to the cut-over):
+  - The card stays a body card and the shell asks the host for it once more (`askForBodyAgain`, `BODY_RETRIES = 1`). A kind with no session mounts with its current bag. A Session card the shell holds a binding for gets a `restore`, never its `new` or `fresh` again. The harness's fake `bind` is handed again.
+  - A second failure leaves the card `failed`, standing as a placard in the shell ("This card didn't load.") with a Reload, which asks once more (`reloadBody`).
+  - `at0738-body-fallback` is rewritten as the guard, with a leg for each. The host's `TUG_BODY_FORCE_STALL` became a count so the second leg can stall twice.
+- **What it leaves.**
+  - The harness's `bodies` option is inert: the host reads no `TUG_BODY_VIEWS`, so every launch has bodies, `bodies: false` included. Deleting it is still [B08]'s flip.
+  - The held-back files now run on bodies whether they say so or not. That is the six of the body-focus facet (`at0018`, `at0174`, `at0223`, `at0269-gesture-classification`, `at0295`, `at0420`), and the removal list's files, whose premise is gone.
+  - Every registration still says `body: true`. A kind registered without it would stand as an empty placeholder, so the flag is now a trap worth removing.
+- **The next slice** is the body-focus facet. Its six files are honest reds, and the facet is the one known product defect class left.
+- **A product gap the core tier found: a Session card's first body lost the state the shell held.** Only a `mount` intent carried the shell's bag. An unbound Session card is handed off with `restore`, so its body read tugbank, and the shell's seeded or not-yet-written state never reached it. `at0024`'s two Session legs had been red since `f37979201` because the draft never appeared.
+  - Fix: every intent may carry a `bag` (`BodyIntent`), and `handOffToBody` attaches the shell's bag to a card's first hand-off whatever its kind.
+  - A retry carries none (`askAgain` strips it). The gone body wrote the card's state as it went, so the new one reads it back rather than taking an older copy from the shell.
+  - Guarded by `at0024` (4 of 4) and a unit test in `body-handoff.test.ts`.
+- **Two shell reads the core tier found,** each moved into card A's body: `at0145`'s `document.hasFocus()` wait, and `at0024`'s editor-scroller reads.
+- **(verified:** tugdeck unit suite 10,999 of 10,999. The core tier ran once: 11 of 13, then `at0024` and `at0145` green alone after the fixes above. `at0738-body-fallback` is 2 of 2 and `at0469-places-marks` is 3 of 3, the latter after its `flow-strip` read moved into the Layout card's body.**)**
+
 ---
 
 ## Removals pending the user's approval {#removals}
@@ -281,7 +304,6 @@ Files and legs whose premise is gone on bodies, written by the batches that met 
 | `harness-smoke/smoke-capture-phase-save`, all three legs | batch 5 | the shell saves the outgoing card in the capture phase of the gesture that deactivates it (`pane-focus-controller`'s capture-phase pointerdown, the tab bar's `onPointerDown`, the window-blur listener) before focus can move; a body card's input is in its own page, which the shell's pointerdown never sees, the shell's `invokeSaveCallback` reaches no callback for a placeholder, a body's deactivation fires `notifyCardDidDeactivate` and no save (`body-deck-bridge.ts`, `applyContext`), and the window-blur save is the one `at0017` already lists; a green here would be the body's own debounce landing inside the 150 ms pause, a timing rather than the premise | `at0024-m36` (the user-visible bag restore), the body's `saveNow` paths (`at0279-quit-draft-survival`), and the shell's capture-phase order itself ends with the in-document host at the cut-over |
 | `at0740-body-switch` | the plan | its subject is the bodies switch, which [B09] removes | nothing needs to: there is no switch |
 | `body-grounding/row-12-composer-no-switch`, both legs | the mechanical slice | without the switch the Session and Overview cards mount in the shell's own document and the host makes no body; [B09] removes the switch and that mount | nothing needs to: there is no switch; the slice holds both legs on `bodies: false` until the removal stop |
-| `at0738-body-fallback` | the mechanical slice | a body that never reports ready fails at the deadline and its card mounts in the shell's own document; [B09] deletes that document mount, so there is nothing left to fall back to | nothing yet: what a stalled body does instead (retry it, or stand a failure placard in its frame) is the cut-over's to decide, and that decision brings its own test |
 
 ---
 
@@ -314,6 +336,6 @@ Files and legs whose premise is gone on bodies, written by the batches that met 
 2. **The one run — superseded ([B11], [F12]).** Stopped at 95 files of 527 on 2026-10-17; results under `.tug/slice2/`.
 3. **The bodies gate ([B11]) — baseline taken ([F13]).** Run it once for a baseline, in two foreground batches, and read every red as a product defect or a row fix. 90 of 94 green on 2026-10-17.
 4. **The shared helpers ([B11]).** Move `fixtures/runner.ts`, the `SHEET` constants and the picker-form waits onto the card's body.
-5. **The product work.** The three defects of [F12] (the file and PDF viewer hang, focus into a body including the held-back body-focus files, a turn from a body's composer) and the cut-over ([B09]), in the order the user picks; [B10] lets the cut-over come first. Each is verified by the gate and by the files its change's `@covers` picks.
+5. **The product work ([B12]).** Slice 2 is paused and the work is product-led. [F14] settled [F12]'s three defects. The cut-over ([B09]) came first and is done. Next is the body-focus facet's six held-back files, then a look at the ⌘N landing latency [F14] names. Each slice is verified by the few app-tests that show it.
 6. **The removal stop.** The list above, put to the user once.
 7. **The harness flip ([B08]),** deleting the `bodies` option, once the cut-over has removed the other mode.

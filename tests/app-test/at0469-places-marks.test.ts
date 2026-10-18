@@ -206,12 +206,8 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
           rows.filter((id) => id.startsWith("layout-card-rail-")),
           "a rail has no arrangement row",
         ).toEqual([]);
-        // The section closes on the Bodies switch: the one row that is not
-        // about arranging the deck, kept last so the arrangement rows read as
-        // one run.
-        const trailing = rows.slice(5 + placeRows.length);
-        expect(trailing.at(-1), "the Bodies switch closes the section").toBe("layout-card-bodies");
-        const sidebarRows = trailing.slice(0, -1);
+        // The section closes on the sidebar rows.
+        const sidebarRows = rows.slice(5 + placeRows.length);
         expect(
           sidebarRows.length,
           "every remaining row is a sidebar card's",
@@ -254,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the marks
         // the claim that says so: a mark whose geometry drifted by the
         // drawing's padding or its 2px gap would stand under the neighbouring
         // block instead of its own.
-        const stripBottom = await app.evalJS<number>(
+        const stripBottom = await app.body("L").evalJS<number>(
           `document.querySelector('[data-testid="flow-strip"]').getBoundingClientRect().bottom`,
         );
         for (const slot of [0, 1, 2]) {

@@ -1843,6 +1843,22 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   transition: opacity 200ms ease-out;
 }
 
+/* A card whose body failed twice: a placard over the lid, with a Reload. */
+.tug-pane-content [data-body-placeholder] .tug-body-failed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--tug7-element-global-text-normal-muted-rest);
+}
+
+.tug-body-failed-message {
+  margin: 0;
+}
+
 /* The recede's two layers blend into the page's own backdrop, and under a
    body card that backdrop is a hole: `multiply` or `screen` over nothing
    paints the wash colour itself, lightening the body instead of dimming it,

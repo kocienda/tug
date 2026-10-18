@@ -326,7 +326,7 @@ async function setupPhaseA(
   // no slot for it. Layer 3 extends `TugTextEditingState` with a
   // `scrollTop` field; until then this assignment lives only on the
   // DOM and is destroyed by every reload.
-  await app.evalJS<void>(
+  await app.body("A").evalJS<void>(
     `(function(){
       var el = document.querySelector('[data-card-id="A"] ${SCROLLER_SELECTOR}');
       if (!el) throw new Error("[m24] phaseA: editor scroller not found for cardId=A");
@@ -334,7 +334,7 @@ async function setupPhaseA(
     })()`,
   );
 
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector('[data-card-id="A"] ${SCROLLER_SELECTOR}');
       return el !== null && Math.abs(el.scrollTop - ${SEED_SCROLL_TOP}) < 2;

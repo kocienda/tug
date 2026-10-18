@@ -302,9 +302,10 @@ final class BodyViewController {
     /// A `shown` report is pending for the bodies that turned showing.
     private var shownReportScheduled = false
     #if DEBUG
-    /// `TUG_BODY_FORCE_STALL=1` suppresses the first body's `frontendReady`,
-    /// so a test can watch the deadline fail it. DEBUG-only.
-    private var stallNextReady = ProcessInfo.processInfo.environment["TUG_BODY_FORCE_STALL"] == "1"
+    /// `TUG_BODY_FORCE_STALL=<n>` suppresses the first `n` bodies'
+    /// `frontendReady`, so a test can watch the deadline fail them — once
+    /// for the shell's own retry, twice for the card's placard. DEBUG-only.
+    private var readiesToStall = Int(ProcessInfo.processInfo.environment["TUG_BODY_FORCE_STALL"] ?? "") ?? 0
     #endif
 
     init(window: MainWindow, hostView: BodyHostView, floorView: DeckFloorView?) {
@@ -372,9 +373,8 @@ final class BodyViewController {
 
     /// Make the spare a beat from now, if there is none by then: after the
     /// shell's launch, after a bound body's ready, and after the spare is
-    /// lost. Only on a host that makes bodies.
+    /// lost.
     func scheduleSpare() {
-        guard window.bodyViewsEnabled else { return }
         pendingSpare?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.pendingSpare = nil
@@ -459,9 +459,9 @@ final class BodyViewController {
     func didBecomeReady(_ body: Body) {
         guard let cardId = body.cardId, body.state != .failed else { return }
         #if DEBUG
-        if stallNextReady {
-            stallNextReady = false
-            NSLog("BodyViewController: TUG_BODY_FORCE_STALL=1 — ignoring the first body's frontendReady")
+        if readiesToStall > 0 {
+            readiesToStall -= 1
+            NSLog("BodyViewController: TUG_BODY_FORCE_STALL — ignoring a body's frontendReady")
             return
         }
         #endif
@@ -1066,8 +1066,8 @@ final class BodyViewController {
         )
     }
 
-    /// Give up on a body: it is destroyed, and the shell mounts the card in
-    /// its own document.
+    /// Give up on a body: it is destroyed, and the shell decides whether to
+    /// ask for the card's body again.
     private func fail(_ body: Body, cause: String) {
         let cardId = body.cardId
         TugLog.error("bodies", "failed", [

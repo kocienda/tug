@@ -327,12 +327,3 @@
 .layouts-section-row [data-slot="tug-choice-group"] {
   justify-self: start;
 }
-
-/* A control cell with a note under it: the Bodies switch, whose segments
-   are followed by the one fact the row has to say — that the host applies it
-   at the next launch. */
-.layouts-section-control {
-  justify-self: start;
-  display: grid;
-  row-gap: 2px;
-}

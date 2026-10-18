@@ -3,12 +3,12 @@
  * funnel, and only then: with no body capability the funnel sends as it
  * always did; with it, such a card becomes a body card once, the host is
  * told its kind, and the funnel sends nothing; a card whose kind's
- * registration does not say `body`, and a card whose body failed, stay in
- * the shell; a card that already is a body card is sent the intent its
+ * registration does not say `body` stays in the shell; a card that already
+ * is a body card is sent the intent its
  * funnel has just decided, once; and the reconnect pass's fire for a body
  * card asks the host for nothing and sends its body nothing.
- * The intent a card was handed is kept while it is a body card, so a body
- * that failed before its session was bound can re-run it in the shell, and a
+ * The intent a card was handed is kept while it is a body card, a card whose
+ * body failed is asked for again with the intent the shell gives it, and a
  * bound card's arrival waits on its body's ready, or its failure.
  *
  * @covers tugdeck/src/lib/body-handoff.ts
@@ -17,7 +17,6 @@
  * @covers tugdeck/src/body/body-intent.ts
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { replayBodyIntent } from "../../body/body-intent";
 import type { BodyIntent } from "../../body/body-intent";
 import type { TugConnection } from "../../connection";
 import type { IDeckManagerStore } from "../../deck-manager-store";
@@ -25,13 +24,13 @@ import { BodyCardsStore, bodyCardsStore, bodyReadyQuiet } from "../body-cards-st
 import {
   _resetHandOffForTest,
   _setHostCapabilitiesForTest,
+  askForBodyAgain,
   bodyIntentOf,
   forgetBodyIntent,
   handOffToBody,
   isBodyKind,
   isMountBodyKind,
   setBodyIntentForwarder,
-  suppressHandOff,
 } from "../body-handoff";
 import { registerDeckStore } from "../deck-store-registry";
 import { registerCard } from "../../card-registry";
@@ -79,6 +78,9 @@ registerCard({
   body: true,
 });
 
+/** The state the shell holds per card; empty unless a test seeds it. */
+const cardStates = new Map<string, Record<string, unknown>>();
+
 const deck = {
   getSnapshot: () => ({
     cards: [
@@ -88,6 +90,7 @@ const deck = {
       { id: "m1", componentId: "handoff-mount" },
     ],
   }),
+  getCardState: (cardId: string) => cardStates.get(cardId),
 } as unknown as IDeckManagerStore;
 
 const g = globalThis as { webkit?: unknown };
@@ -106,6 +109,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cardStates.clear();
   for (const id of ["s1", "s2", "g1", "m1"]) sessionRestoreRegistry._clear(id);
   g.webkit = priorWebkit;
   registerDeckStore(null);
@@ -167,6 +171,15 @@ describe("with the capability", () => {
     expect(bodyIntentOf("m1")).toEqual({ kind: "mount" });
   });
 
+  test("a card's first hand-off carries the state the shell holds for it, whatever its intent", () => {
+    const bag = { content: { draft: { text: "seeded" } } };
+    cardStates.set("s1", bag);
+    fireRestore("s1", "tug-1", "/p", connection, "launch");
+    const sent = (posted[0]?.body as { intent: BodyIntent }).intent;
+    expect(sent.kind).toBe("resume");
+    expect(sent.bag).toEqual(bag);
+  });
+
   test("a fresh spawn carries its stashed opening command into the intent", () => {
     stashOpeningCommand("s1", { name: "arc", args: "go" });
     fireFreshSpawn("s1", "tug-1", "/p", connection, "launch");
@@ -204,13 +217,6 @@ describe("with the capability", () => {
 
   test("a card whose kind is not a body kind is never handed off", () => {
     fireRestore("g1", "tug-3", "/p", connection, "launch");
-    expect(controlActions).toEqual(["spawn_session"]);
-    expect(posted).toEqual([]);
-  });
-
-  test("a card whose body failed stays in the shell", () => {
-    suppressHandOff("s1");
-    fireRestore("s1", "tug-1", "/p", connection, "launch");
     expect(controlActions).toEqual(["spawn_session"]);
     expect(posted).toEqual([]);
   });
@@ -264,17 +270,22 @@ describe("with the capability", () => {
     expect(bodyIntentOf("s2")).toBeNull();
   });
 
-  test("a failed card's intent re-runs through the shell's funnel, on the shell's whole connection", () => {
-    // The recorded connection has no `setSessions`: a replay that narrowed
-    // the shell's subscriptions to one session would throw here.
+  test("a card whose body failed is asked for again, with the intent the shell gives it", () => {
     fireNewSpawn("s2", "tug-2", "/p", connection, "restore-open", { lineId: "line-2", tag: "odd-kiln" });
-    const intent = bodyIntentOf("s2")!;
-    suppressHandOff("s2");
-    bodyCardsStore.drop("s2");
+    bodyCardsStore.setState("s2", "failed");
     posted = [];
-    replayBodyIntent(intent, "s2", connection, deck, { inShell: true });
+    askForBodyAgain("s2", { kind: "restore" });
+    expect(posted).toEqual([
+      { name: "bodyCreate", body: { cardId: "s2", componentId: "handoff-spawn", intent: { kind: "restore" } } },
+    ]);
+    expect(bodyCardsStore.stateOf("s2")).toBe("creating");
+    expect(bodyIntentOf("s2")).toEqual({ kind: "restore" });
+    expect(controlActions).toEqual([]);
+  });
+
+  test("a card that is not a body card is not asked for again", () => {
+    askForBodyAgain("s2", { kind: "restore" });
     expect(posted).toEqual([]);
-    expect(controlActions).toEqual(["spawn_session"]);
   });
 });
 

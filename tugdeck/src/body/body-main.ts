@@ -448,10 +448,10 @@ async function bindBody(bind: BodyBind): Promise<void> {
     deckMode: registration?.bodyDeck === "arrangement" ? "arrangement" : "card",
     advise: (advice) => sendBus(connection, "shell", { kind: "card-advice", payload: advice }),
     putCardState: putCardStateGuarded,
-    // The bag the shell handed over with a mount is the freshest there is;
-    // without one, a restore reads what was last written.
+    // The bag the shell handed over is the freshest there is; without one,
+    // the body reads what was last written.
     initialBag:
-      intent.kind === "mount" && intent.bag !== undefined
+      intent.bag !== undefined
         ? intent.bag
         : restoreBag
           ? readCardStates(tugbankClient, [cardId]).get(cardId)

@@ -91,18 +91,18 @@ import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-reque
 import { requestLogout } from "./logout-store";
 import { ShellSurfaceDrawer } from "./shell-surface";
 import { onBus, sendBus } from "./deck-bus";
-import { replayBodyIntent, type BodyIntent } from "../body/body-intent";
+import type { BodyIntent } from "../body/body-intent";
 import {
+  askForBodyAgain,
   bodyIntentOf,
   forgetBodyIntent,
   handOffToBody,
   hostCapabilitiesStore,
   isBodyKind,
-  isHandOffSuppressed,
   isMountBodyKind,
   postToHost,
   setBodyIntentForwarder,
-  suppressHandOff,
+  setBodyReloader,
 } from "./body-handoff";
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
 import { openingBidForCard } from "./opening-bid";
@@ -178,6 +178,19 @@ function paneOf(state: DeckState, cardId: string): string | null {
  * and ends with the answer or the body going away.
  */
 const BODY_CLOSE_ANSWER_MS = 2000;
+
+/**
+ * How many times the shell asks the host again for a card's body after it
+ * fails, before the card stands as a placard with a Reload.
+ */
+const BODY_RETRIES = 1;
+
+/** `intent` as it was decided, without the bag it was first sent with. */
+function withoutBag(intent: BodyIntent | null): BodyIntent | null {
+  if (intent === null || intent.bag === undefined) return intent;
+  const { bag: _bag, ...rest } = intent;
+  return rest as BodyIntent;
+}
 
 /** The `card-context` the shell owes `cardId`'s body now. */
 export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardContext {
@@ -340,6 +353,33 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   };
   const kindOf = (cardId: string): string | undefined => registrationOf(cardId)?.componentId;
 
+  /** How many times running each card's body has failed since it was last ready. */
+  const failures = new Map<string, number>();
+
+  /**
+   * Ask the host again for `cardId`'s body, with what the new page is to do.
+   * It carries no bag: the gone body wrote the card's state as it went, so
+   * the new one reads it back. A Session card the shell holds a binding for
+   * restores it:
+   * the gone body's spawn was acknowledged, so re-running a `new` or `fresh`
+   * would start a second session. The harness's fake bind is handed again,
+   * since no ledger holds it; any other card re-runs what it was handed.
+   */
+  const askAgain = (cardId: string): void => {
+    const handed = withoutBag(bodyIntentOf(cardId));
+    let intent: BodyIntent;
+    if (isMountBodyKind(kindOf(cardId) ?? "")) {
+      intent = { kind: "mount" };
+    } else if (handed?.kind === "bind") {
+      intent = handed;
+    } else if (cardSessionBindingStore.getBinding(cardId) !== undefined) {
+      intent = { kind: "restore" };
+    } else {
+      intent = handed ?? { kind: "restore" };
+    }
+    askForBodyAgain(cardId, intent);
+  };
+
   /**
    * Keep each body card's inspection publisher running exactly while a
    * devtools body follows it: ask a newly followed body to publish, tell
@@ -496,6 +536,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       deck.observeCardWillBeginDestruction(cardId, () => {
         postToHost("bodyDestroy", { cardId, save: false });
         forget(cardId);
+        failures.delete(cardId);
+        forgetBodyIntent(cardId);
         bodyCardsStore.drop(cardId);
         bodyFactsStore.drop(cardId);
         bodyChordCaptureStore.clear(cardId);
@@ -535,7 +577,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // its commit) has registered what it decided first.
   const unboundSessionCard = (cardId: string, componentId: string): boolean =>
     isBodyKind(componentId) &&
-    !isHandOffSuppressed(cardId) &&
     cardSessionBindingStore.getBinding(cardId) === undefined &&
     restorePassGate.getSnapshot() &&
     !restorePassCards.has(cardId) &&
@@ -543,12 +584,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const handOffMountKinds = (): void => {
     for (const card of deck.getSnapshot().cards) {
       if (bodyCardsStore.has(card.id) || !isMountBodyKind(card.componentId)) continue;
-      // The card's state goes with it: the shell holds a just-added card's
-      // seed in memory, ahead of any write the body could read back.
-      handOffToBody(card.id, () => {
-        const bag = deck.getCardState(card.id);
-        return bag === undefined ? { kind: "mount" } : { kind: "mount", bag };
-      });
+      // The card's state goes with it (`handOffToBody`): the shell holds a
+      // just-added card's seed in memory, ahead of any write the body could
+      // read back.
+      handOffToBody(card.id, () => ({ kind: "mount" }));
     }
   };
   const handOffUnboundSessions = (): void => {
@@ -978,6 +1017,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     switch (report.state) {
       case "ready":
         bodyCardsStore.setState(cardId, "ready");
+        failures.delete(cardId);
         // The body exists now; if its card holds the keyboard, it takes it.
         if (deck.getFirstResponderCardId() === cardId) postFocus(true);
         return;
@@ -1018,36 +1058,48 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         pendingDecisions.get(cardId)?.("cancel");
         return;
       case "failed": {
-        tugDevLogStore.error("body", "a body failed; its card stays in the shell", {
+        // The host has destroyed the body. The card stays a body card —
+        // every card is one, so the shell has no other place for it — and
+        // what the gone page told the shell goes with the page, as at a
+        // termination. Marked failed, so an arrival waiting on the body
+        // reveals now rather than at its bound: the card stands lidded.
+        heard.delete(cardId);
+        sentContext.delete(cardId);
+        hadMasthead.delete(cardId);
+        paintHeard.delete(cardId);
+        surfaces.remove(cardId);
+        closeAsks.delete(cardId);
+        bodyChordCaptureStore.clear(cardId);
+        pendingDecisions.get(cardId)?.("cancel");
+        bodyFactsStore.drop(cardId);
+        bodyCardsStore.setState(cardId, "failed");
+        const attempts = (failures.get(cardId) ?? 0) + 1;
+        failures.set(cardId, attempts);
+        if (attempts > BODY_RETRIES) {
+          // Failed again: the card shows it, with a Reload that asks once more.
+          tugDevLogStore.error("body", "a body failed again; its card shows a Reload", {
+            cardId,
+            cause: report.cause,
+          });
+          return;
+        }
+        tugDevLogStore.warn("body", "a body failed; asking for it again", {
           cardId,
           cause: report.cause,
         });
-        // The card is the shell's again. One the shell already holds a
-        // binding for — the body's spawn was acknowledged, and the shell
-        // heard the broadcast — mounts in the page on that binding, its
-        // services built and replayed by the store's reconcile; re-running a
-        // `new` or `fresh` intent there would spawn a second session. Only a
-        // card with no binding re-runs what it was handed, through the
-        // shell's own funnels now that hand-off is suppressed for it.
-        const intent = bodyIntentOf(cardId);
-        suppressHandOff(cardId);
-        forget(cardId);
-        bodyFactsStore.drop(cardId);
-        forgetBodyIntent(cardId);
-        // Marked failed before it goes, so an arrival waiting on the body
-        // reveals now rather than at its bound.
-        bodyCardsStore.setState(cardId, "failed");
-        bodyCardsStore.drop(cardId);
-        // A `mount` intent has nothing to re-run: the card mounts here.
-        if (intent !== null && intent.kind !== "mount" && cardSessionBindingStore.getBinding(cardId) === undefined) {
-          replayBodyIntent(intent, cardId, connection, deck, { inShell: true });
-        }
+        askAgain(cardId);
         return;
       }
     }
   };
   releases.push(() => {
     delete bridge.onBodyState;
+  });
+
+  // A failed card's Reload, from its placard.
+  setBodyReloader(askAgain);
+  releases.push(() => {
+    setBodyReloader(null);
   });
 
   // ---- Menu commands bound for the key card ----
@@ -1135,7 +1187,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     // has not yet spoken, takes it once its body does.
     setJotCaptureForwarder((cardId) => {
       const kind = kindOf(cardId);
-      if (kind === undefined || !isBodyKind(kind) || isHandOffSuppressed(cardId)) return false;
+      if (kind === undefined || !isBodyKind(kind)) return false;
       if (heard.has(cardId)) {
         sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "new-jot" } });
       } else {
