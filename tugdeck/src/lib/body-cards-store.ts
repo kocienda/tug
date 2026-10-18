@@ -67,10 +67,14 @@ export class BodyCardsStore extends Subscribable {
 export const bodyCardsStore = new BodyCardsStore();
 
 /**
- * A bound body card's arrival quiet: quiet once its body's card is mounted
- * and quiet (`ready`, and `painted` after it), or once it has failed and the
- * card is the shell's again. A card not yet handed off is not quiet — the
- * deck's bound covers a hand-off that never comes.
+ * A bound body card's arrival quiet: quiet once its body has PAINTED — its
+ * first frame of content composited, which `ready` alone is not — or once it
+ * has failed and the card is the shell's again. Painted, because the reveal
+ * this gates carries the body in on the frame's arrive beat
+ * (`body-beat-plan.ts`), and only a painted body can be shown with its
+ * tracks; a body revealed at `ready` rode in under its lid instead. A card
+ * not yet handed off is not quiet — the deck's bound covers a hand-off that
+ * never comes.
  */
 export function bodyReadyQuiet(cardId: string, store: BodyCardsStore = bodyCardsStore): ArrivalQuiet {
   let failed = false;
@@ -82,7 +86,7 @@ export function bodyReadyQuiet(cardId: string, store: BodyCardsStore = bodyCards
       }),
     isQuiet: () => {
       const state = store.stateOf(cardId);
-      return state === "ready" || state === "painted" || state === "failed" || failed;
+      return state === "painted" || state === "failed" || failed;
     },
   };
 }

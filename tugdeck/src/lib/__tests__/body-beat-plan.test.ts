@@ -131,7 +131,41 @@ describe("wholePoints", () => {
   });
 });
 
+/** A card arriving in a band: its body, posted where it lands and never shown, rides the frame's rise and fade in. */
+function arrival(arriving = true): PlanInput {
+  const last = { x: 40, y: 360, width: 500, height: 300 };
+  const rise = 6;
+  const first = { ...last, y: last.y + rise };
+  const i = input(
+    [{ paneId: "n", first, last, beats: [{ kind: "arrive", terms: { dx: 0, dy: rise }, delayMs: 200, durationMs: 180, progress: [0, 0.4, 0.8, 1] }] }],
+    { n: ["cn"] },
+    arriving ? { arriving: new Set(["cn"]) } : {},
+  );
+  return { ...i, placement: { radius: 8, bodies: [placed("cn", inset(last), false)] } };
+}
+
 describe("planBodyBeats", () => {
+  test("an arriving body, never shown, rides its frame's rise and fade in and is marked to be shown with them", () => {
+    const i = arrival();
+    const { plan, refused } = planBodyBeats(i);
+    expect(refused).toEqual([]);
+    const [body] = plan;
+    const frame = i.frames[0];
+    expect(body.arrives).toBe(true);
+    expect(body.beats.map((b) => b.kind)).toEqual(["arrive"]);
+    expect(body.beats[0].from).toEqual(inset(frame.first));
+    expect(body.beats[0].to).toEqual(inset(frame.last));
+    expect(body.beats[0].opacity).toEqual([0, 1]);
+    expect(body.landing).toEqual(inset(frame.last));
+  });
+
+  test("the same body, not arriving, is refused for never having been shown", () => {
+    const { plan, refused, reasons } = planBodyBeats(arrival(false));
+    expect(plan).toEqual([]);
+    expect(refused).toEqual(["cn"]);
+    expect(reasons.cn).toBe("not placed visible");
+  });
+
   test("a rail carried to the other edge leaves at its own insets and lands at its mirrored ones", () => {
     const rail: Insets = { top: 36, right: 1, bottom: 0, left: 0 };
     const mirrored: Insets = { top: 36, right: 0, bottom: 0, left: 1 };
@@ -365,6 +399,7 @@ describe("beat-plan-parity.json", () => {
       ["stack-move", stackMove()],
       ["size-change-refused", sizeChange(false)],
       ["size-change-crossing", sizeChange(true)],
+      ["arrival", arrival()],
     ].map(([name, i], index) => {
       const out = planBodyBeats(i as PlanInput);
       return { name: name as string, refused: out.refused, plan: { planId: index + 1, startWallMs: 1_760_000_000_000 + index * 1000, bodies: out.plan } };

@@ -29,7 +29,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 9: the fold", () => {
   }
 
   test.skipIf(!sessionUnderTest(9))(
-    "the fold hides the body at its commit, with no peek",
+    "the fold carries the body onto its folded strip, with no peek",
     () => foldSession({ foreground: true }, "fold"),
     TEST_TIMEOUT_MS,
   );

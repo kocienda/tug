@@ -2,8 +2,8 @@
  * A body speaks only when what it says changes: identical facts go once, a
  * phase change goes, a keystroke that leaves `waive` where it was sends
  * nothing, a card with no close guard says nothing of one while a guarded
- * card says when its guard would ask, and a pointer in a body that is
- * already the first responder asks for nothing.
+ * card says when its guard would ask, a card says when a modal run takes
+ * and lets go its hold, and a pointer asks for activation on every press.
  *
  * @covers tugdeck/src/body/body-publisher.ts
  */
@@ -16,6 +16,7 @@ interface State {
   waive: boolean;
   guarded: boolean;
   asks: boolean | null;
+  hold: { reason: string; admitsFold: boolean } | null;
 }
 
 function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher } {
@@ -24,6 +25,7 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
     waive: true,
     guarded: true,
     asks: null,
+    hold: null,
   };
   const sent: BusMessage[] = [];
   const publisher = new BodyPublisher(
@@ -32,6 +34,7 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
       readWaive: () => state.waive,
       readGuarded: () => state.guarded,
       readAsks: () => state.asks,
+      readHold: () => state.hold,
     },
     (message) => sent.push(message),
   );
@@ -84,6 +87,26 @@ describe("publish on change", () => {
     expect(guardAdvice()).toEqual([
       { kind: "card-advice", payload: { advice: "close-guard", asks: false } },
       { kind: "card-advice", payload: { advice: "close-guard", asks: true } },
+    ]);
+  });
+});
+
+describe("modal hold", () => {
+  test("no hold says nothing; a hold and its release each go once", () => {
+    const { state, sent, publisher } = setup();
+    const holdAdvice = (): BusMessage[] =>
+      sent.filter((m) => m.kind === "card-advice" && m.payload.advice === "modal-hold");
+    publisher.publish();
+    expect(holdAdvice()).toEqual([]);
+    state.hold = { reason: "Compacting.", admitsFold: true };
+    publisher.publish();
+    publisher.publish();
+    state.hold = null;
+    publisher.publish();
+    publisher.publish();
+    expect(holdAdvice()).toEqual([
+      { kind: "card-advice", payload: { advice: "modal-hold", reason: "Compacting.", admitsFold: true } },
+      { kind: "card-advice", payload: { advice: "modal-hold", reason: null } },
     ]);
   });
 });

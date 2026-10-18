@@ -14,6 +14,11 @@
  * decide. A card with no guard says nothing of the kind, and the shell
  * closes it as it always has.
  *
+ * A card held by a modal run (`/compact` in flight) says so (`modal-hold`),
+ * with the reason and whether the run admits the fold, and says again when
+ * the hold goes. The shell's chrome holds by it, and a door there that meets
+ * the hold asks this page to speak the refusal (`refuse-hold`).
+ *
  * {@link BodyPublisher} is the diffing half, over plain read functions, so it
  * is tested without a page; {@link installBodyPublisher} wires it to the
  * card's stores and the document.
@@ -24,10 +29,11 @@
 import type { BusMasthead, BusMessage, CardFacts } from "@tugproto/bus";
 import { cardTitleStore } from "../lib/card-title-store";
 import { cardServicesStore } from "../lib/card-services-store";
-import { sessionRestoreRegistry } from "../lib/session-restore";
+import { restorePassGate, sessionRestoreRegistry } from "../lib/session-restore";
 import { readCardCloseAdvice } from "../lib/card-close-advice";
 import { getCardCloseGuard, watchCardCloseGuard } from "../lib/card-close-guard";
 import { cardMayFold } from "../lib/card-fold";
+import { cardModalHoldStore } from "../lib/card-modal-hold-store";
 import { ownLiveCardIdentity } from "../lib/card-identity";
 import { paneTitleBarItemsStore } from "../lib/pane-title-bar-items-store";
 import { commandValidationSource } from "../lib/host-menu-state";
@@ -44,6 +50,8 @@ export interface BodyPublisherSources {
   readGuarded(): boolean;
   /** Whether the card's close guard would ask, or null when it registered none. */
   readAsks(): boolean | null;
+  /** The card's modal hold — its reason and whether it admits the fold — or null when it has none. */
+  readHold(): { reason: string; admitsFold: boolean } | null;
 }
 
 export class BodyPublisher {
@@ -51,6 +59,7 @@ export class BodyPublisher {
   private lastWaive: boolean | null = null;
   private lastGuarded: boolean | null = null;
   private lastAsks: boolean | null = null;
+  private lastHold: string | null = null;
 
   constructor(
     private readonly sources: BodyPublisherSources,
@@ -79,6 +88,19 @@ export class BodyPublisher {
     if (asks !== null && asks !== this.lastAsks) {
       this.lastAsks = asks;
       this.send({ kind: "card-advice", payload: { advice: "close-guard", asks } });
+    }
+    const hold = this.sources.readHold();
+    const holdEncoded = JSON.stringify(hold);
+    // The first read of no hold says nothing: the shell holds none until told.
+    if (holdEncoded !== (this.lastHold ?? "null")) {
+      this.lastHold = holdEncoded;
+      this.send({
+        kind: "card-advice",
+        payload:
+          hold === null
+            ? { advice: "modal-hold", reason: null }
+            : { advice: "modal-hold", reason: hold.reason, admitsFold: hold.admitsFold },
+      });
     }
   }
 
@@ -123,9 +145,12 @@ export function readBodyCardFacts(cardId: string): CardFacts {
 
 /**
  * Publish `cardId`'s facts and advice from now on: once at install, and again
- * on every notify of the card's session store, the restore registry, the
+ * on every notify of the card's session store, the restore registry and the
+ * restore pass's gate (an unattached Session card waives its close confirm
+ * only once the pass has settled), the
  * services store, the title store, the title-bar items store, the page's
- * responder chain, the close-guard registry and the card's own close guard,
+ * responder chain, the modal-hold store, the close-guard registry and the
+ * card's own close guard,
  * and on every `input` in the document.
  * A capture-phase `pointerdown` asks for activation. Returns the uninstall.
  */
@@ -141,6 +166,10 @@ export function installBodyPublisher(
       readAsks: () => {
         const guard = getCardCloseGuard(cardId);
         return guard === null ? null : guard.needsDecision();
+      },
+      readHold: () => {
+        const hold = cardModalHoldStore.getFor(cardId);
+        return hold === null ? null : { reason: hold.reason, admitsFold: hold.admitsFold === true };
       },
     },
     send,
@@ -175,8 +204,11 @@ export function installBodyPublisher(
   const releases = [
     cardServicesStore.subscribe(onServices),
     sessionRestoreRegistry.subscribe(publish),
+    restorePassGate.subscribe(publish),
     cardTitleStore.subscribe(publish),
     paneTitleBarItemsStore.subscribe(publish),
+    // A run's hold moves the fold guard as well as the hold itself.
+    cardModalHoldStore.subscribe(publish),
     // The card's close guard says when its answer moves, so the shell's proxy
     // reads a fact that moved with the buffer, not with whatever else notified.
     watchCardCloseGuard(cardId, publish),

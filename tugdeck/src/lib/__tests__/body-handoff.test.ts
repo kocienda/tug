@@ -288,7 +288,7 @@ describe("with the capability", () => {
 });
 
 describe("bodyReadyQuiet", () => {
-  test("is quiet when the body is ready, and when it failed and the card was taken back", () => {
+  test("is quiet when the body has painted, not at ready, and when it failed and the card was taken back", () => {
     const store = new BodyCardsStore();
     const quiet = bodyReadyQuiet("c1", store);
     let fires = 0;
@@ -297,8 +297,10 @@ describe("bodyReadyQuiet", () => {
     store.mark("c1");
     expect(quiet.isQuiet()).toBe(false);
     store.setState("c1", "ready");
+    expect(quiet.isQuiet(), "ready is not yet a frame to carry in").toBe(false);
+    store.setState("c1", "painted");
     expect(quiet.isQuiet()).toBe(true);
-    expect(fires).toBe(2);
+    expect(fires).toBe(3);
 
     const failing = bodyReadyQuiet("c2", store);
     const releaseFailing = failing.subscribe(() => {});

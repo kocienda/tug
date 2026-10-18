@@ -208,12 +208,17 @@ const SHEET_PANEL_TO_MEMBER_PX = 64;
  * and the share the hand gives the member, which is what makes a reading here
  * distinguishable from either.
  *
- * And it is deliberately a number no picker will ever report. A seeded bid is
- * a number nobody measured, so the first live report disagrees with it — and
+ * And it is deliberately a number no picker will ever report: above the most
+ * any picker claims, its list at the cap (554px of panel, 618px for the
+ * member). 618 itself was this number until bodies, where the picker's first
+ * report is its loaded list at the cap and so agreed with it; in one document
+ * the first report came before the list loaded, which is all that made 618
+ * disagree. A seeded bid is a number nobody measured, so the first live
+ * report disagrees with it — and
  * the first-report rule refusing that report, with a row in the trace naming
  * both numbers, is what this file asserts below ([P04], [Spec S04]).
  */
-const SEEDED_OPENING_BID_PX = 618;
+const SEEDED_OPENING_BID_PX = 640;
 
 /**
  * A project whose Sessions list stands at its 14.5rem cap. The picker a fresh

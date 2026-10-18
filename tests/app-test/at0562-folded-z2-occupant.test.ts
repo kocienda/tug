@@ -841,6 +841,12 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.getPaneRecord("p1").folded === false`,
             { timeoutMs: 8000 },
           );
+          // The shell's deck flips first; the body hears the unfold on the
+          // bus a beat later, and its row gives the seat back then.
+          await app.body("A").waitForCondition<boolean>(
+            `(function(){ var row = document.querySelector(${JSON.stringify(ROW)}); return row === null || !row.hasAttribute("data-occupant"); })()`,
+            { timeoutMs: 4000 },
+          );
           const opened = await readRow(app);
           note("at0562 unfolded by the notice", opened);
           expect(opened.occupant, "the row is the instruments' again").toBeNull();

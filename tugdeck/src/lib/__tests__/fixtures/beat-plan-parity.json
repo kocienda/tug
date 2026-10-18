@@ -217,5 +217,54 @@
         }
       ]
     }
+  },
+  {
+    "name": "arrival",
+    "refused": [],
+    "plan": {
+      "planId": 5,
+      "startWallMs": 1760000004000,
+      "bodies": [
+        {
+          "cardId": "cn",
+          "landing": {
+            "x": 41,
+            "y": 396,
+            "width": 498,
+            "height": 263
+          },
+          "arrives": true,
+          "beats": [
+            {
+              "kind": "arrive",
+              "delayMs": 200,
+              "durationMs": 180,
+              "from": {
+                "x": 41,
+                "y": 402,
+                "width": 498,
+                "height": 263
+              },
+              "to": {
+                "x": 41,
+                "y": 396,
+                "width": 498,
+                "height": 263
+              },
+              "opacity": [
+                0,
+                1
+              ],
+              "progress": [
+                0,
+                0.4,
+                0.8,
+                1
+              ]
+            }
+          ]
+        }
+      ]
+    }
   }
 ]

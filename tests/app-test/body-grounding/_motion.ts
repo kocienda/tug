@@ -357,9 +357,10 @@ function placeholderAt(samples: readonly Sample[], wall: number): Rect | null {
  * Judge a gesture whose body the host carries: the lid stays lifted while
  * the chrome moves, no frame shows the bare window, the content box shows
  * no more floor than the leading or trailing strip two frames of travel
- * would uncover, and the host's presented frame stands within two frames
- * of travel of the placeholder on every reading taken while the chrome
- * moved.
+ * would uncover (horizontal travel as a share of the box's width, vertical
+ * travel — a fold — as a share of its height, at that frame), and the
+ * host's presented frame stands within two frames of travel of the
+ * placeholder on every reading taken while the chrome moved.
  *
  * The lid and a session body's page are one colour — the pane surface — so
  * the composite cannot say which of the two fills the box; the shell's own
@@ -380,6 +381,8 @@ export function judgeCarried(
   let movingSamples = 0;
   let lidOnWhileMoving = 0;
   let fastestStep = 0;
+  let fastestStepX = 0;
+  let fastestStepY = 0;
   for (let i = 1; i < samples.length; i++) {
     const a = samples[i - 1].placeholder;
     const b = samples[i].placeholder;
@@ -388,6 +391,8 @@ export function judgeCarried(
     if (step <= MOVED_PX) continue;
     movingSamples += 1;
     fastestStep = Math.max(fastestStep, step);
+    fastestStepX = Math.max(fastestStepX, Math.abs(a.x - b.x), Math.abs(a.x + a.width - (b.x + b.width)));
+    fastestStepY = Math.max(fastestStepY, Math.abs(a.y - b.y), Math.abs(a.y + a.height - (b.y + b.height)));
     if (!samples[i].shown) lidOnWhileMoving += 1;
   }
   const moved = (k: number): boolean => {
@@ -395,8 +400,10 @@ export function judgeCarried(
     return p !== null && edgeGap(p, before) > MOVED_PX && edgeGap(p, after) > MOVED_PX;
   };
   const standing = reading.frames.find((f) => f.wall >= gestureWall) ?? reading.frames[0];
-  const width = Math.max(1, before.width);
-  const floorBar = Math.min(0.5, (2 * fastestStep) / width + 0.02);
+  const barFor = (box: Rect): number =>
+    Math.min(0.5, 2 * Math.max(fastestStepX / Math.max(1, box.width), fastestStepY / Math.max(1, box.height)) + 0.02);
+  const floorBar = barFor(before);
+  const bars = new Map<Judged, number>();
   const judged: Judged[] = [];
   let bare = 0;
   for (const f of reading.frames) {
@@ -414,7 +421,9 @@ export function judgeCarried(
     };
     if (!(region.width > 0 && region.height > 0)) continue;
     const inMotion = moved(i) && moved(i - 1) && framesDiffer(f, standing);
-    judged.push({ frame: classifyFrame(f, palette, 8, region), whole, path: f.path, inMotion });
+    const entry = { frame: classifyFrame(f, palette, 8, region), whole, path: f.path, inMotion };
+    judged.push(entry);
+    bars.set(entry, barFor(box));
   }
   const motion = judged.filter((j) => j.inMotion);
   // Floor is canvas paint that carries the grid: a body that lost focus
@@ -424,7 +433,7 @@ export function judgeCarried(
   // DOM rect judged under fast travel reaches past the shell's paint lag.
   const floorOf = (j: Judged): number =>
     (j.frame.grid > 0.002 && j.frame.canvas >= j.frame.grid ? j.frame.canvas + j.frame.grid : 0) + j.frame.bare;
-  const floorOffenders = motion.filter((j) => floorOf(j) > floorBar);
+  const floorOffenders = motion.filter((j) => floorOf(j) > (bars.get(j) ?? floorBar));
   let tracked = 0;
   let worstTrackPx = 0;
   for (const p of presented) {

@@ -3762,24 +3762,54 @@ export function useSettleEngine({
           record: recordBeat,
           planBeat,
           allowCrossing: true,
-          frames: choreography.map((c) => {
-            const first = firstRects.get(c.paneId);
-            return {
-              frame: c.frame,
-              first: first === undefined ? null : viewportRectOf(first, factor),
-              last: viewportRectOf(lastRectOf(c.frame), factor),
-              beats: c.beats.map((b) => {
-                const curve = beatCurve(b.kind);
-                return {
-                  kind: b.kind,
-                  terms: b.terms,
-                  delayMs: (delayOf.get(b.kind) ?? 0) * timing,
-                  durationMs: curve.durationMs * timing,
-                  progress: curve.progress,
-                };
-              }),
-            };
-          }),
+          frames: [
+            ...choreography.map((c) => {
+              const first = firstRects.get(c.paneId);
+              return {
+                frame: c.frame,
+                first: first === undefined ? null : viewportRectOf(first, factor),
+                last: viewportRectOf(lastRectOf(c.frame), factor),
+                beats: c.beats.map((b) => {
+                  const curve = beatCurve(b.kind);
+                  return {
+                    kind: b.kind,
+                    terms: b.terms,
+                    delayMs: (delayOf.get(b.kind) ?? 0) * timing,
+                    durationMs: curve.durationMs * timing,
+                    progress: curve.progress,
+                  };
+                }),
+              };
+            }),
+            // The arriving frames, so the bodies in them ride the arrive
+            // beat in with their chrome: the band card's rise, or a rail's
+            // slide off its edge, from the offsets the beat's own keyframes
+            // open at below, and the fade.
+            ...arrivals.map(({ frame }) => {
+              const lastLayout = lastRectOf(frame);
+              const last = viewportRectOf(lastLayout, factor);
+              const attr = frame.getAttribute("data-rail-side");
+              const side = isSidebarSide(attr) ? attr : undefined;
+              const dx = side === undefined ? 0 : railTravelPx(lastLayout, side, lastRectOf(el));
+              const dy = side === undefined ? PANE_ENTER_RISE_PX : 0;
+              const curve = beatCurve("arrive");
+              return {
+                frame,
+                arrives: true,
+                first: { ...last, x: last.x + dx * factor, y: last.y + dy * factor },
+                last,
+                beats: [
+                  {
+                    kind: "arrive" as const,
+                    terms: { dx, dy },
+                    delayMs: (delayOf.get("arrive") ?? 0) * timing,
+                    durationMs: curve.durationMs * timing,
+                    progress: curve.progress,
+                  },
+                ],
+              };
+            }),
+          ],
         });
       }
       // The land, pre-paid ([B04]): each settled interior pays its pin, its

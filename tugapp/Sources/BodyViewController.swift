@@ -657,10 +657,24 @@ final class BodyViewController {
         guard let plan = BeatPlan.from(payload: payload) else { return }
         let anchor = ClockAnchor(wallMs: Date().timeIntervalSince1970 * 1000, mediaTime: CACurrentMediaTime())
         let offsetSec = window.bodyBeatOffsetPeriods * displayPeriodSec
+        var showsArrival = false
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for planned in plan.bodies {
             guard let body = body(forCard: planned.cardId) else { continue }
+            // An arrival rides its frame's arrive beat in: the shell posts it
+            // visible from the plan and has already lifted its lid, so it is
+            // shown here, in this transaction, at its landing. Its tracks
+            // hold their opening values until they begin (`.backwards`), so
+            // no frame shows it before the fade; and a plan the host cannot
+            // run still leaves it shown where it lands.
+            if planned.arrives == true, !body.visible, body.state == .ready, body.painted {
+                body.visible = true
+                body.frame = planned.landing.cgRect
+                body.container.frame = planned.landing.cgRect
+                applyVisibility(body)
+                showsArrival = true
+            }
             guard body.visible, body.state == .ready, body.painted,
                   let layer = body.container.layer,
                   let track = BodyBeats.planTrack(planned.beats), track.durationMs > 0 else {
@@ -734,6 +748,7 @@ final class BodyViewController {
         }
         CATransaction.commit()
         refreshRegion()
+        if showsArrival { reportShown() }
     }
 
     /// Take a body's beats off, and tell the shell when a plan was carrying it.

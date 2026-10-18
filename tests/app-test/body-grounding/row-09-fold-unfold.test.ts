@@ -29,7 +29,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 9: the unfold", () => {
   }
 
   test.skipIf(!sessionUnderTest(9))(
-    "the unfold shows the body only at the land, with no peek",
+    "the unfold carries the body from its folded strip, with no peek",
     () => foldSession({ foreground: true }, "unfold"),
     TEST_TIMEOUT_MS,
   );

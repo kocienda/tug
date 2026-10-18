@@ -99,7 +99,12 @@ export type CardCommandKind =
    * null to take the dialog down. The shell keeps the question; the card
    * answers with `ask-response` advice.
    */
-  | "ask";
+  | "ask"
+  /**
+   * A door in the shell met the card's modal hold: the body's holder speaks
+   * the refusal, in the card it concerns.
+   */
+  | "refuse-hold";
 
 /** `card-command`: the chrome asking a card to act. */
 export interface CardCommand {
@@ -196,6 +201,13 @@ export type CardAdvice =
    * shell's to push, so a body says when its capture arms.
    */
   | { advice: "capture-armed"; armed: boolean }
+  /**
+   * The card is held by a modal run (`/compact` in flight), or no longer is
+   * (`reason: null`). The shell holds its own chrome by it — close box,
+   * rollup, ⌘W, the tab × — and a door it closes asks the body to speak the
+   * refusal (`refuse-hold`). `admitsFold` says the run lets the card fold.
+   */
+  | { advice: "modal-hold"; reason: string | null; admitsFold?: boolean }
   /** The card's session inspection, for the devtools card that follows it. Opaque to the bus. */
   | { advice: "inspection"; inspection: unknown }
   /** The card's dialog answered the question the shell sent with an `ask` command. */

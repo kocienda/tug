@@ -102,6 +102,9 @@ pub enum CardCommandKind {
     /// A question raised from outside the turn stream, for the Session card's
     /// dialog (`payload`: `ask`, or null to take it down), opaque here.
     Ask,
+    /// A door in the shell met the card's modal hold: the card speaks the
+    /// refusal.
+    RefuseHold,
 }
 
 /// Where a `focus-enter` lands the keyboard.
@@ -244,6 +247,14 @@ pub enum CardAdvice {
     /// bar's key equivalents while a capture records, and the menu state is
     /// the shell's to push.
     CaptureArmed { armed: bool },
+    /// The card is held by a modal run, with the reason it refuses, or no
+    /// longer is (`reason` null); `admits_fold` says the run lets it fold.
+    #[serde(rename_all = "camelCase")]
+    ModalHold {
+        reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        admits_fold: Option<bool>,
+    },
     /// The card's session inspection, opaque here.
     Inspection { inspection: serde_json::Value },
     /// The card's dialog answered the question an `ask` command sent.
@@ -458,6 +469,7 @@ mod tests {
             "close-guard",
             "close-decision",
             "capture-armed",
+            "modal-hold",
             "inspection",
             "ask-response",
         ] {
@@ -483,6 +495,7 @@ mod tests {
             CardCommandKind::Intent,
             CardCommandKind::NewJot,
             CardCommandKind::Ask,
+            CardCommandKind::RefuseHold,
         ] {
             assert!(
                 has(&|e| matches!(&e.message, BusMessage::CardCommand(c) if c.command == command)),

@@ -53,6 +53,9 @@ struct PlannedBody: Decodable, Equatable {
     var landing: PlanRect
     /// Present when the body's box changes size.
     var crossing: Size?
+    /// The body was not shown before the plan: an arrival, which the host
+    /// shows in the same transaction as its tracks.
+    var arrives: Bool?
     var beats: [BodyBeat]
 }
 

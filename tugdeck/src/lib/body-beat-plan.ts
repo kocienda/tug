@@ -33,9 +33,13 @@
  * A body is planned only when it was placed visible, is still shown, stands
  * in a carried frame, and every beat of that frame maps to a rect. Anything
  * else is refused, and the caller hides a refused body under its frame for
- * the motion, as it did before there was a plan. A body that arrives,
- * departs, folds or parks is never planned: the commit-time hide and the lid
- * keep those.
+ * the motion, as it did before there was a plan. One body is planned without
+ * having been placed visible: an ARRIVING one, painted under its lid while
+ * its card stood hidden, which rides its frame's `arrive` beat in — the rise
+ * or the rail's slide, and the fade — and is shown by the host in the same
+ * transaction as its tracks (`arrives`). A body that departs, folds into a
+ * form it does not draw, or parks is never planned: the commit-time hide and
+ * the lid keep those.
  *
  * ## Units
  *
@@ -120,6 +124,8 @@ export interface BodyBeats {
   readonly landing: Rect;
   /** Present when the body's box changes size. */
   readonly crossing?: { readonly width: number; readonly height: number };
+  /** The body was not shown before the plan: the host shows it with its tracks, held at their opening values. */
+  readonly arrives?: true;
   readonly beats: readonly BodyBeat[];
 }
 
@@ -162,7 +168,7 @@ const SAME_PX = 0.5;
 /** One beat of a carried frame, as the settle engine scheduled it. */
 export interface FrameBeat {
   readonly kind: BeatKind;
-  /** The beat's FLIP terms, in layout px. Depart and arrive carry none that move the frame. */
+  /** The beat's FLIP terms, in layout px. Depart carries none that move the frame; an arrive that rises or slides in carries its offset. */
   readonly terms: SettleTerms;
   readonly delayMs: number;
   readonly durationMs: number;
@@ -208,6 +214,8 @@ export interface PlanInput {
   readonly factor: number;
   /** Whether a body whose box changes size is planned (with `crossing`) or refused. */
   readonly allowCrossing?: boolean;
+  /** Bodies arriving with their frame: planned though never placed visible. */
+  readonly arriving?: ReadonlySet<string>;
 }
 
 export interface PlanOutput {
@@ -248,8 +256,10 @@ function contains(outer: Rect, inner: Rect): boolean {
  * px. A fade moves nothing.
  */
 function applyBeat(running: Rect, beat: FrameBeat, last: Rect, factor: number): Rect {
-  if (beat.kind === "depart" || beat.kind === "arrive") return running;
+  if (beat.kind === "depart") return running;
   const { dx, dy, sx = 1, width, height } = beat.terms;
+  // An arrival rises (or a rail slides) from its offset to where it lands.
+  if (beat.kind === "arrive") return dx !== 0 || dy !== 0 ? { ...running, x: last.x, y: last.y } : running;
   let next: Rect = running;
   if (dx !== 0 || dy !== 0 || sx !== 1) {
     next = { ...next, x: last.x, y: last.y };
@@ -317,7 +327,8 @@ export function planBodyBeats(input: PlanInput): PlanOutput {
         continue;
       }
       const placed = posted.get(cardId);
-      if (placed === undefined || !placed.visible) {
+      const arrives = input.arriving?.has(cardId) === true;
+      if (placed === undefined || (!placed.visible && !arrives)) {
         refuse(cardId, "not placed visible");
         continue;
       }
@@ -330,7 +341,11 @@ export function planBodyBeats(input: PlanInput): PlanOutput {
         refuse(cardId, "no insets");
         continue;
       }
-      if (!contains(wholePoints(inset(frame.first, insets)), placed)) {
+      // A body that was shown starts where it was placed, and a placement
+      // anywhere else is stale. An arrival was never shown: it is placed at
+      // its landing, from insets measured with its box, wherever the hidden
+      // pane happened to stand when it was last measured.
+      if (!arrives && !contains(wholePoints(inset(frame.first, insets)), placed)) {
         refuse(cardId, "its placement is not inside the frame's First rect");
         continue;
       }
@@ -361,6 +376,7 @@ export function planBodyBeats(input: PlanInput): PlanOutput {
         cardId,
         landing,
         ...(resized ? { crossing: { width: landing.width, height: landing.height } } : {}),
+        ...(arrives ? { arrives: true as const } : {}),
         beats,
       });
     }

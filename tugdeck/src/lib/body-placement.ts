@@ -14,9 +14,11 @@
  *
  * A body shows when its body has said it is painted — its first frame of
  * real content has gone to the compositor, after `ready` — and its card is
- * shown: the active card of its pane, not folded, not arriving, and in the
- * shown workspace. Everything else posts `visible: false`, and the host
- * hides it.
+ * shown: the active card of its pane, not arriving, in the shown workspace,
+ * and not folded — unless its kind authors its own folded form (the Session
+ * card's Z2 band, `ownsFoldedForm`), which it draws in its body, so that body
+ * stays shown at the folded content box. Everything else posts
+ * `visible: false`, and the host hides it.
  *
  * **The lid.** A body is beneath the shell page, so whatever the shell paints
  * over a body's rect is what the user sees there; and until the body is on
@@ -106,6 +108,7 @@ import { scheduleAfterPaint, type CancelAfterPaint } from "./after-paint";
 import { bodyCardsStore } from "./body-cards-store";
 import { hostCapabilitiesStore, postToHost } from "./body-handoff";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
+import { getRegistration } from "../card-registry";
 import { subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { deckRootElement, pageZoomStore } from "./page-zoom-store";
 import { deferToSetUp, isSetUpPending } from "./set-up-apply";
@@ -143,6 +146,8 @@ export interface BodyShownFacts {
   /** The card is its pane's active card. */
   readonly active: boolean;
   readonly folded: boolean;
+  /** The card's kind draws its own folded form, in its body. */
+  readonly ownsFoldedForm: boolean;
   readonly arriving: boolean;
   /** The card's workspace is the shown one. */
   readonly layerShown: boolean;
@@ -150,7 +155,7 @@ export interface BodyShownFacts {
 
 /** Whether a body with these facts is placed visible. */
 export function bodyVisible(facts: BodyShownFacts): boolean {
-  return facts.painted && facts.active && !facts.folded && !facts.arriving && facts.layerShown;
+  return facts.painted && facts.active && (!facts.folded || facts.ownsFoldedForm) && !facts.arriving && facts.layerShown;
 }
 
 /** One body's entry in `placeBodies`: a viewport rect and whether it shows. */
@@ -470,12 +475,14 @@ function shownFactsOf(deck: IDeckManagerStore, cardId: string): BodyShownFacts |
   const state = deck.getSnapshot();
   const pane = state.panes.find((p) => p.cardIds.includes(cardId));
   if (pane === undefined) return null;
+  const componentId = state.cards.find((c) => c.id === cardId)?.componentId;
   const spaceId = deck.spaceOf(cardId);
   const activeSpaceId = deck.getSpacesSnapshot().activeSpaceId;
   return {
     painted: bodyCardsStore.stateOf(cardId) === "painted",
     active: pane.activeCardId === cardId,
     folded: cardFoldedOf(state, cardId),
+    ownsFoldedForm: componentId !== undefined && getRegistration(componentId)?.ownsFoldedForm === true,
     arriving: cardArrivingOf(state, cardId),
     layerShown: spaceId === null || spaceId === activeSpaceId,
   };
@@ -812,9 +819,11 @@ export class BodyPlacer {
     const insets = new Map<string, Insets>();
     const landingInsets = new Map<string, Insets>();
     const unplannable = new Set<string>();
+    const arriving = new Set<string>();
     input.frames.forEach((f, i) => {
       const cardIds = bodiesIn(f.frame);
       if (cardIds.length === 0) return;
+      if (f.arrives === true) for (const cardId of cardIds) arriving.add(cardId);
       const box = this.paneBoxes.get(f.frame);
       const first = f.first ?? (box === undefined ? null : { x: box.x, y: box.y, width: box.width, height: box.height });
       if (first === null) {
@@ -855,6 +864,7 @@ export class BodyPlacer {
       },
       factor: input.factor,
       allowCrossing: input.allowCrossing === true,
+      arriving,
     });
     let planId: number | null = null;
     if (out.plan.length > 0) {
@@ -874,14 +884,24 @@ export class BodyPlacer {
         });
       }
       const landings = new Map(out.plan.map((b) => [b.cardId, b.landing]));
+      const arrived = new Set(out.plan.filter((b) => b.arrives === true).map((b) => b.cardId));
       for (const b of out.plan) this.inFlight.set(b.cardId, { planId, landing: b.landing });
+      // A carried arrival is shown by the host with its tracks, so it is
+      // posted visible from here, and its lid comes off now, with no fade:
+      // the frame it rides in on is what the reader sees arrive.
       this.poster.adopt({
         radius: last.radius,
         bodies: last.bodies.map((b) => {
           const r = landings.get(b.cardId);
-          return r === undefined ? b : { ...b, x: r.x, y: r.y, width: r.width, height: r.height };
+          if (r === undefined) return b;
+          return { ...b, x: r.x, y: r.y, width: r.width, height: r.height, ...(arrived.has(b.cardId) ? { visible: true } : {}) };
         }),
       });
+      for (const cardId of arrived) {
+        this.container
+          .querySelector(`[data-body-placeholder][data-card-id="${cardId}"]`)
+          ?.setAttribute(BODY_SHOWN_ATTRIBUTE, "carried");
+      }
     }
     this.lastPlan = {
       planId,
@@ -927,13 +947,13 @@ export class BodyPlacer {
       radius: last.radius,
       bodies: last.bodies.map((b) => {
         const p = planned.get(b.cardId);
-        if (p !== undefined) return { ...b, ...p.landing };
+        if (p !== undefined) return { ...b, ...p.landing, ...(p.arrives === true ? { visible: true } : {}) };
         return refused.has(b.cardId) ? { ...b, visible: false } : b;
       }),
     };
     for (const [pane, box] of this.paneBoxes) {
       if (!pane.isConnected) continue;
-      const fronts = last.bodies.filter((b) => b.visible && b.z > box.z && !refused.has(b.cardId));
+      const fronts = last.bodies.filter((b) => (b.visible || planned.get(b.cardId)?.arrives === true) && b.z > box.z && !refused.has(b.cardId));
       const moving: CutFront[] = fronts.map((b) => planned.get(b.cardId) ?? { x: b.x, y: b.y, width: b.width, height: b.height });
       const paneBeats = own.get(pane);
       const window = cutWindow([...(paneBeats ?? []), ...moving.flatMap((f) => ("beats" in f ? f.beats : []))], input.periodMs);
@@ -1252,6 +1272,8 @@ export interface RunPlanFrame {
   /** Its rect at rest after the settle, viewport px, or how far it travels from `first` across the page. */
   readonly last: Rect | { readonly dx: number };
   readonly beats: readonly FrameBeat[];
+  /** The frame is arriving on this settle: its bodies were never shown, and ride its arrive beat in. */
+  readonly arrives?: boolean;
 }
 
 /** What a settle hands {@link bodyRunPlan}. */

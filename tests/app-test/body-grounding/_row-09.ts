@@ -1,6 +1,8 @@
 /**
  * _row-09.ts — what the pieces of row 9 share: a fold hides the body and the
- * unfold shows it, with no peek either way.
+ * unfold shows it, with no peek either way — or, for a kind that draws its
+ * own folded form, the host carries the body between its open box and its
+ * folded strip, with no peek either way.
  *
  * The bar's ninth row ([B02] row 9). A body session card stands in a pane
  * and is folded and unfolded through the session tap (⌃⌘Y, [B04]). The
@@ -19,6 +21,14 @@
  *
  * Every other kind that is a body is folded and unfolded the same way, the
  * chord read by whichever card holds the keyboard.
+ *
+ * The Session card draws its own folded form (`ownsFoldedForm`): its Z2 band,
+ * which carries a compaction's Cancel and a deferred permission's Unfold, is
+ * in its body. So its body is not hidden by the fold ([B22] of the bodies
+ * migration brief reverses this row's hide for such a kind): the host carries
+ * it with the frame as it carries a slide (row 17's judge), the lid stays
+ * lifted, and at each land it stands on its placeholder — the folded strip,
+ * or the open box.
  *
  * One launch per leg: `row-09-fold-fold` reads the fold, `row-09-fold-unfold`
  * folds as its unmeasured set-up and reads the unfold. A rail does not fold,
@@ -45,6 +55,8 @@ import {
   expectHidden,
   frameOf,
   judge,
+  judgeCarried,
+  pollPresented,
   readSampler,
   readStanding,
   planDiag,
@@ -112,18 +124,26 @@ async function cameToRest(app: App, card: string, folded: boolean): Promise<Rect
   return (await rectOf(app, frameOf(card)))!;
 }
 
-async function foldLeg(app: App, card: string, label: string, toFolded: boolean, standing: Standing, crop: Rect, keep: string): Promise<void> {
+async function foldLeg(app: App, card: string, label: string, toFolded: boolean, standing: Standing, crop: Rect, keep: string, carried: boolean): Promise<void> {
   const before = (await rectOf(app, frameOf(card)))!;
+  const boxBefore = carried ? await expectAtRest(app, card, `${label}: before`) : null;
   const runsBefore = (await planDiag(app)).runs;
   await armSampler(app, card);
   const armed = (await app.captureBurst({ op: "arm", durationMs: BURST_MS, intervalMs: BURST_INTERVAL_MS, crop })) as { armed: true };
   expect(armed.armed, `${label}: the burst armed`).toBe(true);
   const gestureWall = Date.now();
   await app.nativeKey("y", ["ctrl", "cmd"]);
+  let polling = carried;
+  const presentedRead = carried ? pollPresented(app, card, () => !polling, SETTLE_MS + 2_000) : Promise.resolve([]);
   const after = await cameToRest(app, card, toFolded);
+  polling = false;
+  const presented = await presentedRead;
   note(`${label}: frame ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
   expect(Math.abs(after.height - before.height), `${label}: the gesture changed the frame's height`).toBeGreaterThan(40);
-  if (toFolded) await expectHidden(app, card, `${label}: at the land`);
+  if (carried) {
+    await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(`${frameOf(card)} [data-body-placeholder]`)})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
+    await Bun.sleep(400);
+  } else if (toFolded) await expectHidden(app, card, `${label}: at the land`);
   else {
     await pollFor(() => app.evalJS<boolean>(`document.querySelector(${JSON.stringify(`${frameOf(card)} [data-body-placeholder]`)})?.hasAttribute("data-body-shown") ?? false`), (v) => v, 5_000);
     await Bun.sleep(400);
@@ -132,6 +152,24 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
   const samples = await readSampler(app);
   const reading = await pollFor(() => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>, (r) => r.done, BURST_MS + 5_000);
   expect(reading.done, `${label}: the burst finished`).toBe(true);
+  if (carried) {
+    const boxAfter = await expectAtRest(app, card, `${label}: at the land`);
+    const plan = await pollFor(
+      () => planDiag(app),
+      (p) => p.runs > runsBefore && (p.last?.landed.some((l) => l.cardId === card) ?? false),
+      3_000,
+    );
+    note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
+    expect(plan.last?.landed.some((l) => l.cardId === card) ?? false, `${label}: the host carried the body and landed it`).toBe(true);
+    const v = judgeCarried(label, reading, samples, presented, gestureWall, boxBefore!, boxAfter, standing.palette, crop);
+    expect(v.motion, `${label}: frames were captured while the chrome moved`).toBeGreaterThan(2);
+    expect(v.lidOnWhileMoving, `${label}: the lid stays lifted in every sample where the frame moved`).toBe(0);
+    expect(v.bare, `${label}: no frame shows the bare window`).toBe(0);
+    expect(v.floorOffenders.length, `${label}: on every frame where the chrome moves the body fills its content box`).toBe(0);
+    expect(v.tracked, `${label}: the host was read while the chrome moved`).toBeGreaterThan(0);
+    expect(v.worstTrackPx, `${label}: the host's container stands within two frames of travel of the placeholder`).toBeLessThanOrEqual(v.trackBarPx);
+    return;
+  }
   const verdict = judge(label, reading, samples, gestureWall, before, after, standing.palette, crop);
   const plan = await planDiag(app);
   note(`${label}: ${plan.runs - runsBefore} plan run(s); last plan ${JSON.stringify(plan.last)}`);
@@ -149,13 +187,13 @@ async function foldLeg(app: App, card: string, label: string, toFolded: boolean,
  * Read `leg` on one card already at rest with the keyboard. The unfold
  * folds first, unmeasured, and the crop is the open frame's either way.
  */
-async function readLeg(app: App, card: string, leg: Leg, standing: Standing, keep: string): Promise<void> {
+async function readLeg(app: App, card: string, leg: Leg, standing: Standing, keep: string, carried: boolean): Promise<void> {
   const frame = (await rectOf(app, frameOf(card)))!;
   const crop = { x: 0, y: Math.max(0, Math.floor(frame.y) - 8), width: standing.contentWidth, height: Math.ceil(frame.height) + 16 };
   mkdirSync(keep, { recursive: true });
   note(`crop ${JSON.stringify(crop)} at scale ${standing.scale}; frames kept at ${keep}`);
   if (leg === "fold") {
-    await foldLeg(app, card, "fold", true, standing, crop, keep);
+    await foldLeg(app, card, "fold", true, standing, crop, keep, carried);
     return;
   }
   await armSampler(app, card);
@@ -163,7 +201,7 @@ async function readLeg(app: App, card: string, leg: Leg, standing: Standing, kee
   await cameToRest(app, card, true);
   await Bun.sleep(600);
   note(`fold (set-up) landed; before the unfold: focused card ${await app.getFocusedCardId()}; host ${await responders(app)}`);
-  await foldLeg(app, card, "unfold", false, standing, crop, keep);
+  await foldLeg(app, card, "unfold", false, standing, crop, keep, carried);
 }
 
 /** Every other kind: a card of `kind` folded or unfolded by the chord it reads. */
@@ -177,7 +215,7 @@ export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promis
     await Bun.sleep(400);
     const start = await expectAtRest(app, card, "at the start");
     const standing = await readStanding(app, card, start, floorMeasure(kind.rail));
-    await readLeg(app, card, leg, standing, join(tmpdir(), `tug-row09-${leg}-${kind.componentId}-${Date.now()}`));
+    await readLeg(app, card, leg, standing, join(tmpdir(), `tug-row09-${leg}-${kind.componentId}-${Date.now()}`), false);
   } finally {
     await app.close();
   }
@@ -199,7 +237,7 @@ export async function foldSession(launch: Launch, leg: Leg): Promise<void> {
     await Bun.sleep(400);
     const start = await expectAtRest(app, A, "at the start");
     const standing = await readStanding(app, A, start);
-    await readLeg(app, A, leg, standing, join(tmpdir(), `tug-row09-${leg}-${Date.now()}`));
+    await readLeg(app, A, leg, standing, join(tmpdir(), `tug-row09-${leg}-${Date.now()}`), true);
   } finally {
     await app.close();
   }

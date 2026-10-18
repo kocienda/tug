@@ -1843,6 +1843,13 @@ html[data-rail-treatment="panel"] body[data-body-rail-side] {
   transition: opacity 200ms ease-out;
 }
 
+/* A body carried in on its frame's arrive beat: the lid comes off at the
+   plan, with no fade, because the frame fading in around the body is the
+   arrival the reader sees (`lib/body-placement.ts`, `runPlan`). */
+.tug-pane-content [data-body-placeholder][data-body-shown="carried"]::before {
+  transition: none;
+}
+
 /* A card whose body failed twice: a placard over the lid, with a Reload. */
 .tug-pane-content [data-body-placeholder] .tug-body-failed {
   position: absolute;

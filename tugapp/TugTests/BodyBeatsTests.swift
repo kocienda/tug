@@ -25,7 +25,7 @@ final class BodyBeatsTests: XCTestCase {
 
     func testEveryPlanInTheParityFixtureDecodes() throws {
         let cases = try parityCases()
-        check("four cases", cases.count == 4, "\(cases.keys.sorted())")
+        check("five cases", cases.count == 5, "\(cases.keys.sorted())")
 
         let slide = try XCTUnwrap(cases["flow-slide"]).plan
         check("the slide carries one body", slide.bodies.count == 1)
@@ -43,6 +43,12 @@ final class BodyBeatsTests: XCTestCase {
 
         let crossing = try XCTUnwrap(cases["size-change-crossing"]).plan.bodies[0]
         check("an allowed size change carries its crossing size", crossing.crossing == PlannedBody.Size(width: 298, height: 363), "\(String(describing: crossing.crossing))")
+        check("a moving body is not an arrival", crossing.arrives == nil)
+
+        let arrival = try XCTUnwrap(cases["arrival"]).plan.bodies[0]
+        check("an arrival says so, for the host to show it with its tracks", arrival.arrives == true)
+        check("it rides one arrive beat", arrival.beats.map(\.kind) == ["arrive"])
+        check("and fades in", arrival.beats[0].opacity == [0, 1], "\(String(describing: arrival.beats[0].opacity))")
     }
 
     func testAPlanArrivesAsWebKitHandsItOver() throws {

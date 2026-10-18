@@ -102,6 +102,7 @@ import { cardIdentityElsewhere } from "../lib/card-identity";
 import { cardActivityElsewhere } from "../lib/card-activity-elsewhere";
 import { getOpenTextCard } from "../lib/text-card-open-registry";
 import { getCardCloseGuard } from "../lib/card-close-guard";
+import { refuseCardModalHold } from "../lib/card-modal-hold-store";
 import { appInfoStore } from "../lib/app-info-store";
 import { requestSettingsReveal } from "../lib/settings-reveal";
 import { getJotsStore } from "../lib/jots-store";
@@ -730,6 +731,12 @@ async function bindBody(bind: BodyBind): Promise<void> {
     if (message.payload.command === "inspection") {
       const inspection = message.payload.inspection;
       telemetryInspectionStore.relay(isTelemetryInspection(inspection) ? inspection : null);
+      return;
+    }
+    // A door in the shell met this card's modal hold: the run holding it
+    // speaks the refusal here, in the card it concerns.
+    if (message.payload.command === "refuse-hold") {
+      refuseCardModalHold(cardId);
       return;
     }
     // ⌘J's capture, for this Jots card: the editor opens from this page's store.

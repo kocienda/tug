@@ -29,6 +29,14 @@
  *
  * Frames are judged by surface colour, never ink share ([B05]).
  *
+ * A card that arrives in a pane of its own is CARRIED in: its body, painted
+ * under the hidden pane, is shown by the host with the frame's arrive beat
+ * and fades in with its chrome ([B24] of the bodies migration brief reverses
+ * the one-step show for it). Such an arrival is judged by the same bar — no
+ * frame shows more canvas or bare window than the finished body — and by the
+ * plan having landed it; the one-step show under the lid is the rule for a
+ * body shown by a placement.
+ *
  * One launch per arrival: `row-01-arrival-warm` and `row-01-arrival-cold`
  * for the Session card, `row-01-arrival-kinds` for every other kind.
  */
@@ -39,6 +47,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
 import { classifyFrame, describeFrames, FLOOR_BY_CLASS, floorMeasure, pollFor, readPalette, type FloorMeasure, type FrameClasses } from "./_frames";
 import { armPlaceholderSampler, landedFrom, openKind, placeholderAt, readPlaceholderSampler } from "./_kind-bodies";
+import { planDiag } from "./_motion";
 import type { CardKind } from "./_kinds";
 
 const TEST_NAME = "body-grounding-row-01-arrival";
@@ -156,6 +165,8 @@ interface ArrivalReading {
    * by which time the body may long since have shown under the hidden pane.
    */
   fromHandOff: boolean;
+  /** The host carried the body in on its frame's arrive beat: the plan named it, and landed it. */
+  carried: boolean;
 }
 
 /** The row's judgement of one arrival. */
@@ -170,7 +181,9 @@ function judge(label: string, r: ArrivalReading, measure: FloorMeasure = FLOOR_B
       `worst grid ${pct(worstGrid)} (final ${pct(r.final.grid)}), worst bare ${pct(worstBare)}; ${lidFrames} blank-lid frames; ` +
       `final surface ${pct(r.final.surface)} ink ${pct(r.final.other)}; body ${r.body.start}, ready ${r.body.readyMs?.toFixed(0)} ms`,
   );
-  if (r.host !== null) {
+  if (r.carried) {
+    note(`${label}: carried in on the frame's arrive beat`);
+  } else if (r.host !== null) {
     const samples = r.host.samples ?? [];
     const between = samples.filter((s) => s.opacity > 0.05 && s.opacity < 0.9999);
     const first = samples.findIndex((s) => s.opacity >= 0.9999);
@@ -232,6 +245,14 @@ async function arriveOpened(
   expect(shown?.visible, `${label}: the body is placed visible`).toBe(true);
   expect(shown?.componentId, `${label}: the body holds a ${componentId} card`).toBe(componentId);
   const lifted = await pollFor(() => lidLifted(app, cardId), (v) => v, PLACED_MS);
+  // A body the placer planned on its own arrival was never shown before it:
+  // the host carried it in, and the plan says whether it landed.
+  const plan = (await planDiag(app)).last;
+  const carried = plan?.planned.includes(cardId) === true;
+  if (carried) {
+    const landedPlan = await pollFor(() => planDiag(app), (p) => p.last?.landed.some((l) => l.cardId === cardId) ?? false, PLACED_MS);
+    expect(landedPlan.last?.landed.some((l) => l.cardId === cardId), `${label}: the plan that carried the body in landed it`).toBe(true);
+  }
   expect(lifted, `${label}: the shell lifted the lid once the host said shown`).toBe(true);
   const reading = await pollFor(
     () => app.captureBurst({ op: "read" }) as Promise<CaptureBurstReading>,
@@ -271,7 +292,7 @@ async function arriveOpened(
     const judged = frames.filter((f) => f.wall >= landedWall!);
     expect(judged.length, `${label}: frames were captured after the pane landed`).toBeGreaterThan(0);
     note(`${label}: opened ${handOffWall - openWall} ms before the placeholder stood; its pane landed ${landedWall! - handOffWall} ms after it`);
-    return { frames, afterHandOff: judged, final: frames[frames.length - 1], body: shown!, host, handOffWall, fromHandOff: false };
+    return { frames, afterHandOff: judged, final: frames[frames.length - 1], body: shown!, host, handOffWall, fromHandOff: false, carried };
   }
   const firstLid = frames.findIndex((f) => f.wall >= handOffWall - BURST_INTERVAL_MS && f.surface > 0.9);
   expect(firstLid, `${label}: a lid frame follows the hand-off`).toBeGreaterThanOrEqual(0);
@@ -280,7 +301,7 @@ async function arriveOpened(
   const beforeLid = frames.filter((f, i) => i < firstLid && f.wall >= handOffWall - BURST_INTERVAL_MS);
   if (beforeLid.length > 0) note(`${label}: the frames between the placeholder and the lid\n${describeFrames(beforeLid)}`);
   expect(skewMs, `${label}: the lid is painted within a few frames of the hand-off commit`).toBeLessThanOrEqual(5 * BURST_INTERVAL_MS);
-  return { frames, afterHandOff: frames.slice(firstLid), final: frames[frames.length - 1], body: shown!, host, handOffWall, fromHandOff: true };
+  return { frames, afterHandOff: frames.slice(firstLid), final: frames[frames.length - 1], body: shown!, host, handOffWall, fromHandOff: true, carried };
 }
 
 /** A card of `kind` opened the way it opens, read from the hand-off on. */

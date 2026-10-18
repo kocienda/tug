@@ -38,6 +38,8 @@ import * as paneRootRegistry from "../components/chrome/pane-root-registry";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { RAIL_TREATMENT, RAIL_TREATMENT_ATTRIBUTE } from "../lib/layout-imposer";
 import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
+import { refuseCardModalHold } from "../lib/card-modal-hold-store";
+import { getCardCloseGuard } from "../lib/card-close-guard";
 import { UsageContext } from "../lib/usage-context";
 import type { UsageStore } from "../lib/usage-store";
 
@@ -73,17 +75,32 @@ function BodyPane({
   const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
   const [rootEl, setRootEl] = useState<HTMLDivElement | null>(null);
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null);
-  // The one piece of pane currency a card's content can send its pane:
-  // `ADD_TAB` is not a command, so the unhandled-target hook would not
-  // forward it; answered here as the shell's pane answers it.
+  // The pane currency a card's content can send its pane: `ADD_TAB` and
+  // `CLOSE_TAB` are not commands, so the unhandled-target hook would not
+  // forward them; answered here as the shell's pane answers them. A
+  // `CLOSE_TAB` for this card — the unbound Session card's picker Cancel
+  // sends one — meets the card's modal hold first and its own close guard
+  // next, as the shell's tab × does, and then asks the shell to close it.
   const actions = React.useMemo(
     () => ({
       [TUG_ACTIONS.ADD_TAB]: (event: ActionEvent) => {
         if (typeof event.value !== "string") return;
         bridge.addCardToPane(paneId, event.value);
       },
+      [TUG_ACTIONS.CLOSE_TAB]: (event: ActionEvent) => {
+        if (event.value !== cardId) return;
+        if (refuseCardModalHold(cardId)) return;
+        const guard = getCardCloseGuard(cardId);
+        if (guard === null) {
+          bridge.removeCard(paneId, cardId);
+          return;
+        }
+        void guard.run().then((answer) => {
+          if (answer === "close") bridge.removeCard(paneId, cardId);
+        });
+      },
     }),
-    [bridge, paneId],
+    [bridge, paneId, cardId],
   );
   const { ResponderScope, responderRef } = useResponder({ id: paneId, kind: "card", actions });
   // The shell's rule for a focused pane (`pane-focus-controller.ts`): it is

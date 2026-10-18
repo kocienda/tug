@@ -184,7 +184,11 @@ export interface Sample {
   beat: string;
   /** Every live frame's height, keyed by pane id. */
   heights: Record<string, number>;
-  /** Every live frame's COMPUTED opacity, keyed by pane id. */
+  /**
+   * Every live frame's opacity as the reader sees it, keyed by pane id: its
+   * computed opacity, or "0" while it is `visibility: hidden` — an arriving
+   * frame held hidden until its reveal, whose opacity is still 1.
+   */
   opacity: Record<string, string>;
   /** Every live frame's INLINE opacity — a hold, or `""`. */
   inlineOpacity: Record<string, string>;
@@ -284,7 +288,8 @@ export async function census(
           var el = frames[i];
           var id = el.getAttribute("data-pane-id");
           sample.heights[id] = el.getBoundingClientRect().height;
-          sample.opacity[id] = getComputedStyle(el).opacity;
+          var cs = getComputedStyle(el);
+          sample.opacity[id] = cs.visibility === "hidden" ? "0" : cs.opacity;
           sample.inlineOpacity[id] = el.style.opacity;
           sample.bodyShown[id] = el.querySelector("[data-body-placeholder][data-body-shown]") !== null;
         }

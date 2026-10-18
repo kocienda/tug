@@ -1,6 +1,7 @@
 /**
  * A body shows only when it is ready and its card is shown — the active card
- * of its pane, not folded, not arriving, in the shown workspace — and the
+ * of its pane, not folded (unless its kind draws its own folded form), not
+ * arriving, in the shown workspace — and the
  * placer tells the host only what changed.
  *
  * @covers tugdeck/src/lib/body-placement.ts
@@ -24,6 +25,7 @@ const SHOWN: BodyShownFacts = {
   painted: true,
   active: true,
   folded: false,
+  ownsFoldedForm: false,
   arriving: false,
   layerShown: true,
 };
@@ -59,9 +61,12 @@ describe("bodyVisible", () => {
     ["ready but not yet painted", { painted: false }, false],
     ["an inactive tab", { active: false }, false],
     ["folded", { folded: true }, false],
+    ["folded, its kind drawing its own folded form", { folded: true, ownsFoldedForm: true }, true],
+    ["open, its kind drawing its own folded form", { ownsFoldedForm: true }, true],
     ["arriving", { arriving: true }, false],
     ["in a parked workspace", { layerShown: false }, false],
     ["folded in a parked workspace", { folded: true, layerShown: false }, false],
+    ["folded in its own form, in a parked workspace", { folded: true, ownsFoldedForm: true, layerShown: false }, false],
   ];
   for (const [name, over, visible] of cases) {
     test(name, () => {

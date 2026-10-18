@@ -147,6 +147,13 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(AUTO_OPTION)}) !== null`,
             { timeoutMs: 4000 },
           );
+          // Aim only once the sheet has risen: its OK row is pinned to the
+          // panel's bottom, just under the MODE row in this card, so a click
+          // aimed mid-entrance can land on the row instead.
+          await app.body("A").waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(SHEET)}).getAnimations({ subtree: true }).length === 0`,
+            { timeoutMs: 4000 },
+          );
           // The row offers every mode, and exactly the current one is active.
           const sheetState = await app.body("A").evalJS<{ total: number; active: string[] }>(
             `(function(){

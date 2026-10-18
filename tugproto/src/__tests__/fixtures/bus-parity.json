@@ -154,6 +154,12 @@
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
       "to": { "card": "c2" },
       "kind": "card-command",
+      "payload": { "command": "refuse-hold" }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
       "payload": { "command": "ask", "payload": { "ask": { "requestId": "r1", "title": "Run them?", "options": [{ "value": "yes", "label": "Yes" }] } } }
     },
     {
@@ -286,6 +292,18 @@
       "to": "shell",
       "kind": "card-advice",
       "payload": { "advice": "capture-armed", "armed": true }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "modal-hold", "reason": "Compacting this session.", "admitsFold": true }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "modal-hold", "reason": null }
     },
     {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },

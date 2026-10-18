@@ -97,6 +97,7 @@ const DELIVERED: BusDelivered[] = [
     payload: { command: "intent", payload: { kind: "resume", tugSessionId: "s1", projectDir: "/p", reason: "launch" } },
   },
   { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "new-jot" } },
+  { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "refuse-hold" } },
   {
     from: SHELL,
     to: { card: "c2" },
@@ -149,6 +150,13 @@ const DELIVERED: BusDelivered[] = [
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-guard", asks: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-decision", answer: "cancel" } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "capture-armed", armed: true } },
+  {
+    from: BODY_C1,
+    to: "shell",
+    kind: "card-advice",
+    payload: { advice: "modal-hold", reason: "Compacting this session.", admitsFold: true },
+  },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "modal-hold", reason: null } },
   {
     from: BODY_C1,
     to: "shell",
@@ -254,6 +262,7 @@ describe("bus envelope parity", () => {
       "close-guard": true,
       "close-decision": true,
       "capture-armed": true,
+      "modal-hold": true,
       inspection: true,
       "ask-response": true,
     };
@@ -278,6 +287,7 @@ describe("bus envelope parity", () => {
       intent: true,
       "new-jot": true,
       ask: true,
+      "refuse-hold": true,
     };
     expect([...advice].sort()).toEqual(Object.keys(allAdvice).sort());
     expect([...commands].sort()).toEqual(Object.keys(allCommands).sort());

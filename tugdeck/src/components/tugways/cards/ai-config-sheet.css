@@ -29,3 +29,21 @@
      last channel by more than the sheet's own rhythm. */
   margin-block-start: var(--tug-space-md);
 }
+
+/* A mixer taller than its card scrolls its channels, and its action row stays
+   at the panel's bottom: OK and Cancel are the transaction's only doors, so
+   they are always in reach, and no sheet moves the card to make room. Sticky
+   against the panel, which is the sheet's scroller; painted on the surface the
+   panel publishes, so channels scrolling under it do not show through. The
+   padding and the matching negative margins keep the row's laid-out height
+   what it was, so a mixer that fits looks exactly as before, and the bottom
+   padding stands in for the panel's own bottom spacer, which scrolls away. */
+.ai-config-sheet > .tug-sheet-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background-color: var(--tugx-ambient-surface);
+  margin-block-start: calc(var(--tugx-sheet-space-b) - var(--tugx-sheet-space-a));
+  padding-block: var(--tugx-sheet-space-a) var(--tugx-sheet-space-b);
+  margin-block-end: calc(-1 * var(--tugx-sheet-space-b));
+}

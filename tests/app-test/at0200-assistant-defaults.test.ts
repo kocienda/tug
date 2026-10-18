@@ -29,7 +29,11 @@
  * Capabilities are injected via `ingestSessionMetadata` (the chip's
  * SESSION_SIDEBAND seam — no live claude needed); tugbank state is seeded
  * through the `setTugbankValue` surface, which drives the same local-cache +
- * onDomainChanged path a real write does.
+ * onDomainChanged path a real write does — except what a card reads at
+ * mount (the persisted catalog and a card's saved selector), which a body
+ * reads from the tugbank it launched on, so those are seeded there
+ * (`mkSeededTugbank`): the shell's `setTugbankValue` writes only the shell
+ * page's cache.
  *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
@@ -52,6 +56,7 @@
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App, type BodyApp } from "./_harness";
 import { kindBody } from "./_harness/card-reach";
+import { mkSeededTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -62,9 +67,9 @@ const SETTINGS_AI = `${SETTINGS} [data-slot="ai-config-editor"]`;
 // Sheets portal into their host PANE's frame and linger through the exit
 // animation — scope every sheet read/click to the pane that owns it so a
 // closing sheet in another pane can never swallow a click. The frame is the
-// card's own body page's (`.body-pane-frame[data-pane-id]`), so these are
-// read in card A's body.
-const CARD_A_SHEET = '[data-pane-id="p1"] [data-slot="tug-sheet"]';
+// card's own body page's (`.body-pane-frame[data-pane-id="body-pane-<card>"]`),
+// so these are read in card A's body.
+const CARD_A_SHEET = '.body-pane-frame[data-pane-id="body-pane-A"] [data-slot="tug-sheet"]';
 
 /** The model channel is an option list; each row carries its own selector. */
 const MODEL_LIST = '[data-testid="ai-config-model"]';
@@ -381,29 +386,25 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a persisted selector absent from the persisted catalog raises the bulletin, resets to Default, and opens Settings",
       async () => {
-        const app = await launchTugApp({ testName: "at0200-model-bulletin" });
+        // Persist the live catalog + a bogus per-card selector BEFORE the
+        // card mounts — the bulletin evaluates once, at mount, and is gated
+        // on a persisted (non-bootstrap) catalog existing ([Q02]).
+        const tugbank = mkSeededTugbank([
+          {
+            domain: "dev.tugapp.models",
+            key: "catalog",
+            type: "json",
+            value: JSON.stringify([
+              { value: "default", displayName: "Default (recommended)" },
+              { value: "sonnet", displayName: "Sonnet" },
+              { value: "haiku", displayName: "Haiku" },
+            ]),
+          },
+          { domain: "dev.model", key: "A", type: "string", value: "fable-9" },
+        ]);
+        const app = await launchTugApp({ testName: "at0200-model-bulletin", env: { TUGBANK_PATH: tugbank } });
         try {
           await app.enableDeckTrace(true);
-
-          // Persist the live catalog + a bogus per-card selector BEFORE the
-          // card mounts — the bulletin evaluates once, at mount, and is gated
-          // on a persisted (non-bootstrap) catalog existing ([Q02]).
-          await app.waitForCondition<boolean>(
-            `typeof window.__tug !== "undefined"`,
-          );
-          await app.evalJS(
-            `window.__tug.setTugbankValue("dev.tugapp.models", "catalog", {
-              kind: "json",
-              value: [
-                { value: "default", displayName: "Default (recommended)" },
-                { value: "sonnet", displayName: "Sonnet" },
-                { value: "haiku", displayName: "Haiku" },
-              ],
-            })`,
-          );
-          await app.evalJS(
-            `window.__tug.setTugbankValue("dev.model", "A", { kind: "string", value: "fable-9" })`,
-          );
 
           await app.seedDeckState({ state: deckShape(["A"]), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -449,26 +450,17 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a selector claude has merely respelled is migrated to the current spelling — model kept, no bulletin",
       async () => {
-        const app = await launchTugApp({ testName: "at0200-model-respelled" });
+        // Persist a catalog offering Fable under the `[1m]` spelling, and a
+        // per-card selector saved under the OLD spelling — the shape that
+        // shipped when the 1M variant became the offered form. Both name the
+        // same model, so the card must keep it, silently.
+        const tugbank = mkSeededTugbank([
+          { domain: "dev.tugapp.models", key: "catalog", type: "json", value: JSON.stringify(fableCapabilities().models) },
+          { domain: "dev.model", key: "A", type: "string", value: "claude-fable-5" },
+        ]);
+        const app = await launchTugApp({ testName: "at0200-model-respelled", env: { TUGBANK_PATH: tugbank } });
         try {
           await app.enableDeckTrace(true);
-
-          // Persist a catalog offering Fable under the `[1m]` spelling, and a
-          // per-card selector saved under the OLD spelling — the shape that
-          // shipped when the 1M variant became the offered form. Both name the
-          // same model, so the card must keep it, silently.
-          await app.waitForCondition<boolean>(
-            `typeof window.__tug !== "undefined"`,
-          );
-          await app.evalJS(
-            `window.__tug.setTugbankValue("dev.tugapp.models", "catalog", {
-              kind: "json",
-              value: ${JSON.stringify(fableCapabilities().models)},
-            })`,
-          );
-          await app.evalJS(
-            `window.__tug.setTugbankValue("dev.model", "A", { kind: "string", value: "claude-fable-5" })`,
-          );
 
           await app.seedDeckState({ state: deckShape(["A"]), focusCardId: "A" });
           await app.waitForCondition<boolean>(

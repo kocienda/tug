@@ -51,6 +51,10 @@
  *   shell then holds a close guard for it that fronts the card and asks the
  *   body's own guard (`close-decision`), so a close here, or a walk over a
  *   workspace, waits on the sheet the body raises in the card it concerns.
+ * - A body card held by a modal run says so (`modal-hold`); the shell holds
+ *   the card in its own `cardModalHoldStore` for as long as the body says,
+ *   so the title bar's cluster, ⌘W and the tab × refuse here, and a refusal
+ *   asks the body to speak it (`refuse-hold`). The hold goes with the page.
  *
  * Laws: [L02] (the stores are read through `useSyncExternalStore`), [L22]
  * (advisors read the store directly), [L27] (every registration released),
@@ -120,6 +124,7 @@ import { setBodyLineRevealer } from "./open-file-in-card";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
 import { isBodyDeckCall, projectActivities, projectArrangement } from "./body-arrangement";
 import { registerCardCloseGuard } from "./card-close-guard";
+import { cardModalHoldStore } from "./card-modal-hold-store";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { setJotCaptureForwarder } from "./jot-capture";
@@ -320,6 +325,16 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   /** The shell's close guard held for each body card whose guard spoke, with its release. */
   const closeGuards = new Map<string, () => void>();
+  /** The modal hold the shell holds for each body card whose run said so, with its release. */
+  const modalHolds = new Map<string, () => void>();
+  const dropModalHold = (cardId: string): void => {
+    modalHolds.get(cardId)?.();
+    modalHolds.delete(cardId);
+  };
+  releases.push(() => {
+    for (const release of modalHolds.values()) release();
+    modalHolds.clear();
+  });
   /** Whether each such body's guard would ask, as it last said. */
   const closeAsks = new Map<string, boolean>();
   /** The close decision each body card owes, while one is asked. */
@@ -356,6 +371,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
+    dropModalHold(cardId);
     cardIdentityElsewhere.set(cardId, null);
     paneTitleBarItemsStore.set(cardId, null);
     closeAsks.delete(cardId);
@@ -975,6 +991,19 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "close-decision":
         pendingDecisions.get(cardId)?.(advice.answer);
         return;
+      case "modal-hold": {
+        dropModalHold(cardId);
+        if (advice.reason === null) return;
+        modalHolds.set(
+          cardId,
+          cardModalHoldStore.hold(cardId, {
+            reason: advice.reason,
+            admitsFold: advice.admitsFold === true,
+            refuse: () => sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "refuse-hold" } }),
+          }),
+        );
+        return;
+      }
       case "ask-response":
         // The card's dialog answered: the question is this page's, and so is
         // the answer to the blocked caller.
@@ -1083,8 +1112,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         surfaces.remove(cardId);
         // The page whose capture was armed is gone, and so is its disarm.
         bodyChordCaptureStore.clear(cardId);
-        // The page that would have answered a close decision is gone.
+        // The page that would have answered a close decision is gone, and
+        // so is the run that held the card.
         pendingDecisions.get(cardId)?.("cancel");
+        dropModalHold(cardId);
         return;
       case "failed": {
         // The host has destroyed the body. The card stays a body card —
@@ -1100,6 +1131,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         closeAsks.delete(cardId);
         bodyChordCaptureStore.clear(cardId);
         pendingDecisions.get(cardId)?.("cancel");
+        dropModalHold(cardId);
         bodyFactsStore.drop(cardId);
         bodyCardsStore.setState(cardId, "failed");
         const attempts = (failures.get(cardId) ?? 0) + 1;
