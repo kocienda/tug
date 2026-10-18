@@ -28,9 +28,10 @@
  *      the wall-time chart (one bar per unit, the recorded median a ghost
  *      tick), and the run's own output.
  *
- * {@link TugRunStrip} is the finished run for a collapsed block: rows 1 and 2
- * and nothing else, so the running panel, the strip and the expanded result
- * all open on the same two rows.
+ * {@link TugRunStrip} is the finished run for a collapsed block: rows 1 and 2,
+ * and row 4 when the run went red, so the running panel, the strip and the
+ * expanded result all open on the same two rows and a red one says what
+ * failed without being opened.
  *
  * Colour is never the only reading: every cell has a title, every row a mark
  * and a word, and the tally is words.
@@ -544,19 +545,25 @@ function verdictWord(m: RunPanelModel): string {
 
 /**
  * A finished run for a collapsed block: the panel's own masthead and track,
- * at the panel's own sizes, and nothing under them. It is what the running
- * panel becomes when it settles — the ring turns into the verdict word, the
- * rows below go — and what the expanded panel opens with, so moving between
- * the three changes no row the eye was already reading.
+ * at the panel's own sizes, and under them the failure detail when the run
+ * went red — the most recent red open, the earlier ones folded, as the panel
+ * shows them — so a collapsed red block says what failed without opening.
+ * It is what the running panel becomes when it settles — the ring turns into
+ * the verdict word, the in-flight rows and the passed fold go — and what the
+ * expanded panel opens with, so moving between the three changes no row the
+ * eye was already reading.
  */
 export function TugRunStrip({
   run,
   callFailed = false,
   wallSecs,
+  foldKey,
 }: {
   run: RunProgress;
   callFailed?: boolean;
   wallSecs?: number;
+  /** Keys the earlier-failures fold's open state in the card's saved bag. */
+  foldKey?: string;
 }): React.ReactElement {
   const m = runPanelModel(run, "finished", 0, { callFailed });
   return (
@@ -568,6 +575,7 @@ export function TugRunStrip({
     >
       <Masthead m={m} state="finished" wallSecs={wallSecs} />
       <TugRunTrack m={m} />
+      <Reds reds={m.reds} foldKey={foldKey} />
     </div>
   );
 }

@@ -277,6 +277,11 @@ describe.skipIf(!SHOULD_RUN)("AT0707: live progress on a running Bash block", ()
           await count(card, `${RUN_STRIP} .tug-run-panel-cell`),
           "the strip opens on the panel's own track, a cell per file",
         ).toBe(4);
+        // A red run's strip carries the failure detail: the most recent red
+        // open, the earlier one folded under it.
+        expect(await count(card, `${RUN_STRIP} [data-slot="tug-run-panel-red"]`), "the latest red, open").toBe(1);
+        expect(await text(card, `${RUN_STRIP} [data-slot="tug-run-panel-red"]`)).toContain("stopped at its 120s cap");
+        expect(await text(card, `${RUN_STRIP} .tug-run-panel-earlier-reds`)).toContain("Earlier failures1");
         expect(await count(card, `${RUN_BLOCK} [data-slot="tool-block-notice"]`), "the strip, not the error band").toBe(0);
 
         await card.click(`${RUN_BLOCK} [data-slot="tool-call-header-disclosure"]`);

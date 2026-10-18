@@ -571,6 +571,7 @@ export const BashToolBlock: React.FC<ToolBlockProps> = ({
               run={settled}
               callFailed={callFailed}
               {...(wallSecs !== undefined ? { wallSecs } : {})}
+              foldKey={`${toolUseId}-strip-folds`}
             />
           </div>
         ) : undefined
