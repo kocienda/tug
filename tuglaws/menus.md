@@ -213,6 +213,8 @@ An untabled code throws in dev and publishes `null` in production, so a bad bind
 | ⌃⌘→ | `toggle-rail:right` | Show Right Rail | menu bar (swept) |
 | ⌃⌘↓ | `move-in-column:down` | Move Card Down in Column | menu bar (swept) |
 | ⌃⌥⌘P | `cycle-permission-mode` | Cycle Permission Mode | JS, global |
+| ⌘" | `unquote-lines` | Unquote | menu bar (swept) |
+| ⌘' | `quote-lines` | Quote | menu bar (swept) |
 | ⌘+ | `zoom-in` | Zoom In | menu bar (swept) |
 | ⌘, | `show-settings` | Settings… | JS, global |
 | ⌘- | `zoom-out` | Zoom Out | menu bar (swept) |
@@ -310,9 +312,11 @@ Every command has several doors: a chord, a menu item, the palette, a control fr
 | `edit.paste` | `paste` | AppKit performs it | registry gate |
 | `edit.pasteAsPlainText` | `paste-as-plain-text` | first responder | registry gate |
 | `edit.pasteAsQuote` | `paste-as-quote` | first responder | registry gate |
+| `edit.quoteLines` | `quote-lines` | first responder | registry gate |
 | `edit.redo` | `redo` | first responder | host tier |
 | `edit.selectAll` | `select-all` | AppKit performs it | registry gate |
 | `edit.undo` | `undo` | first responder | host tier |
+| `edit.unquoteLines` | `unquote-lines` | first responder | registry gate |
 | `edit.useSelectionForFind` | `find-selection` | first responder | registry gate |
 | `file.closeAllCardTabs` | `close-all` | first responder | registry gate |
 | `file.closeCard` | `close` | first responder | registry gate |

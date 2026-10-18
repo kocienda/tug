@@ -119,7 +119,8 @@ Plain ⌘, for future grants under R3.
 | ~~⌘E~~ | **Spent** — `find-selection`, Use Selection for Find. The honest use the slot was held for; see below. |
 | ⌘B, ⌘U | Hold in reserve — bold/underline, and Tug renders markdown. |
 | ⌘P | Hold in reserve — the print reflex is strong. The only accepted repurposing is a command palette. |
-| ⌘' ⌘; ⌘\ | Free punctuation. |
+| ~~⌘'~~ | **Spent** — `quote-lines`, Quote, with ⇧⌘' Unquote as its counterpart; see below. |
+| ⌘; ⌘\ | Free punctuation. |
 | ⌘[ ⌘] | Reserved for any future back/forward navigation concept — and unable to carry turn navigation, which reads as one. CodeMirror's `defaultKeymap` binds `Mod-[` / `Mod-]` to `indentLess` / `indentMore`, and Tug installs that keymap in both the composer and the text card, so a promoted ⌘[ would kill dedent app-wide and a scoped one would be dead in the composer — the one surface turn stepping is used from ([D184]). |
 
 Plain-⌘ digits are fully spent: ⌘1–9 are slots, ⌘0 is actual size. ⌃⌘1–6 take the reader to those same slots; ⌃⌘7–9 and ⌃⌘0 are free, and free for an *ordered set* under the digit-row rule above — not as loose slots. (⌃⌘7–9 are really the tail of the Go to Slot set, held for an arrangement wider than six-up rather than open for anything else.)
@@ -242,6 +243,19 @@ R6 says the menu placement is half the grant, so: promoting these preempts every
 Slim / Comfy / Wide keep their **Window-menu rows** and the title bar's width popup, which are the doors a once-a-session verb wants; the rows are check-markable, which is the shape the popup already has, and that visible current value is worth more to this verb than a no-look chord was. The registry entries carry `bindings: []` — a command with no *default* chord, not one that refuses a chord — so the keymap pane can still bind them, and the Swift items are still constructed with empty key equivalents so whatever the table says is what gets written.
 
 *Three commands and not one cycling command* still holds for the widths, and the reasoning survives the demotion: the set is static and small, and a cycle you have to know your place in is one you have to look at — the same argument that makes Next Card in Stack a true ring rather than a swap.
+
+## The quote chords
+
+⌘' adds one Markdown quote level (`> `) to every line the selection touches, and ⇧⌘' takes one off. A bare caret acts on its own line.
+
+| Command | Chord | Derivation |
+|---|---|---|
+| `quote-lines` | **⌘'** | Plain-⌘ under R3, out of the free pool's punctuation. Quoting is reached many times an hour in a markdown prompt, where a quoted block is how a reader hands back what was said. Mail has Increase Quote Level on ⌘' too. |
+| `unquote-lines` | **⇧⌘'** | R1: the ⇧-counterpart of ⌘', on the same key and doing the opposite. It renders as ⌘" because a shifted-pair key spends its ⇧ on the character, the rule Previous Card (⌘{) reads by. |
+
+**Why not Mail's ⌥⌘'.** Mail puts Decrease Quote Level on ⌥⌘'. Here ⌥ is the variant operator, and removing a quote level is no variant of adding one: it is the opposite. Taking Mail's chord would have recorded an anomaly to buy a resemblance.
+
+**Promotion to Edit ▸ Quote / Unquote is R6's half of the grant.** Both are `menuEligible` with empty Swift key equivalents, like the case pair, so `applyCommandChords` writes them and both stay rebindable. Only the CM6 editors handle the pair, so the items are dark on every other surface.
 
 ## Known anomalies
 

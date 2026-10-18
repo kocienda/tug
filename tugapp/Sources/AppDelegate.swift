@@ -1496,6 +1496,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         sendControl("make-lowercase")
     }
 
+    // Edit ▸ Quote / Unquote — chain-action round-trips. The CM6 editors
+    // change the quote level of the lines the selection touches; an
+    // unhandled dispatch is a silent no-op (no editor focused).
+    @objc func performQuoteLines(_ sender: Any?) {
+        sendControl("quote-lines")
+    }
+
+    @objc func performUnquoteLines(_ sender: Any?) {
+        sendControl("unquote-lines")
+    }
+
     // Edit ▸ Find — chain-action round-trips (the web responder chain's
     // find session owns the semantics; an unhandled dispatch is a no-op).
     @objc func performFind(_ sender: Any?) {

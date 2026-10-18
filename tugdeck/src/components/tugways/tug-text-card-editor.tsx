@@ -85,7 +85,7 @@ import {
   StateField,
   Transaction,
 } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
+import type { Extension, TransactionSpec } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -148,6 +148,7 @@ import { languageForExtension, tugEditingHighlightStyle } from "@/lib/language-r
 
 import { mdListHangingIndent } from "./tug-text-editor/list-hanging-indent";
 import { tugTabKeyBinding } from "./editor-tab-key";
+import { quoteLinesSpec, unquoteLinesSpec } from "./editor-quote-lines";
 import { anchorLinkExtension } from "./tug-text-card-editor/anchor-links";
 import {
   fileDropExtension,
@@ -2088,6 +2089,33 @@ export const TugTextCardEditor = React.forwardRef<
     [transformSelectionCase],
   );
 
+  // Quote / Unquote: one quote level on or off every line the selection
+  // touches (`editor-quote-lines.ts`), in one transaction.
+  const editQuoteLevel = useCallback(
+    (spec: (state: EditorState) => TransactionSpec | null): ActionHandlerResult => {
+      const live = viewRef.current;
+      if (live === null || readOnlyRef.current) return;
+      live.focus();
+      return () => {
+        const inner = viewRef.current;
+        if (inner === null || readOnlyRef.current) return;
+        const tr = spec(inner.state);
+        if (tr !== null) inner.dispatch(tr);
+      };
+    },
+    [],
+  );
+
+  const handleQuoteLines = useCallback(
+    (): ActionHandlerResult => editQuoteLevel(quoteLinesSpec),
+    [editQuoteLevel],
+  );
+
+  const handleUnquoteLines = useCallback(
+    (): ActionHandlerResult => editQuoteLevel(unquoteLinesSpec),
+    [editQuoteLevel],
+  );
+
   // SAVE — automatic mode: flush pending edits now (⌘S forces the debounce
   // to fire). Manual mode: route to the card's save() + needs-path panel
   // flow, since ⌘S must write the REAL file, not the aside.
@@ -2167,6 +2195,8 @@ export const TugTextCardEditor = React.forwardRef<
     [TUG_ACTIONS.PASTE_AS_PLAIN_TEXT]: handlePasteAsPlainText,
     [TUG_ACTIONS.MAKE_UPPERCASE]: handleMakeUppercase,
     [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
+    [TUG_ACTIONS.QUOTE_LINES]: handleQuoteLines,
+    [TUG_ACTIONS.UNQUOTE_LINES]: handleUnquoteLines,
     [TUG_ACTIONS.SAVE]: handleSave,
     [TUG_ACTIONS.SAVE_AS]: handleSaveAs,
     [TUG_ACTIONS.SAVE_A_COPY]: handleSaveACopy,
@@ -2198,6 +2228,8 @@ export const TugTextCardEditor = React.forwardRef<
         action === TUG_ACTIONS.PASTE_AS_PLAIN_TEXT ||
         action === TUG_ACTIONS.MAKE_UPPERCASE ||
         action === TUG_ACTIONS.MAKE_LOWERCASE ||
+        action === TUG_ACTIONS.QUOTE_LINES ||
+        action === TUG_ACTIONS.UNQUOTE_LINES ||
         action === TUG_ACTIONS.SAVE
       ) {
         return !readOnlyRef.current;

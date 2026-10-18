@@ -1659,6 +1659,42 @@ export const COMMANDS: readonly CommandEntry[] = [
     ],
     mirrored: true,
   },
+  // The quote pair carries no predicate, for the case pair's reason: the
+  // editor answers on its writability, and only the CM6 surfaces handle the
+  // pair, so the items are dark everywhere else.
+  //
+  // ⌘' is a plain-⌘ grant out of the free pool's punctuation (R3): quoting
+  // is reached many times an hour in a markdown prompt. ⇧⌘' is its
+  // counterpart under R1 — the same key, the opposite sense — and renders
+  // as ⌘" because a shifted-pair key spends its ⇧ on the character. Mail
+  // puts Decrease Quote Level on ⌥⌘'; ⌥ is the variant operator here, not
+  // the counterpart, so Tug reads the pair through ⇧.
+  {
+    id: TUG_ACTIONS.QUOTE_LINES,
+    title: "Quote",
+    routing: "first-responder",
+    menuItemId: "edit.quoteLines",
+    bindings: [
+      chord(
+        { key: "Quote", meta: true, label: "'" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+  },
+  {
+    id: TUG_ACTIONS.UNQUOTE_LINES,
+    title: "Unquote",
+    routing: "first-responder",
+    menuItemId: "edit.unquoteLines",
+    bindings: [
+      chord(
+        { key: "Quote", meta: true, shift: true, label: "'" },
+        { preventDefault: true, menuEligible: true },
+      ),
+    ],
+    mirrored: true,
+  },
   // The Find items carry no predicate: they are first-responder-routed, so
   // the default chain walk asks the focused surface directly — which is
   // exactly the question, and the answer stays false until a find-capable

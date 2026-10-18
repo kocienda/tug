@@ -243,12 +243,20 @@ export const TUG_ACTIONS = {
   //            Delete does. Bound to ⌥⌘U.
   // MAKE_LOWERCASE: payload — none. The lowercase twin of MAKE_UPPERCASE.
   //            Bound to ⌥⌘L.
+  // QUOTE_LINES: payload — none. The first responder adds one Markdown
+  //            quote level (`> `) to every line its selection touches — a
+  //            bare caret acts on its own line. Bound to ⌘'.
+  // UNQUOTE_LINES: payload — none. The counterpart of QUOTE_LINES: one
+  //            level off every touched line that has one; a no-op when none
+  //            does. Bound to ⇧⌘' (shown as ⌘").
   UNDO:      "undo",
   REDO:      "redo",
   DELETE:    "delete",
   DUPLICATE: "duplicate",
   MAKE_UPPERCASE: "make-uppercase",
   MAKE_LOWERCASE: "make-lowercase",
+  QUOTE_LINES:   "quote-lines",
+  UNQUOTE_LINES: "unquote-lines",
 
   // ---- Text services ----
   //

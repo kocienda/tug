@@ -81,7 +81,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
+import type { Extension, TransactionSpec } from "@codemirror/state";
 import {
   EditorView,
   highlightActiveLineGutter,
@@ -110,6 +110,7 @@ import { useCanvasOverlay } from "@/lib/use-canvas-overlay";
 import { pageZoomFactor } from "@/lib/page-zoom-store";
 import { undoMenuStatePlugin } from "./tug-text-editor/undo-menu-state-plugin";
 import { tugTabKeyBinding } from "./editor-tab-key";
+import { quoteLinesSpec, unquoteLinesSpec } from "./editor-quote-lines";
 import { loadMarkdownTextStyling } from "./tug-text-editor/markdown-text-styling";
 import { sessionNameStore } from "@/lib/session-name-store";
 import { subscribeThemeChange } from "@/theme-tokens";
@@ -2532,6 +2533,34 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       [transformSelectionCase],
     );
 
+    // Quote / Unquote: one quote level on or off every line the selection
+    // touches (`editor-quote-lines.ts`). Deferred like the case pair, so a
+    // context-menu activation keeps the selection painted through the blink.
+    const editQuoteLevel = useCallback(
+      (spec: (state: EditorState) => TransactionSpec | null): ActionHandlerResult => {
+        const view = viewRef.current;
+        if (view === null) return;
+        view.focus();
+        return () => {
+          const live = viewRef.current;
+          if (live === null) return;
+          const tr = spec(live.state);
+          if (tr !== null) live.dispatch(tr);
+        };
+      },
+      [],
+    );
+
+    const handleQuoteLines = useCallback(
+      (): ActionHandlerResult => editQuoteLevel(quoteLinesSpec),
+      [editQuoteLevel],
+    );
+
+    const handleUnquoteLines = useCallback(
+      (): ActionHandlerResult => editQuoteLevel(unquoteLinesSpec),
+      [editQuoteLevel],
+    );
+
     // Submit: substrate-level handler so a "Submit" button somewhere
     // up the chain (e.g. in a wrapper compound) reaches the same
     // policy as the keymap's Enter handler. Reads `onSubmit` through
@@ -2603,6 +2632,8 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
       [TUG_ACTIONS.PASTE_AS_PLAIN_TEXT]: handlePasteAsPlainText,
       [TUG_ACTIONS.MAKE_UPPERCASE]: handleMakeUppercase,
       [TUG_ACTIONS.MAKE_LOWERCASE]: handleMakeLowercase,
+      [TUG_ACTIONS.QUOTE_LINES]: handleQuoteLines,
+      [TUG_ACTIONS.UNQUOTE_LINES]: handleUnquoteLines,
       [TUG_ACTIONS.SUBMIT]: handleSubmit,
       // ---- Editing motion / deletion ----
       [TUG_ACTIONS.DELETE_TO_LINE_START]: handleDeleteToLineStart,
@@ -2636,17 +2667,20 @@ export const TugTextEditor = React.forwardRef<TugTextEditorDelegate, TugTextEdit
           const view = viewRef.current;
           return view !== null && redoDepth(view.state) > 0;
         }
-        // Delete and the two case transforms write, so they need a writable
-        // document — the same gate Cut carries, and the same granularity:
-        // selection is not part of it. The pushed edit block is
+        // Delete, the two case transforms and the quote pair write, so they
+        // need a writable document — the same gate Cut carries, and the same
+        // granularity: selection is not part of it. The pushed edit block is
         // republished on focus and registration changes, not on caret moves,
         // so a selection-granular answer here would be stale by the time the
-        // menu opened. The handlers no-op on a collapsed selection. Read from
-        // the live view at query time [L07].
+        // menu opened. Delete and the case pair no-op on a collapsed
+        // selection; the quote pair acts on the caret's line. Read from the
+        // live view at query time [L07].
         if (
           action === TUG_ACTIONS.DELETE ||
           action === TUG_ACTIONS.MAKE_UPPERCASE ||
-          action === TUG_ACTIONS.MAKE_LOWERCASE
+          action === TUG_ACTIONS.MAKE_LOWERCASE ||
+          action === TUG_ACTIONS.QUOTE_LINES ||
+          action === TUG_ACTIONS.UNQUOTE_LINES
         ) {
           const view = viewRef.current;
           return view !== null && !view.state.readOnly;

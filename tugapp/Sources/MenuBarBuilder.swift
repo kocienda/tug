@@ -52,9 +52,11 @@ import AppKit
     func performPaste(_ sender: Any?)
     func performPasteAsPlainText(_ sender: Any?)
     func performPasteAsQuote(_ sender: Any?)
+    func performQuoteLines(_ sender: Any?)
     func performRedo(_ sender: Any?)
     func performSelectAll(_ sender: Any?)
     func performUndo(_ sender: Any?)
+    func performUnquoteLines(_ sender: Any?)
     func previousCard(_ sender: Any?)
     func previousCardInStack(_ sender: Any?)
     func previousTurn(_ sender: Any?)
@@ -386,6 +388,15 @@ struct MenuBarBuilder {
         // survive a rebind.
         editMenu.addItem(NSMenuItem(title: "Make Uppercase", action: #selector(MenuBarActions.performMakeUppercase(_:)), keyEquivalent: "").identified("edit.makeUppercase"))
         editMenu.addItem(NSMenuItem(title: "Make Lowercase", action: #selector(MenuBarActions.performMakeLowercase(_:)), keyEquivalent: "").identified("edit.makeLowercase"))
+        editMenu.addItem(NSMenuItem.separator())
+
+        // The quote pair — chain-action round-trips like the case pair: the
+        // CM6 editors add or remove one Markdown quote level on every line
+        // the selection touches, in one transaction. Empty key equivalents
+        // for the case pair's reason: ⌘' / ⇧⌘' are the registry's, and
+        // `applyCommandChords` writes them.
+        editMenu.addItem(NSMenuItem(title: "Quote", action: #selector(MenuBarActions.performQuoteLines(_:)), keyEquivalent: "").identified("edit.quoteLines"))
+        editMenu.addItem(NSMenuItem(title: "Unquote", action: #selector(MenuBarActions.performUnquoteLines(_:)), keyEquivalent: "").identified("edit.unquoteLines"))
         editMenu.addItem(NSMenuItem.separator())
 
         // Copy Last Response — the session card's `/copy` surface. Enablement

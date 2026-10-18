@@ -311,6 +311,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "paste-as-plain-text": "command",
   "make-uppercase": "command",
   "make-lowercase": "command",
+  "quote-lines": "command",
+  "unquote-lines": "command",
   find: "command",
   "find-next": "command",
   "find-previous": "command",
@@ -588,6 +590,10 @@ const ADDED_SINCE_THE_MAP: ReadonlyArray<readonly [chord: string, commandId: str
   // for lower.
   ["⌥⌘U", TUG_ACTIONS.MAKE_UPPERCASE],
   ["⌥⌘L", TUG_ACTIONS.MAKE_LOWERCASE],
+  // The quote pair — ⌘' a plain-⌘ grant from the free pool's punctuation,
+  // ⇧⌘' its counterpart on the same key (R1), shown as ⌘".
+  ["⌘'", TUG_ACTIONS.QUOTE_LINES],
+  ["⌘\"", TUG_ACTIONS.UNQUOTE_LINES],
   // The split family. ⌃⌘ is the layout tier the width row and Bullseye
   // already sit in, and S is unoccupied there. The arrows are R1-exempt, and
   // ⌃⌘ arrows are neither bound in Tug nor on the macOS never-bind list,
