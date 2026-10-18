@@ -100,7 +100,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
             ),
           ).toBe(true);
         }
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(window.__tug.overviewPosts() || []).length === ${POST_COUNT}`,
           { timeoutMs: 30_000 },
         );
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)("at0728 — the Overview column is windowed: readin
         note("selection after scrolling to the bottom", JSON.stringify({ mounted: kept.mounted, same: kept.text === selected }));
         expect(kept.mounted).toBe(true);
         expect(kept.text).toBe(selected);
-        await app.evalJS<boolean>(`(document.getSelection().removeAllRanges(), true)`);
+        await kindBody(app, "overview").evalJS<boolean>(`(document.getSelection().removeAllRanges(), true)`);
 
         // ── Post stepping from the bottom, across posts never mounted there.
         await kindBody(app, "overview").nativeClickAtElement(`${FIELD} .cm-content`);

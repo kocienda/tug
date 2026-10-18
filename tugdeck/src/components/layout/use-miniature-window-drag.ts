@@ -38,6 +38,70 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import { windowDragOffset } from "@/components/layout/miniature-gestures";
 import { deckFlowStrip } from "@/deck-store-selectors";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import type { IDeckManagerStore } from "@/deck-manager-store";
+
+/** A stamp waiting on the commit's notification to come off. */
+interface PendingUnstamp {
+  figure: HTMLElement;
+  frame: number | null;
+  unsubscribe: (() => void) | null;
+  /** Clears the stamp when no commit came back (a declined one). */
+  deadline: ReturnType<typeof setTimeout> | null;
+}
+
+/** How long a stamp waits on a commit that has not moved the snapshot. */
+export const COMMIT_ANSWER_MS = 1000;
+
+/**
+ * Commit `offset` as a cut with `figure` stamped `data-window-drag`, and take
+ * the stamp off two frames after the notification that CARRIES the commit
+ * (see the module comment) — not after the first notification of any kind:
+ * in a card's body the deck is the shell's, the commit comes back with the
+ * shell's next context, and other notifications land in between, so a stamp
+ * cleared on the first of them is off before the bracket re-pins and the
+ * re-pin tweens against the slide it replaces. Subscribed before the commit,
+ * so it cannot miss it.
+ *
+ * A commit that has not moved the snapshot by the time the call returns is
+ * declined (it clamped to where the deck already stood, and notifies nobody)
+ * or on its way back from the shell; a deadline takes the stamp off if no
+ * commit comes, and nothing moves meanwhile either way. `done` hears the
+ * record once the stamp is off by either path.
+ */
+export function commitUnderStamp(
+  store: Pick<IDeckManagerStore, "getSnapshot" | "subscribe" | "setFlowOffset">,
+  figure: HTMLElement,
+  offset: number,
+  done: (pending: PendingUnstamp) => void,
+): PendingUnstamp {
+  const before = store.getSnapshot().flowOffset;
+  const pending: PendingUnstamp = { figure, frame: null, unsubscribe: null, deadline: null };
+  pending.unsubscribe = store.subscribe(() => {
+    if (store.getSnapshot().flowOffset === before) return;
+    pending.unsubscribe?.();
+    pending.unsubscribe = null;
+    if (pending.deadline !== null) clearTimeout(pending.deadline);
+    pending.deadline = null;
+    pending.frame = requestAnimationFrame(() => {
+      pending.frame = requestAnimationFrame(() => {
+        pending.frame = null;
+        figure.removeAttribute("data-window-drag");
+        done(pending);
+      });
+    });
+  });
+  store.setFlowOffset(offset, "cut");
+  if (pending.unsubscribe !== null && store.getSnapshot().flowOffset === before) {
+    pending.deadline = setTimeout(() => {
+      pending.deadline = null;
+      pending.unsubscribe?.();
+      pending.unsubscribe = null;
+      figure.removeAttribute("data-window-drag");
+      done(pending);
+    }, COMMIT_ANSWER_MS);
+  }
+  return pending;
+}
 
 interface WindowGesture {
   pointerId: number;
@@ -59,11 +123,7 @@ export function useMiniatureWindowDrag(): {
   onWindowPointerDown: (event: React.PointerEvent<HTMLElement>) => void;
 } {
   const gesture = useRef<WindowGesture | null>(null);
-  const unstamp = useRef<{
-    figure: HTMLElement;
-    frame: number | null;
-    unsubscribe: (() => void) | null;
-  } | null>(null);
+  const unstamp = useRef<PendingUnstamp | null>(null);
 
   /** Clear the figure's stamp now, cancelling a pending deferred clear. */
   const clearStamp = useCallback((): void => {
@@ -72,6 +132,7 @@ export function useMiniatureWindowDrag(): {
     unstamp.current = null;
     pending.unsubscribe?.();
     if (pending.frame !== null) cancelAnimationFrame(pending.frame);
+    if (pending.deadline !== null) clearTimeout(pending.deadline);
     pending.figure.removeAttribute("data-window-drag");
   }, []);
 
@@ -92,35 +153,12 @@ export function useMiniatureWindowDrag(): {
       const figure = current.figure;
       clearStamp();
       if (figure !== null && deferUnstamp && moved) {
-        // Clear two frames after the commit's own notification (see the
-        // module comment). Subscribed before the commit, so it cannot miss it.
-        const pending: {
-          figure: HTMLElement;
-          frame: number | null;
-          unsubscribe: (() => void) | null;
-        } = { figure, frame: null, unsubscribe: null };
-        pending.unsubscribe = store.subscribe(() => {
-          pending.unsubscribe?.();
-          pending.unsubscribe = null;
-          pending.frame = requestAnimationFrame(() => {
-            pending.frame = requestAnimationFrame(() => {
-              pending.frame = null;
-              if (unstamp.current === pending) unstamp.current = null;
-              figure.removeAttribute("data-window-drag");
-            });
-          });
+        unstamp.current = commitUnderStamp(store, figure, current.offset, (done) => {
+          if (unstamp.current === done) unstamp.current = null;
         });
-        unstamp.current = pending;
       } else {
         figure?.removeAttribute("data-window-drag");
-      }
-      if (moved) {
-        const before = store.getSnapshot().flowOffset;
-        store.setFlowOffset(current.offset, "cut");
-        // A commit the store declined (it clamped to where it already stood)
-        // notifies nobody, so the deferred clear would never run and the
-        // bracket would stay transition-less. Clear it now instead.
-        if (store.getSnapshot().flowOffset === before) clearStamp();
+        if (moved) store.setFlowOffset(current.offset, "cut");
       }
     },
     [clearStamp],

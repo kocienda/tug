@@ -223,7 +223,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
              && document.querySelector(${JSON.stringify(ROW)})?.getAttribute("data-fronted") === "true"`,
           { timeoutMs: 12000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_FACE)})?.getAttribute("data-outcome") === "conflicted"`,
           { timeoutMs: 30000 },
         );
@@ -235,7 +235,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         expect((await readArcRowMenu(app.body("A"), ROW)).bind.present).toBe(true);
         // The conflict names its file.
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(CONFLICTS)})?.textContent || "")`,
           ),
         ).toContain(conflictFile);
@@ -243,7 +243,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // parent of the newest base commit that MODIFIED this file, so that
         // commit is on the base side of the merge-base by construction and its
         // subject must appear under the path.
-        const archaeology = await app.evalJS<string>(
+        const archaeology = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(ARCHAEOLOGY)})?.textContent || "")`,
         );
         expect(archaeology).toContain(baseSubject);
@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // lifecycle line's own danger clause takes, one line above. The
         // reference value is resolved by a probe carrying the token inside the
         // fold itself, so this reads the theme rather than a literal.
-        const tint = await app.evalJS<{
+        const tint = await app.body("A").evalJS<{
           probe: string;
           path: string;
           mark: string;
@@ -288,7 +288,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // ── One row height across the whole report ────────────────────────
         // Every line of evidence is the fold's one row, so the section reports
         // exactly one distinct row height.
-        const heights = await app.evalJS<number[]>(
+        const heights = await app.body("A").evalJS<number[]>(
           `Array.from(
              document.querySelectorAll(${JSON.stringify(JOIN_FACE)} + " .arc-fold-row"),
            ).map((row) => Math.round(row.getBoundingClientRect().height * 100) / 100)`,
@@ -302,7 +302,7 @@ describe.skipIf(!SHOULD_RUN)("AT0425: the conflicted landing face answers its co
         // it somewhere the press could not reach. The row's one act here is the
         // ladder, and the conflicted paths below are the reason, in the
         // server's words.
-        const claimsReady = await app.evalJS<boolean>(
+        const claimsReady = await app.body("A").evalJS<boolean>(
           `(function(){
             var reg = document.querySelector(${JSON.stringify(REGISTER)});
             return reg !== null && reg.getAttribute("data-word") === "ready";

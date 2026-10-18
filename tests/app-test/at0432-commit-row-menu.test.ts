@@ -43,7 +43,7 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -103,8 +103,12 @@ function deckShape() {
   };
 }
 
-/** Bring the shade up on this repo's real log and wait for its rows. */
-async function openHistory(app: App): Promise<void> {
+/**
+ * Bring the shade up on this repo's real log and wait for its rows. The
+ * shade, its rows and the menus they raise render in H's body; the deck
+ * seed, the host-root check and the shade's action are the shell's.
+ */
+async function openHistory(app: App): Promise<BodyApp> {
   await app.waitForCondition<boolean>(`typeof window.__tug !== "undefined"`, {
     timeoutMs: 15_000,
   });
@@ -115,10 +119,12 @@ async function openHistory(app: App): Promise<void> {
   );
   await app.bindSession("H", { projectDir: REPO });
   await app.dispatchControlAction("toggle-history-view");
-  await app.waitForCondition<boolean>(
+  const card = app.body("H");
+  await card.waitForCondition<boolean>(
     `document.querySelectorAll(${JSON.stringify(ROW)}).length > 0`,
     { timeoutMs: 15_000 },
   );
+  return card;
 }
 
 describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
@@ -134,30 +140,34 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           persistInTestMode: true,
         });
         try {
-          await openHistory(app);
+          const card = await openHistory(app);
 
           // The row under test: the newest commit, and the sha it says it is.
-          const sha = await app.evalJS<string>(
+          const sha = await card.evalJS<string>(
             `document.querySelector(${JSON.stringify(ROW)}).getAttribute("data-sha")`,
           );
           expect(sha).toMatch(/^[0-9a-f]{40}$/);
 
           // ---- The row's ground answers. ----------------------------------
-          await app.nativeRightClickAtElement(
+          await card.nativeRightClickAtElement(
             `${ROW} .tugx-commit-stamp`,
           );
-          await app.waitForCondition<boolean>(
+          await card.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) !== null`,
             { timeoutMs: 8_000 },
           );
-          // And nothing else answered the same press.
-          expect(
-            await app.evalJS<number>(
-              `document.querySelectorAll('.tug-menu-content').length`,
-            ),
-          ).toBe(1);
+          // And nothing else answered the same press — in the card's page or
+          // the shell's.
+          const menusInCard = await card.evalJS<number>(
+            `document.querySelectorAll('.tug-menu-content').length`,
+          );
+          // card-dom: shell — a second menu the shell raised would be another answer to the press.
+          const menusInShell = await app.evalJS<number>(
+            `document.querySelectorAll('.tug-menu-content').length`,
+          );
+          expect(menusInCard + menusInShell).toBe(1);
 
-          const rows = await app.evalJS<
+          const rows = await card.evalJS<
             ReadonlyArray<{ action: string; label: string; disabled: boolean }>
           >(menuRows());
           note("at0432 menu", JSON.stringify(rows));
@@ -188,10 +198,10 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
 
           // ---- …and the item carries the full hash to the pasteboard. -----
           setPasteboard(SENTINEL);
-          await app.nativeClickAtElement(
+          await card.nativeClickAtElement(
             `${MENU} [data-item-action="copy-commit-hash"]`,
           );
-          await app.waitForCondition<boolean>(
+          await card.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -207,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           // The row did not fold under its own menu — the press was a right
           // button, and only the primary button is the fold's.
           expect(
-            await app.evalJS<boolean>(
+            await card.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(ROW)}).hasAttribute("data-expanded")`,
             ),
           ).toBe(false);
@@ -216,12 +226,12 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           //
           // Not its own single-item Copy: under a host that claims the whole
           // commit, the atom stands its menu down and the press rides up.
-          await app.nativeRightClickAtElement(`${ROW} .commit-sha-text`);
-          await app.waitForCondition<boolean>(
+          await card.nativeRightClickAtElement(`${ROW} .commit-sha-text`);
+          await card.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) !== null`,
             { timeoutMs: 8_000 },
           );
-          const onSha = await app.evalJS<
+          const onSha = await card.evalJS<
             ReadonlyArray<{ action: string; label: string; disabled: boolean }>
           >(menuRows());
           expect(onSha.map((r) => r.action)).toEqual(rows.map((r) => r.action));
@@ -231,10 +241,10 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           // `commit:<8>` is what the atom itself says and what the app writes
           // a commit as everywhere else, so it is what the item hands over.
           setPasteboard(SENTINEL);
-          await app.nativeClickAtElement(
+          await card.nativeClickAtElement(
             `${MENU} [data-item-action="copy-commit-short-hash"]`,
           );
-          await app.waitForCondition<boolean>(
+          await card.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(MENU)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -267,14 +277,14 @@ describe.skipIf(!SHOULD_RUN)("at0432 — the commit row's own menu", () => {
           persistInTestMode: true,
         });
         try {
-          await openHistory(app);
+          const card = await openHistory(app);
 
           // Every chip that BEGINS a line — one sitting beside text is aligned
           // by the space before it and has nothing to say here. "Begins a line"
           // is measured, not assumed: the range from the identity's start to the
           // chip is asked for its last rect, and the chip starts a line exactly
           // when that rect is on a line above it.
-          const wrapped = await app.evalJS<
+          const wrapped = await card.evalJS<
             ReadonlyArray<{ sha: string; delta: number }>
           >(
             `(function(){

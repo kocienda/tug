@@ -234,11 +234,11 @@ async function rest(app: App, slot: string): Promise<RestReading> {
     });
     return null;
   })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `window.${slot} !== undefined && window.${slot}.done === true`,
     { timeoutMs: 20_000 },
   );
-  return app.evalJS<RestReading>(
+  return app.body("A").evalJS<RestReading>(
     `(function(){ var r = window.${slot}.reading;
        return { updatesPerSecond: r.updatesPerSecond,
                 busyMsPerSecond: r.busyMsPerSecond,
@@ -263,11 +263,11 @@ async function cost(
     });
     return null;
   })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `window.${slot} !== undefined && window.${slot}.done === true`,
     { timeoutMs: 60_000 },
   );
-  return app.evalJS<CostReading>(
+  return app.body("A").evalJS<CostReading>(
     `(function(){ var r = window.${slot}.reading;
        return { p50: r.p50, p95: r.p95, max: r.max }; })()`,
   );
@@ -294,7 +294,7 @@ async function silenceLoops(
   selector: string,
   off: boolean,
 ): Promise<number> {
-  const n = await app.evalJS<number>(`(function () {
+  const n = await app.body("A").evalJS<number>(`(function () {
     var els = document.querySelectorAll(${JSON.stringify(selector)});
     for (var i = 0; i < els.length; i += 1) {
       ${off ? `els[i].style.setProperty("--tug-loop-iterations", "0");` : `els[i].style.removeProperty("--tug-loop-iterations");`}
@@ -307,7 +307,9 @@ async function silenceLoops(
 
 /** Every animation the deck is running, by name and count. */
 const census = (app: App): Promise<Record<string, number>> =>
-  app.evalJS<Record<string, number>>(
+  // The card's loops run in its own page, and each page keeps its own motion
+  // registry: the shell's lists none of them.
+  app.body("A").evalJS<Record<string, number>>(
     `(function () {
        var out = {};
        window.__tugMotion.list().entries.forEach(function (e) {

@@ -257,11 +257,13 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
           `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
         );
         await app.body("A").nativeRightClickAtElement(SPAN);
-        await app.waitForCondition<boolean>(
+        // The context menu renders in the card's own body, and the point
+        // is in that body's viewport, so the click is made there too.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
         );
-        const itemPoint = await app.evalJS<{ x: number; y: number } | null>(
+        const itemPoint = await app.body("A").evalJS<{ x: number; y: number } | null>(
           `(() => {
             const item = document.querySelector('[data-item-action="insert-into-prompt"]');
             if (item === null) return null;
@@ -270,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)("AT0225: clickable slash commands", () => {
           })()`,
         );
         expect(itemPoint).not.toBeNull();
-        await app.nativeClick(itemPoint as { x: number; y: number });
+        await app.body("A").nativeClick(itemPoint as { x: number; y: number });
 
         await app.body("A").waitForCondition<boolean>(
           `(function(){

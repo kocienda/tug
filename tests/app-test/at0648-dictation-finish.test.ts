@@ -116,9 +116,13 @@ function deckShape() {
   };
 }
 
-/** One event, in the shape `DictationEvent.jsonObject` emits host-side. */
+/**
+ * One event, in the shape `DictationEvent.jsonObject` emits host-side. The
+ * host sends a claim's events back to the page that made it
+ * (`MainWindow.swift`, `dictationTarget`), and A's composer is in A's body.
+ */
 async function push(app: App, event: Record<string, unknown>): Promise<void> {
-  await app.evalJS<null>(
+  await app.body("A").evalJS<null>(
     `(window.__tugBridge.onDictation(${JSON.stringify(event)}), null)`,
   );
 }
@@ -207,6 +211,7 @@ describe.skipIf(!SHOULD_RUN)("AT0648: ⌘D, focus-out, and the finish", () => {
         // last PUBLISHED menu state, which still says the composer holds the
         // keyboard until the after-paint republish lands, so the menu item
         // fires and the mic opens from a gesture no user can make.
+        // card-dom: shell — the deck's chain moves to the canvas, and the chord lands in the shell's document, where the deck canvas is.
         await app.evalJS<null>(
           `(window.__tug.setFirstResponder("deck-canvas"),
             document.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyD", key: "d", metaKey: true, bubbles: true, cancelable: true })),

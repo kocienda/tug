@@ -28,15 +28,26 @@
  *      measured against ([B02]) — is one move beat and nothing else, with no
  *      size written on any frame at any sample beyond the one React rendered.
  *   2. **During the move beat nothing resizes.** No frame's height changes,
- *      and no top inside either card moves relative to its frame — the
- *      picture translates whole.
+ *      and no top inside either card moves relative to its own body's
+ *      viewport — the picture translates whole, the host carrying the body
+ *      with the frame.
  *   3. **During a resize beat nothing translates.** A frame's inline
  *      transform is its held constant or nothing, and its top-left corner
  *      stands still while its edge travels.
  *   4. **The interior lays out truthfully on every frame ([B03]).** The
- *      composer's bottom edge and Z2's top keep one distance from the frame's
- *      bottom edge on every sampled frame of every beat — a resize beat reads
- *      as a sash drag of that edge, never a clip and never a cut.
+ *      composer's bottom edge and Z2's top keep one distance from the bottom
+ *      of the card's own body viewport on every sampled frame of every beat —
+ *      a resize beat reads as a sash drag of that edge, never a clip and
+ *      never a cut.
+ *
+ * **Two pages ([B29] of the bodies migration brief).** Each card's interior is
+ * in its own body, a page the shell cannot read in the same rAF tick as the
+ * pane frames. So the frames are sampled in the shell and each interior in
+ * its own body, both stamped on the machine's one epoch clock
+ * (`performance.timeOrigin + performance.now()`), and a body's samples are
+ * judged over the wall-clock window of the beat the shell saw. Claims 2 and
+ * 4 read the interior against the body's own viewport; that the body's
+ * viewport tracks the frame is the host's, not this file's.
  *   5. **The settle is spent and cleared.** At rest the mark and the beat
  *      attribute are off the canvas, no frame wears an inline transform, and
  *      no frame wears a pixel height where React renders `auto` — a held or
@@ -133,81 +144,95 @@ interface FrameSample {
   inlineHeight: string;
 }
 
+/**
+ * One frame of a card's interior, read in its own body against that body's
+ * viewport ([B29]).
+ */
 interface CardSample {
+  /** The epoch clock, shared with the shell's samples. */
+  wall: number;
   transcriptTop: number;
   entryBottom: number;
   z2Top: number;
+  /** The body page's own viewport height. */
+  viewportHeight: number;
 }
 
 interface Sample {
   t: number;
+  /** The epoch clock, shared with every body's samples. */
+  wall: number;
   /** Whether the canvas carried the settle mark on this frame. */
   settling: boolean;
   /** The beat the imposer named on this frame, `""` outside a beat. */
   beat: string;
   panes: Record<PaneId, FrameSample>;
-  cards: Record<CardId, CardSample>;
+}
+
+/** One sampled settle: the shell's frames, and each card's body's frames. */
+interface Census {
+  frames: Sample[];
+  cards: Record<CardId, CardSample[]>;
 }
 
 // Kept local: every file's `census` samples its own gesture's readings, so the
 // name is shared and the function is not.
 /**
- * Arm a per-frame sampler, dispatch one arrangement change, and hand back what
- * the sampler saw.
+ * Arm a per-frame sampler in the shell and one in each card's body, dispatch
+ * one arrangement change, and hand back what the samplers saw.
  *
  * Installed BEFORE the dispatch and reading on `requestAnimationFrame`, so the
  * first sample is the pre-motion geometry and every frame of the motion is in
  * the record. Every geometric number is a `getBoundingClientRect()` read —
- * the viewport's own coordinates, where a translate shows up — and the
+ * the page's own viewport coordinates, where a translate shows up — and the
  * inline values are read off `el.style`, which is where a beat's holds live.
  *
- * One sample is one instant, and that has to be made true rather than
- * assumed. While a move beat's transform runs, the engine advances the
- * animation's clock inside a single callback: a frame read twice in one tick,
- * with no write between, was measured 5.7px apart. A frame read first and its
- * interior read after could then disagree by the distance the tween covered
- * in between, and claims 2 and 4 rotated red on exactly that — on whichever
- * frame of whichever beat the clock happened to step under. So the frames are
- * read again after the cards, and a sample whose frames moved while it was
- * being taken is taken again.
+ * The shell samples the pane frames and the imposer's marks; each body
+ * samples its own card's transcript, composer and Z2 against its own
+ * viewport. Two pages share no rAF tick ([B29]), so every sample carries the
+ * epoch clock and a body's samples are matched to a beat by wall time.
  */
-async function census(app: App, dispatch: string): Promise<Sample[]> {
-  await app.evalJS<null>(
-    `(function () {
+async function census(app: App, dispatch: string): Promise<Census> {
+  for (const card of CARD_IDS) {
+    await app.body(card).evalJS<null>(
+      `(function () {
       window.__at0566 = [];
-      var panes = ${JSON.stringify(PANE_IDS)};
-      var cards = ${JSON.stringify(CARD_IDS)};
       var t0 = performance.now();
       var rectOf = function (sel) {
         var el = document.querySelector(sel);
         return el === null ? null : el.getBoundingClientRect();
       };
       var tick = function () {
-        for (var attempt = 0; attempt < 5; attempt += 1) {
-          var sample = take();
-          if (stable(sample)) break;
-        }
-        window.__at0566.push(sample);
-        if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
-      };
-      var stable = function (sample) {
-        return panes.every(function (pane) {
-          var was = sample.panes[pane];
-          if (was === undefined) return true;
-          var el = document.querySelector('.tug-pane[data-pane-id="' + pane + '"]');
-          if (el === null) return false;
-          var r = el.getBoundingClientRect();
-          return r.top === was.top && r.left === was.left && r.height === was.height;
+        var transcript = rectOf(${JSON.stringify(transcriptSel(card))});
+        var entry = rectOf(${JSON.stringify(entrySel(card))});
+        var z2 = rectOf(${JSON.stringify(z2Sel(card))});
+        window.__at0566.push({
+          wall: performance.timeOrigin + performance.now(),
+          transcriptTop: transcript === null ? -1 : transcript.top,
+          entryBottom: entry === null ? -1 : entry.bottom,
+          z2Top: z2 === null ? -1 : z2.top,
+          viewportHeight: window.innerHeight,
         });
+        if (performance.now() - t0 < ${CENSUS_MS + 200}) requestAnimationFrame(tick);
       };
-      var take = function () {
+      requestAnimationFrame(tick);
+      return null;
+    })()`,
+    );
+  }
+  await app.evalJS<null>(
+    `(function () {
+      window.__at0566 = [];
+      var panes = ${JSON.stringify(PANE_IDS)};
+      var t0 = performance.now();
+      var tick = function () {
         var canvas = document.querySelector("[data-imposer-settling]");
         var sample = {
           t: performance.now() - t0,
+          wall: performance.timeOrigin + performance.now(),
           settling: canvas !== null,
           beat: canvas === null ? "" : canvas.getAttribute("data-imposer-beat") || "",
           panes: {},
-          cards: {},
         };
         panes.forEach(function (pane) {
           var el = document.querySelector('.tug-pane[data-pane-id="' + pane + '"]');
@@ -223,18 +248,8 @@ async function census(app: App, dispatch: string): Promise<Sample[]> {
             inlineHeight: el.style.height,
           };
         });
-        cards.forEach(function (card) {
-          var root = '[data-card-id="' + card + '"] ';
-          var transcript = rectOf(root + '.session-view-slot .session-view-pane[data-view="transcript"]');
-          var entry = rectOf(root + '[data-slot="session-card-entry-region"]');
-          var z2 = rectOf(root + '.session-card-status-bar');
-          sample.cards[card] = {
-            transcriptTop: transcript === null ? -1 : transcript.top,
-            entryBottom: entry === null ? -1 : entry.bottom,
-            z2Top: z2 === null ? -1 : z2.top,
-          };
-        });
-        return sample;
+        window.__at0566.push(sample);
+        if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
       return null;
@@ -242,7 +257,12 @@ async function census(app: App, dispatch: string): Promise<Sample[]> {
   );
   await app.evalJS<null>(`(${dispatch}, null)`);
   await wait(CENSUS_MS + 300);
-  return app.evalJS<Sample[]>(`window.__at0566`);
+  const frames = await app.evalJS<Sample[]>(`window.__at0566`);
+  const cards = {} as Record<CardId, CardSample[]>;
+  for (const card of CARD_IDS) {
+    cards[card] = await app.body(card).evalJS<CardSample[]>(`window.__at0566`);
+  }
+  return { frames, cards };
 }
 
 const assignSlot = (card: CardId, slot: number): string =>
@@ -274,14 +294,27 @@ function beatsSeen(frames: Sample[]): string[] {
 }
 
 /** The extent a picked series covered across the frames it was sampled in. */
-function spread(frames: Sample[], pick: (s: Sample) => number): number {
+function spread<T>(frames: T[], pick: (s: T) => number): number {
   if (frames.length === 0) return 0;
   const values = frames.map(pick);
   return Math.max(...values) - Math.min(...values);
 }
 
-/** The pane a card is riding in, by the fixture's pairing. */
-const paneOf = (card: CardId): PaneId => PANE_IDS[CARD_IDS.indexOf(card)];
+/**
+ * A card's body samples taken inside the wall-clock window the shell's
+ * `frames` span — the body's view of the same beat ([B29]).
+ */
+function bodyFramesIn(samples: CardSample[], frames: Sample[]): CardSample[] {
+  if (frames.length === 0) return [];
+  const from = frames[0].wall;
+  const to = frames[frames.length - 1].wall;
+  return samples.filter((s) => s.wall >= from && s.wall <= to);
+}
+
+/** Every interior read in `samples` found its element. */
+function interiorFound(samples: CardSample[]): boolean {
+  return samples.every((s) => s.transcriptTop !== -1 && s.entryBottom !== -1 && s.z2Top !== -1);
+}
 
 /** One beat's window, for the diagnostics line. */
 function window_(frames: Sample[], beat: string): string {
@@ -297,8 +330,8 @@ function window_(frames: Sample[], beat: string): string {
  * exactly: a beat that is missing, extra, or out of order is the choreography
  * being wrong, not a tolerance.
  */
-function assertBeats(label: string, samples: Sample[], order: string[]): void {
-  const frames = settlingFrames(samples);
+function assertBeats(label: string, sampled: Census, order: string[]): void {
+  const frames = settlingFrames(sampled.frames);
   const seen = beatsSeen(frames);
   note(
     label,
@@ -336,11 +369,20 @@ function assertBeats(label: string, samples: Sample[], order: string[]): void {
         travelled,
         `${label}: something actually travels during the move`,
       ).toBeGreaterThan(100);
+      // [B29]: restated for bodies. The interior is in the card's own body,
+      // which shares no rAF tick with the shell's frames, so it is read in
+      // that body against its own viewport over the move beat's wall-clock
+      // window; the host carrying the body with the frame is the host's.
       for (const card of CARD_IDS) {
-        const pane = paneOf(card);
+        const inBody = bodyFramesIn(sampled.cards[card], inBeat);
         expect(
-          spread(inBeat, (s) => s.cards[card].transcriptTop - s.panes[pane].top),
-          `${label}: no top inside ${card} moves relative to its frame during the move`,
+          inBody.length,
+          `${label}: ${card}'s body must be sampled during the move`,
+        ).toBeGreaterThan(2);
+        expect(interiorFound(inBody), `${label}: ${card}'s body finds its transcript, composer and Z2`).toBe(true);
+        expect(
+          spread(inBody, (s) => s.transcriptTop),
+          `${label}: no top inside ${card} moves relative to its body's viewport during the move`,
         ).toBeLessThan(1.5);
       }
     } else {
@@ -370,17 +412,25 @@ function assertBeats(label: string, samples: Sample[], order: string[]): void {
     }
   }
 
-  // 4. The composer's bottom and Z2's top ride the frame's edge on every
-  //    sampled frame of every beat — one distance, held.
+  // 4. The composer's bottom and Z2's top ride the edge on every sampled
+  //    frame of every beat — one distance, held. [B29]: restated for
+  //    bodies: read in each card's body against the bottom of that body's
+  //    own viewport, over the settle's wall-clock window; the viewport
+  //    tracking the frame is the host's.
   for (const card of CARD_IDS) {
-    const pane = paneOf(card);
+    const inBody = bodyFramesIn(sampled.cards[card], frames);
     expect(
-      spread(frames, (s) => s.cards[card].entryBottom - s.panes[pane].bottom),
-      `${label}: ${card}'s composer bottom rides its frame's edge`,
+      inBody.length,
+      `${label}: ${card}'s body must be sampled during the settle`,
+    ).toBeGreaterThan(5);
+    expect(interiorFound(inBody), `${label}: ${card}'s body finds its transcript, composer and Z2`).toBe(true);
+    expect(
+      spread(inBody, (s) => s.entryBottom - s.viewportHeight),
+      `${label}: ${card}'s composer bottom rides its body's bottom edge`,
     ).toBeLessThan(1.5);
     expect(
-      spread(frames, (s) => s.cards[card].z2Top - s.panes[pane].bottom),
-      `${label}: ${card}'s Z2 rides its frame's edge`,
+      spread(inBody, (s) => s.z2Top - s.viewportHeight),
+      `${label}: ${card}'s Z2 rides its body's bottom edge`,
     ).toBeLessThan(1.5);
   }
 }
@@ -457,8 +507,9 @@ async function openCards(app: App): Promise<void> {
     await app.bindSession(card, { tugSessionId: `at0566-${card}` });
     await app.awaitEngineReady(card);
   }
+  // Each card's transcript, composer and Z2 are in its own body.
   for (const card of CARD_IDS) {
-    await app.waitForCondition<boolean>(
+    await app.body(card).waitForCondition<boolean>(
       `document.querySelector(${JSON.stringify(transcriptSel(card))}) !== null && document.querySelector(${JSON.stringify(entrySel(card))}) !== null && document.querySelector(${JSON.stringify(z2Sel(card))}) !== null`,
       { timeoutMs: 15_000 },
     );
@@ -501,8 +552,8 @@ describe.skipIf(!SHOULD_RUN)("AT0566: the three-beat settle", () => {
         // Transform-only: no hold and no tween ever writes a size on a frame,
         // so every sample's inline size is the one React rendered — the
         // first sample's, since a stack move has no opening hold to catch.
-        const stackBefore = rendered(stack);
-        for (const s of settlingFrames(stack)) {
+        const stackBefore = rendered(stack.frames);
+        for (const s of settlingFrames(stack.frames)) {
           for (const pane of PANE_IDS) {
             expect(
               `${s.panes[pane].width}|${s.panes[pane].inlineHeight}`,

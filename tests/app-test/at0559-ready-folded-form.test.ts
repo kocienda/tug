@@ -218,7 +218,7 @@ interface Recording {
 }
 
 const readRecording = (app: App): Promise<Recording> =>
-  app.evalJS<Recording>(
+  app.body("A").evalJS<Recording>(
     `(function () { var r = window.__at0559; return { sheetSeen: r.sheetSeen, routeLeft: r.routeLeft }; })()`,
   );
 
@@ -232,8 +232,9 @@ async function toggleFolded(app: App, want: boolean): Promise<void> {
     { timeoutMs: 8000 },
   );
   // The flag arms the motion; the card writes the terminal form when the
-  // motion ENDS, and `data-fold` is its own account of that.
-  await app.waitForCondition<boolean>(
+  // motion ENDS, and `data-fold` is its own account of that. The card is in
+  // its body, which hears the flag a beat after the shell, so it is read there.
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
        var card = document.querySelector(${JSON.stringify(CARD)} + " .session-card");
        if (card === null) return false;
@@ -292,7 +293,9 @@ function whatIsOverTheControl(app: App): Promise<string> {
  * run where it finds nothing is a run whose hit test needed no help.
  */
 function clearStaleAppModal(app: App): Promise<string> {
-  return app.evalJS<string>(
+  // In the body: the hit test below is asked of the card's own page, so a
+  // leftover lock there is the one that would answer for it.
+  return app.body("A").evalJS<string>(
     `(function () {
        var stale = Array.from(
          document.querySelectorAll('.tug-alert-overlay[data-state="closed"], .tug-alert-content[data-state="closed"]'),
@@ -342,7 +345,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // The watch for claim 1 starts here, before the bind, so the moment
         // the offer arrives — the moment a reveal would fire — is inside it.
         await app.body("A").evalJS<null>(RECORDER_INSTALL);
-        await app.evalJS<null>(`(window.__at0559.armSheet = true, window.__at0559.tick(), null)`);
+        await app.body("A").evalJS<null>(`(window.__at0559.armSheet = true, window.__at0559.tick(), null)`);
 
         // The real `arc bind` verb: the pilot works from the LEDGER row, so a
         // client-side broadcast would leave the server thinking nobody holds
@@ -395,7 +398,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
           "a folded card is not a room the shade may mount in",
         ).toBe(false);
         // The unfold below raises the shade on purpose.
-        await app.evalJS<null>(`(window.__at0559.armSheet = false, null)`);
+        await app.body("A").evalJS<null>(`(window.__at0559.armSheet = false, null)`);
 
         // The door is still a door: nothing of this card's stands between the
         // reader and the one control the form has ([F06]).
@@ -412,7 +415,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
           `window.__tug.getPaneRecord(${JSON.stringify(PANE_ID)}).folded === false`,
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
              var card = document.querySelector(${JSON.stringify(CARD)} + " .session-card");
              return card !== null && card.getAttribute("data-fold") === null;
@@ -444,7 +447,7 @@ describe.skipIf(!SHOULD_RUN)("AT0559: a standing offer on a folded card", () => 
         // the reveal that actually happened, and the decline never spent it.
         // The route watch is armed before the close, and counts any departure
         // from Prompt once Prompt has been seen.
-        await app.evalJS<null>(`(window.__at0559.armRoute = true, window.__at0559.tick(), null)`);
+        await app.body("A").evalJS<null>(`(window.__at0559.armRoute = true, window.__at0559.tick(), null)`);
         await app.dispatchControlAction("toggle-changes-view");
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector('${ROUTE_GROUP} button[data-choice-value="prompt"]')?.getAttribute("data-state") === "active"`,

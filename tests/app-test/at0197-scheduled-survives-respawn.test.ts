@@ -65,14 +65,16 @@ describe.skipIf(!SHOULD_RUN)(
             feedId: CODE_OUTPUT_FEED,
             decoded,
           });
+        // The Z2 status cells render in the Session card's own body.
+        const body = app.body("A");
         const jobsCellText = async (): Promise<string> =>
-          app.evalJS<string>(
+          body.evalJS<string>(
             `(document.querySelector(${JSON.stringify(JOBS_CELL)})||{}).textContent || ""`,
           );
         // The cell's composed summary, carried as the indicator's
         // `aria-label` — it names which bucket the count came from.
         const jobsCellSummary = async (): Promise<string> =>
-          app.evalJS<string>(
+          body.evalJS<string>(
             `(() => {
               const el = document.querySelector(${JSON.stringify(JOBS_CELL)} + " [aria-label]");
               return el === null ? "" : el.getAttribute("aria-label");
@@ -120,7 +122,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
 
           // The scheduled row lands: the JOBS cell counts it.
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `((document.querySelector(${JSON.stringify(JOBS_CELL)})||{}).textContent || "").includes("1")`,
             { timeoutMs: 6000 },
           );
@@ -139,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)(
           });
           // The flip (if any) is synchronous on dispatch; re-read after
           // a beat rather than racing the render.
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `((document.querySelector(${JSON.stringify(JOBS_CELL)})||{}).textContent || "").length > 0`,
             { timeoutMs: 3000 },
           );

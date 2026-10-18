@@ -95,7 +95,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         // marks say only stack versus split, and the picture carries no
         // side-move affordance at all. The row can also say Off, which is the
         // answer no mark on a drawing of the open deck could offer.
-        const arrows = await app.evalJS<number>(
+        const arrows = await app.body("L").evalJS<number>(
           `document.querySelectorAll('[data-testid^="layout-card-place-side-"]').length`,
         );
         expect(
@@ -311,7 +311,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         await wait(AFTER_LAND_MS);
 
         const activeOf = (id: string): Promise<string | null> =>
-          app.evalJS<string | null>(
+          app.body("L").evalJS<string | null>(
             `(function () {
               var el = document.querySelector('[data-testid="${id}"] [data-choice-value][data-state="active"]');
               return el === null ? null : el.getAttribute("data-choice-value");
@@ -335,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         // above is its one door. Read off the committed drawing rather than off
         // a mark: a rail wears none ([B01]).
         const drawnRails = async (): Promise<number> =>
-          app.evalJS<number>(
+          app.body("L").evalJS<number>(
             `document.querySelectorAll(
               '.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-rail'
             ).length`,
@@ -356,7 +356,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the sideb
         );
         expect(jotsLeft, "the real Jots card stands on the left edge").toBe(1);
         // The drawing follows: a left rail appears beside the right one.
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelectorAll(
             '.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-rail'
           ).length === 2`,

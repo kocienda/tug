@@ -167,7 +167,8 @@ async function dropPngOnEditor(app: App): Promise<void> {
       }, "image/png");
     })()`,
   );
-  await app.waitForCondition<boolean>(`window.__at0409Dropped === true`, {
+  // The flag is set by the script above, in A's body.
+  await app.body("A").waitForCondition<boolean>(`window.__at0409Dropped === true`, {
     timeoutMs: 5_000,
   });
 }
@@ -361,7 +362,10 @@ describe.skipIf(!SHOULD_RUN)(
               submitted_at_ms: Date.now(),
               client_entry_id: `${sessionId}-1`,
             };
-            await app.body("A").evalJS<null>(
+            // No card is seeded yet, so no body stands; the POST is a
+            // page-agnostic fetch, and the shell is the page there is.
+            // card-dom: shell — no body stands before the seed.
+            await app.evalJS<null>(
               `(function(){
                 window.__at0409History = "pending";
                 fetch("/api/prompt-history", {
@@ -373,6 +377,7 @@ describe.skipIf(!SHOULD_RUN)(
                 return null;
               })()`,
             );
+            // card-dom: shell — the flag the shell's POST above sets.
             await app.waitForCondition<boolean>(
               `window.__at0409History === "ok"`,
               { timeoutMs: 10_000 },

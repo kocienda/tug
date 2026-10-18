@@ -99,7 +99,7 @@ describe.skipIf(!SHOULD_RUN)(
           // flight, and accepting then takes whatever came first.
           await kindBody(app, "overview").nativeClickAtElement(FIELD);
           await app.nativeType(`@${NAMED_FILE.slice(0, 6)}`);
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `(function () {
               var items = ${ITEMS_JS};
               return items.length > 0 && items[0] === ${JSON.stringify(NAMED_FILE)};
@@ -141,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── 2. The gestures a file offers are there. ─────────────────────
           expect(await kindBody(app, "overview").evalJS<string>(OPEN_MENU_OVER_CHIP)).toBe("ok");
-          await app.waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${MENU} [data-item-action="open-file"]`)}) !== null`,
             { timeoutMs: 8_000 },
           );

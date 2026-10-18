@@ -57,7 +57,6 @@ import { describe, expect, test } from "bun:test";
 import { note } from "./_harness";
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
 import {
-  FOLD_CARD_ID,
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   releaseSources,
@@ -65,10 +64,8 @@ import {
 } from "./settle-frames-fixture";
 import {
   TEARDOWN_JS,
-  dispatch,
   expectEnded,
   foldInterrupted,
-  landed,
   standUp,
 } from "./retarget-crossings-fixture";
 
@@ -78,12 +75,10 @@ describe.skipIf(!SHOULD_RUN)("at0689 — every exit ends the crossings a settle 
   test(
     "an unfold the teardown releases leaves no crossing standing",
     async () => {
-      const { app, tugbankPath, open, folded } = await standUp(TEST_NAME);
+      // The stand-up leaves the card folded: the unfold starts there.
+      const { app, tugbankPath, open, folded } = await standUp(TEST_NAME, { leaveFolded: true });
       try {
         expect(folded, "the fold changes the frame's height").toBeLessThan(open);
-
-        await dispatch(app, "set-card-folded", { cardId: FOLD_CARD_ID, folded: true });
-        await landed(app, `h < ${open} - 1`);
 
         // The unmount: the engine's teardown runs a third of the way through
         // the unfold, with the frame still mounted to be read.

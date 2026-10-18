@@ -153,6 +153,8 @@ import { useComposerDrop } from "@/components/tugways/use-composer-drop";
 import { useCardStatePreservation } from "@/components/tugways/use-card-state-preservation";
 import {
   coerceOverviewDraftPayload,
+  forwardOverviewDraft,
+  isEmptyDraft,
   overviewDraftHolder,
   type OverviewComposerDraftState,
 } from "@/components/overview/overview-composer-draft";
@@ -1709,6 +1711,10 @@ function OverviewComposer({
 }): React.ReactElement {
   const editorRef = useRef<TugTextEditorDelegate | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
+  // Hands the draft to the app-scoped holder on every change (set below,
+  // beside the draft's preservation); a ref because the update listener
+  // closes over it once.
+  const forwardDraftRef = useRef<() => void>(() => {});
   // The user's editor settings — the same store the Session card's composer
   // reads, so Return means here whatever it means there ([L02]).
   const editorStore = overviewEditorStore();
@@ -1804,6 +1810,7 @@ function OverviewComposer({
           "data-empty",
           String(update.state.doc.length === 0 && images.length === 0),
         );
+        forwardDraftRef.current();
       }),
     [],
   );
@@ -2077,6 +2084,35 @@ function OverviewComposer({
   // that has not yet been handed what it is holding — so a save that fires
   // in that window must forward the holder rather than capture over it.
   const draftSeededRef = useRef(false);
+
+  // The app-scoped half of the draft's home is the shell's: this module's
+  // holder is this page's, and a body's page goes with its card when the rail
+  // is hidden. Every change of the words goes to it, and the pictures with
+  // them whenever they have moved since the last; nothing goes before the
+  // held draft is taken up, for the reason `draftSeededRef` gives.
+  const bytesMovedRef = useRef(true);
+  forwardDraftRef.current = () => {
+    if (!draftSeededRef.current) return;
+    const draft = editorRef.current?.captureState() ?? null;
+    // An empty draft lets the hold go, pictures and all, so the pictures
+    // still owe the next draft that has something in it.
+    if (isEmptyDraft(draft)) {
+      bytesMovedRef.current = true;
+      forwardOverviewDraft(null);
+      return;
+    }
+    const moved = bytesMovedRef.current;
+    bytesMovedRef.current = false;
+    forwardOverviewDraft(draft, moved ? bytesStore.snapshot() : undefined);
+  };
+  useEffect(
+    () =>
+      bytesStore.subscribe(() => {
+        bytesMovedRef.current = true;
+        forwardDraftRef.current();
+      }),
+    [bytesStore],
+  );
 
   // ── Draft preservation ───────────────────────────────────────────────────
   //

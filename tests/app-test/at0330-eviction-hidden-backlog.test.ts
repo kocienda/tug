@@ -10,8 +10,10 @@
  * |---------------------|------------------------------------------------------|
  * | hidden backlog      | a hidden tab's backlog mounting whole on the reveal,  |
  * |                     | instead of draining a capped run per commit           |
- * | held append         | a row with no height mounting under a settle's beats  |
- * |                     | ([D9]), or a follower left behind once the gate opens |
+ *
+ * The held-append leg (a turn appended under the shell's held motion gate
+ * waits to mount) was removed by [B29] of the bodies migration brief: a
+ * body's connection is `NEVER_HELD` and streams through the shell's settles.
  *
  * The seeded transcript and the instruments are `eviction-fixture.ts`.
  * `tug-list-view.tsx` and `session-card-transcript.tsx` stand at their
@@ -29,16 +31,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { note } from "./_harness";
-import { enforcedTimeout } from "./_harness/rpc";
 import {
-  FEED_CODE_OUTPUT,
   SCROLLER,
   SHOULD_RUN,
-  SID,
   TEST_TIMEOUT_MS,
   TURNS,
-  readRowCount,
-  replyText,
   scrollTo,
   seedTurns,
   standUp,
@@ -116,113 +113,6 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden backlog
         expect(after.fallbacks - before.fallbacks).toBe(0);
         expect(after.following).toBe(true);
         expect(after.gap).toBeLessThanOrEqual(2);
-      } finally {
-        await app.close();
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a turn appended under a held motion gate mounts after the gate opens",
-    async () => {
-      const app = await standUp("at0330-held-append");
-      try {
-        // Rest at the bottom, following.
-        const rows = await readRowCount(app);
-        const mountedIndices = (): Promise<number[]> =>
-          app.body("A").evalJS<number[]>(`(function () {
-  var el = document.querySelector('${SCROLLER}');
-  return Array.prototype.map.call(
-    el.querySelectorAll("[data-tug-list-cell-index]"),
-    function (c) { return Number(c.getAttribute("data-tug-list-cell-index")); }
-  ).sort(function (a, b) { return a - b; });
-})()`);
-        const before = await mountedIndices();
-
-        // Close the gate as a settle's beats do. A zero handle is a deck with
-        // motion off, where nothing holds and this case would pass vacuously.
-        const handle = await app.evalJS<number>(`window.__tug.holdMotion(20000)`);
-        expect(handle).toBeGreaterThan(0);
-        let released = false;
-        try {
-          // Drive the new turn. The connection parks the engine's batches
-          // under the gate and the list's own subscription is held, so the
-          // harness's settle wait would never return: drive without it, and
-          // hand the parked data and the held notifications over under the
-          // gate — the commit a parent re-render or an unheld update would
-          // make over data that changed mid-motion. The card's store is in its
-          // body, so the drive runs there; the gate is the shell's.
-          const drive = (action: Record<string, unknown>): Promise<null> =>
-            app.body("A").evalJS<null>(
-              `(window.__tug.driveSession("A", ${JSON.stringify(action)}), null)`,
-            );
-          const frame = (decoded: Record<string, unknown>): Promise<null> =>
-            drive({
-              op: "ingestFrame",
-              feedId: FEED_CODE_OUTPUT,
-              decoded: { tug_session_id: SID, ...decoded },
-            });
-          const msgId = `${SID}-m${TURNS}`;
-          await drive({ op: "send", text: `prompt ${TURNS}` });
-          await frame({ type: "prompt_anchor", promptUuid: `${SID}-u${TURNS}` });
-          await frame({ type: "content_block_start", msg_id: msgId, block_index: 0, kind: "text" });
-          await frame({
-            type: "assistant_text",
-            seq: 0,
-            rev: 0,
-            status: "complete",
-            msg_id: msgId,
-            block_index: 0,
-            text: replyText(TURNS),
-            is_partial: false,
-          });
-          await frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" });
-          await app.evalJS<boolean>(`(window.__at0330Delivered = 0, true)`);
-          // One poll, two pages: hand the held work over in the shell, then ask
-          // the card's body whether its session has settled.
-          {
-            const budget = enforcedTimeout(10_000);
-            const deadline = Date.now() + budget;
-            for (;;) {
-              await app.evalJS<boolean>(
-                `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate(), true)`,
-              );
-              if (await app.body("A").evalJS<boolean>(`window.__tug.sessionSettled("A")`)) break;
-              if (Date.now() >= deadline) {
-                throw new Error(`session A did not settle under the held gate within ${budget} ms`);
-              }
-              await new Promise((r) => setTimeout(r, 100));
-            }
-          }
-          await new Promise((r) => setTimeout(r, 300));
-          const delivered = await app.evalJS<number>(
-            `(window.__at0330Delivered += window.__tug.deliverHeldUnderGate())`,
-          );
-          expect(delivered).toBeGreaterThanOrEqual(1);
-          await new Promise((r) => setTimeout(r, 300));
-
-          // Nothing mounted under the hold: the same cells, and none past them.
-          const during = await mountedIndices();
-          expect(during).toEqual(before);
-          const heldGate = await app.evalJS<boolean>(
-            `window.__tug.releaseMotion(${handle})`,
-          );
-          released = true;
-          expect(heldGate).toBe(true);
-        } finally {
-          if (!released) await app.evalJS<boolean>(`window.__tug.releaseMotion(${handle})`);
-        }
-
-        // Once the gate opens the new turn mounts and the follower is on it.
-        await app.body("A").waitForCondition<boolean>(
-          `(function () {
-  var el = document.querySelector('${SCROLLER}');
-  return !!el.querySelector('[data-tug-list-cell-index="${rows}"]') &&
-    el.scrollHeight - el.clientHeight - el.scrollTop <= 2;
-})()`,
-          { timeoutMs: 15_000, pollMs: 100 },
-        );
       } finally {
         await app.close();
       }

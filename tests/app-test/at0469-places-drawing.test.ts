@@ -336,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)("at0469 — the drawing wears its places: the drawi
             return null;
           })()`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `(function () {
             var c = document.querySelector('.tug-tooltip-content');
             return c !== null && c.textContent.indexOf("Slot 3 is empty") >= 0;

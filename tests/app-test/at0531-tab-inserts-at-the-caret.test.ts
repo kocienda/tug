@@ -40,6 +40,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp, type App } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -98,18 +99,51 @@ async function waitForDisk(
   );
 }
 
+/**
+ * What the Text card reads from tugbank at mount, seeded into the tugbank the
+ * app opens: the card reads its own page's snapshot, which the shell's
+ * `setTugbankValue` never reaches.
+ *
+ * Automatic save, so the assertions can read the document's real bytes off
+ * disk rather than inferring them from painted DOM; and a card that has been
+ * tuned — soft tabs on at a width of THREE — on the per-card domain the gear
+ * popover writes, which is what an already configured card looks like on disk.
+ */
+const TEXT_CARD_SEEDS = [
+  AUTOMATIC_SAVE_MODE,
+  {
+    domain: "dev.text-card",
+    key: "A",
+    type: "json" as const,
+    value: JSON.stringify({ softTabs: true, tabSize: 3, lineNumbers: true, lineWrap: true }),
+  },
+];
+
+/**
+ * The deck-wide prompt-editor settings, tuned to a width of THREE — the blob
+ * the Settings card's Sessions tab writes and `EditorSettingsStore` reads,
+ * seeded into the tugbank the app opens so the composer's page reads it.
+ */
+const PROMPT_EDITOR_SEEDS = [
+  {
+    domain: "dev.tugapp.editor",
+    key: "settings",
+    type: "json" as const,
+    value: JSON.stringify({
+      fontId: "plex-mono",
+      fontSize: 13,
+      lineWrap: true,
+      lineNumbers: false,
+      softTabs: true,
+      tabSize: 3,
+      highlightActiveLineGutter: false,
+      returnKeyAction: "newline",
+      numpadEnterAction: "submit",
+    }),
+  },
+];
+
 async function seedTextCard(app: App, filePath: string): Promise<void> {
-  // Automatic save so the assertions can read the document's real bytes off
-  // disk rather than inferring them from painted DOM.
-  await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
-  );
-  // A card that has been tuned: soft tabs on at a width of THREE. Seeded on
-  // the per-card domain the gear popover writes, which is what an already
-  // configured card looks like on disk.
-  await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.text-card","A",{kind:"json",value:{softTabs:true,tabSize:3,lineNumbers:true,lineWrap:true}}), null)`,
-  );
   await app.seedDeckState({
     state: {
       cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
@@ -148,6 +182,7 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
       const { dir, file } = mkTextFixture("at0531-", "hello world\nsecond line\n");
       const app = await launchTugApp({
         testName: "at0531-tab-inserts-at-the-caret",
+        env: { TUGBANK_PATH: mkSeededTugbank(TEXT_CARD_SEEDS) },
       });
       try {
         await seedTextCard(app, file);
@@ -188,15 +223,18 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
         // Same keystroke, opposite policy — driven through the card's own
         // gear sheet, so this covers the setting's whole path from the switch
         // to the keymap.
+        //
+        // The gear is the pane's title bar, in the shell; the sheet it opens
+        // is the card's, in A's body.
         await app.revealPaneControls(PANE);
         await app.nativeClickAtElement(OPTIONS_BUTTON);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OPTIONS_PANEL)}) !== null`,
           { timeoutMs: 15000 },
         );
-        await app.nativeClickAtElement(SOFT_TABS_SWITCH);
-        await app.nativeClickAtElement('[data-testid="card-settings-done"]');
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(SOFT_TABS_SWITCH);
+        await app.body("A").nativeClickAtElement('[data-testid="card-settings-done"]');
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(OPTIONS_PANEL)}) === null`,
           { timeoutMs: 10000 },
         );
@@ -227,14 +265,13 @@ describe.skipIf(!SHOULD_RUN)("at0531: Tab inserts at the caret", () => {
   test(
     "the session composer's Tab lands at the caret, at the deck-wide width",
     async () => {
-      const app = await launchTugApp({ testName: "at0531-prompt-tab" });
+      // The deck-wide prompt-editor settings, tuned to a width of THREE
+      // before the card mounts (`PROMPT_EDITOR_SEEDS`).
+      const app = await launchTugApp({
+        testName: "at0531-prompt-tab",
+        env: { TUGBANK_PATH: mkSeededTugbank(PROMPT_EDITOR_SEEDS) },
+      });
       try {
-        // The deck-wide prompt-editor settings, tuned to a width of THREE
-        // before the card mounts — the blob the Settings card's Sessions tab
-        // writes and `EditorSettingsStore` reads.
-        await app.evalJS<null>(
-          `(window.__tug.setTugbankValue("dev.tugapp.editor","settings",{kind:"json",value:{fontId:"plex-mono",fontSize:13,lineWrap:true,lineNumbers:false,softTabs:true,tabSize:3,highlightActiveLineGutter:false,returnKeyAction:"newline",numpadEnterAction:"submit"}}), null)`,
-        );
         await app.seedDeckState({
           state: {
             cards: [

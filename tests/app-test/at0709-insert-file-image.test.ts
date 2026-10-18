@@ -108,14 +108,15 @@ describe.skipIf(!SHOULD_RUN)(
           await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
 
           // ── An image becomes an image atom ───────────────────────────
+          // card-dom: shell — the menu's route: the deck dispatches the action, and the shell forwards it to the key card's body.
           await app.evalJS<void>(
             `(window.__tug.dispatchControlAction("insert-file", { path: ${JSON.stringify(pngPath)} }), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(atomOfType("image"))}) !== null`,
             { timeoutMs: 15_000 },
           );
-          const image = await app.evalJS<{ label: string | null; files: number }>(
+          const image = await app.body("A").evalJS<{ label: string | null; files: number }>(
             `(function(){
               var img = document.querySelector(${JSON.stringify(atomOfType("image"))});
               return {
@@ -134,14 +135,15 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(0);
 
           // ── Anything else stays a file atom ──────────────────────────
+          // card-dom: shell — the menu's route, as above.
           await app.evalJS<void>(
             `(window.__tug.dispatchControlAction("insert-file", { path: ${JSON.stringify(txtPath)} }), null)`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(atomOfType("file"))}) !== null`,
             { timeoutMs: 15_000 },
           );
-          const fileValue = await app.evalJS<string | null>(
+          const fileValue = await app.body("A").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(atomOfType("file"))}).getAttribute("data-atom-value")`,
           );
           expect(
@@ -150,8 +152,11 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBe(txtPath);
 
           // ── The chord asks the host's panel for a path ──────────────
+          // The keydown goes to the composer, in A's body, and the panel is
+          // asked for — and answers — in the page that posts `choosePath`, so
+          // the stub is installed there too.
           await app.body("A").nativeClickAtElement(EDITOR_CONTENT);
-          await app.evalJS<void>(
+          await app.body("A").evalJS<void>(
             `(function(){
               var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.choosePath;
               var answer = function(m){
@@ -166,12 +171,12 @@ describe.skipIf(!SHOULD_RUN)(
               }));
             })()`,
           );
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(atomOfType("image"))}).length === 2`,
             { timeoutMs: 15_000 },
           );
           expect(
-            await app.evalJS<string | null>(
+            await app.body("A").evalJS<string | null>(
               `window.__at0709Asked ? window.__at0709Asked.kind : null`,
             ),
             "axis chord: ⇧⌘I with no path asks for Insert File's any-file panel",

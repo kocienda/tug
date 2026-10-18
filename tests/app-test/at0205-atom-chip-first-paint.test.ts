@@ -239,7 +239,8 @@ async function dropPngOnEditor(app: App): Promise<void> {
       }, "image/png");
     })()`,
   );
-  await app.waitForCondition<boolean>(
+  // The flag was set in A's body, by the drop above.
+  await app.body("A").waitForCondition<boolean>(
     `window.__at0205Dropped === true`,
     { timeoutMs: 5_000 },
   );
@@ -274,9 +275,25 @@ describe.skipIf(!SHOULD_RUN)(
             // Let font loading fully settle BEFORE the first chip
             // bake — the regression only reproduced once the atom-font
             // database was warm (a cold bake fell back to a generic
-            // family, which always painted).
-            await app.waitForCondition<boolean>(
-              `document.fonts.status === "loaded"`,
+            // family, which always painted). The bake runs in card A's
+            // body, which loads its own fonts, so it is that page's
+            // font set that has to settle.
+            //
+            // Settled is read face by face — none still `loading` — rather
+            // than off the set's own `status`. In a body page the CJK Bold
+            // subsets the page asks for end in `error`, and WebKit then
+            // leaves the set's `status` at "loading" and its `ready`
+            // unresolved for good, with no face loading at all (read in
+            // probed runs, 2026-10-18).
+            await app.body("A").waitForCondition<boolean>(
+              `(function () {
+                 if (document.fonts.size === 0) return false;
+                 var loading = 0;
+                 document.fonts.forEach(function (face) { if (face.status === "loading") loading++; });
+                 return loading === 0 &&
+                   document.fonts.check('14px "IBM Plex Sans"') &&
+                   document.fonts.check('13px "IBM Plex Mono"');
+               })()`,
               { timeoutMs: 10_000 },
             );
             await new Promise((r) => setTimeout(r, 1_000));
@@ -312,7 +329,9 @@ describe.skipIf(!SHOULD_RUN)(
             const chip = await readChipRect(app);
             expect(chip.width).toBeGreaterThan(20);
 
-            const shot1 = await app.screenshot();
+            // The chip is painted by A's body view, and its rect is in that
+            // view's viewport, so the shot is of the body.
+            const shot1 = await app.body("A").screenshot();
             let firstPaint: LabelRegion;
             try {
               firstPaint = cropLabelRegion(shot1.path, chip);
@@ -338,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)(
             );
             await new Promise((r) => setTimeout(r, 400));
 
-            const shot2 = await app.screenshot();
+            const shot2 = await app.body("A").screenshot();
             let afterRepaint: LabelRegion;
             try {
               afterRepaint = cropLabelRegion(shot2.path, chip);

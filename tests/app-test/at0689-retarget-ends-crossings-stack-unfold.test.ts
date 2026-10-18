@@ -55,14 +55,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { rmTempTugbank } from "./_harness/tugbank-helpers";
-import { FOLD_CARD_ID, SHOULD_RUN, TEST_TIMEOUT_MS } from "./settle-frames-fixture";
-import {
-  dispatch,
-  expectEnded,
-  foldInterrupted,
-  landed,
-  standUp,
-} from "./retarget-crossings-fixture";
+import { SHOULD_RUN, TEST_TIMEOUT_MS } from "./settle-frames-fixture";
+import { expectEnded, foldInterrupted, standUp } from "./retarget-crossings-fixture";
 
 const TEST_NAME = "at0689-retarget-ends-crossings-stack-unfold";
 
@@ -70,13 +64,11 @@ describe.skipIf(!SHOULD_RUN)("at0689 — every exit ends the crossings a settle 
   test(
     "an unfold interrupted by stacking its column leaves no crossing standing",
     async () => {
-      const { app, tugbankPath, open, folded } = await standUp(TEST_NAME);
+      // The unfold starts from a folded member of a split column, which the
+      // stand-up leaves folded.
+      const { app, tugbankPath, open, folded } = await standUp(TEST_NAME, { leaveFolded: true });
       try {
         expect(folded, "the fold changes the frame's height").toBeLessThan(open);
-
-        // The unfold starts from a folded member of a split column.
-        await dispatch(app, "set-card-folded", { cardId: FOLD_CARD_ID, folded: true });
-        await landed(app, `h < ${open} - 1`);
         expectEnded("unfold", await foldInterrupted(app, false, folded, open));
       } finally {
         await app.close();

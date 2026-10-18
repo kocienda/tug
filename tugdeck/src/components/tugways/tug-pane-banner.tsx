@@ -52,6 +52,7 @@ import * as FocusScopeRadix from "@radix-ui/react-focus-scope";
 import { icons } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TugPanePortalContext } from "@/components/chrome/tug-pane";
+import { paneBodyOf } from "@/components/tugways/use-pane-inert";
 import { CardIdContext } from "@/lib/card-id-context";
 import { useBannerLifecycle } from "@/lib/banner-lifecycle";
 import { group } from "@/components/tugways/tug-animator";
@@ -386,7 +387,7 @@ export const TugPaneBanner = React.forwardRef<HTMLDivElement, TugPaneBannerProps
     useLayoutEffect(() => {
       if (contained) return;
       if (!cardEl) return;
-      const body = cardEl.querySelector(".tug-pane-body");
+      const body = paneBodyOf(cardEl);
       if (!body) return;
       if (mounted) {
         body.setAttribute("inert", "");

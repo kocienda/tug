@@ -167,6 +167,22 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: sessionCardShape({ width: 1000, height: 760 }), focusCardId: "A" });
+        await app.waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.bindSession("A", {
+          tugSessionId: SID_A,
+          projectDir: PROJECT_DIR,
+          workspaceKey: PROJECT_DIR,
+        });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+
+        // Seeded after the card is bound, as at0332 and at0405 seed: a
+        // Session card's body runs the restore pass when it binds, and a
+        // ledger row naming card A would be restored for real — a fresh
+        // spawn of this session racing the harness bind above.
         app.seedLedger({
           sessions: [
             {
@@ -193,17 +209,6 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
             seedEvent(SID_B, "at0335-s-b", SHARED_FILE, MARKERS[1]),
           ],
         });
-        await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: sessionCardShape({ width: 1000, height: 760 }), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
-        await app.bindSession("A", {
-          tugSessionId: SID_A,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
-        await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // One committed turn so the card is a live, non-empty session.
         await app.driveSession("A", { op: "send", text: "hello" });
@@ -243,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         const disjointRow = rowFor(DISJOINT_FILE);
         const sharedRow = rowFor(SHARED_FILE);
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(disjointRow)}) !== null &&
              document.querySelector(${JSON.stringify(sharedRow)}) !== null`,
             { timeoutMs: 30000 },
@@ -274,7 +279,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
 
         // ── The badges: shared only where the work overlaps ────────────────
         const sharedBadge = async (row: string): Promise<number> =>
-          app.evalJS<number>(
+          app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(
               `${row} .tug-changes-list-badge-shared`,
             )}).length`,
@@ -282,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         // The contended file is the control: if it is not SHARED, the seeded
         // co-ownership never composed and the disjoint assertion below would
         // pass for the wrong reason.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(
             `${sharedRow} .tug-changes-list-badge-shared`,
           )}).length === 1`,
@@ -296,12 +301,12 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         // The badge needs the row's diff (the ids the own-hunk set is
         // reconciled against), which arrives on its own schedule.
         const partialText = async (): Promise<string | null> =>
-          app.evalJS<string | null>(
+          app.body("A").evalJS<string | null>(
             `document.querySelector(${JSON.stringify(
               `${disjointRow} [data-testid="tug-changes-list-file-partial"]`,
             )})?.textContent ?? null`,
           );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(
             `${disjointRow} [data-testid="tug-changes-list-file-partial"]`,
           )}) !== null`,
@@ -316,14 +321,14 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         // Expand it and confirm the boxes agree with the badge, on the band
         // this session actually wrote.
         const isExpanded = async (): Promise<boolean> =>
-          app.evalJS<boolean>(
+          app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${disjointRow}[data-expanded="true"]`,
             )}) !== null`,
           );
         for (let attempt = 0; attempt < 4; attempt += 1) {
           if (await isExpanded()) break;
-          await app.nativeClickAtElement(
+          await app.body("A").nativeClickAtElement(
             `${disjointRow} [data-slot="tug-changes-list-fold"]`,
           );
           await settle(500);
@@ -331,14 +336,14 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         expect(await isExpanded()).toBe(true);
 
         const boxes = `${disjointRow} [data-testid="tug-changes-list-hunk-elect"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(boxes)}).length >= 3`,
           { timeoutMs: 25000 },
         );
         // Asserted by content, not by slot: this checkout's other uncommitted
         // work adds hunks of its own, and a band index would pin the test to
         // whatever else the tree happens to be carrying.
-        const checkedBands = await app.evalJS<string[]>(
+        const checkedBands = await app.body("A").evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(
             `${disjointRow} [data-slot="diff-hunk"]`,
           )}))
@@ -353,7 +358,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
 
         // No band of a file nobody contends is marked contested.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(
               `${disjointRow} [data-slot="diff-hunk"][data-contested="true"]`,
             )}).length`,
@@ -363,7 +368,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         // ── The contended file marks the band, not the file ────────────────
         for (let attempt = 0; attempt < 4; attempt += 1) {
           if (
-            await app.evalJS<boolean>(
+            await app.body("A").evalJS<boolean>(
               `document.querySelector(${JSON.stringify(
                 `${sharedRow}[data-expanded="true"]`,
               )}) !== null`,
@@ -373,19 +378,19 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
           }
           // The expanded row above pushes this one down the scroller, and the
           // harness clicks an element's rect centre without scrolling to it.
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(
               `${sharedRow} [data-slot="tug-changes-list-fold"]`,
             )})?.scrollIntoView({ block: "center" }), true`,
           );
           await settle(300);
-          await app.nativeClickAtElement(
+          await app.body("A").nativeClickAtElement(
             `${sharedRow} [data-slot="tug-changes-list-fold"]`,
           );
           await settle(500);
         }
         try {
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(
               `${sharedRow} [data-slot="diff-hunk"][data-contested="true"]`,
             )}).length === 1`,
@@ -394,7 +399,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
         } catch (err) {
           note(
             "at0335 contended row state",
-            await app.evalJS<unknown>(
+            await app.body("A").evalJS<unknown>(
               `(() => {
                  const row = document.querySelector(${JSON.stringify(sharedRow)});
                  if (row === null) return "no row";
@@ -411,7 +416,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: hunk-aware contention", () => {
           );
           throw err;
         }
-        const contestedBand = await app.evalJS<string | null>(
+        const contestedBand = await app.body("A").evalJS<string | null>(
           `document.querySelector(${JSON.stringify(
             `${sharedRow} [data-slot="diff-hunk"][data-contested="true"]`,
           )})?.textContent ?? null`,

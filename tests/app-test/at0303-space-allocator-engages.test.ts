@@ -87,6 +87,7 @@ import { describe, expect, test } from "bun:test";
 
 import { launchTugApp } from "./_harness";
 import { PIXEL_TOL } from "./_harness/tolerances";
+import { bodyOfKind } from "./_harness/card-reach";
 import {
   AFTER_LAND_MS,
   CEILING,
@@ -173,14 +174,19 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("toggle-layout"), null)`,
           );
-          await app.body("L").waitForCondition<boolean>(
+          // The reopened card's body is found by its kind, and its pane —
+          // the shell's chrome around the body's placeholder — is measured
+          // in the shell.
+          const reopened = await bodyOfKind(app, "layout");
+          await reopened.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(LAYOUT_FRAME)}) !== null`,
             { timeoutMs: 5_000 },
           );
           await wait(AFTER_LAND_MS);
           expect(
-            await app.body("L").evalJS<number>(
-              `document.querySelector(${JSON.stringify(LAYOUT_FRAME)})
+            // card-dom: shell — the rail's pane frame is the shell's chrome
+            await app.evalJS<number>(
+              `document.querySelector('[data-body-placeholder][data-card-id=${JSON.stringify(reopened.cardId)}]')
                  .closest(".tug-pane").getBoundingClientRect().width`,
             ),
           ).toBeCloseTo(PREFERRED, 0);

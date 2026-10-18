@@ -310,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           { timeoutMs: 10_000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(
               JSON.stringify({
                 id: 1,
@@ -322,7 +322,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
             )})`,
           ),
         ).toBe(true);
-        await app.body("S").waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function(){
              var chip = document.querySelector(${JSON.stringify(OVERVIEW_CHIP)});
              return chip !== null && chip.getAttribute("data-missing") !== "true";
@@ -335,13 +335,14 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // The Overview is a rail of its own, so the raise is a real one: the
         // key view is in the Overview when the item fires and has to land on
         // the session's card.
+        // The chip's menu is raised in the Overview's body, and read there.
         await kindBody(app, "overview").click(OVERVIEW);
-        await app.body("S").evalJS<null>(rightClickChip());
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").evalJS<null>(rightClickChip());
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
-        const withCard = await app.evalJS<
+        const withCard = await kindBody(app, "overview").evalJS<
           ReadonlyArray<{ action: string; label: string; disabled: boolean }>
         >(menuRows());
         note("at0387 chip menu (card open)", JSON.stringify(withCard));
@@ -356,7 +357,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           "copy-session-citation",
           "copy-session-id",
         ]);
-        await app.nativeClickAtElement(`${MENU} [data-item-action="show-session"]`);
+        await kindBody(app, "overview").nativeClickAtElement(`${MENU} [data-item-action="show-session"]`);
         await app.expectFocusedCard("S", { timeoutMs: 8_000 });
 
         // ---- B. Close the card, and the same item becomes Resume. ----------
@@ -374,15 +375,15 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // The closed card took the key view with it; the Overview is the surface
         // the next press lands in, so it takes it back first.
         await kindBody(app, "overview").click(OVERVIEW);
-        await app.body("S").evalJS<null>(rightClickChip());
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").evalJS<null>(rightClickChip());
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
         // The ledger's answer for a session no card holds arrives over
         // `resolve_sessions`, and the item is disabled until it does — so the
         // wait is for the LIVE row, not merely for a row with that name.
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "overview").waitForCondition<boolean>(
           `(function(){
              var item = document.querySelector(
                ${JSON.stringify(MENU)} + ' [data-item-action="resume-session"]');
@@ -390,7 +391,7 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
            })()`,
           { timeoutMs: 10_000 },
         );
-        const noCard = await app.evalJS<
+        const noCard = await kindBody(app, "overview").evalJS<
           ReadonlyArray<{ action: string; label: string; disabled: boolean }>
         >(menuRows());
         note("at0387 chip menu (no card)", JSON.stringify(noCard));
@@ -405,13 +406,17 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // that spawn lands afterwards is the restore tests' subject, not this
         // one's: an app-test ledger row has no JSONL behind it, so the card is
         // rightly on its way to the picker.
-        const overviewCards = await app.body("S").evalJS<number>(
+        // The card hosts in the panes are the shell's placeholders; card S
+        // is closed by now, so there is no body of its to ask.
+        // card-dom: shell — counts the deck's card-host placeholders
+        const overviewCards = await app.evalJS<number>(
           `document.querySelectorAll('.tug-pane [data-card-host]').length`,
         );
-        await app.nativeClickAtElement(
+        await kindBody(app, "overview").nativeClickAtElement(
           `${MENU} [data-item-action="resume-session"]`,
         );
-        await app.body("S").waitForCondition<boolean>(
+        // card-dom: shell — the new card's placeholder is the deck's
+        await app.waitForCondition<boolean>(
           `document.querySelectorAll('.tug-pane [data-card-host]').length > ${overviewCards}`,
           { timeoutMs: 15_000 },
         );
@@ -449,8 +454,9 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           { timeoutMs: 15_000 },
         );
 
+        // The row's menu is raised in the Cards card's body, and read there.
         await kindBody(app, "cards").nativeRightClickAtElement(CARDS_DESCRIPTION);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
@@ -481,8 +487,9 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // suppresses the compatibility `mousedown` — and `mousedown` was the
         // menu's only mouse dismissal. The menu sat over the list while the
         // user clicked around underneath it.
-        await app.nativeClick({ x: point.x, y: point.y });
-        await app.waitForCondition<boolean>(
+        // The point is in the Cards body's viewport, so the press is too.
+        await kindBody(app, "cards").nativeClick({ x: point.x, y: point.y });
+        await kindBody(app, "cards").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) === null`,
           { timeoutMs: 8_000 },
         );

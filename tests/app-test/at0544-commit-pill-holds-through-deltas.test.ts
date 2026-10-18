@@ -211,17 +211,18 @@ describe.skipIf(!SHOULD_RUN)(
             await ingest(asstDelta("m1", clause, rev));
             rev += 1;
           }
-          await app.waitForCondition<boolean>(
+          // The transcript, and the probe installed in it, are A's body's.
+          await app.body("A").waitForCondition<boolean>(
             `(document.querySelector('[data-card-id="A"]')?.textContent || "").indexOf("flow is untouched") !== -1`,
             { timeoutMs: 15_000 },
           );
 
-          const probe = JSON.parse(await app.evalJS<string>(READ_PROBE_JS)) as {
+          const probe = JSON.parse(await app.body("A").evalJS<string>(READ_PROBE_JS)) as {
             blanks: number;
             samples: number;
             worst: string;
           } | null;
-          await app.evalJS<unknown>(`window.__at0544_stop && window.__at0544_stop()`);
+          await app.body("A").evalJS<unknown>(`window.__at0544_stop && window.__at0544_stop()`);
           note("at0544 probe", JSON.stringify(probe));
 
           expect(probe).not.toBeNull();

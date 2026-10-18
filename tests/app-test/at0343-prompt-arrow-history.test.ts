@@ -43,13 +43,14 @@ const EDITOR_CONTENT = `${EDITOR_HOST} .cm-content`;
 const SUBMITTED = "at0343-history-entry";
 
 /** Dispatch a real keydown on the focused element; it travels the document
- *  capture pipeline and CM6's handlers exactly as a hardware key would. */
+ *  capture pipeline and CM6's handlers exactly as a hardware key would. The
+ *  composer is in card A's body, so the key is dispatched in that page. */
 function pressKey(
   app: App,
   key: string,
   opts: { meta?: boolean; shift?: boolean; repeat?: boolean } = {},
 ): Promise<null> {
-  return app.evalJS<null>(
+  return app.body("A").evalJS<null>(
     `(function(){
       var el = document.activeElement || document.body;
       el.dispatchEvent(new KeyboardEvent("keydown", {
@@ -132,30 +133,38 @@ describe.skipIf(!SHOULD_RUN)("at0343 — the composer's plain arrows and Cmd-his
         ).toBe(true);
 
         // No ring painted anywhere on the deck: mode OFF, so there is nothing
-        // for an arrow to move even if one had escaped.
-        expect(
-          await app.evalJS<boolean>(
-            `document.documentElement.hasAttribute("data-kbf")`,
-          ),
-          "plain arrows never engage the mode",
-        ).toBe(false);
-        expect(
-          await app.evalJS<number>(
-            `document.querySelectorAll("[data-key-view-kbd]").length`,
-          ),
-          "no ring is painted in mode OFF",
-        ).toBe(0);
+        // for an arrow to move even if one had escaped. The deck is two
+        // pages — the shell's chrome and the card's body, each with its own
+        // engine — so each is asked.
+        for (const page of [app, app.body("A")]) {
+          expect(
+            // card-dom: shell — asked of the shell and of A's body in turn.
+            await page.evalJS<boolean>(
+              `document.documentElement.hasAttribute("data-kbf")`,
+            ),
+            "plain arrows never engage the mode",
+          ).toBe(false);
+          expect(
+            await page.evalJS<number>(
+              `document.querySelectorAll("[data-key-view-kbd]").length`,
+            ),
+            "no ring is painted in mode OFF",
+          ).toBe(0);
+        }
 
         // The draft is untouched: every arrow spent itself on the caret.
         expect(await docText(app)).toBe("alpha");
 
-        // And nothing wrote focus behind the engine's back.
-        const report = await app.evalJS<{
-          violations: number;
-          steals: Record<string, number>;
-        } | null>(`window.__tug.getFocusInvariantReport()`);
-        expect(report).not.toBeNull();
-        expect(report!.violations).toBe(0);
+        // And nothing wrote focus behind either engine's back — the shell's,
+        // and card A's body's, which owns the composer.
+        for (const page of [app, app.body("A")]) {
+          const report = await page.evalJS<{
+            violations: number;
+            steals: Record<string, number>;
+          } | null>(`window.__tug.getFocusInvariantReport()`);
+          expect(report).not.toBeNull();
+          expect(report!.violations).toBe(0);
+        }
       } finally {
         await app.close();
       }

@@ -255,7 +255,18 @@ describe.skipIf(!SHOULD_RUN)("at0365 — the Overview card", () => {
               (await kindBody(app, "overview").evalJS<boolean>(ARRIVAL_BODY_JS)))
           ) {
             if (Date.now() >= deadline) {
-              throw new Error(`the rail's arrival (KBF on, paint down, caret in the composer) did not settle within ${budget} ms`);
+              // Which half held: the shell's mode and paint, and the body's
+              // own paint and caret, as they stood at the deadline.
+              const shellHalf = await app.evalJS<unknown>(
+                `({ engaged: window.__tug.kbfEngaged(), kbf: document.documentElement.hasAttribute("data-kbf") })`,
+              );
+              const bodyHalf = await kindBody(app, "overview").evalJS<unknown>(
+                `({ kbf: document.documentElement.hasAttribute("data-kbf"), caret: ${ARRIVAL_BODY_JS} })`,
+              );
+              throw new Error(
+                `the rail's arrival (KBF on, paint down, caret in the composer) did not settle within ${budget} ms ` +
+                  `(shell ${JSON.stringify(shellHalf)}, body ${JSON.stringify(bodyHalf)})`,
+              );
             }
             await Bun.sleep(50);
           }

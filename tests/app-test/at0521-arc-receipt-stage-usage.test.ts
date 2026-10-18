@@ -116,36 +116,37 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
           exitCode: 0,
           startedAtMs: 1_700_000_000_000,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(BOUNDARY)}).length === 1`,
           { timeoutMs: 30_000 },
         );
         // The record is behind the fold — the boundary arrives folded, which
         // is the whole of what it holds ([B02]).
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(RECORD)}).length`,
           ),
           "the record folds behind the boundary",
         ).toBe(0);
-        await app.evalJS<null>(
+        await app.body("A").evalJS<null>(
           `(document.querySelector(${JSON.stringify(
             `${BOUNDARY} ${FOLD_CUE}`,
           )}).click(), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${textsJS(STAGE_WORDS)}.length === 2`,
           { timeoutMs: 30_000 },
         );
 
         // Both rows stand before any answer, with nothing in the trailing
         // cells: a figure nobody has answered for is not a gap.
-        expect(await app.evalJS<string[]>(textsJS(USAGE_CELLS))).toEqual(["", ""]);
+        expect(await app.body("A").evalJS<string[]>(textsJS(USAGE_CELLS))).toEqual(["", ""]);
 
         // The ledger answers for one of them — the real wire shape, through
-        // the production decoder.
+        // the production decoder. The usage store the record reads is the
+        // card's page's own, so the push is delivered in A's body.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `window.__tug.publishSessionUpdated(${JSON.stringify(
               usagePush(SID_KNOWN, {
                 turns: 10,
@@ -157,13 +158,13 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
           "the deck took the push",
         ).toBe(true);
 
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${textsJS(USAGE_CELLS)}.some(function (t) { return t.length > 0; })`,
           { timeoutMs: 20_000 },
         );
-        const cells = await app.evalJS<string[]>(textsJS(USAGE_CELLS));
-        const words = await app.evalJS<string[]>(textsJS(STAGE_WORDS));
-        const models = await app.evalJS<string[]>(textsJS(STAGE_MODELS));
+        const cells = await app.body("A").evalJS<string[]>(textsJS(USAGE_CELLS));
+        const words = await app.body("A").evalJS<string[]>(textsJS(STAGE_WORDS));
+        const models = await app.body("A").evalJS<string[]>(textsJS(STAGE_MODELS));
         note(
           "at0521 stage rows",
           JSON.stringify({ words, models, cells }),
@@ -183,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)("AT0521: a stage row costs, it does not cite", () =
         expect(models).toEqual(["opus", "opus"]);
 
         // 3. No id anywhere in the record — not as a label, not as a chip.
-        const blockText = await app.evalJS<string>(
+        const blockText = await app.body("A").evalJS<string>(
           `(function () {
              var b = document.querySelector(${JSON.stringify(RECORD)});
              return b === null ? "" : (b.textContent || "");

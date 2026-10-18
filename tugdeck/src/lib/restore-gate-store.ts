@@ -12,6 +12,13 @@
  * This store is the reading behind `TugRestoreGate`, the app-modal that
  * says the app is busy for exactly as long as it is.
  *
+ * Under per-card web views a Session card's session store lives in its
+ * body's page, so the shell's services store has none for it. Each body
+ * reports its card's restore in its `card-facts` telemetry
+ * (`body-publisher.ts`, read through `bodyFactsStore.restoreHoldOf`) and the
+ * gate folds those reports beside the shell's own stores ([B29] of the
+ * bodies migration).
+ *
  * Tuglaws: [L02] — external state with `subscribe`/`getSnapshot`, read
  * through `useSyncExternalStore`; the snapshot is reference-stable
  * across unchanged reads. [L10] — one responsibility (derive the gate);
@@ -24,6 +31,8 @@ import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { createSubscribable } from "@/lib/subscribable";
 
 import { cardServicesStore } from "./card-services-store";
+import { bodyCardsStore } from "./body-cards-store";
+import { bodyFactsStore } from "./body-facts-store";
 import type { CodeSessionStore } from "./code-session-store";
 import { deriveRestoreGateHold } from "@/lib/session-card-restore-gate";
 
@@ -74,6 +83,10 @@ class RestoreGateStore {
     if (this._initialized) return;
     this._initialized = true;
     cardServicesStore.subscribe(() => this._resync());
+    // A body card's session store is in its own page: its body reports the
+    // card's cold restore in its facts, and the gate folds that report.
+    bodyFactsStore.subscribe(() => this._recompute());
+    bodyCardsStore.subscribe(() => this._recompute());
     this._resync();
   }
 
@@ -117,6 +130,17 @@ class RestoreGateStore {
       turnsLoaded += s.transcript.length;
       turnsTarget += s.restoreWindowTurns;
     });
+    // Each body card whose body says it is restoring, held as a
+    // shell-hosted card is held ([B29] of the bodies migration): the body
+    // derives the same `deriveRestoreGateHold`, its own silence deadline
+    // errors it there, and the hold goes with the page.
+    for (const cardId of bodyCardsStore.cardIds()) {
+      const hold = bodyFactsStore.restoreHoldOf(cardId);
+      if (hold === null) continue;
+      cards += 1;
+      turnsLoaded += hold.turnsLoaded;
+      turnsTarget += hold.turnsTarget;
+    }
     this._publish(
       cards === 0 ? CLOSED : { open: true, cards, turnsLoaded, turnsTarget },
     );

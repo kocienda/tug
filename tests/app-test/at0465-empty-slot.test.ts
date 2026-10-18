@@ -202,9 +202,10 @@ async function slotOf(app: App, paneId: string): Promise<number | null> {
   );
 }
 
-/** The numbers the flow strip's segments carry, left to right. */
+/** The numbers the flow strip's segments carry, left to right — the Layout
+ *  card's drawing, in that card's body. */
 async function stripNumbers(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("L").evalJS<string[]>(
     `Array.prototype.map.call(
       document.querySelectorAll(
         '[data-testid="flow-strip"] [data-slot="tug-slot-layout"] [data-slot="tug-slot"]',
@@ -441,7 +442,7 @@ describe.skipIf(!SHOULD_RUN)("at0465 — the held-open slot", () => {
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,
         );
         await app.seedDeckState({ state: gappedFlowDeck(), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
+        await app.body("L").waitForCondition<boolean>(
           `document.querySelector(".flow-strip-map") !== null`,
           { timeoutMs: 8_000 },
         );

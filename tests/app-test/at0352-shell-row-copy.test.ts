@@ -158,13 +158,15 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
         // click inside it. Both the menu's enablement and ⌘C's routing
         // start from there.
         await app.body("A").nativeClickAtElement(`${CARD} .commit-receipt-summary`);
+        // card-dom: shell — the deck's own focus bit.
         await app.waitForCondition<boolean>(`window.__tug.getHasFocus() === true`, {
           timeoutMs: 3000,
         });
 
         // The row registers a COPY handler, so Edit ▸ Copy validates lit —
-        // the condition ⌘C's whole path hangs off.
-        const rowIsFirstResponder = await app.evalJS<boolean>(`(function(){
+        // the condition ⌘C's whole path hangs off. The row and the chain
+        // it registers in are A's body's.
+        const rowIsFirstResponder = await app.body("A").evalJS<boolean>(`(function(){
           var id = window.__tug.getFirstResponderId();
           var el = id === null ? null : document.querySelector('[data-responder-id="' + id + '"]');
           return el !== null && el.getAttribute("data-slot") === "session-transcript-shell-row";
@@ -175,21 +177,21 @@ describe.skipIf(!SHOULD_RUN)("AT0352: ⌘C copies a selection in a shell-route r
         expect(copyItem.found === true && copyItem.enabled).toBe(true);
 
         // ---- the header subject: the reported case ----
-        const headSel = await app.evalJS<string>(
+        const headSel = await app.body("A").evalJS<string>(
           selectInScript(".commit-receipt-summary", SUBJECT, 0, SUBJECT.length),
         );
         expect(headSel).toBe(SUBJECT);
         expect(await copyAndRead(app, "at0352-sentinel-head")).toBe(SUBJECT);
 
         // ---- a partial selection copies exactly what is selected ----
-        const partSel = await app.evalJS<string>(
+        const partSel = await app.body("A").evalJS<string>(
           selectInScript(".commit-receipt-summary", SUBJECT, 7, 14),
         );
         expect(partSel).toBe(SUBJECT.slice(7, 14));
         expect(await copyAndRead(app, "at0352-sentinel-part")).toBe(SUBJECT.slice(7, 14));
 
         // ---- the message body below the header ----
-        const bodySel = await app.evalJS<string>(
+        const bodySel = await app.body("A").evalJS<string>(
           selectInScript('[data-slot="commit-receipt-detail"]', BODY_LINE, 0, BODY_LINE.length),
         );
         expect(bodySel).toBe(BODY_LINE);

@@ -72,7 +72,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
-import { kindBody } from "./_harness/card-reach";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -476,6 +476,11 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 2`,
             { timeoutMs: 8_000 },
           );
+          // The new workspace has its own Cards card, whose body is ready a
+          // beat before the host places it — and a click computed in an
+          // unplaced body's viewport lands outside the view. Wait for the
+          // shown one to stand placed before pressing in it.
+          await waitForBodyPainted(app, "cards");
           await kindBody(app, "cards").nativeClickAtElement(
             `${headerFor(SPACE_ONE)} [data-testid="cards-space-verbs-button"]`,
           );

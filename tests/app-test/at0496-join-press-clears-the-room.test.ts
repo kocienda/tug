@@ -306,15 +306,18 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
         bindArc(projectDir(), ARC, SID, scratch?.cli ?? {});
         silenceJoinPrompt(projectDir(), ARC);
 
-        await app.dispatchControlAction("bind_arc_ok", {
-          tug_session_id: SID,
-          arc_id: arcId,
-          arc_name: ARC,
-        });
+        // A broadcast reaches every page, and the lane's binding store is the
+        // card body's own — so the frame is handed to the body as well as the
+        // shell.
+        const bindOk = { tug_session_id: SID, arc_id: arcId, arc_name: ARC };
+        await app.dispatchControlAction("bind_arc_ok", bindOk);
+        await app.body("A").evalJS<null>(
+          `(window.__tug.dispatchControlAction("bind_arc_ok", ${JSON.stringify(bindOk)}), null)`,
+        );
         lap("bound");
         await openTheRoomOnTheJoin(app);
         lap("the room is open on the join");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
         );
@@ -332,7 +335,7 @@ describe.skipIf(!SHOULD_RUN)("AT0496: a Join press hands the room back", () => {
           "precondition: the Changes shade is up",
         ).toBe(true);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(row(ARC))}) !== null`,
           ),
           "precondition: the shade is offering this arc",

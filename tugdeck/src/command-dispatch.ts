@@ -55,7 +55,7 @@ function notifyCommandObservers(id: string, handled: boolean): void {
  * installs one; with none installed every command dispatches here.
  */
 export type KeyCardForwarder = (
-  entry: CommandEntry,
+  entry: Pick<CommandEntry, "id" | "routing">,
   payload: Record<string, unknown> | undefined,
 ) => boolean;
 
@@ -67,6 +67,17 @@ export function setKeyCardForwarder(forwarder: KeyCardForwarder): () => void {
   return () => {
     if (keyCardForwarder === forwarder) keyCardForwarder = null;
   };
+}
+
+/**
+ * Hand a key-card action no command entry can carry — `run-card-command`
+ * with arguments, or a name no entry bridges — to the key card's body, and
+ * say whether one took it. The body runs `action` as it runs a forwarded
+ * command, against its own registry; with no forwarder, or a key card whose
+ * responders are in this document, nothing is taken.
+ */
+export function forwardToKeyCard(action: string, payload: Record<string, unknown>): boolean {
+  return keyCardForwarder !== null && keyCardForwarder({ id: action, routing: "key-card" }, payload);
 }
 
 /**

@@ -534,8 +534,12 @@ import {
  * value set in the shell never reaches a card's body — so a test that drives
  * a card's settings sets and reads them in the card's page. Additive; major
  * stays `2`.
+ *
+ * `2.45.0`: `publishDraftFrame`, `publishSessionUpdated` and `renderedRows`
+ * are on a body's surface too, over the body's own copies of the stores they
+ * reach. Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.44.0" as const;
+export const SURFACE_VERSION = "2.45.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -3238,14 +3242,7 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
       return true;
     },
 
-    publishDraftFrame(payloadJson: string): boolean {
-      try {
-        _ingestDraftFrameForTest(JSON.parse(payloadJson));
-      } catch {
-        return false;
-      }
-      return true;
-    },
+    ...pageStoreSurfaceMethods(),
 
     recordActivity(session: string, channel: string, units: number): boolean {
       const store = getSessionActivityStore();
@@ -3299,47 +3296,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
     },
 
     ...overviewSurfaceMethods(),
-
-    async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {
-      const services = cardServicesStore.getServices(cardId);
-      if (services === null) return null;
-      const store = services.codeSessionStore;
-      const doc = store.streamingDocument;
-      const rows: (RenderedRowFacts & { el: HTMLElement })[] = [];
-      for (const turn of store.getSnapshot().transcript) {
-        for (const m of turn.messages) {
-          if (m.kind !== "assistant_text") continue;
-          const base = `turn.${turn.turnKey}.message.${m.messageKey}`;
-          const written = doc.get(`${base}.text`);
-          const text = typeof written === "string" ? written : m.text;
-          const state = doc.get(`${base}.rendered`);
-          const el = document.createElement("div");
-          renderIncremental(el, text);
-          rows.push({
-            turnKey: turn.turnKey,
-            messageKey: m.messageKey,
-            text,
-            rendered:
-              state === undefined ? "absent" : state === null ? "null" : isRenderedPending(state) ? "pending" : "record",
-            streaming: isRenderedRecord(state) ? state.streaming : null,
-            current: isRenderedRecord(state) ? state.current : null,
-            recordHtml: isRenderedRecord(state)
-              ? state.message.blocks.map((b) => state.message.html[b.hash] ?? "")
-              : null,
-            pageHashes: [],
-            pageText: "",
-            el,
-          });
-        }
-      }
-      // Math typesets asynchronously, in the live row and here alike.
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return rows.map(({ el, ...row }) => ({
-        ...row,
-        pageHashes: Array.from(el.children).map((c) => c.getAttribute("data-content-hash") ?? ""),
-        pageText: el.textContent ?? "",
-      }));
-    },
 
     copySessionAtom(sessionId: string): boolean {
       return writeSessionAtomToClipboard(resolveSessionIdentity(sessionId));
@@ -3396,21 +3352,6 @@ export function createTugTestSurface(deck: DeckManager): TugTestSurface {
         };
         worker.postMessage(request);
       });
-    },
-
-    publishSessionUpdated(payloadJson: string): boolean {
-      let body: unknown;
-      try {
-        body = JSON.parse(payloadJson);
-      } catch {
-        return false;
-      }
-      if (typeof body !== "object" || body === null) return false;
-      dispatchAction({
-        ...(body as Record<string, unknown>),
-        action: "session_updated",
-      });
-      return true;
     },
 
     // ---- Reload primitives (SURFACE_VERSION 1.4.0) ----
@@ -3905,15 +3846,93 @@ function overviewSurfaceMethods() {
   };
 }
 
+/**
+ * The verbs over stores every page holds a copy of, each fed from that page's
+ * own connection: the changeset draft store, the session ledger's pushes,
+ * a card's session store. On the shell's surface and on a body's, since a
+ * card reads the copy in its own page — a frame delivered in the shell never
+ * reaches a body card.
+ */
+function pageStoreSurfaceMethods() {
+  return {
+    publishDraftFrame(payloadJson: string): boolean {
+      try {
+        _ingestDraftFrameForTest(JSON.parse(payloadJson));
+      } catch {
+        return false;
+      }
+      return true;
+    },
+
+    publishSessionUpdated(payloadJson: string): boolean {
+      let body: unknown;
+      try {
+        body = JSON.parse(payloadJson);
+      } catch {
+        return false;
+      }
+      if (typeof body !== "object" || body === null) return false;
+      dispatchAction({
+        ...(body as Record<string, unknown>),
+        action: "session_updated",
+      });
+      return true;
+    },
+
+    async renderedRows(cardId: string): Promise<RenderedRowFacts[] | null> {
+      const services = cardServicesStore.getServices(cardId);
+      if (services === null) return null;
+      const store = services.codeSessionStore;
+      const doc = store.streamingDocument;
+      const rows: (RenderedRowFacts & { el: HTMLElement })[] = [];
+      for (const turn of store.getSnapshot().transcript) {
+        for (const m of turn.messages) {
+          if (m.kind !== "assistant_text") continue;
+          const base = `turn.${turn.turnKey}.message.${m.messageKey}`;
+          const written = doc.get(`${base}.text`);
+          const text = typeof written === "string" ? written : m.text;
+          const state = doc.get(`${base}.rendered`);
+          const el = document.createElement("div");
+          renderIncremental(el, text);
+          rows.push({
+            turnKey: turn.turnKey,
+            messageKey: m.messageKey,
+            text,
+            rendered:
+              state === undefined ? "absent" : state === null ? "null" : isRenderedPending(state) ? "pending" : "record",
+            streaming: isRenderedRecord(state) ? state.streaming : null,
+            current: isRenderedRecord(state) ? state.current : null,
+            recordHtml: isRenderedRecord(state)
+              ? state.message.blocks.map((b) => state.message.html[b.hash] ?? "")
+              : null,
+            pageHashes: [],
+            pageText: "",
+            el,
+          });
+        }
+      }
+      // Math typesets asynchronously, in the live row and here alike.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return rows.map(({ el, ...row }) => ({
+        ...row,
+        pageHashes: Array.from(el.children).map((c) => c.getAttribute("data-content-hash") ?? ""),
+        pageText: el.textContent ?? "",
+      }));
+    },
+  };
+}
+
 export function attachBodyTestSurface(bridge: ViewSurfaceStore, stores: { usageStore?: UsageStore } = {}): void {
   if (typeof window === "undefined" || window.__tugTestMode !== true) return;
   // The Overview's store is the page's own: a body holding the Overview is
   // fed and read here, as the shell's document was. So is the usage store: a
-  // `/usage` sheet rises in the card's page and reads the store there.
+  // `/usage` sheet rises in the card's page and reads the store there. And
+  // so are the draft store, the ledger's pushes and the card's session store.
   window.__tug = {
     version: SURFACE_VERSION,
     ...createViewSurfaceMethods(bridge),
     ...overviewSurfaceMethods(),
+    ...pageStoreSurfaceMethods(),
     ingestUsage(payload: unknown): void {
       if (stores.usageStore === undefined) throw new Error("ingestUsage: this page holds no usage store");
       stores.usageStore._ingestForTest(payload);

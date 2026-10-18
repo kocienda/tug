@@ -249,8 +249,9 @@ describe.skipIf(!SHOULD_RUN)("at0602 — a session atom the model can read", () 
         // The ledger's word about B, so the block can say `here` rather than
         // `unverified`. Delivered through the production handler — everything
         // downstream of it, including the key the answer is filed under, is
-        // the real path.
-        await app.evalJS<boolean>(resolveB());
+        // the real path. Delivered in A's body: the resolver that answer is
+        // filed in is per page, and the submission's block is built there.
+        await app.body("A").evalJS<boolean>(resolveB());
 
         // ---- The submission ------------------------------------------------
         await app.driveSession("A", {

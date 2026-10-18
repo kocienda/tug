@@ -125,10 +125,43 @@ interface ZoomReading {
   textRectHeight: number;
 }
 
-function read(app: App): Promise<ZoomReading> {
-  return app.body("A").evalJS<ZoomReading>(`(function () {
+type DeckReading = Pick<
+  ZoomReading,
+  "innerWidth" | "innerHeight" | "devicePixelRatio" | "rootRect" | "rootLayout" | "rootTransform" | "rootGrid" | "bodyGrid"
+>;
+type StripReading = Pick<ZoomReading, "shown" | "cells" | "overflow" | "fontSize" | "textRectHeight">;
+
+/**
+ * One reading at `zoom`, each half in its own page. The window, the deck root
+ * and its grid are the shell's: the root that fills the window is the shell's
+ * `#deck-container`, and a body's root is its pane, which wears no grid
+ * (`body-page.css`). Z2 is card A's, in its body — read once the body has
+ * taken the factor itself, which it hears from the shell a beat after the
+ * shell's own apply has resolved.
+ */
+async function read(app: App, zoom: number): Promise<ZoomReading> {
+  // card-dom: shell — the deck root, its grid and the window are the shell's.
+  const deck = await app.evalJS<DeckReading>(`(function () {
   var root = document.getElementById("deck-container");
   var r = root.getBoundingClientRect();
+  var round = function (n) { return Math.round(n * 100) / 100; };
+  return {
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    devicePixelRatio: window.devicePixelRatio,
+    rootRect: { left: round(r.left), top: round(r.top), width: round(r.width), height: round(r.height) },
+    rootLayout: { width: root.offsetWidth, height: root.offsetHeight },
+    rootTransform: getComputedStyle(root).transform,
+    rootGrid: getComputedStyle(root).backgroundImage !== "none",
+    bodyGrid: getComputedStyle(document.body).backgroundImage !== "none",
+  };
+})()`);
+  const bodyTransform = zoom === 1 ? "none" : `matrix(${zoom}, 0, 0, ${zoom}, 0, 0)`;
+  await app.body("A").waitForCondition<boolean>(
+    `getComputedStyle(document.getElementById("deck-container")).transform === ${JSON.stringify(bodyTransform)}`,
+    { timeoutMs: 2_000 },
+  );
+  const strip = await app.body("A").evalJS<StripReading>(`(function () {
   var bar = document.querySelector('[data-card-id="A"] [data-slot="session-card-status-bar"]');
   var all = [].slice.call(bar.querySelectorAll('[data-slot="tug-status-cell"][data-priority]'))
     .filter(function (c) { return getComputedStyle(c).display !== "none"; });
@@ -140,14 +173,6 @@ function read(app: App): Promise<ZoomReading> {
   range.selectNodeContents(cell);
   var round = function (n) { return Math.round(n * 100) / 100; };
   return {
-    innerWidth: window.innerWidth,
-    innerHeight: window.innerHeight,
-    devicePixelRatio: window.devicePixelRatio,
-    rootRect: { left: round(r.left), top: round(r.top), width: round(r.width), height: round(r.height) },
-    rootLayout: { width: root.offsetWidth, height: root.offsetHeight },
-    rootTransform: getComputedStyle(root).transform,
-    rootGrid: getComputedStyle(root).backgroundImage !== "none",
-    bodyGrid: getComputedStyle(document.body).backgroundImage !== "none",
     shown: all.map(function (c) { return c.getAttribute("data-priority"); }),
     cells: cells,
     overflow: row === null ? 0 : Math.max(0, row.scrollWidth - row.clientWidth),
@@ -155,6 +180,7 @@ function read(app: App): Promise<ZoomReading> {
     textRectHeight: round(range.getBoundingClientRect().height),
   };
 })()`);
+  return { ...deck, ...strip };
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", () => {
@@ -163,7 +189,7 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
     async () => {
       const app = await standUp("at0710-z2-cells");
       try {
-        const baseline = await read(app);
+        const baseline = await read(app, 1);
         expect(baseline.shown.length).toBe(5);
         expect(baseline.rootTransform).toBe("none");
         expect(baseline.rootGrid, "the grid is painted on the root").toBe(true);
@@ -173,10 +199,10 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
         for (const zoom of ZOOM_FACTORS) {
           const taken = await app.setPageZoom(zoom);
           expect(taken).toBeCloseTo(zoom, 5);
-          readings[String(zoom)] = await read(app);
+          readings[String(zoom)] = await read(app, zoom);
         }
         await app.setPageZoom(1);
-        const back = await read(app);
+        const back = await read(app, 1);
         note("readings by zoom", readings);
 
         for (const zoom of ZOOM_FACTORS) {
@@ -222,7 +248,10 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
     async () => {
       const app = await standUp("at0710-readout");
       try {
-        await app.body("A").evalJS<boolean>(`(function () {
+        // The host's zoom step lands on the shell's bridge, and the readout
+        // and the root it scales are the deck canvas's.
+        // card-dom: shell
+        await app.evalJS<boolean>(`(function () {
   var bridge = window.__tugBridge;
   var log = [];
   var snap = function (kind) {
@@ -244,7 +273,8 @@ describe.skipIf(!SHOULD_RUN)("AT0710: a zoom changes scale and nothing else", ()
   return true;
 })()`);
         await app.setPageZoom(0.9);
-        const log = await app.body("A").evalJS<
+        // card-dom: shell — the log was recorded on the shell's bridge.
+        const log = await app.evalJS<
           Array<{
             kind: string;
             transform: string;

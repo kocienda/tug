@@ -162,7 +162,7 @@ async function runCommand(app: App, line: string): Promise<void> {
 
 /** Press a control on the arc row, scrolling it into the shade first. */
 async function revealAndClick(app: App, selector: string): Promise<void> {
-  await app.evalJS<boolean>(
+  await app.body("A").evalJS<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(selector)});
       if (el === null) return false;
@@ -171,7 +171,7 @@ async function revealAndClick(app: App, selector: string): Promise<void> {
     })()`,
   );
   await settle(250);
-  await app.nativeClickAtElement(selector);
+  await app.body("A").nativeClickAtElement(selector);
 }
 
 async function openOnArc(app: App): Promise<void> {
@@ -215,17 +215,17 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         // It does not start the run — the pilot already did, because the arc
         // is built.
         await runCommand(app, `/arc-join ${ARC}`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(JOIN_FACE)}) !== null`,
           { timeoutMs: 40000 },
         );
 
         // ── The ask reaches the face ──────────────────────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(WIZARD)}) !== null`,
           { timeoutMs: 120000 },
         );
-        const asked = await app.evalJS<string>(
+        const asked = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(QUESTION)})?.textContent || "")`,
         );
         // Phrased as intent, with concrete resolutions — never a diff. That is
@@ -250,17 +250,17 @@ describe.skipIf(!SHOULD_RUN)("AT0442: the resolver's escalation", () => {
         );
 
         // ── The resolver finishes on the answer ───────────────────────────
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ACCOUNT)}) !== null`,
           { timeoutMs: 180000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(WIZARD)}) === null`,
           ),
           "an answered question stops standing",
         ).toBe(true);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(REGISTER)})?.getAttribute("data-word") === "ready"`,
           { timeoutMs: 30000 },
         );

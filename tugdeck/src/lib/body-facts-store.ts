@@ -82,6 +82,20 @@ export class BodyFactsStore extends Subscribable {
     return true;
   }
 
+  /**
+   * The page that said the card was restoring is gone (a termination): the
+   * hold goes with it, and the reloaded page says again if it restores.
+   * The card's other facts stand until the new page replaces them.
+   */
+  endRestoreHold(cardId: string): void {
+    const prev = this.entries.get(cardId);
+    const telemetry = prev?.facts?.telemetry;
+    if (prev === undefined || prev.facts === null || telemetry?.restoreHold === undefined) return;
+    const { restoreHold: _hold, restoreTurnsLoaded: _loaded, restoreTurnsTarget: _target, ...rest } = telemetry;
+    this.entries.set(cardId, Object.freeze({ ...prev, facts: { ...prev.facts, telemetry: rest } }));
+    this.notify();
+  }
+
   /** Forget a card. */
   drop(cardId: string): void {
     if (!this.entries.delete(cardId)) return;
@@ -102,6 +116,26 @@ export class BodyFactsStore extends Subscribable {
 
   /** Whether the card's session has been compacted. */
   compacted = (cardId: string): boolean => this.get(cardId).facts?.telemetry.compacted === 1;
+
+  /**
+   * The card's cold restore as its body last said (`restoreHold` in its
+   * telemetry, `body-publisher.ts`): the turns loaded and asked for while
+   * the restore gate holds it, or null when it holds nothing.
+   */
+  restoreHoldOf = (cardId: string): { turnsLoaded: number; turnsTarget: number } | null => {
+    const telemetry = this.get(cardId).facts?.telemetry;
+    if (telemetry?.restoreHold !== 1) return null;
+    return { turnsLoaded: telemetry.restoreTurnsLoaded ?? 0, turnsTarget: telemetry.restoreTurnsTarget ?? 0 };
+  };
+
+  /**
+   * Whether the card's page paints keyboard-focus mode, as its body last said
+   * (`kbfPaint` in its telemetry, `body-publisher.ts`), or null before it has.
+   */
+  kbfPaintOf = (cardId: string): boolean | null => {
+    const paint = this.get(cardId).facts?.telemetry.kbfPaint;
+    return paint === undefined ? null : paint === 1;
+  };
 
   /** The close advice: waive the confirm. False until the body says otherwise. */
   waives = (cardId: string): boolean => this.get(cardId).waive === true;

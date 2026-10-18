@@ -863,7 +863,15 @@ export function restoreSessions(
         : reason;
       if (rebind && holdsStoresFor(binding.card_id, binding.session_id)) {
         const services = cardServicesStore.getServices(binding.card_id)!;
-        if (services.codeSessionStore.getSnapshot().replayEverCompleted) {
+        // A session born on this card (`new`) has no transcript on disk for
+        // the drop to have cut short: its stores hold every frame since its
+        // spawn. Its first replay can close as a shadowed bracket over the
+        // card's first turn, which is not a replay the card had, so
+        // `replayEverCompleted` alone would rebuild a card that lost nothing.
+        if (
+          services.codeSessionStore.getSnapshot().replayEverCompleted ||
+          cardSessionBindingStore.getBinding(binding.card_id)?.sessionMode === "new"
+        ) {
           fireRebind(binding.card_id, binding.session_id, binding.project_dir, connection);
           rebindCount += 1;
           continue;

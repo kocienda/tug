@@ -46,11 +46,36 @@
  * @covers tugdeck/src/action-dispatch.ts
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { mkSeededTugbank, rmTempTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+
+/**
+ * The window width is a PERSISTED preference, deck-wide and machine-global,
+ * which is exactly what it is meant to be — and exactly why it has to be
+ * stated here. Left ambient, the last test to widen it would set the starting
+ * width of the first test of the next run, and this file would pass once and
+ * fail forever after on a claim about the deck rather than about itself.
+ *
+ * It is stated in the tugbank the app opens, which reaches every page: the
+ * rows draw in the Cards card's body, and a page-local cache write there
+ * would also outrank the server's answer to the `set-slot-window` PUT, whose
+ * domain generation it had already spent.
+ */
+const tugbanks: string[] = [];
+async function launchSlotWindowApp(): Promise<App> {
+  const tugbank = mkSeededTugbank([
+    { domain: "dev.tugapp.slot-window", key: "slotWindow", type: "int", value: "3" },
+  ]);
+  tugbanks.push(tugbank);
+  return launchTugApp({ testName: "at0470-slot-window", env: { TUGBANK_PATH: tugbank } });
+}
+afterAll(() => {
+  for (const tugbank of tugbanks) rmTempTugbank(tugbank);
+});
 const TEST_TIMEOUT_MS = 120_000;
 
 const CARDS_WIDTH = 460;
@@ -125,19 +150,16 @@ async function openDeck(app: App): Promise<void> {
   await app.evalJS<null>(
     `(window.__tug.setTugbankValue("dev.tugapp.cards", "widthPx", { kind: "i64", value: ${CARDS_WIDTH} }), null)`,
   );
-  // The window width is a PERSISTED preference, deck-wide and machine-global,
-  // which is exactly what it is meant to be — and exactly why it has to be
-  // stated here. Left ambient, the last test to widen it would set the
-  // starting width of the first test of the next run, and this file would pass
-  // once and fail forever after on a claim about the deck rather than about
-  // itself.
-  await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugapp.slot-window", "slotWindow", { kind: "i64", value: 3 }), null)`,
-  );
+  // The window width starts at three, from the tugbank the app was launched
+  // on (`launchSlotWindowApp`).
   await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
   await app.body("L").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
     { timeoutMs: 8_000 },
+  );
+  await app.body("L").waitForCondition<boolean>(
+    `document.querySelector(${JSON.stringify(PICKER)}).children.length === 3`,
+    { timeoutMs: 4_000 },
   );
   await wait(AFTER_LAND_MS);
 }
@@ -199,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
     "three real places per row, centred where it can be and slid where it cannot",
     async () => {
-      const app = await launchTugApp({ testName: "at0470-slot-window" });
+      const app = await launchSlotWindowApp();
       try {
         await openDeck(app);
         const rows = await windows(app);
@@ -276,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
     "a chip that is not the card's own moves it there, and the window follows",
     async () => {
-      const app = await launchTugApp({ testName: "at0470-slot-window" });
+      const app = await launchSlotWindowApp();
       try {
         await openDeck(app);
         const before = await windows(app);
@@ -315,7 +337,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
     "the card's own chip opens the whole run, and a place the window cannot show is reachable there",
     async () => {
-      const app = await launchTugApp({ testName: "at0470-slot-window" });
+      const app = await launchSlotWindowApp();
       try {
         await openDeck(app);
         expect(
@@ -388,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
     "a chip on a selected row moves every selected card, and a row outside the selection moves only its own",
     async () => {
-      const app = await launchTugApp({ testName: "at0470-slot-window" });
+      const app = await launchSlotWindowApp();
       try {
         await openDeck(app);
         // A (slot 1) and C (slot 6) selected; B (slot 3) left out.
@@ -434,7 +456,7 @@ describe.skipIf(!SHOULD_RUN)("at0470 — the Cards row's slot window", () => {
   test(
     "the `set-slot-window` action is what sets the width",
     async () => {
-      const app = await launchTugApp({ testName: "at0470-slot-window" });
+      const app = await launchSlotWindowApp();
       try {
         await openDeck(app);
         expect(

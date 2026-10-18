@@ -133,7 +133,7 @@ function partEdges(
 
 /** A row's border-box height, or -1 when no row matches. */
 function heightOf(app: App, selector: string): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("W").evalJS<number>(
     `(function () {
        var row = document.querySelector(${JSON.stringify(selector)});
        return row === null ? -1 : row.getBoundingClientRect().height;

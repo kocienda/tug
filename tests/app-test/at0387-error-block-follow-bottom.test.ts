@@ -171,8 +171,10 @@ interface Snap {
   displacements: string | null;
 }
 
+// The transcript, its scroller and the dev log that records its follow-bottom
+// transitions are all in A's body.
 function readSnap(app: App): Promise<Snap> {
-  return app.evalJS<Snap>(`(function () {
+  return app.body("A").evalJS<Snap>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var btn = document.querySelector('${JUMP_BUTTON}');
   var max = el.scrollHeight - el.clientHeight;
@@ -194,7 +196,7 @@ function readSnap(app: App): Promise<Snap> {
  *  for a departed row minus the extent it actually occupied. A nonzero
  *  `delta` IS the document-height error a browser clamp then acts on. */
 function readConservation(app: App): Promise<unknown> {
-  return app.evalJS(`(function () {
+  return app.body("A").evalJS(`(function () {
   var c = window.__tug.getListConservation('${SCROLLER}');
   var bad = c.events.filter(function (e) { return Math.abs(e.delta) >= 0.5; });
   return {
@@ -217,7 +219,7 @@ function readConservation(app: App): Promise<unknown> {
 function readFollowBottom(app: App): Promise<
   { following: boolean; source: string; scrollTop: number; scrollHeight: number }[]
 > {
-  return app.evalJS(`(function () {
+  return app.body("A").evalJS(`(function () {
   return window.tugDevLog.getSnapshot().entries
     .filter(function (e) {
       return e.source === "smart-scroll" && e.message === "follow-bottom";
@@ -247,7 +249,7 @@ async function standUp(testName: string): Promise<App> {
   for (let n = 0; n < TURNS; n += 1) {
     await seedTurn(app, n);
   }
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
     { timeoutMs: 30_000 },
   );

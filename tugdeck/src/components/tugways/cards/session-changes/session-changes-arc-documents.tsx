@@ -20,7 +20,9 @@
  * `useSyncExternalStore` read, and nothing here subscribes; [L06] role and
  * review paint through data attributes and CSS; [L19] the row is `ArcFoldRow`
  * — the fold's one row — rather than hand-rolled chrome; [L23] the open goes
- * through `openFileInCard`, which owns the focus transfer.
+ * through the `OPEN_FILE` command, whose handler is the shell's `openFileInCard`,
+ * which owns the focus transfer. The command and not `openFileInCard` itself:
+ * the shade stands in a Session card's body, whose deck store cannot add a card.
  *
  * @module components/tugways/cards/session-changes/session-changes-arc-documents
  */
@@ -37,8 +39,8 @@ import {
   ArcFoldRow,
 } from "@/components/tugways/cards/session-changes/session-changes-arc-fold-row";
 import { arcReviewPaints } from "@/lib/arc-review";
-import { useDeckManager } from "@/deck-manager-context";
-import { openFileInCard } from "@/lib/open-file-in-card";
+import { dispatchCommand } from "@/command-dispatch";
+import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { useCardId } from "@/components/tugways/use-card-state-preservation";
 import type { ArcDocuments } from "@/lib/changeset-types";
 
@@ -125,9 +127,14 @@ export function SessionChangesArcDocuments({
   taskList = false,
   steps,
 }: SessionChangesArcDocumentsProps): React.ReactElement | null {
-  const store = useDeckManager();
   // The card this list stands in, which a document's card opens beside.
   const hostCardId = useCardId();
+  const open = (path: string): void => {
+    dispatchCommand(TUG_ACTIONS.OPEN_FILE, {
+      path,
+      ...(hostCardId !== null ? { originCardId: hostCardId } : {}),
+    });
+  };
   const rows = documentRows(documents, review, taskList, steps);
   if (rows.length === 0) return null;
 
@@ -159,12 +166,11 @@ export function SessionChangesArcDocuments({
               role: "button",
               tabIndex: 0,
               "aria-label": `Open the ${row.role} ${row.title}`,
-              onClick: () =>
-                openFileInCard(store, row.path, undefined, undefined, undefined, hostCardId),
+              onClick: () => open(row.path),
               onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                openFileInCard(store, row.path, undefined, undefined, undefined, hostCardId);
+                open(row.path);
               },
             }}
             leading={
@@ -194,7 +200,7 @@ export function SessionChangesArcDocuments({
                     // The wrapper opens the same document; letting the click
                     // reach it would open the card twice.
                     event?.stopPropagation();
-                    openFileInCard(store, row.path, undefined, undefined, undefined, hostCardId);
+                    open(row.path);
                   }}
                 />
               </>

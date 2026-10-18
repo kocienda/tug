@@ -107,7 +107,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
         // a scroll position to hold in the first place.
         for (let id = 20; id <= 31; id++) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);
@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("at0367 — the Overview pages backwards", () => {
           before_id: 20,
         };
         expect(
-          await app.evalJS<boolean>(
+          await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPostsPage(${JSON.stringify(JSON.stringify(page))})`,
           ),
         ).toBe(true);

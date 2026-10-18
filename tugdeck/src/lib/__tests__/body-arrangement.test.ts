@@ -143,9 +143,10 @@ describe("arrangementSnapshot", () => {
 });
 
 describe("the deck calls a body may make", () => {
-  test("are exactly the seven moves, and never a workspace delete", () => {
+  test("are exactly the eight moves, and never a workspace delete", () => {
     expect([...BODY_DECK_CALLS].sort() as string[]).toEqual(
       [
+        "activateCard",
         "activateSpace",
         "chooseSpaceTheme",
         "moveCardToSpace",

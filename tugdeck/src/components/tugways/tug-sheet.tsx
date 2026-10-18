@@ -117,7 +117,7 @@ import { useSheetLifecycle } from "@/lib/sheet-lifecycle";
 import { SHEET_CANVAS_GAP } from "@/lib/sheet-reservation";
 import { group } from "@/components/tugways/tug-animator";
 import { useTugPaneScrim } from "@/components/tugways/use-tug-pane-scrim";
-import { usePaneInert } from "@/components/tugways/use-pane-inert";
+import { paneBodyOf, usePaneInert } from "@/components/tugways/use-pane-inert";
 import type { ActionEvent } from "./responder-chain";
 import { useResponderChain } from "./responder-chain-provider";
 import { useOptionalResponder } from "./use-responder";
@@ -2385,7 +2385,10 @@ export function TugSheetContent({
   // The `modalScopeSelector` narrows the inert region below the whole pane
   // body (the shade's transcript-only carve-out, [P17]).
   const paneBody = useMemo(
-    () => cardEl?.querySelector(modalScopeSelector ?? ".tug-pane-body") ?? null,
+    () =>
+      modalScopeSelector !== undefined
+        ? (cardEl?.querySelector(modalScopeSelector) ?? null)
+        : paneBodyOf(cardEl ?? null),
     [cardEl, modalScopeSelector],
   );
   // Capture the focused element before the body becomes inert (setting

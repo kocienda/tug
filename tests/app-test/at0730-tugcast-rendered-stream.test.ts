@@ -109,22 +109,25 @@ describe.skipIf(!SHOULD_RUN)("at0730 — a streamed turn drawn from tugcast's re
         );
         await Bun.sleep(AFTER_TURN_MS);
 
-        const parses = await app.evalJS<{ byIdentity: Record<string, number> }>("window.__tug.rowParsesByIdentity()");
+        // The card's rows parse, and are read, in its own page: each body has
+        // its own `window.__tug`, and the shell's draws none of this card.
+        const page = app.body(CARD);
+        const parses = await page.evalJS<{ byIdentity: Record<string, number> }>("window.__tug.rowParsesByIdentity()");
         const turnParses = Object.entries(parses.byIdentity).filter(([id]) => id.includes(".message.stub-msg-"));
         note(`at0730 turn row parses: ${JSON.stringify(turnParses)}`);
         expect(turnParses, "no row of the streamed turn parsed on the page").toEqual([]);
 
         // The read is async (it lets math typeset) and `evalJS` cannot return a
         // promise, so kick it off, park the result, and poll.
-        await app.evalJS<null>(
+        await page.evalJS<null>(
           `(window.__at0730rows = undefined,
             window.__tug.renderedRows(${JSON.stringify(CARD)}).then(function (r) {
               window.__at0730rows = JSON.stringify(r);
             }),
             null)`,
         );
-        await app.waitForCondition<boolean>("window.__at0730rows !== undefined", { timeoutMs: 8_000 });
-        const rows = JSON.parse(await app.evalJS<string>("window.__at0730rows")) as RowFacts[] | null;
+        await page.waitForCondition<boolean>("window.__at0730rows !== undefined", { timeoutMs: 8_000 });
+        const rows = JSON.parse(await page.evalJS<string>("window.__at0730rows")) as RowFacts[] | null;
         expect(rows).not.toBeNull();
         expect(rows!.map((r) => r.messageKey)).toEqual(
           Array.from({ length: MESSAGES }, (_, i) => `stub-msg-${i}-b0`),

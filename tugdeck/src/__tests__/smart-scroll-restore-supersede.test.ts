@@ -121,3 +121,51 @@ describe("a width-change restore waives the drift rule", () => {
     ).toBeNull();
   });
 });
+
+describe("drift across a change of extent is the content's, not a hand's", () => {
+  test("cells measuring in above the viewport do not cancel a cold-boot restore", () => {
+    // A body page mounts its card before the page is laid out, so the
+    // restore's first resolve is against estimated heights. As the cells
+    // measure, `scrollHeight` grows and scroll anchoring carries
+    // `scrollTop` with it: read as a drag, the restore was cancelled at
+    // the stale estimate, 265 px off the anchor (at0083, at0331).
+    expect(
+      restoreSupersede({
+        isUserScrolling: false,
+        baselineTop: 823,
+        currentTop: 865,
+        suspendDriftSupersede: false,
+        baselineHeight: 1905,
+        currentHeight: 1991,
+      }),
+    ).toBeNull();
+  });
+
+  test("a move past the change of extent is a drag, even while content grows", () => {
+    // A session streaming below the reader grows `scrollHeight` on every
+    // heartbeat; a scrollbar drag during it moves farther than the growth.
+    expect(
+      restoreSupersede({
+        isUserScrolling: false,
+        baselineTop: 1000,
+        currentTop: 1000 - BEYOND_THRESHOLD,
+        suspendDriftSupersede: false,
+        baselineHeight: 4000,
+        currentHeight: 4030,
+      }),
+    ).toBe("drift");
+  });
+
+  test("a drag over content that kept its height still supersedes", () => {
+    expect(
+      restoreSupersede({
+        isUserScrolling: false,
+        baselineTop: 1000,
+        currentTop: 1000 + BEYOND_THRESHOLD,
+        suspendDriftSupersede: false,
+        baselineHeight: 1991,
+        currentHeight: 1991,
+      }),
+    ).toBe("drift");
+  });
+});

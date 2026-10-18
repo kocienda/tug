@@ -129,7 +129,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // Open the History shade and wait for the commit rows to render.
             await app.dispatchControlAction("toggle-history-view");
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length > 0`,
               { timeoutMs: 6_000 },
             );
@@ -137,14 +137,14 @@ describe.skipIf(!SHOULD_RUN)(
             // History is a plain sheet: it carries its own Done button in the
             // lower right (the shade's seeded default), and the old header X is
             // gone.
-            const doneLabel = await app.evalJS<string>(
+            const doneLabel = await app.body("D").evalJS<string>(
               `(function(){
                 var b = document.querySelector('[data-testid="session-history-done"]');
                 return b ? b.textContent.trim() : "";
               })()`,
             );
             expect(doneLabel).toBe("Done");
-            const hasCloseX = await app.evalJS<boolean>(
+            const hasCloseX = await app.body("D").evalJS<boolean>(
               `document.querySelector('[data-testid="session-history-header"] [aria-label="Close"]') !== null`,
             );
             expect(hasCloseX).toBe(false);
@@ -230,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)(
             // because an atom stands with no sentence around it — and it is
             // the same string right-click → Copy writes, so what the eye reads
             // and what the clipboard gets cannot disagree.
-            const topShaText = await app.evalJS<string>(
+            const topShaText = await app.body("D").evalJS<string>(
               `(function(){
                 var row = document.querySelector(${JSON.stringify(ROW)});
                 var sha = row.querySelector('.commit-sha-text');
@@ -241,7 +241,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The old duplicated full-40-char hash <pre> is gone: no row's
             // collapsed content shows the full sha.
-            const hasFullHashPre = await app.evalJS<boolean>(
+            const hasFullHashPre = await app.body("D").evalJS<boolean>(
               `(function(){
                 return document.body.textContent.indexOf(${JSON.stringify(headFull)}) >= 0;
               })()`,
@@ -249,7 +249,7 @@ describe.skipIf(!SHOULD_RUN)(
             expect(hasFullHashPre).toBe(false);
 
             // Expand the top commit via the real fold cue.
-            await app.evalJS<void>(
+            await app.body("D").evalJS<void>(
               `document.querySelector(${JSON.stringify(
                 `${ROW} [data-slot="tug-history-list-fold"]`,
               )}).click()`,
@@ -268,13 +268,13 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The commit's changed files render as a TugChangesList — wait for
             // the new GIT_COMMIT_FILES response to land.
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(
                 `${ROW} [data-slot="tug-commit-changes-list"] [data-testid="tug-changes-list-file-block"]`,
               )}) !== null`,
               { timeoutMs: 6_000 },
             );
-            const filePaths = await app.evalJS<string[]>(
+            const filePaths = await app.body("D").evalJS<string[]>(
               `(function(){
                 var blocks = document.querySelectorAll(${JSON.stringify(
                   `${ROW} [data-testid="tug-changes-list-file-block"]`,
@@ -291,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)(
             // roster renders. The hover used to paint its own A/M/D/R in its
             // own tones two inches from these rows; this is the assertion that
             // there is only one alphabet left to drift.
-            const marks = await app.evalJS<string[]>(
+            const marks = await app.body("D").evalJS<string[]>(
               `(function(){
                 var els = document.querySelectorAll(${JSON.stringify(
                   `${ROW} [data-slot="tug-commit-changes-list"] .tug-status-mark`,
@@ -323,12 +323,12 @@ describe.skipIf(!SHOULD_RUN)(
             await app.body("D").nativeClickAtElement(
               '[data-card-id="D"] [data-testid="session-history-filter"] input',
             );
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `document.activeElement !== null && document.activeElement.tagName === "INPUT"`,
               { timeoutMs: 3_000 },
             );
             await app.nativeKey("Return");
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `document.querySelector('[data-testid="session-history-done"]') === null`,
               { timeoutMs: 4_000 },
             );
@@ -336,12 +336,12 @@ describe.skipIf(!SHOULD_RUN)(
             // ...and from the commit list, the shade's seeded key view. Reopen
             // and press Return without touching the filter.
             await app.dispatchControlAction("toggle-history-view");
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length > 0`,
               { timeoutMs: 6_000 },
             );
             await app.nativeKey("Return");
-            await app.waitForCondition<boolean>(
+            await app.body("D").waitForCondition<boolean>(
               `document.querySelector('[data-testid="session-history-done"]') === null`,
               { timeoutMs: 4_000 },
             );

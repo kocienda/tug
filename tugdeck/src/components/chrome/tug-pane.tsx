@@ -189,6 +189,7 @@ import {
   syncGuideElements,
 } from "@/components/chrome/snap-guides";
 import { useRailWidthGesture } from "@/components/chrome/rail-width-draft";
+import { holdShellKeyboard } from "@/lib/shell-keyboard-hold";
 import { takeFrameFromSettle } from "@/lib/settle-take";
 import {
   RAIL_REFLOW_ATTR,
@@ -5107,8 +5108,13 @@ function TugPaneImpl({
 
       // The listeners come off BEFORE the capture is released, so a release's
       // own `lostpointercapture` is not read as the system taking the pointer.
+      // The press holds the keyboard in this page for its length: its Escape
+      // listens on this `window`, and a body card holding the keyboard would
+      // take the key into its own page, where nothing cancels the drag.
+      let releaseKeyboard = (): void => {};
       const endPress = (): void => {
         endRailWidthPressRef.current = null;
+        releaseKeyboard();
         frame.removeEventListener("pointermove", onPointerMove);
         frame.removeEventListener("pointerup", onPointerUp);
         frame.removeEventListener("pointercancel", onCancel);
@@ -5152,6 +5158,7 @@ function TugPaneImpl({
       frame.addEventListener("pointercancel", onCancel);
       frame.addEventListener("lostpointercapture", onCancel);
       window.addEventListener("keydown", onKeyDown, true);
+      releaseKeyboard = holdShellKeyboard();
       endRailWidthPressRef.current = onCancel;
     },
     [sidebarSide, railWidthGesture],

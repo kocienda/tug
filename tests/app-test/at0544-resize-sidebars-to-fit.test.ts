@@ -112,24 +112,40 @@ interface MemberRead {
 /**
  * Every member of `side`, keyed by componentId: the pane's own border-box
  * height, and the border-box height of the content element the verb reads.
+ * The pane is the shell's chrome; the content is the card's, in its body.
  */
-function railRead(
+async function railRead(
   app: App,
   side: "left" | "right",
 ): Promise<Record<string, MemberRead>> {
-  return app.evalJS<Record<string, MemberRead>>(
+  // card-dom: shell — the rail panes and the placeholders naming their cards are the shell's
+  const panes = await app.evalJS<Record<string, { pane: number; cardId: string | null }>>(
     `(function () {
       var out = {};
       document.querySelectorAll('.tug-pane[data-rail-side="${side}"]').forEach(function (el) {
-        var content = el.querySelector("[data-card-content]");
+        var placeholder = el.querySelector("[data-body-placeholder][data-card-id]");
         out[el.getAttribute("data-rail-member")] = {
           pane: el.getBoundingClientRect().height,
-          content: content === null ? 0 : content.getBoundingClientRect().height,
+          cardId: placeholder === null ? null : placeholder.getAttribute("data-card-id"),
         };
       });
       return out;
     })()`,
   );
+  const out: Record<string, MemberRead> = {};
+  for (const [member, { pane, cardId }] of Object.entries(panes)) {
+    const content =
+      cardId === null
+        ? 0
+        : await app.body(cardId).evalJS<number>(
+            `(function () {
+              var content = document.querySelector("[data-card-content]");
+              return content === null ? 0 : content.getBoundingClientRect().height;
+            })()`,
+          );
+    out[member] = { pane, content };
+  }
+  return out;
 }
 
 const paneHeights = (read: Record<string, MemberRead>): Record<string, number> =>

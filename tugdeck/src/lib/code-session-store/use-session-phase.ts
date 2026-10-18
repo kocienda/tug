@@ -244,6 +244,20 @@ export function sessionPhaseNow(sessionId: string): SessionPhaseKey {
 }
 
 /**
+ * Whether the arc mated to `cardId` stands at a join offer, as this page's own
+ * services for the card read it — the `joinReady` half of the card's phase key.
+ * A body publishes its card's key with it (`readBodyCardFacts`), because every
+ * other page reads that card's phase from what the body reported: without it a
+ * folded card's masthead dot never said Ready in the shell.
+ */
+export function cardJoinReady(cardId: string): boolean {
+  return joinOfferStands(
+    arcIdForCard(cardId),
+    cardServicesStore.getServices(cardId)?.changesController?.getSnapshot().arcs ?? [],
+  );
+}
+
+/**
  * The phase of a card this page holds no session store for: the key its body
  * reported to this page (the shell), else the key the shell's arrangement
  * carried for it into this page (a body); `"idle"` when neither has one.

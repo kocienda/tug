@@ -215,7 +215,8 @@ describe.skipIf(!SHOULD_RUN)("at0645 — every visible session dot pulses", () =
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 10_000 },
         );
-        await app.evalJS<unknown>(resolveSessions());
+        // The citation chips resolve against the Overview page's own store.
+        await kindBody(app, "overview").evalJS<unknown>(resolveSessions());
         const published = await kindBody(app, "overview").evalJS<number>(`(function(){
           var n = 0;
           for (var i = 0; i < ${POST_COUNT}; i++) {

@@ -221,8 +221,10 @@ describe.skipIf(!SHOULD_RUN)(
           // `withModifiersHeld` posts the real physical press; `data-mods` going
           // to "shift" is the proof it reached JS, which is what keeps the
           // assertion under it from passing vacuously.
+          // The press reaches the page holding the keyboard: the Cards card's
+          // body, where the list reads it.
           await app.withModifiersHeld(["shift"], async () => {
-            await app.waitForCondition<boolean>(
+            await app.body("L").waitForCondition<boolean>(
               `document.documentElement.getAttribute("data-mods") === "shift"`,
               { timeoutMs: 4_000 },
             );

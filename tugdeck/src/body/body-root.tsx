@@ -13,7 +13,10 @@
  * @module body/body-root
  */
 
-import React, { useCallback, useLayoutEffect, useState } from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { getRegistration, isEngineManagedCard } from "../card-registry";
+import { takeBiddenUnfold } from "../lib/card-fold";
+import { useFocusManager } from "../components/tugways/use-focusable";
 import { composeProviders } from "../lib/compose-providers";
 import { useSyncExternalStore } from "../lib/gesture-scope";
 import { TugThemeProvider } from "../contexts/theme-provider";
@@ -116,6 +119,44 @@ function BodyPane({
       if (el !== null) el.dataset.focused = focused ? "true" : "false";
     }
   }, [frameEl, rootEl, focused]);
+  // The fold the shell's pane stands under, on this page's frame as the
+  // shell's pane writes it on its own (`tug-pane.tsx`): the generic folded
+  // form (`holdFoldedBody`) watches the frame's `data-folded` to land
+  // `data-card-fold` and `inert` on the card host ([L06]). The crossing the
+  // shell relays is mirrored on the frame before the context reaches the
+  // bridge (`body-main.ts`), so the fold's end is heard here as there.
+  //
+  // The unfold's keyboard hand-back is this page's too. The shell's
+  // `useCardFoldFocus` hands the keyboard back to an open card's content, and
+  // a body card's content — its editor's engine hooks, its key view — is
+  // here, where the shell's placement cannot reach. So on the flip to open,
+  // a card in the generic folded form that holds first responder, and was
+  // not opened for a surface that places its own focus (`takeBiddenUnfold`),
+  // is handed its content as the shell's hook would hand it. Queued behind
+  // the fold observer's microtask, which this write queued first and which
+  // lifts the host's `inert`. The fold itself moves nothing here: the
+  // keyboard goes to the shell's glyph.
+  const focusManager = useFocusManager();
+  const folded = useSyncExternalStore(bridge.subscribe, () => bridge.getContext().folded === true);
+  const lastFoldedRef = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    if (frameEl === null) return;
+    if (folded) frameEl.setAttribute("data-folded", "true");
+    else frameEl.removeAttribute("data-folded");
+    const wasFolded = lastFoldedRef.current;
+    lastFoldedRef.current = folded;
+    if (folded || wasFolded !== true) return;
+    const bidden = takeBiddenUnfold(cardId);
+    if (bidden || focusManager === null || getRegistration(componentId)?.ownsFoldedForm === true) return;
+    queueMicrotask(() => {
+      if (bridge.getContext().firstResponderCardId !== cardId) return;
+      if (isEngineManagedCard(componentId)) {
+        focusManager.place(cardId, { kind: "engine" }, { modality: "pointer" });
+      } else {
+        focusManager.adoptKeyCard(cardId);
+      }
+    });
+  }, [frameEl, folded, bridge, cardId, componentId, focusManager]);
   // A pinned rail paints the rail's own surface: the shell's treatment rule
   // keys on the deck's treatment and the pane's pinned side, and this page's
   // `body` is where its surface token resolves, so both are written here

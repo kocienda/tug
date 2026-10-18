@@ -205,7 +205,7 @@ async function dropPngAt(app: App, needle: string | null): Promise<void> {
       }, "image/png");
     })()`,
   );
-  await app.waitForCondition<boolean>(`window.__at0623Dropped === true`, {
+  await app.body("A").waitForCondition<boolean>(`window.__at0623Dropped === true`, {
     timeoutMs: 10_000,
   });
   await app.body("A").waitForCondition<boolean>(

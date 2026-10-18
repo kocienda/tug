@@ -228,13 +228,13 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // --- one insert item, and it mints the chip --------------------
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
         await app.body("A").nativeRightClickAtElement(SPAN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
         );
         // Exactly one — a file's way into the prompt is the chip, and the
         // path as characters is what Copy Path is for.
-        const insertItems = await app.evalJS<number>(
+        const insertItems = await app.body("A").evalJS<number>(
           `document.querySelectorAll('[data-item-action="insert-into-prompt"]').length`,
         );
         expect(insertItems).toBe(1);
@@ -247,7 +247,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
             return el === null ? "" : (el.textContent || "");
           })()`,
         );
-        const pathSelection = await app.evalJS<string>(
+        const pathSelection = await app.body("A").evalJS<string>(
           `(function(){
             var sel = window.getSelection();
             return sel === null ? "" : sel.toString();
@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         );
         expect(spanText.length).toBeGreaterThan(0);
         expect(pathSelection).toBe(spanText);
-        const insertLabel = await app.evalJS<string | null>(
+        const insertLabel = await app.body("A").evalJS<string | null>(
           `(function(){
             var el = document.querySelector('[data-item-action="insert-into-prompt"]');
             return el === null ? null : (el.textContent || '').trim();
@@ -265,11 +265,11 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // so it says so; a command's does not, which at0225 asserts.
         expect(insertLabel).toBe("Insert Atom into Prompt");
 
-        const itemPoint = await app.evalJS<{ x: number; y: number } | null>(
+        const itemPoint = await app.body("A").evalJS<{ x: number; y: number } | null>(
           menuItemPointJS("insert-into-prompt"),
         );
         expect(itemPoint).not.toBeNull();
-        await app.nativeClick(itemPoint as { x: number; y: number });
+        await app.body("A").nativeClick(itemPoint as { x: number; y: number });
 
         // The prompt carries a file chip whose value is the canonical
         // path — an object, not the path spelled out.
@@ -313,11 +313,11 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // real pasteboard and come back through the paste side as a chip.
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
         await app.body("A").nativeRightClickAtElement(SPAN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
           { timeoutMs: 4000 },
         );
-        const copyLabel = await app.evalJS<string | null>(
+        const copyLabel = await app.body("A").evalJS<string | null>(
           `(function(){
             var el = document.querySelector('[data-item-action="copy-annotation-atom"]');
             return el === null ? null : (el.textContent || '').trim();
@@ -326,11 +326,11 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // `Copy as <Format>` — a different serialization of one entity,
         // which is what an atom is beside the path Copy Path writes.
         expect(copyLabel).toBe("Copy as Atom");
-        const copyPoint = await app.evalJS<{ x: number; y: number } | null>(
+        const copyPoint = await app.body("A").evalJS<{ x: number; y: number } | null>(
           menuItemPointJS("copy-annotation-atom"),
         );
         expect(copyPoint).not.toBeNull();
-        await app.nativeClick(copyPoint as { x: number; y: number });
+        await app.body("A").nativeClick(copyPoint as { x: number; y: number });
 
         // The sidecar reached the REAL pasteboard, on the private
         // `dev.tugapp.prompt-atoms` type — read back through the same two
@@ -338,6 +338,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // private type and no other route can assert the flavor was written.
         // The read is async (the native bridge calls back) and `evalJS`
         // cannot return a promise, so kick it off, park it, and poll.
+        // card-dom: shell — the pasteboard is the app's, and `readClipboardAtoms` is the shell's surface verb.
         await app.evalJS<null>(
           `(window.__at0346sidecar = undefined,
             window.__tug.readClipboardAtoms().then(function (r) {
@@ -472,12 +473,12 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // prose offers, over the standard editing block.
         await app.body("A").evalJS<boolean>(revealJS(CHIP_HOST));
         await app.body("A").nativeRightClickAtElement(CHIP_HOST);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
         );
         const labels = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify(Array.prototype.map.call(
               document.querySelectorAll('[data-item-action]'),
               function(el){ return (el.textContent || '').trim(); },
@@ -516,15 +517,16 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
           feedId: CODE_OUTPUT_FEED,
           decoded,
         });
+      // The selection and the menu are the card's body's.
       const selectionText = () =>
-        app.evalJS<string>(
+        app.body("A").evalJS<string>(
           `(function(){
             var sel = window.getSelection();
             return sel === null ? "" : sel.toString();
           })()`,
         );
       const clearSelection = () =>
-        app.evalJS<boolean>(
+        app.body("A").evalJS<boolean>(
           `(function(){
             var sel = window.getSelection();
             if (sel !== null) sel.removeAllRanges();
@@ -574,7 +576,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         await clearSelection();
         await app.body("A").evalJS<boolean>(revealJS(PLAIN_SPAN));
         await app.body("A").nativeRightClickAtElement(PLAIN_SPAN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy"]') !== null`,
           { timeoutMs: 4000 },
         );
@@ -584,7 +586,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         await app.nativeKey("Escape");
         // The second gesture waits for the first menu to be gone: a
         // right-click that lands while it is still dismissing opens nothing.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy"]') === null`,
           { timeoutMs: 4000 },
         );
@@ -593,7 +595,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         await clearSelection();
         await app.body("A").evalJS<boolean>(revealJS(CMD_SPAN));
         await app.body("A").nativeRightClickAtElement(CMD_SPAN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-command"]') !== null`,
           { timeoutMs: 4000 },
         );
@@ -609,7 +611,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         expect(await selectionText()).toBe(commandText);
         // And the menu is the command's own — no selection-scoped Copy
         // beside Copy Command to say the same thing twice.
-        const standardCopy = await app.evalJS<boolean>(
+        const standardCopy = await app.body("A").evalJS<boolean>(
           `document.querySelector('[data-item-action="copy"]') !== null`,
         );
         expect(standardCopy).toBe(false);
@@ -645,7 +647,7 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
       // `currentColor`-derived by construction anyway — the falsifiable
       // claim is that the line is there, not what hue it is.
       const decoration = (selector: string) =>
-        app.evalJS<string>(`JSON.stringify((function(){
+        app.body("A").evalJS<string>(`JSON.stringify((function(){
           var el = document.querySelector(${JSON.stringify(selector)});
           if (el === null) return null;
           var s = getComputedStyle(el);
@@ -789,14 +791,14 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // --- the insert mints a commit chip ----------------------------
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
         await app.body("A").nativeRightClickAtElement(SPAN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="insert-into-prompt"]') !== null`,
           { timeoutMs: 4000 },
         );
         // The label names what will arrive. Before a commit had an atom form
         // this said the plain word, and the menu was telling the truth.
         expect(
-          await app.evalJS<string | null>(
+          await app.body("A").evalJS<string | null>(
             `(function(){
               var el = document.querySelector('[data-item-action="insert-into-prompt"]');
               return el === null ? null : (el.textContent || '').trim();
@@ -829,11 +831,11 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         expect(selectedFace.fill).not.toBe("rgba(0, 0, 0, 0)");
         expect(selectedFace.fill).not.toBe("transparent");
 
-        const insertPoint = await app.evalJS<{ x: number; y: number } | null>(
+        const insertPoint = await app.body("A").evalJS<{ x: number; y: number } | null>(
           menuItemPointJS("insert-into-prompt"),
         );
         expect(insertPoint).not.toBeNull();
-        await app.nativeClick(insertPoint as { x: number; y: number });
+        await app.body("A").nativeClick(insertPoint as { x: number; y: number });
 
         const CHIP = `${PROMPT_INPUT} img[data-atom-type="commit"]`;
         await app.body("A").waitForCondition<boolean>(
@@ -875,16 +877,17 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
         // --- and Copy as Atom puts that same object on the pasteboard ---
         await app.body("A").evalJS<boolean>(revealJS(SPAN));
         await app.body("A").nativeRightClickAtElement(SPAN);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
           { timeoutMs: 4000 },
         );
-        const copyPoint = await app.evalJS<{ x: number; y: number } | null>(
+        const copyPoint = await app.body("A").evalJS<{ x: number; y: number } | null>(
           menuItemPointJS("copy-annotation-atom"),
         );
         expect(copyPoint).not.toBeNull();
-        await app.nativeClick(copyPoint as { x: number; y: number });
+        await app.body("A").nativeClick(copyPoint as { x: number; y: number });
 
+        // card-dom: shell — the pasteboard is the app's, and `readClipboardAtoms` is the shell's surface verb.
         await app.evalJS<null>(
           `(window.__at0346commit = undefined,
             window.__tug.readClipboardAtoms().then(function (r) {
@@ -923,10 +926,10 @@ describe.skipIf(!SHOULD_RUN)("AT0346: annotations as objects", () => {
 
         // --- and submitting carries it on the wire ---------------------
         // The last leg: a chip is only a real atom if it survives the send.
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `window.__tug.dispatchControlAction("submit-prompt", { cardId: "A" }), true`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector('[data-card-id="A"]').textContent || "").indexOf(${JSON.stringify(
             HEAD_SHA.slice(0, 8),
           )}) !== -1`,

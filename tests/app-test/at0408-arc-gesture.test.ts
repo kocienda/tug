@@ -177,11 +177,12 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
 
         // ── A shell-unsafe name is refused, and nothing is made ───────────
         await runCommand(app, "/arc-bind two words");
-        await app.waitForCondition<boolean>(
+        // The pane bulletin is the Session card's own, so it is in A's body.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 8000 },
         );
-        const caution = await app.evalJS<string>(
+        const caution = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(BULLETIN)})?.textContent ?? "").trim()`,
         );
         expect(caution).toContain("arc name");
@@ -192,9 +193,9 @@ describe.skipIf(!SHOULD_RUN)("AT0408: the /arc-bind gesture", () => {
         // Showing every arc and offering no way to choose one was the old
         // answer; with more than one arc in the project the bare form is a
         // picker now, and the shade stays where it was.
-        expect(await app.evalJS<number>(count(PICKER))).toBe(0);
+        expect(await app.body("A").evalJS<number>(count(PICKER))).toBe(0);
         await runCommand(app, "/arc-bind");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER)}) !== null`,
           { timeoutMs: 8000 },
         );

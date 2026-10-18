@@ -169,10 +169,11 @@ async function openDeck(
  * two are not ordered: under a parallel batch the app's main thread can run a
  * read before the click it follows. A window-level listener in the BUBBLE
  * phase runs after the target's own pointerup handlers, so once the count has
- * moved, the press has done everything it does synchronously.
+ * moved, the press has done everything it does synchronously. The presses
+ * land in the Layout card, so the window that hears them is its body's.
  */
 function pointerUps(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("L").evalJS<number>(
     `(function () {
       if (window.__at0660Ups === undefined) {
         window.__at0660Ups = 0;
@@ -196,8 +197,9 @@ async function press(app: App, selector: string): Promise<void> {
   );
   if (point === null) throw new Error(`no target at ${selector}`);
   const before = await pointerUps(app);
-  await app.nativeClick(point);
-  await app.waitForCondition<boolean>(`window.__at0660Ups > ${before}`, {
+  // `point` is in the body's viewport, so the press is the body's.
+  await app.body("L").nativeClick(point);
+  await app.body("L").waitForCondition<boolean>(`window.__at0660Ups > ${before}`, {
     timeoutMs: 8_000,
   });
 }
@@ -272,7 +274,7 @@ describe.skipIf(!SHOULD_RUN)("at0660 — the miniature's parts take presses", ()
         await openDeck(app, flowDeck());
         const before = await committedOffset(app);
         expect(
-          await app.evalJS<boolean>(
+          await app.body("L").evalJS<boolean>(
             `document.querySelector('.layouts-plan-layer[data-plan-layer="committed"] .layout-mini-window') !== null`,
           ),
           "the strip overflows its band, so the window is drawn",

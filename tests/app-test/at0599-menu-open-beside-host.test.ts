@@ -37,7 +37,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -106,9 +106,12 @@ const slotOf = (app: App, cardId: string): Promise<number | null> =>
     })()`,
   );
 
-/** Trusted native-click the open menu's item with `data-item-action === action`. */
-async function activateMenuItem(app: App, action: string): Promise<void> {
-  const point = await app.evalJS<{ x: number; y: number } | null>(
+/**
+ * Trusted native-click the open menu's item with `data-item-action === action`,
+ * in the page the menu was raised in: the point is that page's viewport's.
+ */
+async function activateMenuItem(page: BodyApp, action: string): Promise<void> {
+  const point = await page.evalJS<{ x: number; y: number } | null>(
     `(() => {
       const item = document.querySelector('[data-item-action="' + ${JSON.stringify(action)} + '"]');
       if (item === null) return null;
@@ -117,7 +120,7 @@ async function activateMenuItem(app: App, action: string): Promise<void> {
     })()`,
   );
   if (point === null) throw new Error(`menu item ${action} not found`);
-  await app.nativeClick(point);
+  await page.nativeClick(point);
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -191,8 +194,9 @@ describe.skipIf(!SHOULD_RUN)(
           expect(await app.getActiveCardId()).toBe("H");
 
           const before = await textCardIds(app);
+          // The menu renders in A's body, where it was raised.
           await app.body("A").nativeRightClickAtElement(HEADER_REF);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="open-file"]') !== null`,
             { timeoutMs: 3000 },
           );
@@ -203,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)(
             "a right-click does not move first responder",
           ).toBe("H");
 
-          await activateMenuItem(app, "open-file");
+          await activateMenuItem(app.body("A"), "open-file");
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getDeckState().cards.filter(function (c) {
               return c.componentId === "text";

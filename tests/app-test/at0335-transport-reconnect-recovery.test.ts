@@ -100,10 +100,16 @@ function deckShape() {
  * card body, so its absence is the assertion this whole test exists
  * for.
  */
-function errorBannerCount(app: App): Promise<number> {
-  return app.evalJS<number>(
-    `document.querySelectorAll('.tug-pane-banner[data-variant="error"]').length`,
-  );
+async function errorBannerCount(app: App): Promise<number> {
+  // A card's pane banner renders in its own body, so every card's page is
+  // counted.
+  let n = 0;
+  for (const id of ALL_CARD_IDS) {
+    n += await app.body(id).evalJS<number>(
+      `document.querySelectorAll('.tug-pane-banner[data-variant="error"]').length`,
+    );
+  }
+  return n;
 }
 
 /** Whether this card's pane body carries the banner's `inert` lock. */
@@ -129,6 +135,7 @@ function submitButtonMode(app: App, cardId: CardId): Promise<string | null> {
 
 /** Whether the app-level "Disconnected — reconnecting…" strip is up. */
 function disconnectStripVisible(app: App): Promise<boolean> {
+  // card-dom: shell — the app-level strip is the deck's, in the shell page.
   return app.evalJS<boolean>(
     `document.querySelector('.tug-banner[data-visible="true"]') !== null`,
   );
@@ -199,10 +206,19 @@ describe.skipIf(!SHOULD_RUN)(
           await waitForSubmitMode(app, "A", "stop");
 
           // --- The real close ------------------------------------------
+          // Every page rides a socket of its own — the shell's and each
+          // card's body's — so the close the user experiences (the wire
+          // going down) drops the shell's and every wire card's.
           expect(
             await app.connectionClose(),
             "the app had a connection to close",
           ).toBe(true);
+          for (const id of WIRE_CARD_IDS) {
+            expect(
+              await app.body(id).evalJS<boolean>(`window.__tug.connectionClose()`),
+              `${id}: the card's body had a connection to close`,
+            ).toBe(true);
+          }
 
           // The deck notices the wire is down: submit clamps to the
           // inert Reconnecting mode on a card that had nothing in
@@ -232,6 +248,7 @@ describe.skipIf(!SHOULD_RUN)(
           // The connection retries on its own backoff (2 s doubling to
           // a 30 s cap). The deck must not be left announcing a
           // disconnect — no gesture from the user, and no reload.
+          // card-dom: shell — the app-level strip is the deck's, in the shell page.
           await app.waitForCondition<boolean>(
             `document.querySelector('.tug-banner[data-visible="true"]') === null`,
             { timeoutMs: 90_000 },

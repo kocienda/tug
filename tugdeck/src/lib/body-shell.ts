@@ -68,13 +68,14 @@ import type { BusMasthead, CardAdvice, CardContext, CardFacts, DeckFacts } from 
 import type { TugConnection } from "../connection";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { DeckState } from "../layout-tree";
-import { getResponderChainManager } from "../action-registry";
+import { getResponderChainManager, runShellActionForCard } from "../action-registry";
 import { dispatchCommand, setCardContentForwarder, setKeyCardForwarder } from "../command-dispatch";
 import { enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { setFocusWalkEdge } from "./focus-walk-edge";
 import { setCycleFocusForwarder } from "./cycle-focus-forwarder";
 import { setKeyboardYield } from "./keyboard-yield";
+import { setYieldedKbfPaintSource, yieldedKbfPaint } from "./yielded-kbf-paint";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { keyboardAccessStore } from "../keyboard-access-store";
@@ -83,15 +84,18 @@ import { heldModifiers, subscribeModifierLatch } from "../components/tugways/mod
 import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore } from "./body-cards-store";
-import { bodyCommandRoute, shellSurfaceAhead } from "./body-command-route";
+import { bodyCommandRoute, keyboardBodyFor, shellSurfaceAhead } from "./body-command-route";
+import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
 import { bodyBeatsCancelled, bodyBeatsLanded, bodyShown, floorShown } from "./body-placement";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore } from "./card-session-binding-store";
+import { BodySessionHolds } from "./body-binding-mirror";
 import { cardTitleStore, type CardMastheadPayload } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
+import { CARDS_SHRINK_COMMAND, setCardsShrinkForwarder } from "@/components/cards/cards-escape";
 import { requestLogout } from "./logout-store";
 import { ShellSurfaceDrawer } from "./shell-surface";
 import { onBus, sendBus } from "./deck-bus";
@@ -124,6 +128,11 @@ import { paneTitleBarItemsStore, type PaneTitleBarItem } from "./pane-title-bar-
 import { setBodyLineRevealer } from "./open-file-in-card";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
 import { isBodyDeckCall, projectActivities, projectArrangement } from "./body-arrangement";
+import { createShellMiniatureRelay } from "./miniature-relay";
+import { getDropZoneHost } from "./drop-zone-host-registry";
+import { flashCardPane } from "./flash-pane-border";
+import { cardsSelectionStore, setLayoutCursorCard } from "./cards-selection-store";
+import { applySelectionCall, isSelectionCall } from "./cards-selection-mirror";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore } from "./card-modal-hold-store";
 import { appInfoStore } from "./app-info-store";
@@ -131,6 +140,7 @@ import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { setJotCaptureForwarder } from "./jot-capture";
 import { frontmostProjectBinding } from "./frontmost-project";
 import { motionBreaker } from "./motion-guard/breaker";
+import { installOverviewDraftShellHolder } from "../components/overview/overview-composer-draft";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
 import type { TugDevLogEntry } from "./tug-dev-log-store/types";
 
@@ -287,6 +297,15 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
 export function installBodyShell(connection: TugConnection, deck: IDeckManagerStore): () => void {
   if (!hostCapabilitiesStore.get().bodyViews) return () => {};
   const releases: Array<() => void> = [];
+  // The Layout miniature's crossing: the gauges its body draws and the
+  // canvas verbs its drags drive (`miniature-relay.ts`).
+  const miniatureRelay = createShellMiniatureRelay({
+    send: (cardId, command) => sendBus(connection, { card: cardId }, { kind: "card-command", payload: command }),
+    getSnapshot: () => deck.getSnapshot(),
+    getHost: getDropZoneHost,
+    flashCard: (cardId) => flashCardPane(deck, cardId),
+  });
+  releases.push(() => miniatureRelay.dispose());
 
   // ---- Per-card registrations, held while the card is a body card ----
 
@@ -304,8 +323,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const takesCommands = (cardId: string): boolean => bodyCardsStore.has(cardId) && heard.has(cardId);
   /** The last `card-context` sent each card, as JSON. */
   const sentContext = new Map<string, string>();
-  /** Cards that have shown a masthead, so its going away clears the binding. */
-  const hadMasthead = new Set<string>();
+  /** Cards whose bodies have said they hold a session, so its going away clears the binding. */
+  const sessionHolds = new BodySessionHolds();
   /**
    * Which halves of each body's paint the shell has heard: the host's (its
    * first frame composited) and the bus's (sent behind every `card-facts` that
@@ -380,12 +399,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     if (recentKeys[0] !== key) recentKeys = [key, ...recentKeys.filter((k) => k !== key)].slice(0, 2);
   };
 
+  /** The Cards body whose list cursor the shell's layout cursor is, if one is. */
+  let cursorFrom: string | null = null;
   const forget = (cardId: string): void => {
     perCard.get(cardId)?.();
     perCard.delete(cardId);
     heard.delete(cardId);
+    miniatureRelay.forget(cardId);
     sentContext.delete(cardId);
-    hadMasthead.delete(cardId);
+    sessionHolds.forget(cardId);
     reservedUnder.delete(cardId);
     paintHeard.delete(cardId);
     pendingIntents.delete(cardId);
@@ -404,6 +426,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     settingsReveals.delete(cardId);
     devLogRelays.get(cardId)?.();
     devLogRelays.delete(cardId);
+    // A Cards body's list cursor goes with its page.
+    if (cursorFrom === cardId) {
+      cursorFrom = null;
+      setLayoutCursorCard(null);
+    }
     syncInspection();
   };
 
@@ -566,6 +593,18 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       // A workspace verb is the visible Workspaces card's to answer: a parked
       // one that took it would open a field nobody can see.
       arrangement.spaceVerb = cardContextFor(deck, cardId).layerShown ? cardsSpaceVerbRequest.getSnapshot() : null;
+      if (registration.componentId === CARDS_CARD_ID) {
+        // The Cards list builds the layout selection in its page and the
+        // deck's verbs read this one's: what stands here goes back to it
+        // (`cards-selection-mirror.ts`). And it lists every card's session,
+        // a parked workspace's too, from a bindings cache its page may have
+        // come up too late to fill.
+        const { ids, anchorId } = cardsSelectionStore.getSnapshot();
+        arrangement.selection = { ids: [...ids], anchorId };
+        arrangement.ledgerBindings = spaceBindingsLedgerStore.loaded()
+          ? [...spaceBindingsLedgerStore.getSnapshot().values()]
+          : null;
+      }
       extras.arrangement = arrangement;
     }
     if (registration?.bodyFollows === true) {
@@ -760,6 +799,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     else pendingIntents.set(cardId, intent);
   });
   releases.push(() => setBodyIntentForwarder(null));
+  // The Overview composer's draft outlives its card, which a rail hidden and
+  // shown destroys and mints afresh: the shell holds it, and hands it to the
+  // next Overview card's first body.
+  releases.push(installOverviewDraftShellHolder());
 
   // ---- What the shell tells its bodies ----
 
@@ -791,10 +834,16 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     return manager !== null && manager.keyCard() === cardId && manager.currentModeMember(manager.keyView());
   };
   /** The body card that should hold the keyboard now, or null for the shell. */
-  const keyboardBody = (): string | null => {
-    const fr = deck.getFirstResponderCardId();
-    return fr !== null && bodyCardsStore.has(fr) && !shellHoldsStop(fr) ? fr : null;
-  };
+  const keyboardBody = (): string | null =>
+    keyboardBodyFor({
+      firstResponderCardId: deck.getFirstResponderCardId(),
+      isBodyCard: (cardId) => bodyCardsStore.has(cardId),
+      shellHoldsStop,
+      // A menu or popover the shell raised pushes its trap on the key card's
+      // context here, and a shell gesture holds the keyboard for its length:
+      // each takes its Escape on this page's `window`.
+      shellTakesKeys: shellKeyboardHeld() || getFocusManager()?.currentFocusModeTrapped() === true,
+    });
   const postFocus = (force: boolean): void => {
     const target = keyboardBody();
     if (!force && target === focusedBody) return;
@@ -880,6 +929,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     cardTitleStore.subscribe(resendExtras),
     cardIdentityElsewhere.subscribe(resendExtras),
     appInfoStore.subscribe(resendExtras),
+    // What a Cards body is told beside the arrangement: the layout selection
+    // and the bindings cache.
+    cardsSelectionStore.subscribe(resendExtras),
+    spaceBindingsLedgerStore.subscribe(resendExtras),
     // An arrangement card lists every card's phase too, read from what each
     // body reported. A body publishes on every telemetry tick as well, so
     // the resend waits for some card's phase to move ([B06]).
@@ -930,6 +983,20 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     cardsSpaceVerbRequest.clear();
   };
   releases.push(cardsSpaceVerbRequest.subscribe(relaySpaceVerb));
+  // Escape's shrink, answered in this page (the deck root's entry), runs the
+  // Cards table in the Cards body on screen, which holds its filter.
+  setCardsShrinkForwarder(() => {
+    const cardsBody = [...heard].find(
+      (id) => registrationOf(id)?.componentId === CARDS_CARD_ID && cardContextFor(deck, id).layerShown,
+    );
+    if (cardsBody === undefined) return false;
+    sendBus(connection, { card: cardsBody }, {
+      kind: "card-command",
+      payload: { command: "dispatch", id: CARDS_SHRINK_COMMAND },
+    });
+    return true;
+  });
+  releases.push(() => setCardsShrinkForwarder(null));
 
   // ---- What the bodies tell the shell ----
 
@@ -980,14 +1047,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     paneTitleBarItemsStore.set(cardId, (facts.titleBar ?? null) as PaneTitleBarItem[] | null);
     const masthead = facts.masthead as (BusMasthead & CardMastheadPayload) | null;
     if (masthead !== null) {
-      hadMasthead.add(cardId);
       cardTitleStore.set(cardId, facts.title, masthead);
     } else {
       cardTitleStore.set(cardId, facts.title);
-      // A masthead the body stops reporting is a card that let its session
-      // go: the binding the shell keeps for it goes too.
-      if (hadMasthead.delete(cardId)) cardSessionBindingStore.clearBinding(cardId);
     }
+    // A card that let its session go — no masthead, and an identity that
+    // names none — takes the binding the shell keeps for it along. A
+    // rebind's masthead gap is not that: its identity names the new session.
+    if (sessionHolds.letGo(cardId, facts)) cardSessionBindingStore.clearBinding(cardId);
   };
 
   const applyAdvice = (cardId: string, advice: CardAdvice): void => {
@@ -1042,6 +1109,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return;
       }
       case "dispatch":
+        // A deck verb no command names (`dispatchShellAction`) runs against
+        // the shell's registry, which alone holds its handler.
+        if (runShellActionForCard(advice.id, advice.payload)) return;
         // The body's chain did not answer it; this one does, and never
         // forwards it back ([P04]: one front door, routed by the entry).
         dispatchCommand(advice.id, advice.payload, { local: true });
@@ -1070,6 +1140,25 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         bodyChordCaptureStore.set(cardId, advice.armed);
         return;
       case "deck-call": {
+        // The Layout miniature's gauges and drop-zone verbs (`miniature-relay.ts`).
+        if (miniatureRelay.handle(cardId, advice.method, advice.args)) return;
+        // The Cards list's selection and cursor, built in its page and read
+        // by this one's verbs (`cards-selection-mirror.ts`): only a Cards
+        // card's to say.
+        if (isSelectionCall(advice.method)) {
+          if (registrationOf(cardId)?.componentId !== CARDS_CARD_ID) {
+            tugDevLogStore.error("body", "a body that is not the Cards card set the layout selection", { cardId });
+            return;
+          }
+          applySelectionCall(advice.method, advice.args, cardsSelectionStore, (next) => {
+            // Another Cards body letting go of a cursor it does not hold
+            // (a parked one unmounting) leaves the standing one alone.
+            if (next === null && cursorFrom !== null && cursorFrom !== cardId) return;
+            cursorFrom = next === null ? null : cardId;
+            setLayoutCursorCard(next);
+          });
+          return;
+        }
         // Only the calls an arrangement card is allowed; anything else — a
         // workspace delete above all, which must walk the close guards — is
         // refused here and said so.
@@ -1205,8 +1294,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // card letting its session go — the binding the shell keeps stands.
         bodyCardsStore.setState(cardId, "creating");
         heard.delete(cardId);
+        miniatureRelay.forget(cardId);
         sentContext.delete(cardId);
-        hadMasthead.delete(cardId);
+        sessionHolds.forget(cardId);
         paintHeard.delete(cardId);
         surfaces.remove(cardId);
         // The page whose capture was armed is gone, and so is its disarm.
@@ -1215,6 +1305,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // so is the run that held the card.
         pendingDecisions.get(cardId)?.("cancel");
         dropModalHold(cardId);
+        // And the restore it said it was running, which the restore gate held for.
+        bodyFactsStore.endRestoreHold(cardId);
         return;
       case "failed": {
         // The host has destroyed the body. The card stays a body card —
@@ -1224,7 +1316,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // reveals now rather than at its bound: the card stands lidded.
         heard.delete(cardId);
         sentContext.delete(cardId);
-        hadMasthead.delete(cardId);
+        sessionHolds.forget(cardId);
         paintHeard.delete(cardId);
         surfaces.remove(cardId);
         closeAsks.delete(cardId);
@@ -1293,6 +1385,28 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       },
       () => postFocus(true),
     ),
+    // A shell gesture's hold takes the keyboard from the key body at once,
+    // ahead of the Escape it listens for, and gives it back when it ends.
+    subscribeShellKeyboardHold(() => postFocus(false)),
+    // While the keyboard is a body's, the shell wears that body's
+    // keyboard-focus paint: the Overview's seeded caret stands the mode's
+    // paint down in its page, and the shell's root must not paint it beside.
+    setYieldedKbfPaintSource(() => {
+      const body = keyboardBody();
+      return body === null ? null : bodyFactsStore.kbfPaintOf(body);
+    }),
+  );
+  // The body's paint answer moves with no change in the shell's own focus
+  // state, so the shell's engine is asked to repaint when the word it would
+  // read moves.
+  let yieldedPaint: boolean | null = null;
+  releases.push(
+    bodyFactsStore.subscribe(() => {
+      const now = keyboardBody() === null ? null : yieldedKbfPaint();
+      if (now === yieldedPaint) return;
+      yieldedPaint = now;
+      getFocusManager()?.settleKbfEngagement();
+    }),
   );
   // A pointer gesture in the shell makes the shell's web view the first
   // responder whether or not the deck's first responder changed — a click
@@ -1311,6 +1425,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     setKeyCardForwarder((entry, payload) => {
       const firstResponderCardId = deck.getFirstResponderCardId();
       const target = bodyCommandRoute({
+        id: entry.id,
         routing: entry.routing,
         firstResponderCardId,
         isBodyCard: takesCommands,

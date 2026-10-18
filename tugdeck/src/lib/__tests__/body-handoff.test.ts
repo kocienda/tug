@@ -32,6 +32,7 @@ import {
   isBodyKind,
   isMountBodyKind,
   setBodyIntentForwarder,
+  setFirstBodyBagSeed,
 } from "../body-handoff";
 import { registerDeckStore } from "../deck-store-registry";
 import { registerCard } from "../../card-registry";
@@ -190,6 +191,22 @@ describe("with the capability", () => {
     const sent = (posted[0]?.body as { intent: BodyIntent }).intent;
     expect(sent.kind).toBe("resume");
     expect(sent.bag).toEqual(bag);
+  });
+
+  test("a card the shell holds no state for takes its kind's seed, and held state wins over it", () => {
+    const seeded = { content: { draft: { text: "held by the shell" } } };
+    const release = setFirstBodyBagSeed("handoff-mount", () => seeded);
+    try {
+      handOffToBody("m1", () => ({ kind: "mount" }));
+      expect((posted[0]?.body as { intent: BodyIntent }).intent).toEqual({ kind: "mount", bag: seeded });
+
+      const own = { content: { draft: { text: "its own" } } };
+      cardStates.set("pm1", own);
+      handOffToBody("pm1", () => ({ kind: "mount" }));
+      expect((posted[1]?.body as { intent: BodyIntent }).intent.bag).toEqual(own);
+    } finally {
+      release();
+    }
   });
 
   test("a fresh spawn carries its stashed opening command into the intent", () => {

@@ -61,6 +61,7 @@ import { isFocusDestination } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { TrackedMark } from "./focus-marks";
 import { keyboardYielded, noteKeyboardYield } from "@/lib/keyboard-yield";
+import { yieldedKbfPaint } from "@/lib/yielded-kbf-paint";
 import { takeFocusWalkEdge } from "@/lib/focus-walk-edge";
 
 /**
@@ -4220,6 +4221,14 @@ export class FocusManager extends Subscribable {
   kbfPainting(): boolean {
     if (!this.kbfEngaged()) return false;
     if (this.accessMode === "accessibility") return true;
+    // A page that has yielded the keyboard to another — the shell while a
+    // body card holds it — has no route of its own worth reading: its sink is
+    // parked by nobody. The page holding the keyboard says whether its caret
+    // is live, and that is the paint answer here too.
+    if (keyboardYielded()) {
+      const theirs = yieldedKbfPaint();
+      if (theirs !== null) return theirs;
+    }
     const ctx = this.activeContext();
     if (ctx.keyboardRoute() !== "engine-routed") return false;
     // A granted BARE NATIVE control keeps the engine route (dispatch and
@@ -4643,10 +4652,25 @@ export const FocusManagerContext = createContext<FocusManager | null>(null);
 // `responder-chain-provider` on mount.
 
 let activeFocusManager: FocusManager | null = null;
+const focusManagerRegistrationListeners = new Set<() => void>();
 
 /** Register the active FocusManager. Called by the provider on mount. */
 export function registerFocusManager(manager: FocusManager | null): void {
+  if (activeFocusManager === manager) return;
   activeFocusManager = manager;
+  for (const listener of [...focusManagerRegistrationListeners]) listener();
+}
+
+/**
+ * Hear the active FocusManager change — for a reader outside the React tree
+ * that starts before the provider mounts (a body's publisher). Returns the
+ * release.
+ */
+export function observeFocusManagerRegistration(listener: () => void): () => void {
+  focusManagerRegistrationListeners.add(listener);
+  return () => {
+    focusManagerRegistrationListeners.delete(listener);
+  };
 }
 
 /** The active FocusManager, or `null` outside a mounted provider. */

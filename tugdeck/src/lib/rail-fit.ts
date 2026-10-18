@@ -14,6 +14,7 @@
 
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
 import { layoutPxOf } from "@/lib/page-zoom-store";
+import { bodyFactsStore } from "@/lib/body-facts-store";
 
 /**
  * Overview's natural, as a fraction of the run it stands in ([B10]).
@@ -117,25 +118,84 @@ export function fitHeights(
  * Overview is the exception and takes {@link OVERVIEW_RUN_FRACTION} of the
  * run ([B10]), because a stream has no content height to read.
  */
-export function railNaturalOf(componentId: string, run: number): number | null {
+export function railNaturalOf(
+  componentId: string,
+  run: number,
+  bodyContent: (cardId: string) => CardContentReading | null = bodyContentOf,
+): number | null {
   if (componentId === OVERVIEW_CARD_ID) return run * OVERVIEW_RUN_FRACTION;
   if (typeof document === "undefined") return null;
   const pane = document.querySelector(
     `.tug-pane[data-rail-member="${CSS.escape(componentId)}"]`,
   );
   if (pane === null) return null;
-  const content = pane.querySelector("[data-card-content]");
-  if (content === null) return null;
   // Rects are viewport px and the scroller's client height is layout px; the
   // rects come back to layout px so the three meet in one space. Not
   // `offsetHeight`: it rounds, and the fractions are what the fit compares.
   const paneHeight = layoutPxOf(pane.getBoundingClientRect().height);
+  if (!(paneHeight > 0)) return null;
+  // A card drawn in its own body has its content in that page, not this
+  // one: the reading is what its body last published, and the chrome is the
+  // pane's height above what the body's scroller shows.
+  const placeholder = pane.querySelector<HTMLElement>("[data-body-placeholder][data-card-id]");
+  const reading =
+    pane.querySelector("[data-card-content]") === null && placeholder?.dataset.cardId !== undefined
+      ? bodyContent(placeholder.dataset.cardId)
+      : readCardContent(pane, paneHeight);
+  if (reading === null) return null;
+  const chrome = Math.max(0, paneHeight - reading.shown);
+  return reading.content + chrome;
+}
+
+/**
+ * A card's content height and the height its scroller shows of it, layout
+ * px — what {@link railNaturalOf} needs of the page holding the card.
+ */
+export interface CardContentReading {
+  readonly content: number;
+  readonly shown: number;
+}
+
+/**
+ * Read the card content under `root` ([B09]'s `data-card-content`), or null
+ * when there is none. `whole` is what the card shows when nothing above the
+ * content scrolls: the pane's height in the shell, the page's in a body.
+ */
+export function readCardContent(root: ParentNode, whole: number): CardContentReading | null {
+  const content = root.querySelector("[data-card-content]");
+  if (content === null) return null;
   const contentHeight = layoutPxOf(content.getBoundingClientRect().height);
-  if (!(paneHeight > 0) || !(contentHeight >= 0)) return null;
-  const scroller = scrollerAbove(content, pane);
-  const shown = scroller === null ? paneHeight : scroller.clientHeight;
-  const chrome = Math.max(0, paneHeight - shown);
-  return contentHeight + chrome;
+  if (!(contentHeight >= 0)) return null;
+  const scroller = scrollerAbove(content, root);
+  return { content: contentHeight, shown: scroller === null ? whole : scroller.clientHeight };
+}
+
+/**
+ * The telemetry keys a body publishes its card's content reading under
+ * (`card-facts`), and that {@link bodyContentOf} reads back in the shell.
+ */
+export const CONTENT_TELEMETRY = { content: "contentHeight", shown: "contentShown" } as const;
+
+/**
+ * This page's card content reading as telemetry — what a body publishes so
+ * the shell's {@link railNaturalOf} can read a card it does not hold — or
+ * nothing when the page holds no card content. The whole of a body's page is
+ * its card's content box.
+ */
+export function contentTelemetry(): Record<string, number> {
+  if (typeof document === "undefined") return {};
+  const reading = readCardContent(document, layoutPxOf(window.innerHeight));
+  if (reading === null) return {};
+  return { [CONTENT_TELEMETRY.content]: reading.content, [CONTENT_TELEMETRY.shown]: reading.shown };
+}
+
+/** What `cardId`'s body last published of its content, or null. */
+function bodyContentOf(cardId: string): CardContentReading | null {
+  const telemetry = bodyFactsStore.get(cardId).facts?.telemetry;
+  const content = telemetry?.[CONTENT_TELEMETRY.content];
+  const shown = telemetry?.[CONTENT_TELEMETRY.shown];
+  if (typeof content !== "number" || typeof shown !== "number") return null;
+  return { content, shown };
 }
 
 /**
@@ -143,7 +203,7 @@ export function railNaturalOf(componentId: string, run: number): number | null {
  * none — the element whose client height is what the card actually shows, and
  * therefore what the chrome is measured against.
  */
-function scrollerAbove(content: Element, pane: Element): Element | null {
+function scrollerAbove(content: Element, pane: ParentNode): Element | null {
   let node = content.parentElement;
   while (node !== null && node !== pane) {
     const overflow = getComputedStyle(node).overflowY;

@@ -24,6 +24,19 @@
 
 import { useLayoutEffect } from "react";
 
+/**
+ * The region a pane-modal surface locks, under the card root it portals
+ * into. In the shell's pane that is `.tug-pane-body` (accessory slot and
+ * content). A body page (`body/body-root.tsx`) has no `.tug-pane-body`: its
+ * card root holds `.tug-pane-content` directly, beside the banner and below
+ * the sheet, so that is the lock's target there. A lock that found nothing
+ * locked nothing, which left a banner or sheet over a live card.
+ */
+export function paneBodyOf(cardEl: Element | null): Element | null {
+  if (cardEl === null) return null;
+  return cardEl.querySelector(".tug-pane-body") ?? cardEl.querySelector(".tug-pane-content");
+}
+
 export function usePaneInert(target: Element | null, active: boolean): void {
   useLayoutEffect(() => {
     if (target === null) return;

@@ -193,6 +193,10 @@ export interface RestoreSupersedeInput {
   readonly currentTop: number;
   /** Whether the installed target waives the drift rule (a width change). */
   readonly suspendDriftSupersede: boolean;
+  /** `scrollHeight` as the last heartbeat left it, or `null` before the first. */
+  readonly baselineHeight?: number | null;
+  /** `scrollHeight` right now. */
+  readonly currentHeight?: number;
 }
 
 /**
@@ -210,6 +214,19 @@ export interface RestoreSupersedeInput {
  * a card changes width. There the displacement is the restore's own
  * work, carries no information about who caused it, and reading it as a
  * scrollbar drag would cancel the restore on its first delivery.
+ *
+ * Drift across a change of extent is the content's, not a hand's. A
+ * scrollbar drag moves `scrollTop` over content that stays the height it
+ * was; cells measuring in above the viewport change `scrollHeight`, and
+ * the engine's scroll anchoring moves `scrollTop` with them. That is the
+ * cold-boot shape of a list mounted before it had a box — a card's body
+ * page mounts its card before the page is laid out — whose first resolve
+ * is against estimated heights: read as a drag, the restore was cancelled
+ * mid-measure and left the reader where anchoring carried the stale
+ * estimate (`at0083`, `at0331`: 265 px off the anchor). So a move no
+ * larger than the change of extent keeps the restore, which re-resolves;
+ * a move past it — a drag while a session streams — or any move over
+ * content that kept its height still supersedes.
  */
 export function restoreSupersede(
   input: RestoreSupersedeInput,
@@ -217,6 +234,15 @@ export function restoreSupersede(
   if (input.isUserScrolling) return 'gesture';
   if (input.suspendDriftSupersede) return null;
   if (input.baselineTop === null) return null;
+  if (
+    input.baselineHeight !== undefined &&
+    input.baselineHeight !== null &&
+    input.currentHeight !== undefined &&
+    Math.abs(input.currentTop - input.baselineTop) <=
+      Math.abs(input.currentHeight - input.baselineHeight) + RESTORE_SUPERSEDE_DRIFT_PX
+  ) {
+    return null;
+  }
   return Math.abs(input.currentTop - input.baselineTop) >
     RESTORE_SUPERSEDE_DRIFT_PX
     ? 'drift'
@@ -458,6 +484,9 @@ export class SmartScroll {
   // attribute — a scrollbar drag, chiefly — moved the scroller, and
   // the restore is superseded. See `applyRestoreTarget`.
   private _restoreBaselineTop: number | null = null;
+  // `scrollHeight` at that same heartbeat: drift across a change of extent
+  // is content measuring in, not a drag (`restoreSupersede`).
+  private _restoreBaselineHeight: number | null = null;
 
   // Whether the installed target waives the baseline-drift supersede
   // above. The supersede's premise is that content changes do not move
@@ -1037,6 +1066,7 @@ export class SmartScroll {
     if (this._disposed) return;
     this._restoreTarget = resolver;
     this._restoreBaselineTop = null;
+    this._restoreBaselineHeight = null;
     this._restoreSuspendsDriftSupersede =
       opts?.suspendDriftSupersede === true;
     this._setFollowingBottom(false, 'restore-target');
@@ -1046,6 +1076,7 @@ export class SmartScroll {
   clearRestoreTarget(): void {
     this._restoreTarget = null;
     this._restoreBaselineTop = null;
+    this._restoreBaselineHeight = null;
     this._restoreSuspendsDriftSupersede = false;
   }
 
@@ -1091,6 +1122,8 @@ export class SmartScroll {
         baselineTop: this._restoreBaselineTop,
         currentTop: this._container.scrollTop,
         suspendDriftSupersede: this._restoreSuspendsDriftSupersede,
+        baselineHeight: this._restoreBaselineHeight,
+        currentHeight: this._container.scrollHeight,
       }) !== null
     ) {
       this.clearRestoreTarget();
@@ -1102,6 +1135,7 @@ export class SmartScroll {
       this._writeScrollTop(desired, false);
     }
     this._restoreBaselineTop = this._container.scrollTop;
+    this._restoreBaselineHeight = this._container.scrollHeight;
   }
 
   // -------------------------------------------------------------------------

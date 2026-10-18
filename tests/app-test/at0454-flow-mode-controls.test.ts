@@ -284,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("at0454 — flow mode: its controls", () => {
           "fit tiles the band, so nothing overflows and no window is drawn",
         ).toBe(0);
         expect(
-          await app.evalJS<number>(
+          await app.body("L").evalJS<number>(
             `document.querySelectorAll('[data-plan-preview-id="layout:flow"]').length`,
           ),
           "both modes are offerable, so both have a pre-rendered layer",

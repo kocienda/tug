@@ -213,11 +213,47 @@ export function createSurfaceMirror(send: (surface: ShellSurface | null) => void
 const LEFT_INSET = 8;
 const RIGHT_INSET = 20;
 
+/**
+ * A scroller that keeps its newest row in view (`TugPopupListScroller`'s
+ * `stickToBottom`) says so in its markup, so the drawn copy carries the
+ * intent. The body's absolute `scrollTop` does not: the shell's panel is
+ * clamped to its own room, a different height from the hidden copy's, and
+ * the same top leaves the newest row below the fold by the difference.
+ */
+export const STICK_TO_BOTTOM_ATTRIBUTE = "data-stick-to-bottom";
+
+/** Distance from the bottom within which a stuck scroller still follows (the scroller's own). */
+const STICK_THRESHOLD_PX = 8;
+
+/**
+ * Pin every stuck scroller under `root` to its bottom, but those the reader
+ * has scrolled away from it (`released`).
+ */
+export function pinStuckScrollers(
+  root: Element,
+  released: WeakSet<Element>,
+  resized?: ResizeObserver | null,
+): void {
+  for (const el of root.querySelectorAll(`[${STICK_TO_BOTTOM_ATTRIBUTE}]`)) {
+    // Watched as well as pinned: the scroller's box settles after the
+    // draw that pinned it (the panel's clamp, a summary row below it), and
+    // a box that shrinks under a pinned scroller leaves its newest row
+    // short of the bottom — as the body's own scroller re-pins on resize.
+    resized?.observe(el);
+    if (released.has(el)) continue;
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
 interface Drawn {
   panel: HTMLDivElement;
   title: HTMLSpanElement;
   content: HTMLDivElement;
   surface: ShellSurface;
+  /** Stuck scrollers the reader scrolled up from their bottom in the drawn copy. */
+  released: WeakSet<Element>;
+  /** Re-pins a stuck scroller whose box changed after the draw. */
+  resized: ResizeObserver | null;
 }
 
 /** What the drawer needs from the shell. */
@@ -271,6 +307,9 @@ export class ShellSurfaceDrawer {
         if (node instanceof Element) node.scrollTop = top;
       }
     }
+    // A stuck scroller follows its bottom in the box the shell clamped it
+    // to — on first draw, and as rows append.
+    pinStuckScrollers(drawn.content, drawn.released, drawn.resized);
   }
 
   /** Re-place every drawn surface against where its card stands now. */
@@ -297,6 +336,7 @@ export class ShellSurfaceDrawer {
     const drawn = this.drawn.get(cardId);
     if (drawn === undefined) return;
     this.drawn.delete(cardId);
+    drawn.resized?.disconnect();
     drawn.panel.remove();
     if (this.drawn.size === 0) this.unlisten();
   }
@@ -331,9 +371,31 @@ export class ShellSurfaceDrawer {
       event.preventDefault();
       this.options.onActivate(cardId, path);
     });
+    // A reader who scrolls a stuck scroller up from its bottom stops its
+    // follow until they come back to it, as the body's own scroller does.
+    const released = new WeakSet<Element>();
+    content.addEventListener(
+      "scroll",
+      (event) => {
+        const el = event.target;
+        if (!(el instanceof Element) || !el.hasAttribute(STICK_TO_BOTTOM_ATTRIBUTE)) return;
+        if (el.scrollHeight - (el.scrollTop + el.clientHeight) > STICK_THRESHOLD_PX) released.add(el);
+        else released.delete(el);
+      },
+      true,
+    );
+    const resized =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            for (const { target } of entries) {
+              if (!target.isConnected || released.has(target)) continue;
+              target.scrollTop = target.scrollHeight;
+            }
+          });
     root.appendChild(panel);
     if (this.drawn.size === 0) this.listen();
-    return { panel, title, content, surface: null as unknown as ShellSurface };
+    return { panel, title, content, surface: null as unknown as ShellSurface, released, resized };
   }
 
   /**
@@ -370,6 +432,9 @@ export class ShellSurfaceDrawer {
     panel.style.left = `${left}px`;
     panel.style.right = "auto";
     applyAvailableHeight(panel, surface.growth, pane === null ? null : paneCanvasOf(pane));
+    // A re-clamp (a resize, a card that moved) changes the box a stuck
+    // scroller's bottom is read against.
+    pinStuckScrollers(drawn.content, drawn.released, drawn.resized);
   }
 
   private readonly onPointerDown = (event: PointerEvent): void => {

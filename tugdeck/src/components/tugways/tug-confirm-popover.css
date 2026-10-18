@@ -10,6 +10,12 @@
   flex-direction: column;
   /* At least as wide as the trigger, grows to fit button row */
   min-width: var(--radix-popover-trigger-width);
+  /* And never wider than the page it opens in. A card's body is its own web
+     view, so a confirm raised in a narrow rail cannot overhang the rail onto
+     the deck the way one in the shell could: past the page's edge it is not
+     drawn and cannot be pressed. Radix's wrapper sizes to the content's
+     max-content, which this clamps, so a long question wraps instead. */
+  max-width: var(--radix-popover-content-available-width, none);
 }
 
 /* Anchored to an arbitrary element rather than to a trigger the popover drops

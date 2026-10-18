@@ -47,7 +47,7 @@ import {
   rmTempTugbank,
   seedTugbankForLaunch,
 } from "./_harness/tugbank-helpers";
-import { kindBody } from "./_harness/card-reach";
+import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -149,8 +149,12 @@ describe.skipIf(!SHOULD_RUN)("at0266 — a rail card's filter field", () => {
             { timeoutMs: 5_000 },
           );
           expect(await kindBody(app, "jots").evalJS<number>(ROW_COUNT)).toBe(0);
+          // A hit test asks the body's own viewport, which has a size only
+          // once the host has placed the body: a `ready` body may still be
+          // unplaced, and every point of it then misses.
+          const jotsPlaced = await waitForBodyPainted(app, "jots");
           expect(
-            await kindBody(app, "jots").evalJS<boolean>(
+            await jotsPlaced.evalJS<boolean>(
               `(function(){
                 var el = document.querySelector(${JSON.stringify(FILTER_INPUT)});
                 if (el === null) return false;

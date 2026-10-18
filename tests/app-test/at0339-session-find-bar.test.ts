@@ -103,7 +103,9 @@ async function chord(
 ): Promise<void> {
   // All four flags are spelled: `chordMatchesEvent` matches exactly, so an
   // undeclared modifier dispatches as false and the chord reaches nothing.
-  await app.evalJS<boolean>(
+  // The active element — the composer's or the query field's caret — is in
+  // card A's body, which is where a real chord's keydown arrives.
+  await app.body("A").evalJS<boolean>(
     `(function(){
       var t = document.activeElement || document;
       return t.dispatchEvent(new KeyboardEvent("keydown", {
@@ -466,7 +468,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         ).toBe(PROBE);
         // Selected whole, so the next keystroke replaces it.
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `(window.getSelection()?.toString() || "")`,
           ),
           "the pre-filled query is fully selected",
@@ -557,7 +559,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // the key view where the keyboard already is, and the landing is a
         // MOVEMENT, so the field's stop parks: ring, no caret ([P12]).
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${FIND_ORDER_QUERY}`)}`,
           { timeoutMs: 6000 },
         );
@@ -568,7 +570,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           FIND_ORDER_NEXT,
         ]) {
           await app.nativeKey("Tab");
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${order}`)}`,
             { timeoutMs: 6000 },
           );
@@ -580,12 +582,12 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // order" from "has an order of its own": a private walk would have
         // wrapped back to the query field here.
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-key-view]')?.getAttribute('data-priority') === "state"`,
           { timeoutMs: 6000 },
         );
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-key-view]')?.getAttribute('data-priority') === "time"`,
           { timeoutMs: 6000 },
         );
@@ -593,7 +595,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // ⇧Tab walks back into the bar the same way — not a one-way door.
         await app.nativeKey("Tab", ["shift"]);
         await app.nativeKey("Tab", ["shift"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${FIND_ORDER_NEXT}`)}`,
           { timeoutMs: 6000 },
         );
@@ -607,7 +609,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         await app.nativeKey("Tab", ["shift"]);
         await app.nativeKey("Tab", ["shift"]);
         await app.nativeKey("Tab", ["shift"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${FIND_ORDER_QUERY}`)}`,
           { timeoutMs: 6000 },
         );
@@ -616,7 +618,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           "a walked-to text stop parks — the ring, not the caret",
         ).toBe(false);
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${FIND_ORDER_OPTIONS}`)}`,
           { timeoutMs: 6000 },
         );
@@ -632,7 +634,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
         // Park the ring back on the bar for the dismissal below.
         await app.nativeKey("Tab");
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${FIND_ORDER_NEXT}`)}`,
           { timeoutMs: 6000 },
         );
@@ -675,7 +677,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           "Tab in an empty composer caret stays with the composer",
         ).toBe(true);
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `${FOCUS_KEY_EXPR} === ${JSON.stringify(`${CYCLE_GROUP}:${EDITOR_ORDER}`)}`,
           { timeoutMs: 6000 },
         );
@@ -792,7 +794,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           timeoutMs: 6000,
         });
         expect(
-          await app.evalJS<boolean>(ringed(CARD, SUBMIT)),
+          await app.body("A").evalJS<boolean>(ringed(CARD, SUBMIT)),
           "with the keyboard in the query field, only Find Next carries the default ring",
         ).toBe(false);
 
@@ -802,7 +804,7 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
           keyViewIn(`${CARD} [data-slot="tug-prompt-entry"]`),
           { timeoutMs: 8000 },
         );
-        await app.waitForCondition<boolean>(ringed(CARD, SUBMIT), {
+        await app.body("A").waitForCondition<boolean>(ringed(CARD, SUBMIT), {
           timeoutMs: 6000,
         });
         expect(
@@ -837,12 +839,15 @@ describe.skipIf(!SHOULD_RUN)("AT0339: the ⌘F transcript find bar", () => {
             await app.body("A").evalJS<boolean>(queryFieldHasCaret),
             `${direction} in an empty query field keeps the caret — a caret owns its arrows`,
           ).toBe(true);
-          expect(
-            await app.evalJS<boolean>(
-              `document.documentElement.hasAttribute("data-kbf")`,
-            ),
-            "a bare arrow in a caret never engages keyboard-focus mode",
-          ).toBe(false);
+          // Neither page's engine — the shell's or A's body's — engages it.
+          for (const page of [app, app.body("A")]) {
+            expect(
+              await page.evalJS<boolean>(
+                `document.documentElement.hasAttribute("data-kbf")`,
+              ),
+              "a bare arrow in a caret never engages keyboard-focus mode",
+            ).toBe(false);
+          }
         }
       } finally {
         await app.close();

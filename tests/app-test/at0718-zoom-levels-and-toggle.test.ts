@@ -146,13 +146,21 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
         ]);
         // The row in a rail at its narrow width stays inside the card, like
         // every other row.
-        const fit = await app.body("L").evalJS<{ group: number; card: number }>(
+        // The row is the Layout card's, in its body's viewport; the card's
+        // frame and the body's placeholder are the shell's, in the window's.
+        // At 100 % the two differ by the placeholder's origin alone.
+        const groupRight = await app.body("L").evalJS<number>(
+          `document.querySelector('${ZOOM_GROUP}').getBoundingClientRect().right`,
+        );
+        // card-dom: shell — the pane frame and the body placeholder are the shell's.
+        const shellBoxes = await app.evalJS<{ card: number; origin: number }>(
           `(function () {
-            var group = document.querySelector('${ZOOM_GROUP}').getBoundingClientRect();
             var card = document.querySelector('.tug-pane[data-pane-id="pRail"]').getBoundingClientRect();
-            return { group: group.right, card: card.right };
+            var hole = document.querySelector('[data-body-placeholder][data-card-id="L"]').getBoundingClientRect();
+            return { card: card.right, origin: hole.left };
           })()`,
         );
+        const fit = { group: groupRight + shellBoxes.origin, card: shellBoxes.card };
         note("fit", JSON.stringify(fit));
         expect(fit.group, "the row fits the rail").toBeLessThanOrEqual(fit.card);
         expect(await selected(app), "100 % stands selected at launch").toBe("1");
@@ -193,6 +201,12 @@ describe.skipIf(!SHOULD_RUN)("AT0718: View › Zoom levels, the Layout card's Zo
         // A factor between levels — only the harness sets one — is shown the
         // same way, and the next step lands on a level rather than 10 % on.
         expect(await app.setPageZoom(0.75)).toBeCloseTo(0.75, 5);
+        // The body hears the factor from the shell a beat after the shell's
+        // apply resolves: wait for the body's own root to take it.
+        await app.body("L").waitForCondition<boolean>(
+          `document.getElementById("deck-container").style.transform === "scale(0.75)"`,
+          { timeoutMs: 2_000 },
+        );
         expect(await selected(app), "between levels, the factor is its own segment").toBe("0.75");
         await key(app, "=", ["cmd"]);
         expect(await factor(app), "a step from between levels lands on the next one").toBeCloseTo(

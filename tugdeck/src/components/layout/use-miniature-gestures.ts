@@ -60,12 +60,15 @@ import { deckFlowStrip } from "@/deck-store-selectors";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { raiseCard } from "@/focus-transfer";
 import { getDeckStore } from "@/lib/deck-store-registry";
-import { getDropZoneHost } from "@/lib/drop-zone-host-registry";
+import {
+  getMiniatureDropHost,
+  type MiniatureDropHost,
+} from "@/lib/drop-zone-host-registry";
 import {
   dropZoneKey,
   pickLiveZone,
   type DropZone,
-  type DropZoneHost,
+  type DropZoneSet,
 } from "@/lib/drop-zones";
 import { flashCardPane } from "@/lib/flash-pane-border";
 import {
@@ -94,7 +97,7 @@ interface PadBox {
 
 /** A drag in flight: everything latched when the hand crossed the threshold. */
 interface Drag {
-  host: DropZoneHost;
+  host: MiniatureDropHost;
   paneId: string;
   /** The dragged pane's card, for a refusal's flash. */
   cardId: string;
@@ -126,8 +129,26 @@ interface Gesture {
    *  nothing to drag (an empty slot, no host, no zones) — that gesture is
    *  inert and its release does nothing. */
   drag: Drag | null;
+  /**
+   * Past the threshold with the zones still on their way — a body's host
+   * asks the shell's canvas for them (`miniature-relay.ts`). Until they come the hand's
+   * last point is kept, and a release is held for them rather than lost.
+   */
+  awaiting: boolean;
+  lastPoint: Point | null;
+  releasedAt: Point | null;
   /** Removes the listeners this gesture installed. */
   detach: () => void;
+}
+
+/** A pointer's client position — all a move or a release is read for. */
+interface Point {
+  clientX: number;
+  clientY: number;
+}
+
+function isThenable<T>(value: T | Promise<T>): value is Promise<T> {
+  return typeof (value as { then?: unknown }).then === "function";
 }
 
 /**
@@ -325,23 +346,18 @@ export function useMiniatureGestures({
   }, []);
 
   /**
-   * The hand crossed the threshold: find what it is dragging and where that
-   * may land, or leave the gesture inert. Returns the drag, already showing.
+   * The zones are in: place them on the picture and show the drag, or leave
+   * the gesture inert. Returns the drag, already showing.
    */
-  const latch = useCallback(
-    (current: Gesture): Drag | null => {
-      const store = getDeckStore();
-      const host = getDropZoneHost();
-      if (store === null || host === null) return null;
-      const state = store.getSnapshot();
+  const show = useCallback(
+    (
+      current: Gesture,
+      host: MiniatureDropHost,
+      pane: { id: string; activeCardId: string },
+      set: DropZoneSet | null,
+    ): Drag | null => {
       const target = current.target;
-      const pane =
-        target.kind === "block"
-          ? frontPaneOfSlot(state, target.slot)
-          : (state.panes.find((p) => p.id === target.paneId) ?? null);
-      if (pane === null) return null;
-      const set = host.enumerateRemote(pane.id);
-      if (set.zones.length === 0) return null;
+      if (set === null || set.zones.length === 0) return null;
       const root = current.element.closest<HTMLElement>(".layout-places");
       if (root === null) return null;
       const pad = padBoxOf(root);
@@ -389,7 +405,7 @@ export function useMiniatureGestures({
 
   /** A latched move: re-pick the zone and move the ghost with the hand. */
   const follow = useCallback(
-    (current: Gesture, drag: Drag, e: PointerEvent): void => {
+    (current: Gesture, drag: Drag, e: Point): void => {
       const pointer = {
         x: e.clientX - drag.pad.left,
         y: e.clientY - drag.pad.top,
@@ -420,7 +436,7 @@ export function useMiniatureGestures({
   /** A latched release: commit the picked zone unless it is where the card
    *  already stands, and flash a refusal. */
   const drop = useCallback(
-    (drag: Drag, e: PointerEvent): void => {
+    (drag: Drag, e: Point): void => {
       const live = pickLiveZone(
         drag.picks,
         { x: e.clientX - drag.pad.left, y: e.clientY - drag.pad.top },
@@ -438,6 +454,54 @@ export function useMiniatureGestures({
       }
     },
     [],
+  );
+
+  /**
+   * The hand crossed the threshold: find what it is dragging and ask the
+   * host where that may land. A canvas in this page answers at once; a
+   * body's relay answers when the shell's canvas has, and until then the
+   * gesture keeps the hand's last point and holds a release for the answer
+   * rather than losing the drag.
+   */
+  const latch = useCallback(
+    (current: Gesture): void => {
+      const store = getDeckStore();
+      const host = getMiniatureDropHost();
+      if (store === null || host === null) return;
+      const state = store.getSnapshot();
+      const target = current.target;
+      const pane =
+        target.kind === "block"
+          ? frontPaneOfSlot(state, target.slot)
+          : (state.panes.find((p) => p.id === target.paneId) ?? null);
+      if (pane === null) return;
+      const answer = host.enumerateRemote(pane.id);
+      if (!isThenable(answer)) {
+        current.drag = show(current, host, pane, answer);
+        return;
+      }
+      current.awaiting = true;
+      void answer.then((set) => {
+        // Retired meanwhile — Escape, a cancel, an unmount, a new press.
+        if (gesture.current !== current) return;
+        current.awaiting = false;
+        const drag = show(current, host, pane, set);
+        current.drag = drag;
+        const released = current.releasedAt;
+        if (released !== null) {
+          if (drag !== null) {
+            follow(current, drag, released);
+            drop(drag, released);
+          }
+          retire();
+          return;
+        }
+        if (drag !== null && current.lastPoint !== null) {
+          follow(current, drag, current.lastPoint);
+        }
+      });
+    },
+    [drop, follow, retire, show],
   );
 
   const onTargetPointerDown = useCallback(
@@ -459,13 +523,25 @@ export function useMiniatureGestures({
             return;
           }
           current.travelled = true;
-          current.drag = latch(current);
+          latch(current);
         }
         if (current.drag !== null) follow(current, current.drag, e);
+        else if (current.awaiting) {
+          current.lastPoint = { clientX: e.clientX, clientY: e.clientY };
+        }
       };
       const onUp = (e: PointerEvent): void => {
         const current = gesture.current;
         if (current === null || e.pointerId !== current.pointerId) return;
+        if (current.awaiting) {
+          // The release waits on the zones; the pointer is let go now.
+          current.releasedAt = { clientX: e.clientX, clientY: e.clientY };
+          current.detach();
+          if (current.element.hasPointerCapture(current.pointerId)) {
+            current.element.releasePointerCapture(current.pointerId);
+          }
+          return;
+        }
         const { travelled, target: pressed, drag } = current;
         if (drag !== null) drop(drag, e);
         retire();
@@ -488,6 +564,9 @@ export function useMiniatureGestures({
         element,
         travelled: false,
         drag: null,
+        awaiting: false,
+        lastPoint: null,
+        releasedAt: null,
         detach: () => {
           element.removeEventListener("pointermove", onMove);
           element.removeEventListener("pointerup", onUp);

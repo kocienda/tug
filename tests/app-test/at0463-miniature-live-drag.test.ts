@@ -101,14 +101,35 @@ describe.skipIf(!SHOULD_RUN)("at0463 — the miniature is live: the drag", () =>
         const scaleX = boxes.mini.width / boxes.canvas.width;
         const scaleY = boxes.mini.height / boxes.canvas.height;
 
+        // Over p2, which stands inside the band: p3 stands past its right
+        // edge, and a hand held there autoscrolls the strip every few frames.
+        // The canvas and the drawing are in two pages, read in two calls, so
+        // the hand is held where the deck stands still, and the reads wait
+        // until the indicator has — or the two halves are of different frames.
         const target = await app.evalJS<{ x: number; y: number }>(
           `(function () {
-            var r = document.querySelector('.tug-pane[data-pane-id="p3"]')
+            var r = document.querySelector('.tug-pane[data-pane-id="p2"]')
               .getBoundingClientRect();
             return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + 40) };
           })()`,
         );
         await app.nativeDragElementWithoutRelease(titleBar("p1"), target);
+        await app.waitForCondition<boolean>(
+          `(function () {
+            var el = document.querySelector(".tug-drop-zone-indicator");
+            if (el === null) return false;
+            var r = el.getBoundingClientRect();
+            var key = [r.left, r.top, r.width, r.height].map(Math.round).join(",");
+            var now = performance.now();
+            var seen = window.__at0463Indicator;
+            if (seen === undefined || seen.key !== key) {
+              window.__at0463Indicator = { key: key, since: now };
+              return false;
+            }
+            return now - seen.since >= 200;
+          })()`,
+          { timeoutMs: 4_000 },
+        );
 
         // The dragged frame and the drop indicator are the shell's; the
         // ghost and the zone are drawn in the Layout card's body.

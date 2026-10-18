@@ -80,8 +80,9 @@ const replayStarted = () => ({ type: "replay_started", tug_session_id: SID });
 const GATE_OPEN_JS = `document.querySelector('[data-slot="tug-restore-gate"]') !== null`;
 
 // `TugPaneBanner` portals into the pane chrome, not the card's own
-// subtree, so it is found document-wide. The deck holds one card, so a
-// banner anywhere is that card's.
+// subtree, so it is found document-wide — in the card's body, the page
+// that renders it. The deck holds one card, so a banner anywhere there is
+// that card's.
 const BANNER_JS = `JSON.stringify((function(){
   var el = document.querySelector(
     '[data-slot="tug-pane-banner"][data-variant="error"]');
@@ -122,10 +123,12 @@ describe.skipIf(!SHOULD_RUN)(
           await ingest(asstText("m1", "The relay went quiet.", 1));
           await ingest(turnDone("m1"));
 
+          // card-dom: shell — the gate is the app-modal at the shell's deck root (`deck-manager.ts`).
           await app.waitForCondition<boolean>(GATE_OPEN_JS, { timeoutMs: 8000 });
           const openedAt = Date.now();
 
           // Nothing else is sent. The modal has to close by itself.
+          // card-dom: shell — the same app-modal, at the shell's deck root.
           await app.waitForCondition<boolean>(`!(${GATE_OPEN_JS})`, {
             timeoutMs: SILENCE_WAIT_MS,
           });
@@ -136,11 +139,11 @@ describe.skipIf(!SHOULD_RUN)(
           expect(heldMs).toBeGreaterThan(10_000);
 
           // The card that stalled carries the error, on itself.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `JSON.parse(${BANNER_JS}).found === true`,
             { timeoutMs: 8000 },
           );
-          const banner = JSON.parse(await app.evalJS<string>(BANNER_JS)) as {
+          const banner = JSON.parse(await app.body("A").evalJS<string>(BANNER_JS)) as {
             found: boolean;
             text?: string;
           };
@@ -148,7 +151,7 @@ describe.skipIf(!SHOULD_RUN)(
           expect(banner.text).toContain("stopped responding");
 
           // And what it had restored is not thrown away with the bracket.
-          const transcript = await app.evalJS<string>(
+          const transcript = await app.body("A").evalJS<string>(
             `(document.querySelector('[data-card-id="A"]') || document.body).textContent || ""`,
           );
           expect(transcript).toContain("The relay went quiet.");

@@ -138,11 +138,13 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
           `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
         );
         await app.body("A").nativeRightClickAtElement(SPAN);
-        await app.waitForCondition<boolean>(
+        // The context menu opens in A's body, so the item's point is in that
+        // body's viewport, and the click is made there.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector('[data-item-action="run-command-here"]') !== null`,
           { timeoutMs: 6000 },
         );
-        const point = await app.evalJS<{ x: number; y: number } | null>(
+        const point = await app.body("A").evalJS<{ x: number; y: number } | null>(
           `(() => {
             const item = document.querySelector('[data-item-action="run-command-here"]');
             if (item === null) return null;
@@ -151,7 +153,7 @@ describe.skipIf(!SHOULD_RUN)("AT0668: a menu run survives a composer rebuild", (
           })()`,
         );
         expect(point).not.toBeNull();
-        await app.nativeClick(point as { x: number; y: number });
+        await app.body("A").nativeClick(point as { x: number; y: number });
 
         // Armed, not sent: the command waits in the composer.
         await app.body("A").waitForCondition<boolean>(

@@ -45,6 +45,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -162,7 +163,8 @@ async function openCommandMenu(
     `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
   );
   await app.body("A").nativeRightClickAtElement(SPAN);
-  await app.waitForCondition<boolean>(
+  // The menu is the card's own: it opens in A's body.
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('[data-item-action="copy-command"]') !== null`,
     { timeoutMs: 6000 },
   );
@@ -173,7 +175,8 @@ async function pickMenuItem(
   app: Awaited<ReturnType<typeof launchTugApp>>,
   action: string,
 ): Promise<void> {
-  const point = await app.evalJS<{ x: number; y: number } | null>(
+  // The point is in A's body viewport, so the click is made there.
+  const point = await app.body("A").evalJS<{ x: number; y: number } | null>(
     `(() => {
       const item = document.querySelector('[data-item-action=${JSON.stringify(action)}]');
       if (item === null) return null;
@@ -182,7 +185,7 @@ async function pickMenuItem(
     })()`,
   );
   expect(point).not.toBeNull();
-  await app.nativeClick(point as { x: number; y: number });
+  await app.body("A").nativeClick(point as { x: number; y: number });
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
@@ -264,6 +267,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         );
 
         // And it ran HERE: no second card was opened behind the reader's back.
+        // card-dom: shell — the deck's card count: one placeholder per card in the shell.
         const cardCount = await app.evalJS<number>(
           `document.querySelectorAll('[data-card-id]').length`,
         );
@@ -291,12 +295,14 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
 
         // A second Session card appears — the answer to the gesture is a card
         // somewhere else, never a rotation on the one being read ([B06]).
+        // card-dom: shell — the deck's cards: one placeholder per card in the shell.
         await app.waitForCondition<boolean>(
           `document.querySelectorAll('[data-card-id]').length > 1`,
           { timeoutMs: 15_000 },
         );
         const cards = JSON.parse(
-          await app.body("A").evalJS<string>(
+          // card-dom: shell — the deck's cards, by their placeholders' ids.
+          await app.evalJS<string>(
             `JSON.stringify(Array.from(document.querySelectorAll('[data-card-id]')).map(function(el){
               return el.getAttribute('data-card-id');
             }))`,
@@ -310,7 +316,10 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         // left waiting in its composer. The window covers the runner's
         // catalog deadline, for a harness claude that never sends one.
         const newCard = `[data-card-id]:not([data-card-id="A"])`;
-        await app.waitForCondition<boolean>(
+        // The new card's DOM is in its own body.
+        const newCardId = cards.find((id) => id !== "A") as string;
+        const theirPage = await waitForBodyReady(app, newCardId);
+        await theirPage.waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(
             `${newCard} [data-testid="session-card-transcript-user-body"]`,
           )})).some(function(r){
@@ -318,11 +327,16 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
           })`,
           { timeoutMs: 30_000 },
         );
-        const sentEvents = (await app.getDeckTrace({})).filter(
+        // Each page keeps its own trace, so the sends are counted in every one.
+        const traces = [await app.getDeckTrace({})];
+        for (const b of await app.bodies()) {
+          if (b.cardId !== null) traces.push(await app.body(b.cardId).getDeckTrace({}));
+        }
+        const sentEvents = traces.flat().filter(
           (e) => e.kind === "session-lifecycle" && e.event === "opening_command.sent",
         );
         expect(sentEvents.length).toBe(1);
-        const theirs = await app.body("A").evalJS<string>(
+        const theirs = await theirPage.evalJS<string>(
           `(function(){
             var cm = document.querySelector(${JSON.stringify(
               `${newCard} [data-slot="tug-text-editor"] .cm-content`,
@@ -392,6 +406,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
         expect(ink.indexOf("@" + BRIEF)).toBe(-1);
 
         // A click seeds and stops: nothing was sent.
+        // card-dom: shell — the deck's card count: one placeholder per card in the shell.
         const cardCount = await app.evalJS<number>(
           `document.querySelectorAll('[data-card-id]').length`,
         );
@@ -460,6 +475,7 @@ describe.skipIf(!SHOULD_RUN)("AT0560: the three ways to run a command", () => {
           })()`,
         );
         expect(here.indexOf(BRIEF)).toBe(-1);
+        // card-dom: shell — the deck's card count: one placeholder per card in the shell.
         const cardCount = await app.evalJS<number>(
           `document.querySelectorAll('[data-card-id]').length`,
         );

@@ -173,7 +173,9 @@ export type CardAdvice =
   /**
    * A command the body's own chain did not handle — a chord its funnel
    * matched, or a `dispatch` the shell forwarded — handed to the shell to
-   * dispatch in its own chain, where the pane and the deck answer.
+   * dispatch in its own chain, where the pane and the deck answer. `id` may
+   * instead name a deck action no command names (`resume-session`,
+   * `run-command-in-new-session`), which the shell runs against its registry.
    */
   | { advice: "dispatch"; id: string; payload?: Record<string, unknown> }
   /**

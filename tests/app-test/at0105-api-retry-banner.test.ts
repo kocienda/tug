@@ -20,7 +20,14 @@
  * (`driveSession`/`ingestFrame`) and asserts (1) the pane body is never
  * `inert`, (2) a bulletin shows with the classified label + live attempt
  * count, (3) a new attempt updates it in place, (4) a likely-fatal category
- * escalates tone, and (5) a `cost_update` (turn boundary) dismisses it.
+ * escalates tone, (5) a `cost_update` (turn boundary) dismisses it, and
+ * (6) a genuine wire error's banner does lock the card — the control that
+ * keeps (1) from passing on a lock that reaches nothing.
+ *
+ * The lock lives in the card's body page: its card root holds
+ * `.tug-pane-content`, which the banner inerts (`paneBodyOf`,
+ * `use-pane-inert.ts`). The shell's `.tug-pane-body` holds only the body's
+ * placeholder, so every lock read here is on `app.body("A")`.
  *
  * The one classification that gets no bulletin is `connection`: a network
  * stall is the card's whole current condition rather than transient chatter,
@@ -35,6 +42,7 @@
  * @covers tugdeck/src/lib/banner-lifecycle.ts
  * @covers tugcode/
  * @covers tugdeck/src/components/tugways/tug-pane-banner.tsx
+ * @covers tugdeck/src/components/tugways/use-pane-inert.ts
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -47,7 +55,8 @@ import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
-const PANE_BODY = ".tug-pane-body";
+/** The region a banner locks, in the card's body page. */
+const PANE_BODY = ".body-pane-root > .tug-pane-content";
 const BANNER = '[data-slot="tug-pane-banner"]';
 const BULLETIN = ".tug-pane-bulletin";
 const BULLETIN_TITLE = `${BULLETIN} [data-title]`;
@@ -85,7 +94,7 @@ function apiRetryFrame(fields: {
   };
 }
 
-/** True iff `.tug-pane-body` is NOT inert — i.e. the prompt is interactive. */
+/** True iff the card's content is NOT inert — i.e. the prompt is interactive. */
 const PANE_BODY_NOT_INERT = `(function(){var b=document.querySelector(${JSON.stringify(
   PANE_BODY,
 )});return b!==null && !b.hasAttribute("inert");})()`;
@@ -106,9 +115,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.bindSession("A", { projectDir });
           await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+          // The Session card's bulletins and banner render in its own body.
+          const body = app.body("A");
 
           // Baseline: the pane body is interactive before any retry.
-          expect(await app.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(true);
+          expect(await body.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(true);
 
           // ── transient category (rate_limit), attempt 3 ───────────────
           await app.driveSession(
@@ -123,30 +134,30 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // A bulletin mounts with caution tone (Sonner data-type="warning").
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `(function(){var b=document.querySelector(${JSON.stringify(BULLETIN)});return b!==null && b.getAttribute("data-type")==="warning";})()`,
             { timeoutMs: 6000 },
           );
           // The classified label is the title; the live attempt count is the
           // description — no frozen countdown.
           expect(
-            await app.evalJS<string>(
+            await body.evalJS<string>(
               `(document.querySelector(${JSON.stringify(BULLETIN_TITLE)})||{}).textContent || ""`,
             ),
           ).toContain("Rate limited");
           expect(
-            await app.evalJS<string>(
+            await body.evalJS<string>(
               `(document.querySelector(${JSON.stringify(BULLETIN_DESC)})||{}).textContent || ""`,
             ),
           ).toContain("attempt 3 of 10");
 
           // CRITICAL: the card is NOT locked — no banner, pane body interactive.
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(BANNER)}) === null || document.querySelector(${JSON.stringify(BANNER)}).getAttribute("data-visible") !== "true"`,
             ),
           ).toBe(true);
-          expect(await app.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(true);
+          expect(await body.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(true);
 
           // ── a fresh attempt updates the SAME bulletin in place ───────
           await app.driveSession(
@@ -159,13 +170,13 @@ describe.skipIf(!SHOULD_RUN)(
               error_status: 429,
             }),
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `((document.querySelector(${JSON.stringify(BULLETIN_DESC)})||{}).textContent||"").indexOf("attempt 4 of 10") !== -1`,
             { timeoutMs: 6000 },
           );
           // Still exactly one bulletin (updated, not stacked).
           expect(
-            await app.evalJS<number>(
+            await body.evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(BULLETIN)}).length`,
             ),
           ).toBe(1);
@@ -181,17 +192,17 @@ describe.skipIf(!SHOULD_RUN)(
               error_status: 401,
             }),
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `(function(){var b=document.querySelector(${JSON.stringify(BULLETIN)});return b!==null && b.getAttribute("data-type")==="error";})()`,
             { timeoutMs: 6000 },
           );
           expect(
-            await app.evalJS<string>(
+            await body.evalJS<string>(
               `(document.querySelector(${JSON.stringify(BULLETIN_TITLE)})||{}).textContent || ""`,
             ),
           ).toContain("Authentication failed");
           // Even a likely-fatal retry does not lock the card.
-          expect(await app.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(true);
+          expect(await body.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(true);
 
           // ── a cost_update lands (turn boundary) → bulletin dismissed ─
           await app.driveSession("A", {
@@ -208,10 +219,32 @@ describe.skipIf(!SHOULD_RUN)(
               modelUsage: {},
             },
           });
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(BULLETIN)}) === null`,
             { timeoutMs: 6000 },
           );
+
+          // ── control: genuine breakage raises the banner, which locks ─
+          await app.driveSession("A", {
+            op: "ingestFrame",
+            feedId: CODE_OUTPUT_FEED,
+            decoded: {
+              type: "error",
+              tug_session_id: TUG_SESSION_ID,
+              message: "synthetic wire error",
+              recoverable: true,
+            },
+          });
+          await body.waitForCondition<boolean>(
+            `(function(){var b=document.querySelector(${JSON.stringify(BANNER)});return b!==null && b.getAttribute("data-visible")==="true";})()`,
+            { timeoutMs: 6000 },
+          );
+          expect(await body.evalJS<boolean>(PANE_BODY_NOT_INERT)).toBe(false);
+          expect(
+            await body.evalJS<boolean>(
+              `document.querySelector(${JSON.stringify(PANE_BODY)}) !== null`,
+            ),
+          ).toBe(true);
 
           process.stdout.write("VERDICT: PASS\n");
         } catch (err) {

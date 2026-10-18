@@ -192,9 +192,15 @@ export interface StoodUp {
  * Launch the column deck, turn the trace on (the release rows the exit legs
  * read are the deck trace's), go home, split slot 0, and read where each
  * direction lands off one clean fold and unfold. The card is left open and
- * the column split.
+ * the column split — or, with `leaveFolded`, left folded once the folded
+ * height is read, which is where an unfold leg starts: it skips an unfold
+ * and the fold back that the leg would otherwise make, and reads nothing
+ * either of them would have set ([B07] of the bodies migration brief).
  */
-export async function standUp(testName: string): Promise<StoodUp> {
+export async function standUp(
+  testName: string,
+  opts: { leaveFolded?: boolean } = {},
+): Promise<StoodUp> {
   const { app, tugbankPath } = await launch(8, columnBlob(), testName);
   try {
     await traceWithSettleFrames(app);
@@ -206,8 +212,10 @@ export async function standUp(testName: string): Promise<StoodUp> {
     await dispatch(app, "set-card-folded", { cardId: FOLD_CARD_ID, folded: true });
     await landed(app, `h < ${open} - 1`);
     const folded = await frameHeight(app);
-    await dispatch(app, "set-card-folded", { cardId: FOLD_CARD_ID, folded: false });
-    await landed(app, `h > ${folded} + 1`);
+    if (opts.leaveFolded !== true) {
+      await dispatch(app, "set-card-folded", { cardId: FOLD_CARD_ID, folded: false });
+      await landed(app, `h > ${folded} + 1`);
+    }
     note("heights", `open=${open} folded=${folded}`);
     return { app, tugbankPath, open, folded };
   } catch (e) {

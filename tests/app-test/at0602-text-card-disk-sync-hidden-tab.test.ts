@@ -7,8 +7,10 @@
  * directory, outside every workspace.
  *
  * 6. **A card that is not in front: a hidden background tab.** The stacked
- *    non-active card carries `display: none`, so it has no layout and CM6 can
- *    neither measure nor anchor in it. Park the viewport in front, switch
+ *    non-active card's placeholder carries `display: none` and the host stops
+ *    showing its body, and inside the body its card host is `display: none`
+ *    too, so the editor has no layout and CM6 can neither measure nor anchor
+ *    in it. Park the viewport in front, switch
  *    away, write the file from outside, switch back: the content must be the
  *    disk's AND the reading position must be where it was left. The editor's
  *    hidden-card deferral removed turned this red (and the hidden-workspace
@@ -37,7 +39,7 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
 import {
   EDITOR_SCROLLER_SELECTOR,
@@ -59,6 +61,27 @@ import {
   waitForAside,
   waitForEditorShowing,
 } from "./text-card-disk-sync-fixture";
+
+/** Whether the host shows `cardId`'s body, once it says `wanted` or 8 s pass. */
+async function hostShows(app: App, cardId: string, wanted: boolean): Promise<boolean | null> {
+  const deadline = Date.now() + 8_000;
+  for (;;) {
+    const body = (await app.bodies()).find((b) => b.cardId === cardId);
+    const visible = body === undefined ? null : body.visible;
+    if (visible === wanted || Date.now() >= deadline) return visible;
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+}
+
+/**
+ * The stacked tab's `display: none`, where it lands on bodies: the card's
+ * placeholder in the shell's pane. The card's own page has no tab strip to
+ * hide it in; the host stops showing its body ({@link hostShows}).
+ */
+const PLACEHOLDER_HIDDEN = `(function(){
+  var host = document.querySelector('[data-body-placeholder][data-card-id="A"]');
+  return host !== null && getComputedStyle(host).display === "none";
+})()`;
 
 describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   // -------------------------------------------------------------------------
@@ -129,13 +152,14 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         // whole premise is `display: none`, so a shape that left it visible
         // would make this a duplicate of Scenario 5.
         await app.evalJS<void>(`window.__tug.activateCard("B")`);
-        await app.body("A").waitForCondition<boolean>(
-          `(function(){
-            var host = document.querySelector('[data-card-host][data-card-id="A"]');
-            return host !== null && getComputedStyle(host).display === "none";
-          })()`,
-          { timeoutMs: 6000 },
-        );
+        // card-dom: shell — the tab's `display: none` is on its placeholder in the shell's pane.
+        await app.waitForCondition<boolean>(PLACEHOLDER_HIDDEN, { timeoutMs: 6000 });
+        expect(await hostShows(app, "A", false), "the background tab's body is not shown").toBe(false);
+        // [B29] would restate this as "the unshown body keeps its layout"
+        // ([B27]). Measured 2026-10-18 it does not, for a stacked tab: the
+        // body's own card host is `display: none` while inactive
+        // (`card-host.tsx`), so the editor reads 0 px. Kept as written until
+        // the restatement is ruled again; the host fact is asserted above.
         const hiddenHeight = await app.body("A").evalJS<number>(
           `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,
         );
@@ -157,6 +181,9 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
 
         // Bring it forward. This is the moment the reader is owed both things.
         await app.evalJS<void>(`window.__tug.activateCard("A")`);
+        // card-dom: shell — the tab's placeholder, in the shell's pane, shown again.
+        await app.waitForCondition<boolean>(`!${PLACEHOLDER_HIDDEN}`, { timeoutMs: 6000 });
+        expect(await hostShows(app, "A", true), "brought forward, the card's body is shown").toBe(true);
         await app.body("A").waitForCondition<boolean>(
           `(function(){
             var host = document.querySelector('[data-card-host][data-card-id="A"]');
@@ -265,17 +292,15 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
           "the typing reached the aside",
         );
 
-        // Send the card to the background, and prove it really has no layout —
+        // Send the card to the background, and prove it really is not shown —
         // that is the whole premise, and a visible card would make this
         // scenario a duplicate of the merge scenarios above.
         await app.evalJS<void>(`window.__tug.activateCard("B")`);
-        await app.body("A").waitForCondition<boolean>(
-          `(function(){
-            var host = document.querySelector('[data-card-host][data-card-id="A"]');
-            return host !== null && getComputedStyle(host).display === "none";
-          })()`,
-          { timeoutMs: 6000 },
-        );
+        // card-dom: shell — the tab's `display: none` is on its placeholder in the shell's pane.
+        await app.waitForCondition<boolean>(PLACEHOLDER_HIDDEN, { timeoutMs: 6000 });
+        expect(await hostShows(app, "A", false), "the background tab's body is not shown").toBe(false);
+        // [B29]'s "layout kept" restatement does not hold for a stacked tab
+        // (see Scenario 6): kept as written.
         expect(
           await app.body("A").evalJS<number>(
             `document.querySelector('${EDITOR_SCROLLER_SELECTOR}').getBoundingClientRect().height`,

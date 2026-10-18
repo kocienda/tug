@@ -39,7 +39,12 @@ import { paneTitleBarItemsStore } from "../lib/pane-title-bar-items-store";
 import { commandValidationSource } from "../lib/host-menu-state";
 import { commandEntry, validateCommand } from "../components/tugways/command-registry";
 import { getResponderChainManager } from "../action-registry";
-import { sessionPhaseFromSnapshot } from "../lib/code-session-store/use-session-phase";
+import { getFocusManager, observeFocusManagerRegistration } from "../components/tugways/focus-manager";
+import { cardJoinReady, sessionPhaseFromSnapshot } from "../lib/code-session-store/use-session-phase";
+import { cardSessionBindingStore } from "../lib/card-session-binding-store";
+import type { CodeSessionSnapshot } from "../lib/code-session-store";
+import { deriveRestoreGateHold } from "../lib/session-card-restore-gate";
+import { contentTelemetry } from "../lib/rail-fit";
 
 /** What the publisher reads, each answered fresh on every call. */
 export interface BodyPublisherSources {
@@ -117,17 +122,55 @@ export class BodyPublisher {
   }
 }
 
+/**
+ * The card's cold restore, for the shell's restore gate (`restore-gate-store.ts`),
+ * which holds the app-modal for a body card as it did for a shell-hosted one
+ * ([B29] of the bodies migration): `restoreHold` 1 for as long as
+ * `deriveRestoreGateHold` holds the card — the replay window and the reveal
+ * behind it — with the turns loaded and asked for beside it; nothing at all
+ * otherwise, so a turn outside a restore moves no fact. The silence deadline
+ * is the card's own store's, so a stalled replay errors the card here and the
+ * hold goes with the next publish. Telemetry, because it is the card's own
+ * opaque numbers: the bus carries it without a shape of its own.
+ */
+export function restoreHoldTelemetry(snapshot: CodeSessionSnapshot | null): Record<string, number> {
+  if (snapshot === null || !deriveRestoreGateHold(snapshot)) return {};
+  return {
+    restoreHold: 1,
+    restoreTurnsLoaded: snapshot.transcript.length,
+    restoreTurnsTarget: snapshot.restoreWindowTurns,
+  };
+}
+
+/**
+ * Whether this page paints keyboard-focus mode (`kbfPaint`, 0 or 1), once its
+ * focus engine stands: the shell wears this page's answer while this card
+ * holds the keyboard, so a caret live here stands the shell's paint down too
+ * (`lib/yielded-kbf-paint.ts`).
+ */
+export function kbfPaintTelemetry(): Record<string, number> {
+  const manager = getFocusManager();
+  return manager === null ? {} : { kbfPaint: manager.kbfPainting() ? 1 : 0 };
+}
+
 /** The card's facts as its stores hold them now. */
-export function readBodyCardFacts(cardId: string): CardFacts {
+export function readBodyCardFacts(cardId: string, readContent = false): CardFacts {
   const masthead = cardTitleStore.getMasthead(cardId);
   const snapshot = cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null;
   return {
     title: cardTitleStore.get(cardId) ?? "",
     masthead: masthead === null ? null : (masthead as unknown as BusMasthead),
-    activity: snapshot === null ? null : sessionPhaseFromSnapshot(snapshot),
+    // The key with the card's arc join folded in, as `useSessionPhase` reads
+    // it here: every other page reads this card's phase from this report.
+    activity: snapshot === null ? null : sessionPhaseFromSnapshot(snapshot, cardJoinReady(cardId)),
     telemetry: {
       canInterrupt: snapshot?.canInterrupt === true ? 1 : 0,
       compacted: snapshot !== null && snapshot.compactionSeed !== null ? 1 : 0,
+      ...restoreHoldTelemetry(snapshot),
+      // The card's content height and what its scroller shows, for the
+      // shell's Resize Sidebars to Fit, which cannot read this page.
+      ...(readContent ? contentTelemetry() : {}),
+      ...kbfPaintTelemetry(),
     },
     // What the card holds as this page's own registries know it; the shell's
     // identity reads for the card answer from it.
@@ -157,10 +200,11 @@ export function readBodyCardFacts(cardId: string): CardFacts {
 export function installBodyPublisher(
   cardId: string,
   send: (message: BusMessage) => void,
+  options: { watchContent?: boolean } = {},
 ): () => void {
   const publisher = new BodyPublisher(
     {
-      readFacts: () => readBodyCardFacts(cardId),
+      readFacts: () => readBodyCardFacts(cardId, options.watchContent === true),
       readWaive: () => readCardCloseAdvice(cardId)?.waive === true,
       readGuarded: () => cardMayFold(cardId),
       readAsks: () => {
@@ -179,21 +223,65 @@ export function installBodyPublisher(
   // publisher hears it too. The chain mounts with the page's React tree,
   // after this install, so it is attached on the first publish that finds it.
   let releaseChain: (() => void) | null = null;
+  // The card's content element resizes with no store notice — a rail card's
+  // rows load, its pane is resized — so the content reading the facts carry
+  // is watched where it changes. The element mounts with the card, after
+  // this install, so it is looked for again on every publish.
+  // Only a rail card's kind is read for its content (`watchContent`); the
+  // root renders after this install, so its content element is waited for.
+  let watchedContent: Element | null = null;
+  const contentWatch =
+    options.watchContent !== true || typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => publisher.publish());
+  const watchContent = (): void => {
+    if (contentWatch === null) return;
+    const content = document.querySelector("[data-card-content]");
+    if (content === watchedContent) return;
+    contentWatch.disconnect();
+    watchedContent = content;
+    if (content === null) return;
+    contentArrival?.disconnect();
+    contentArrival = null;
+    contentWatch.observe(content);
+  };
+  let contentArrival: MutationObserver | null =
+    contentWatch === null || typeof MutationObserver === "undefined"
+      ? null
+      : new MutationObserver(() => {
+          if (document.querySelector("[data-card-content]") !== null) publish();
+        });
+  contentArrival?.observe(document, { childList: true, subtree: true });
   const publish = (): void => {
     if (releaseChain === null) releaseChain = getResponderChainManager()?.subscribe(publish) ?? null;
+    watchContent();
     publisher.publish();
   };
+  // The focus engine's paint answer moves with no store notice, and the
+  // engine mounts after this install — on a card whose stores may never
+  // notify again — so its registration is heard, and the engine followed.
+  let releaseFocus: (() => void) | null = null;
+  const followFocus = (): void => {
+    releaseFocus?.();
+    releaseFocus = getFocusManager()?.subscribe(publish) ?? null;
+    publish();
+  };
+  const releaseFocusRegistration = observeFocusManagerRegistration(followFocus);
 
   // The session store is rebuilt when the card rebinds, so its subscription
   // follows the services store.
   let releaseSession: (() => void) | null = null;
   let watched: unknown = null;
   const followSession = (): void => {
-    const store = cardServicesStore.getServices(cardId)?.codeSessionStore ?? null;
+    const services = cardServicesStore.getServices(cardId);
+    const store = services?.codeSessionStore ?? null;
     if (store === watched) return;
     releaseSession?.();
     watched = store;
-    releaseSession = store === null ? null : store.subscribe(publish);
+    // The changes feed moves the arc's join offer, which the phase key folds in.
+    const changes = services?.changesController ?? null;
+    const releases = [store?.subscribe(publish), changes?.subscribe(publish)];
+    releaseSession = store === null ? null : () => releases.forEach((release) => release?.());
   };
   const onServices = (): void => {
     followSession();
@@ -205,6 +293,8 @@ export function installBodyPublisher(
     cardServicesStore.subscribe(onServices),
     sessionRestoreRegistry.subscribe(publish),
     restorePassGate.subscribe(publish),
+    // The card's arc binding, which the phase key's join offer reads.
+    cardSessionBindingStore.subscribe(publish),
     cardTitleStore.subscribe(publish),
     paneTitleBarItemsStore.subscribe(publish),
     // A run's hold moves the fold guard as well as the hold itself.
@@ -215,13 +305,20 @@ export function installBodyPublisher(
   ];
   document.addEventListener("input", publish, true);
   document.addEventListener("pointerdown", onPointerDown, true);
+  // What the scroller shows moves with the page, which resizes with its pane.
+  window.addEventListener("resize", publish);
   followSession();
-  publish();
+  followFocus();
 
   return () => {
+    contentWatch?.disconnect();
+    contentArrival?.disconnect();
+    window.removeEventListener("resize", publish);
     for (const release of releases) release();
     releaseSession?.();
     releaseChain?.();
+    releaseFocusRegistration();
+    releaseFocus?.();
     document.removeEventListener("input", publish, true);
     document.removeEventListener("pointerdown", onPointerDown, true);
   };

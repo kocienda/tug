@@ -34,6 +34,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -66,9 +67,13 @@ function deckShape() {
   };
 }
 
-/** The bulletins on screen, newest first, as `<tone>:<text>`. */
+/**
+ * The bulletins on screen, newest first, as `<tone>:<text>`. The pane
+ * bulletin is the Session card's own (`session-card.tsx` mounts its
+ * provider), so it stands in S's body.
+ */
 function bulletins(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("S").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(BULLETIN)})).map(
       function (b) {
         return (b.getAttribute("data-type") || "") + ":" + (b.innerText || "");
@@ -83,31 +88,40 @@ describe.skipIf(!SHOULD_RUN)("at0380 — /resume <callsign>", () => {
       const app = await launchTugApp({ testName: "at0380-resume-by-tag" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "S" });
+        await waitForBodyReady(app, "S");
         await app.bindSession("S", {
           tugSessionId: SESSION_ID,
           projectDir: PROJECT_DIR,
         });
         // The callsign arrives the way it always does — on the ledger row —
-        // which is also what feeds the reverse index.
+        // which is also what feeds the reverse index. The wire reaches every
+        // page; the index the card's resume route reads is the one in S's
+        // body, whose surface takes the row through `dispatchControlAction`
+        // (the same `dispatchAction` the shell's `publishSessionUpdated` makes).
+        const row = {
+          session_id: SESSION_ID,
+          fields: { tag: TAG, name: null, name_user_set: false },
+        };
+        // card-dom: shell — the shell's own identity stores take the row too.
         await app.evalJS<boolean>(
-          `window.__tug.publishSessionUpdated(${JSON.stringify(
-            JSON.stringify({
-              session_id: SESSION_ID,
-              fields: { tag: TAG, name: null, name_user_set: false },
-            }),
-          )})`,
+          `window.__tug.publishSessionUpdated(${JSON.stringify(JSON.stringify(row))})`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("S").evalJS<boolean>(
+          `(window.__tug.dispatchControlAction("session_updated", ${JSON.stringify(row)}), true)`,
+        );
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CARD)}) !== null`,
           { timeoutMs: 15_000 },
         );
 
         // ---- B. A callsign nothing wears. ---------------------------------
+        // card-dom: shell — `run-card-command` is the shell's action (the
+        // menu's door); the shell routes it to the key card's body.
         await app.dispatchControlAction("run-card-command", {
           name: "resume",
           args: UNKNOWN_TAG,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `(function(){
             var b = document.querySelector(${JSON.stringify(BULLETIN)});
             return b !== null && b.getAttribute("data-type") === "warning";
@@ -119,7 +133,7 @@ describe.skipIf(!SHOULD_RUN)("at0380 — /resume <callsign>", () => {
         // It did not fall through to the picker: an argument names a session,
         // and failing to find it is not a reason to ask which one.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("S").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(RESUME_SHEET)}) === null`,
           ),
         ).toBe(true);
@@ -134,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("at0380 — /resume <callsign>", () => {
           name: "resume",
           args: TAG,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(BULLETIN)}))
             .some(function (b) {
               return (b.innerText || "").indexOf("already open") !== -1;
@@ -147,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("at0380 — /resume <callsign>", () => {
 
         // ---- And bare `/resume` still opens the picker. ---------------------
         await app.dispatchControlAction("run-card-command", { name: "resume" });
-        await app.waitForCondition<boolean>(
+        await app.body("S").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(RESUME_SHEET)}) !== null`,
           { timeoutMs: 8_000 },
         );

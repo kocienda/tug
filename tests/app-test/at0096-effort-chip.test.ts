@@ -38,6 +38,7 @@
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
+import { mkSeededTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -228,23 +229,27 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "resumed session (model via system_metadata, no caps) repopulates the chip",
       async () => {
-        const app = await launchTugApp({ testName: "at0096-effort-chip-resume" });
+        // A resumed session resolves effort support from the PERSISTED live
+        // catalog (a machine that resumes has, by definition, run a session
+        // that reported capabilities before) — there is no hardcoded model
+        // list. Persist that catalog before the card mounts, exactly as the
+        // prior session's capabilities would have. The card reads it in its
+        // body, from the tugbank it launched on, so it is seeded there: the
+        // shell's `setTugbankValue` writes only the shell page's cache.
+        const tugbank = mkSeededTugbank([
+          {
+            domain: "dev.tugapp.models",
+            key: "catalog",
+            type: "json",
+            value: JSON.stringify(effortCapabilities(null).models),
+          },
+        ]);
+        const app = await launchTugApp({ testName: "at0096-effort-chip-resume", env: { TUGBANK_PATH: tugbank } });
         try {
           await app.enableDeckTrace(true);
 
-          // A resumed session resolves effort support from the PERSISTED live
-          // catalog (a machine that resumes has, by definition, run a session
-          // that reported capabilities before) — there is no hardcoded model
-          // list. Persist that catalog before the card mounts, exactly as the
-          // prior session's capabilities would have.
           await app.waitForCondition<boolean>(
             `typeof window.__tug !== "undefined"`,
-          );
-          await app.evalJS(
-            `window.__tug.setTugbankValue("dev.tugapp.models", "catalog", {
-              kind: "json",
-              value: ${JSON.stringify(effortCapabilities(null).models)},
-            })`,
           );
 
           await app.seedDeckState({ state: sessionCardShape({ width: 760, height: 560 }), focusCardId: "A" });

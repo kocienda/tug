@@ -147,7 +147,7 @@ async function readMenuRows(app: App): Promise<Row[]> {
     `(() => { const el = document.querySelector(${JSON.stringify(SPAN)}); if (el) el.scrollIntoView({ block: "center" }); return !!el; })()`,
   );
   await app.body("A").nativeRightClickAtElement(SPAN);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('[data-item-action="copy-command"]') !== null`,
     { timeoutMs: 6000 },
   );
@@ -162,7 +162,7 @@ async function readMenuRows(app: App): Promise<Row[]> {
     ),
   ) as Row[];
   await app.nativeKey("Escape");
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('[data-item-action="copy-command"]') === null`,
     { timeoutMs: 6000 },
   );

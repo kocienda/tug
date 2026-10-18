@@ -68,9 +68,13 @@ const VOLATILE = `${EDITOR} .tug-dictation-volatile`;
 /** Any user turn the transcript has drawn. Dictation must never mint one. */
 const USER_TURN = `${CARD} [data-testid="session-card-transcript-user-body"]`;
 
-/** One event, in the shape `DictationEvent.jsonObject` emits host-side. */
+/**
+ * One event, in the shape `DictationEvent.jsonObject` emits host-side. The
+ * host sends a claim's events back to the page that made it
+ * (`MainWindow.swift`, `dictationTarget`), and A's composer is in A's body.
+ */
 async function push(app: App, event: Record<string, unknown>): Promise<void> {
-  await app.evalJS<null>(
+  await app.body("A").evalJS<null>(
     `(window.__tugBridge.onDictation(${JSON.stringify(event)}), null)`,
   );
 }

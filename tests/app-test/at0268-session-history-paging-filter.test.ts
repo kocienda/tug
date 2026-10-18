@@ -227,8 +227,11 @@ describe.skipIf(!SHOULD_RUN)(
 
             await app.bindSession("D", { projectDir: REPO });
 
+            // The History shade renders in D's body: every read and gesture
+            // on it below runs in that page.
+            const card = app.body("D");
             await app.dispatchControlAction("toggle-history-view");
-            await app.waitForCondition<boolean>(
+            await card.waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length > 0`,
               { timeoutMs: 8_000 },
             );
@@ -238,27 +241,27 @@ describe.skipIf(!SHOULD_RUN)(
             // overflows the shade, so read the count once it has stopped
             // moving rather than the instant the first rows appear.
             const shasNow = `Array.from(document.querySelectorAll(${JSON.stringify(ROW)})).map(function(e){ return e.getAttribute("data-sha"); })`;
-            await app.waitForCondition<boolean>(
+            await card.waitForCondition<boolean>(
               `document.querySelector('[data-testid="session-history-loading-more"]') === null`,
               { timeoutMs: 8_000 },
             );
-            const firstPage = await app.evalJS<string[]>(shasNow);
+            const firstPage = await card.evalJS<string[]>(shasNow);
             expect(firstPage.length).toBeGreaterThan(0);
             // A page at a time — not the repo's whole history in one frame.
             expect(firstPage.length).toBeLessThanOrEqual(PAGE_SIZE * 2);
 
             // ── 2. Scrolling to the foot appends the next page ────────────
-            await app.evalJS(
+            await card.evalJS(
               `(function(){
                 var v = document.querySelector(${JSON.stringify(VIEW)});
                 v.scrollTop = v.scrollHeight;
               })()`,
             );
-            await app.waitForCondition<boolean>(
+            await card.waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length > ${firstPage.length}`,
               { timeoutMs: 8_000 },
             );
-            const grown = await app.evalJS<string[]>(shasNow);
+            const grown = await card.evalJS<string[]>(shasNow);
 
             // The page APPENDED: everything that was on screen is still on
             // screen, in the same order, at the same indices. That is what
@@ -269,13 +272,13 @@ describe.skipIf(!SHOULD_RUN)(
             // A file only some commits touch, whose name appears in no commit
             // MESSAGE within the walk's reach — so a row that survives can only
             // have been kept by its file roster.
-            await app.click(FILTER);
-            await app.type(FILTER, rosterToken);
-            await app.waitForCondition<boolean>(
+            await card.click(FILTER);
+            await card.type(FILTER, rosterToken);
+            await card.waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length < ${grown.length}`,
               { timeoutMs: 8_000 },
             );
-            const byPath = await app.evalJS<string[]>(shasNow);
+            const byPath = await card.evalJS<string[]>(shasNow);
             expect(byPath.length).toBeGreaterThan(0);
             expect(byPath.length).toBeLessThan(grown.length);
             // Every surviving row is a row that was already loaded — the
@@ -284,7 +287,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The match is legible: the row names the path the query found,
             // with the matched span marked inside it.
-            const pathContext = await app.evalJS<{ text: string; mark: string }>(
+            const pathContext = await card.evalJS<{ text: string; mark: string }>(
               `(function(){
                 var el = document.querySelector('[data-testid="session-history-matched-context"]');
                 if (!el) return { text: "", mark: "" };
@@ -301,14 +304,14 @@ describe.skipIf(!SHOULD_RUN)(
             // filter a way of finding one commit instead of listing many.
             const SCOPE = `[data-testid="session-history-filter-scope"]`;
             const FILES_OPTION = `${SCOPE} [data-option-value="files"]`;
-            await app.click(FILES_OPTION);
+            await card.click(FILES_OPTION);
             // No message in the walk's reach names the file, so with Files off
             // nothing accounts for the query at all.
-            await app.waitForCondition<boolean>(
+            await card.waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length === 0`,
               { timeoutMs: 8_000 },
             );
-            const offState = await app.evalJS<string | null>(
+            const offState = await card.evalJS<string | null>(
               `document.querySelector(${JSON.stringify(FILES_OPTION)}).getAttribute("data-state")`,
             );
             expect(offState).toBe("off");
@@ -316,10 +319,10 @@ describe.skipIf(!SHOULD_RUN)(
             // Back on, and every row returns — the choice is a filter over the
             // walk already held, not a re-fetch. (At least: the automatic walk
             // kept paging while nothing matched, so it may now hold more.)
-            await app.click(FILES_OPTION);
+            await card.click(FILES_OPTION);
             const restoredAll = `${shasNow}.filter(function(s){ return ${JSON.stringify(byPath)}.indexOf(s) >= 0; }).length === ${byPath.length}`;
-            await app.waitForCondition<boolean>(restoredAll, { timeoutMs: 8_000 });
-            expect(await app.evalJS<boolean>(restoredAll)).toBe(true);
+            await card.waitForCondition<boolean>(restoredAll, { timeoutMs: 8_000 });
+            expect(await card.evalJS<boolean>(restoredAll)).toBe(true);
 
             // ── 3C. The band reads as one line of text ────────────────────
             // The title, the filter field's text, and the target labels each
@@ -329,7 +332,7 @@ describe.skipIf(!SHOULD_RUN)(
             // and the font's own ascent (Canvas reports it), and drift here is
             // a 1-3px float the eye reads immediately but no DOM assertion
             // about heights or paddings would catch.
-            const baselines = await app.evalJS<Record<string, number>>(
+            const baselines = await card.evalJS<Record<string, number>>(
               `(function(){
                 var cv = document.createElement("canvas").getContext("2d");
                 function baseline(el){
@@ -362,20 +365,20 @@ describe.skipIf(!SHOULD_RUN)(
             // mark lands on the atom the reader is looking at.
             const join = joinCommit();
             if (join !== null) {
-              await app.evalJS(
+              await card.evalJS(
                 `(function(){
                   var i = document.querySelector(${JSON.stringify(FILTER)});
                   i.value = "";
                   i.dispatchEvent(new Event("input", { bubbles: true }));
                 })()`,
               );
-              await app.type(FILTER, join.name);
+              await card.type(FILTER, join.name);
               const joinRow = `${VIEW} [data-testid="session-history-commit"][data-sha="${join.sha}"]`;
-              await app.waitForCondition<boolean>(
+              await card.waitForCondition<boolean>(
                 `document.querySelector(${JSON.stringify(joinRow)} + ' [data-testid="session-history-join-badge"] mark.tug-filter-mark') !== null`,
                 { timeoutMs: 8_000 },
               );
-              const badge = await app.evalJS<{ text: string; mark: string }>(
+              const badge = await card.evalJS<{ text: string; mark: string }>(
                 `(function(){
                   var el = document.querySelector(${JSON.stringify(joinRow)} + ' [data-testid="session-history-join-badge"]');
                   var m = el.querySelector('mark.tug-filter-mark');
@@ -388,23 +391,23 @@ describe.skipIf(!SHOULD_RUN)(
             }
 
             // ── 4. Filter by a word only the message BODY carries ─────────
-            await app.evalJS(
+            await card.evalJS(
               `(function(){
                 var i = document.querySelector(${JSON.stringify(FILTER)});
                 i.value = "";
                 i.dispatchEvent(new Event("input", { bubbles: true }));
               })()`,
             );
-            await app.type(FILTER, bodyWord);
+            await card.type(FILTER, bodyWord);
             const bodyRow = `${VIEW} [data-testid="session-history-commit"][data-sha="${bodySha}"]`;
-            await app.waitForCondition<boolean>(
+            await card.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(bodyRow)}) !== null`,
               { timeoutMs: 8_000 },
             );
 
             // Collapsed, the row cannot explain itself from its subject — so it
             // shows the matching message line, marked.
-            const collapsedEvidence = await app.evalJS<{
+            const collapsedEvidence = await card.evalJS<{
               context: string;
               mark: string;
             }>(
@@ -422,12 +425,12 @@ describe.skipIf(!SHOULD_RUN)(
             // Expanded, the term is marked inside the real message body — the
             // syntax-highlighted render, where a plain string renderer could
             // not reach and so used to paint nothing at all.
-            await app.click(`${bodyRow} .tug-history-list-row-hit`);
-            await app.waitForCondition<boolean>(
+            await card.click(`${bodyRow} .tug-history-list-row-hit`);
+            await card.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(bodyRow)} + '' ) !== null && document.querySelector(${JSON.stringify(bodyRow)}).getAttribute("data-expanded") === "true"`,
               { timeoutMs: 5_000 },
             );
-            const bodyMark = await app.evalJS<string>(
+            const bodyMark = await card.evalJS<string>(
               `(function(){
                 var row = document.querySelector(${JSON.stringify(bodyRow)});
                 var msg = row.querySelector('[data-slot="tug-history-list-message"]');
@@ -440,7 +443,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The expanded detail reads in a recessed well, like a tool
             // block's body — a real painted surface, not a bare region.
-            const wellPainted = await app.evalJS<boolean>(
+            const wellPainted = await card.evalJS<boolean>(
               `(function(){
                 var row = document.querySelector(${JSON.stringify(bodyRow)});
                 var well = row.querySelector('.tug-history-list-commit-detail');
@@ -454,19 +457,19 @@ describe.skipIf(!SHOULD_RUN)(
             expect(wellPainted).toBe(true);
 
             // ── 5. Filter by a short sha ─────────────────────────────────
-            await app.evalJS(
+            await card.evalJS(
               `(function(){
                 var i = document.querySelector(${JSON.stringify(FILTER)});
                 i.value = "";
                 i.dispatchEvent(new Event("input", { bubbles: true }));
               })()`,
             );
-            await app.type(FILTER, head8);
-            await app.waitForCondition<boolean>(
+            await card.type(FILTER, head8);
+            await card.waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length === 1`,
               { timeoutMs: 8_000 },
             );
-            const soleRow = await app.evalJS<string>(
+            const soleRow = await card.evalJS<string>(
               `(function(){
                 var row = document.querySelector(${JSON.stringify(ROW)});
                 return row ? row.textContent : "";
@@ -477,7 +480,7 @@ describe.skipIf(!SHOULD_RUN)(
 
             // The matched span wears the shared filter mark, so the reader can
             // see WHY the row survived.
-            const markText = await app.evalJS<string>(
+            const markText = await card.evalJS<string>(
               `(function(){
                 var m = document.querySelector(${JSON.stringify(ROW)} + ' mark.tug-filter-mark');
                 return m ? m.textContent : "";
@@ -487,14 +490,14 @@ describe.skipIf(!SHOULD_RUN)(
             expect(markText.length).toBeGreaterThan(0);
 
             // ── 6. Clearing restores the whole walk ──────────────────────
-            await app.click(
+            await card.click(
               `[data-testid="session-history-filter"] [aria-label="Clear filter"]`,
             );
-            await app.waitForCondition<boolean>(
+            await card.waitForCondition<boolean>(
               `document.querySelectorAll(${JSON.stringify(ROW)}).length >= ${grown.length}`,
               { timeoutMs: 8_000 },
             );
-            const restored = await app.evalJS<string[]>(shasNow);
+            const restored = await card.evalJS<string[]>(shasNow);
             // Nothing was lost to the round trip through the filter: the pages
             // already walked are still held, in order.
             expect(restored.slice(0, grown.length)).toEqual(grown);

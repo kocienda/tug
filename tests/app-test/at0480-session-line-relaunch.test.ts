@@ -126,12 +126,23 @@ function seedTheLine(app: App): void {
   });
 }
 
-/** Wait for the card's binding to settle, then read the line facts. */
-async function awaitLineFacts(app: App): Promise<LineFacts> {
+/**
+ * Wait for the card's binding to settle on `seated`, then read the line facts.
+ *
+ * The seeded card is a body, and a Session body restores its card when it
+ * binds: the launch resumes the line's tip from the ledger before the test's
+ * own resume is sent. So the binding moves twice in the phase that resumes
+ * the root — the tip, then the root — and the facts are read once it has
+ * landed on the segment this phase resumed, not on the first binding seen.
+ */
+async function awaitLineFacts(app: App, seated: string): Promise<LineFacts> {
   await app.waitForCondition<boolean>(
     `(function(){
        if (typeof window.__tug === "undefined") return false;
-       try { return window.__tug.cardLineFacts("A").lineId.length > 0; }
+       try {
+         var facts = window.__tug.cardLineFacts("A");
+         return facts.lineId.length > 0 && facts.tugSessionId === ${JSON.stringify(seated)};
+       }
        catch (e) { return false; }
      })()`,
     { timeoutMs: 30_000 },
@@ -203,8 +214,11 @@ describe.skipIf(!SHOULD_RUN)("at0480 — a line of work survives a relaunch", ()
         try {
           await app.enableDeckTrace(true);
           await awaitDeck(app);
+          // The body's own restore of the line's tip lands first, so the
+          // resume below is the binding the card ends on.
+          await awaitLineFacts(app, STAGE);
           await app.spawnSessionResume("A", { tugSessionId: seated, projectDir });
-          expectTheLine(await awaitLineFacts(app), phase, seated);
+          expectTheLine(await awaitLineFacts(app, seated), phase, seated);
         } finally {
           await app.close();
         }

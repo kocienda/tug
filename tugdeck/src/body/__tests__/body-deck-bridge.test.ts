@@ -218,6 +218,25 @@ describe("an arrangement card", () => {
     expect(b.getSpaceDeck("s1")).toBe(b.getSnapshot());
   });
 
+  test("names the workspace each listed card stands in, a parked one's included", () => {
+    const b = arrangementBridge();
+    const listed = arrangement(1600);
+    const parkedPane = paneState("p-away", ["parked"]);
+    listed.spaces.spaces.push({ id: "s2", name: "Away" });
+    listed.spaces.decks.s2 = {
+      cards: [{ id: "parked", componentId: "session", title: "", closable: true }],
+      panes: [parkedPane],
+      imposition: { sidebars: {} },
+      hasFocus: false,
+    };
+    b.applyContext(context({ spaceId: "s1", arrangement: listed }));
+    expect(b.spaceOf(CARD)).toBe("s1");
+    expect(b.spaceOf("a")).toBe("s1");
+    // What lets `cardIdentity` reach a parked Session card's ledger row.
+    expect(b.spaceOf("parked")).toBe("s2");
+    expect(b.spaceOf("nowhere")).toBeNull();
+  });
+
   test("a changed arrangement notifies the deck's and the workspaces' listeners; an unchanged one neither", () => {
     const b = arrangementBridge();
     let deckNotes = 0;
@@ -241,6 +260,18 @@ describe("an arrangement card", () => {
     expect(advice).toEqual([
       { advice: "deck-call", method: "setFlowOffset", args: [120] },
       { advice: "deck-call", method: "activateSpace", args: ["s1"] },
+    ]);
+  });
+
+  test("raising another card names it to the shell; activating itself is its own advice", () => {
+    const advice: CardAdvice[] = [];
+    const b = arrangementBridge(advice);
+    b.applyContext(context({ arrangement: arrangement(1600) }));
+    b.activateCard("other");
+    b.activateCard(CARD);
+    expect(advice).toEqual([
+      { advice: "deck-call", method: "activateCard", args: ["other"] },
+      { advice: "activate" },
     ]);
   });
 

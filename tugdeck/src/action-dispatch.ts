@@ -35,7 +35,7 @@ import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
 import { forwardCycleFocus } from "@/lib/cycle-focus-forwarder";
-import { dispatchCommand, sendToCardContent } from "./command-dispatch";
+import { dispatchCommand, forwardToKeyCard, sendToCardContent } from "./command-dispatch";
 import { closeCard, closePane, deleteSpace } from "./lib/card-close-commands";
 import { requestSettingsReveal } from "./lib/settings-reveal";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./lib/settings-sections-pref";
@@ -283,6 +283,57 @@ export function dispatchAction(payload: Record<string, unknown>): void {
   } else {
     console.warn(`dispatchAction: unknown action: ${action}`, payload);
   }
+}
+
+/** The wire a menu item carrying a slash-command name arrives on. */
+export const RUN_CARD_COMMAND = "run-card-command";
+
+/**
+ * Register `run-card-command`: a Session/File/Edit/Help menu item carrying a
+ * local slash-command name (`payload.name`, optional `payload.args`). The
+ * command it names re-enters the session card's RUN_SLASH_COMMAND surface map
+ * key-card-scoped — byte-identical to typing the command.
+ *
+ * Every page that holds a card registers it — the shell from
+ * {@link initActionDispatch}, a body from its own boot — because the shell
+ * hands the arguments form to the key card's body, whose chain is where that
+ * card's surface map stands; the shell's chain has no card content for a body
+ * card, and sending it there ran nothing.
+ */
+export function registerRunCardCommand(): void {
+  // Spelled out: `command-routing-drift.test.ts` reads the registrations here.
+  registerAction("run-card-command", (payload) => {
+    const name = payload.name;
+    if (typeof name !== "string") {
+      console.warn("run-card-command: missing or invalid name parameter", payload);
+      return;
+    }
+    const args = typeof payload.args === "string" ? payload.args : "";
+    // A bridged item's args are always empty; a caller that supplies them
+    // is asking for something no entry's static payload can express, so it
+    // dispatches the action directly rather than through the entry.
+    if (args === "") {
+      const id = `${TUG_ACTIONS.RUN_SLASH_COMMAND}:${name}`;
+      if (isCommandId(id)) {
+        dispatchCommand(id);
+        return;
+      }
+    }
+    // The key card's body runs it in its own chain, when the key card is one.
+    if (forwardToKeyCard(RUN_CARD_COMMAND, { name, args })) return;
+    // An unknown name still reaches the card, whose surface-map lookup is
+    // defensive — a no-op rather than a dead menu item.
+    const chain = getResponderChainManager();
+    if (chain) {
+      chain.sendToKeyCard({
+        action: TUG_ACTIONS.RUN_SLASH_COMMAND,
+        value: { name, args },
+        phase: "discrete",
+      });
+    } else {
+      console.warn("run-card-command: responder chain manager not registered yet");
+    }
+  });
 }
 
 /**
@@ -779,8 +830,9 @@ export function initActionDispatch(
   });
 
   // set-resize-slot: choose whether an edge resize keeps an imposed card in its
-  // slot or releases it into free pixels. Dispatched by the Layout card's
-  // Resizing row. A rule for later gestures; nothing moves when it changes.
+  // slot or releases it into free pixels. No surface dispatches it: the rule
+  // rests at "keep" and is not offered to the user. A rule for later
+  // gestures; nothing moves when it changes.
   registerAction(TUG_ACTIONS.SET_RESIZE_SLOT, (payload) => {
     const resizeSlot = payload.resizeSlot;
     if (!isResizeSlot(resizeSlot)) {
@@ -1294,40 +1346,7 @@ export function initActionDispatch(
   // registry entry ([P05]) and hands off to the funnel, so a menu item and
   // a future keymap row reach the same command by the same path.
 
-  // run-card-command: a Session/File/Edit/Help menu item carrying a local
-  // slash-command name (`payload.name`, optional `payload.args`). The
-  // command it names re-enters the session card's RUN_SLASH_COMMAND
-  // surface map key-card-scoped — byte-identical to typing the command.
-  registerAction("run-card-command", (payload) => {
-    const name = payload.name;
-    if (typeof name !== "string") {
-      console.warn("run-card-command: missing or invalid name parameter", payload);
-      return;
-    }
-    const args = typeof payload.args === "string" ? payload.args : "";
-    // A bridged item's args are always empty; a caller that supplies them
-    // is asking for something no entry's static payload can express, so it
-    // dispatches the action directly rather than through the entry.
-    if (args === "") {
-      const id = `${TUG_ACTIONS.RUN_SLASH_COMMAND}:${name}`;
-      if (isCommandId(id)) {
-        dispatchCommand(id);
-        return;
-      }
-    }
-    // An unknown name still reaches the card, whose surface-map lookup is
-    // defensive — a no-op rather than a dead menu item.
-    const chain = getResponderChainManager();
-    if (chain) {
-      chain.sendToKeyCard({
-        action: TUG_ACTIONS.RUN_SLASH_COMMAND,
-        value: { name, args },
-        phase: "discrete",
-      });
-    } else {
-      console.warn("run-card-command: responder chain manager not registered yet");
-    }
-  });
+  registerRunCardCommand();
 
   // set-pane-width: the View ▸ Slim / Comfy / Wide round-trip. The bare
   // wire name carries the preset as a param; the three commands the user

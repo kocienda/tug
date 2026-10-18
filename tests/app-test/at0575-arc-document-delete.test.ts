@@ -55,6 +55,7 @@ import {
   seedScratchSession,
   type ArcScratchRepo,
 } from "./arc-fixture";
+import { kindBody } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
@@ -156,14 +157,16 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
 
         await app.dispatchControlAction("toggle-arcs");
         await app.evalJS<null>(`(window.__tug.activateCard("A"), null)`);
-        await app.waitForCondition<boolean>(
+        // The Arcs card is a body: its rows, and the confirm a row raises,
+        // are in its page.
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) !== null
              && document.querySelector(${JSON.stringify(rowFor(KEEPER))}) !== null`,
           { timeoutMs: 30_000 },
         );
 
         // ── The row's verbs carry Discard, after its transport ────────────
-        const trailing = await app.evalJS<string>(
+        const trailing = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const row = document.querySelector(${JSON.stringify(ROW)});
              const del = row.querySelector('[data-slot="arc-verb"][data-verb="discard"]');
@@ -185,12 +188,12 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
         expect(controls.label).toBe(`Discard arc ${ARC_NAME}`);
 
         // ── The press arms the confirm; it does not delete ────────────────
-        await app.nativeClickAtElement(DELETE);
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").nativeClickAtElement(DELETE);
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
           { timeoutMs: 30_000 },
         );
-        const asked = await app.evalJS<string>(
+        const asked = await kindBody(app, "dashes").evalJS<string>(
           `(() => {
              const box = document.querySelector(${JSON.stringify(CONFIRM)});
              return JSON.stringify({
@@ -214,7 +217,7 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
         expect(existsSync(documentsDir(ARC_NAME))).toBe(true);
 
         // ── The confirm destroys the documents, and only those ────────────
-        await app.nativeClickAtElement(CONFIRM_BUTTON);
+        await kindBody(app, "dashes").nativeClickAtElement(CONFIRM_BUTTON);
         const gone = await pollUntil(
           () => existsSync(documentsDir(ARC_NAME)),
           (there) => !there,
@@ -224,7 +227,7 @@ describe.skipIf(!SHOULD_RUN)("AT0575: deleting a paperwork row's documents", () 
         expect(existsSync(documentsDir(KEEPER))).toBe(true);
 
         // ── And the row leaves the card, off the recompute ────────────────
-        await app.waitForCondition<boolean>(
+        await kindBody(app, "dashes").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(ROW)}) === null
              && document.querySelector(${JSON.stringify(rowFor(KEEPER))}) !== null`,
           { timeoutMs: 30_000 },

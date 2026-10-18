@@ -142,6 +142,46 @@ export function currentGesture(): GestureClassification | null {
   return current;
 }
 
+/**
+ * The card a body page draws, while this page is one; `null` in the shell
+ * and in a bare provider.
+ */
+let bodyCard: string | null = null;
+
+/** Name the card this page is the body of (`body-main.ts`), or `null`. */
+export function setBodyGestureCard(cardId: string | null): void {
+  bodyCard = cardId;
+}
+
+/**
+ * Whether a press in a body page places the engine at what it landed on,
+ * and for which card — `null` for no placement.
+ *
+ * A body has no interpreter: the deck, its panes and the activation are the
+ * shell's, and the press only asks the shell to activate the card. But the
+ * placement half is the page's, since the card's focusables are, and without
+ * it a click into a field already holding DOM focus fires no `focusin` and
+ * moves no key view — so a rename field whose key view a menu's close had
+ * put back on the list never took its own Escape again (`at0582`). This is
+ * {@link classify}'s placement rule read for the one card the page holds:
+ * nothing on a focus-refusing control or under a suppressing policy; the
+ * target itself on the key card; and, on a card the press is about to
+ * activate, only a text-entry target — the drill-down — so a click on
+ * anything else realizes the card's recorded destination.
+ */
+export function bodyPointerPlacementCard(
+  event: { target: EventTarget | null; button: number; metaKey: boolean },
+  keyCard: string | null,
+): string | null {
+  if (bodyCard === null) return null;
+  const el = elementFor(event.target);
+  if (el === null || isFocusRefusing(el) || isFrPreserving(el)) return null;
+  if (placementIsSuppressedByPolicy(el)) return null;
+  if (keyCard === bodyCard) return bodyCard;
+  if (event.button !== 0 || event.metaKey) return null;
+  return isTextEntryTarget(el) ? bodyCard : null;
+}
+
 function elementFor(target: EventTarget | null): Element | null {
   if (target instanceof Element) return target;
   if (target instanceof Node) return target.parentElement;

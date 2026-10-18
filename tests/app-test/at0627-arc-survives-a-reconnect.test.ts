@@ -86,6 +86,7 @@ import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { connectionClose } from "./_harness/client";
 import { sessionCardShape } from "./_harness/shapes";
 import {
   mkTempTugbank,
@@ -388,6 +389,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(
             await app.connectionClose(),
             "the app had a connection to close",
+          ).toBe(true);
+          // A body rides a wire of its own, and the card's restore runs on
+          // it: a dropped wire drops A's body's connection too.
+          expect(
+            await connectionClose(app.body("A")),
+            "card A's body had a connection to close",
           ).toBe(true);
           // The deck notices: submit clamps to the inert reconnecting mode.
           // Proving the wire actually dropped is what keeps the assertions

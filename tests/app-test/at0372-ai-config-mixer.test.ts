@@ -290,6 +290,8 @@ describe.skipIf(!SHOULD_RUN)("AT0372: the AI mixer's transaction and row couplin
         // typing their names now lands here.
         for (const name of ["ai", "model", "effort", "mode"]) {
           await app.body("A").nativeClickAtElement(PROMPT_INPUT);
+          // card-dom: shell — `run-card-command` is the shell's action (the
+          // menu's door); the shell routes it to the key card's body.
           await app.evalJS<null>(
             `(window.__tug.dispatchControlAction("run-card-command", { name: ${JSON.stringify(name)} }), null)`,
           );

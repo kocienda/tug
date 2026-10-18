@@ -84,9 +84,18 @@ function sessionUpdated(sessionId: string, turns: number, prompt: string, at: nu
   });
 }
 
+/**
+ * Deliver a `session_updated` push as tugcast does: a CONTROL broadcast that
+ * every page hears. The shell's copy moves the bindings; the Workspaces row
+ * draws in the Cards card's body, which hears its own copy on its own socket
+ * and enters it at the same registered action.
+ */
 async function publish(app: App, body: string): Promise<void> {
   expect(await app.evalJS<boolean>(`window.__tug.publishSessionUpdated(${JSON.stringify(body)})`)).toBe(
     true,
+  );
+  await kindBody(app, "cards").evalJS<null>(
+    `(window.__tug.dispatchControlAction("session_updated", ${body}), null)`,
   );
 }
 

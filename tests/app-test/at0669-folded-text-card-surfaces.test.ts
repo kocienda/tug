@@ -35,6 +35,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp, type App } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank, rmTempTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -49,13 +50,23 @@ const BAR = '[data-card-id="A"] [data-slot="text-card-find-bar"]';
 const DETAIL = '[data-testid="card-masthead-detail"]';
 const RELOAD = '[data-testid="text-card-conflict-reload"]';
 
+/**
+ * Launch on a tugbank in automatic save mode. The card reads its save mode in
+ * its own body's page, so the value is seeded into the tugbank the app opens,
+ * which every page's snapshot carries; the shell's `setTugbankValue` writes
+ * only the shell page's cache. The caller removes the tugbank once the app
+ * has closed.
+ */
+async function launchAutomatic(testName: string): Promise<{ app: App; tugbankPath: string }> {
+  const tugbankPath = mkSeededTugbank([AUTOMATIC_SAVE_MODE]);
+  const app = await launchTugApp({ testName, env: { TUGBANK_PATH: tugbankPath } });
+  return { app, tugbankPath };
+}
+
 // Kept local: every file's `seed` builds its own deck and waits on its own
 // readiness, so the name is shared and the function is not.
-/** One Text card on the fixture, in automatic save mode. */
+/** One Text card on the fixture; the save mode is the launch's ({@link launchAutomatic}). */
 async function seed(app: App, file: string): Promise<void> {
-  await app.evalJS<null>(
-    `(window.__tug.setTugbankValue("dev.tugapp.text-card","save-mode",{kind:"string",value:"automatic"}), null)`,
-  );
   await app.seedDeckState({
     state: {
       cards: [{ id: "A", componentId: "text", title: "File", closable: true }],
@@ -133,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
     "Return, the Find menu and ⌘F each open a folded card, and the keyboard lands where it was sent",
     async () => {
       const { dir, file } = mkTextFixture("at0669-find-", BODY);
-      const app = await launchTugApp({ testName: "at0669-find" });
+      const { app, tugbankPath } = await launchAutomatic("at0669-find");
       try {
         await seed(app, file);
         await app.body("A").nativeClickAtElement('[data-card-id="A"] .cm-line');
@@ -167,6 +178,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
       } finally {
         await app.close();
         fs.rmSync(dir, { recursive: true, force: true });
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,
@@ -176,7 +188,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
     "a conflict raised while folded rides the masthead, and the banner presents on the unfold",
     async () => {
       const { dir, file } = mkTextFixture("at0669-conflict-", BODY);
-      const app = await launchTugApp({ testName: "at0669-conflict" });
+      const { app, tugbankPath } = await launchAutomatic("at0669-conflict");
       try {
         await seed(app, file);
         // An external write plus an unflushed local edit: the autosave that
@@ -211,6 +223,7 @@ describe.skipIf(!SHOULD_RUN)("at0669: a folded Text card's surfaces", () => {
       } finally {
         await app.close();
         fs.rmSync(dir, { recursive: true, force: true });
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,

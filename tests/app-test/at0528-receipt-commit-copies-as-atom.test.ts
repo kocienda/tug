@@ -152,6 +152,8 @@ async function readSidecar(
 ): Promise<{ text: string; atoms: Array<{ type: string; label: string; value: string }> } | null> {
   // The read is async (the native bridge calls back) and `evalJS` cannot
   // return a promise, so kick it off, park the result, and poll.
+  // card-dom: shell — `readClipboardAtoms` is the shell's surface; the
+  // pasteboard it reads is the app's.
   await app.evalJS<null>(
     `(window.__at0528sidecar = undefined,
       window.__tug.readClipboardAtoms().then(function (r) {
@@ -317,8 +319,9 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- C. And the menu offers the same object. --------------------
           setPasteboard(SENTINEL);
+          // The menu rises in S's body, where the pill is.
           await app.body("S").nativeRightClickAtElement(RECEIPT_PILL);
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelector('[data-item-action="copy-annotation-atom"]') !== null`,
             { timeoutMs: 5_000 },
           );
@@ -335,11 +338,12 @@ describe.skipIf(!SHOULD_RUN)(
           expect(labels).toContain("Copy Commit Record");
           expect(labels).toContain("Copy as Atom");
 
-          const point = await app.evalJS<{ x: number; y: number } | null>(
+          // The point is in the body's viewport, so the click is the body's.
+          const point = await app.body("S").evalJS<{ x: number; y: number } | null>(
             menuItemPointJS("copy-annotation-atom"),
           );
           expect(point).not.toBeNull();
-          await app.nativeClick(point as { x: number; y: number });
+          await app.body("S").nativeClick(point as { x: number; y: number });
 
           const fromMenu = await readSidecar(app);
           note("at0528 menu sidecar", JSON.stringify(fromMenu));

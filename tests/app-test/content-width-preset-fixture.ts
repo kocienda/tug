@@ -1,27 +1,20 @@
 /**
- * at0681-content-width-lands-on-preset.test.ts — choosing the deck's content
- * width puts every content pane exactly on the preset.
+ * content-width-preset-fixture.ts — the deck, the readers and the one case
+ * body the at0681-content-width-lands-on-preset-* files share.
  *
  * `set-content-width` is the Layout card's Card Width row: it re-widths every
  * content pane to the named preset and re-solves the rails in the same commit
- * (`DeckManager.setContentWidth`). The preset is the ask and the band is the
- * ceiling, so a pane lands on `min(preset, band)` — and on exactly that, to
- * the pixel, both in the record and on screen. A pane one pixel short reads as
- * a card that did not quite take the width it was given, and the seams beside
- * it stand a pixel off the ones `setCardWidths` produces for the same preset.
+ * (`DeckManager.setContentWidth`). A pane lands on `min(preset, band)`, to the
+ * pixel, both in the record and on screen. The gesture meets three starting
+ * points — free panes, slotted panes under an imposition, and a pane standing
+ * in bullseye — and each is its own file, split from
+ * `at0681-content-width-lands-on-preset` to fit the 20 s file budget ([B07]
+ * of the bodies migration brief).
  *
- * The fixture is two free content panes beside a pinned Layout rail, because
- * the rail re-solve is the half of the gesture only this door runs. Every
- * preset is read in turn, and the band is read from the live
- * `--tug-imposer-inset-*` values rather than typed here, so a deck whose band
- * is narrower than `wide` still asks the honest question.
- *
- * @covers tugdeck/src/layout-imposition.ts
- * @covers tugdeck/src/deck-manager.ts
- * @covers tugdeck/src/lib/layout-imposer.ts
+ * @module tests/app-test/content-width-preset-fixture
  */
 
-import { describe, expect, test } from "bun:test";
+import { expect } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
 import {
@@ -29,8 +22,8 @@ import {
   IMPOSITION_GAP_PX,
 } from "../../tugdeck/src/lib/layout-imposer";
 
-const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
-const TEST_TIMEOUT_MS = 120_000;
+export const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
+export const TEST_TIMEOUT_MS = 120_000;
 
 /** Slim and comfy, as `lib/layout-imposer.ts` fixes them. */
 const PRESETS = [
@@ -63,6 +56,8 @@ const wait = (ms: number): Promise<void> =>
  */
 async function landed(app: App): Promise<void> {
   await wait(50);
+  // card-dom: shell — `data-imposer-settling` is the deck canvas's; a body
+  // page has no canvas, so the condition holds there trivially.
   await app.waitForCondition<boolean>(
     `document.querySelector("[data-imposer-settling]") === null`,
     { timeoutMs: 8_000 },
@@ -149,62 +144,59 @@ async function landing(app: App, paneId: string): Promise<Landing> {
   );
 }
 
-describe.skipIf(!SHOULD_RUN)("at0681 — the deck's content width lands on its preset", () => {
-  // Three decks, because the gesture meets three different starting points:
-  // free panes, slotted panes under an imposition, and a pane standing in
-  // bullseye — which `setContentWidth` must end and then put on the preset.
-  const cases = [
-    { name: "free", imposed: false, bullseye: false },
-    { name: "three-up", imposed: true, bullseye: false },
-    { name: "from bullseye", imposed: false, bullseye: true },
-  ];
-  for (const c of cases) {
-    test(
-      `${c.name}: every content pane takes min(preset, band) exactly, on screen and in the record`,
-      async () => {
-        const app = await launchTugApp({ testName: "at0681-content-width-lands-on-preset" });
-        try {
-          await app.seedDeckState({ state: deckShape(c.imposed), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `document.querySelectorAll('.tug-pane[data-pane-id="p1"], .tug-pane[data-pane-id="p2"]').length === 2`,
-            { timeoutMs: 15_000 },
-          );
-          await wait(AFTER_LAND_MS);
+/** One starting point the gesture meets. */
+export interface PresetCase {
+  name: string;
+  imposed: boolean;
+  bullseye: boolean;
+}
 
-          for (const { preset, px } of PRESETS) {
-            if (c.bullseye) {
-              await app.evalJS<null>(
-                `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p1" }), null)`,
-              );
-              await wait(AFTER_LAND_MS);
-            }
-            await app.evalJS<null>(
-              `(window.__tug.dispatchControlAction("set-content-width", { preset: ${JSON.stringify(preset)} }), null)`,
-            );
-            await landed(app);
-            const band = await bandWidth(app);
-            const want = Math.min(px, band);
-            for (const paneId of ["p1", "p2"]) {
-              const got = await landing(app, paneId);
-              note(
-                `at0681 ${c.name} ${preset} ${paneId}`,
-                `screen ${got.screen} / record ${got.record} against preset ${px}, band ${band}`,
-              );
-              expect(
-                got.record,
-                `${c.name} ${preset}: ${paneId}'s record holds min(${px}, band ${band})`,
-              ).toBe(want);
-              expect(
-                got.screen,
-                `${c.name} ${preset}: ${paneId} is drawn at min(${px}, band ${band})`,
-              ).toBe(want);
-            }
-          }
-        } finally {
-          await app.close();
-        }
-      },
-      TEST_TIMEOUT_MS,
+/** The test title every file states its case under. */
+export function caseTitle(c: PresetCase): string {
+  return `${c.name}: every content pane takes min(preset, band) exactly, on screen and in the record`;
+}
+
+/** Seed `c`'s deck and read every preset in turn: each pane on min(preset, band). */
+export async function landsOnPreset(c: PresetCase): Promise<void> {
+  const app = await launchTugApp({ testName: "at0681-content-width-lands-on-preset" });
+  try {
+    await app.seedDeckState({ state: deckShape(c.imposed), focusCardId: "A" });
+    await app.waitForCondition<boolean>(
+      `document.querySelectorAll('.tug-pane[data-pane-id="p1"], .tug-pane[data-pane-id="p2"]').length === 2`,
+      { timeoutMs: 15_000 },
     );
+    await wait(AFTER_LAND_MS);
+
+    for (const { preset, px } of PRESETS) {
+      if (c.bullseye) {
+        await app.evalJS<null>(
+          `(window.__tug.dispatchControlAction("set-bullseye", { paneId: "p1" }), null)`,
+        );
+        await wait(AFTER_LAND_MS);
+      }
+      await app.evalJS<null>(
+        `(window.__tug.dispatchControlAction("set-content-width", { preset: ${JSON.stringify(preset)} }), null)`,
+      );
+      await landed(app);
+      const band = await bandWidth(app);
+      const want = Math.min(px, band);
+      for (const paneId of ["p1", "p2"]) {
+        const got = await landing(app, paneId);
+        note(
+          `at0681 ${c.name} ${preset} ${paneId}`,
+          `screen ${got.screen} / record ${got.record} against preset ${px}, band ${band}`,
+        );
+        expect(
+          got.record,
+          `${c.name} ${preset}: ${paneId}'s record holds min(${px}, band ${band})`,
+        ).toBe(want);
+        expect(
+          got.screen,
+          `${c.name} ${preset}: ${paneId} is drawn at min(${px}, band ${band})`,
+        ).toBe(want);
+      }
+    }
+  } finally {
+    await app.close();
   }
-});
+}

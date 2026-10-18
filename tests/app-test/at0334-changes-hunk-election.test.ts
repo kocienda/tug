@@ -123,12 +123,28 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
         env: { TUGBANK_PATH: tugbankPath },
       });
       try {
+        await app.enableDeckTrace(true);
+        await app.seedDeckState({ state: sessionCardShape({ width: 1000, height: 760 }), focusCardId: "A" });
+        await app.body("A").waitForCondition<boolean>(
+          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+        );
+        await app.bindSession("A", {
+          tugSessionId: SID,
+          projectDir: PROJECT_DIR,
+          workspaceKey: PROJECT_DIR,
+        });
+        await app.awaitEngineReady("A", { timeoutMs: 15000 });
+
         // The wall, walked through: a live session that proof-owns the dirty
         // file is exactly what the aggregate needs to compose a session entry.
         //
         // After launch, not before — tugcast demotes every `live` row to
         // `closed` once at startup, so a pre-launch seed would be swept and
-        // the file would surface as `orphaned` instead.
+        // the file would surface as `orphaned` instead. And after the card is
+        // bound, as at0332 and at0405 seed: a Session card's body runs the
+        // restore pass when it binds, and a ledger row naming card A would be
+        // restored for real — a fresh spawn of this session racing the
+        // harness bind above.
         app.seedLedger({
           sessions: [
             {
@@ -172,17 +188,6 @@ describe.skipIf(!SHOULD_RUN)("AT0334: hunk election on a session entry", () => {
             },
           ],
         });
-        await app.enableDeckTrace(true);
-        await app.seedDeckState({ state: sessionCardShape({ width: 1000, height: 760 }), focusCardId: "A" });
-        await app.body("A").waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
-        await app.bindSession("A", {
-          tugSessionId: SID,
-          projectDir: PROJECT_DIR,
-          workspaceKey: PROJECT_DIR,
-        });
-        await app.awaitEngineReady("A", { timeoutMs: 15000 });
 
         // One committed turn so the card is a live, non-empty session.
         await app.driveSession("A", { op: "send", text: "hello" });

@@ -107,12 +107,12 @@ describe.skipIf(!SHOULD_RUN)("AT0529: the finish is a line, the stop is a receip
           exitCode: 0,
           startedAtMs: 1_700_000_001_000,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(FINISH)}).length === 1`,
           { timeoutMs: 30_000 },
         );
 
-        const finish = await app.evalJS<{
+        const finish = await app.body("A").evalJS<{
           text: string;
           label: string;
           name: string;
@@ -175,11 +175,11 @@ describe.skipIf(!SHOULD_RUN)("AT0529: the finish is a line, the stop is a receip
           exitCode: 0,
           startedAtMs: 1_700_000_002_000,
         });
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(RECEIPT)}).length === 1`,
           { timeoutMs: 30_000 },
         );
-        const stop = await app.evalJS<{
+        const stop = await app.body("A").evalJS<{
           text: string;
           offers: number;
           button: string;

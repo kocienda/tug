@@ -50,7 +50,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import { sessionCardShape } from "./_harness/shapes";
 import { kindBody } from "./_harness/card-reach";
 
@@ -68,8 +68,13 @@ const OVERVIEW_FIELD = '[data-testid="overview-composer-field"]';
 const OVERVIEW_MIC = `${OVERVIEW_CARD} [data-testid="tug-dictation-button"]`;
 const OVERVIEW_TEXT = `${OVERVIEW_FIELD} .cm-content`;
 
-async function push(app: App, event: Record<string, unknown>): Promise<void> {
-  await app.evalJS<null>(
+/**
+ * One dictation event, pushed into `page`. The host sends a claim's events
+ * back to the page that made it (`MainWindow.swift`, `dictationTarget`): A's
+ * body for the Session composer, the Overview's body for the rail's.
+ */
+async function push(page: App | BodyApp, event: Record<string, unknown>): Promise<void> {
+  await page.evalJS<null>(
     `(window.__tugBridge.onDictation(${JSON.stringify(event)}), null)`,
   );
 }
@@ -94,32 +99,6 @@ const textOf = (selector: string): string =>
 const holds = (selector: string, text: string): string =>
   `${textOf(selector)}.indexOf(${JSON.stringify(text)}) !== -1`;
 
-/**
- * Press a button through a dispatched DOM click rather than a native one.
- *
- * Needed for the Overview's mic and nothing else. The rail is a canvas pane and
- * the deck docks it past the right edge of the harness window's viewport — the
- * diagnostic below records the numbers — so `nativeClickAtElement` resolves a
- * viewport point the WKWebView refuses, which is a fact about where an unpinned
- * harness window puts the canvas rather than anything about the button.
- *
- * The claim this file makes is about arbitration: which composer holds the mic
- * after a press. That a real pointer reaches the Overview composer's controls is
- * `at0533`'s claim, made with a native click, so nothing is left unpinned by
- * taking the DOM seam here. The event is a real bubbling click through React's
- * root listener, so the `onClick` path under test is the production one.
- */
-async function domClick(app: App, selector: string): Promise<void> {
-  const hit = await app.evalJS<boolean>(
-    `(function(){
-       var el = document.querySelector(${JSON.stringify(selector)});
-       if (el === null) return false;
-       el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-       return true;
-     })()`,
-  );
-  if (!hit) throw new Error(`domClick: no element for ${selector}`);
-}
 
 describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
   test(
@@ -149,17 +128,18 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         // The rail, so there are two composers to arbitrate between.
         await app.nativeKey("o", ["cmd", "ctrl"]);
         await kindBody(app, "overview").waitForCondition<boolean>(exists(OVERVIEW_MIC), { timeoutMs: 10_000 });
+        // Each mic is in its own card's page, so each is read there, against
+        // that page's own viewport.
+        const micAt = (selector: string): string =>
+          `(function(){
+             var r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+             return Math.round(r.x) + "," + Math.round(r.y) +
+               " (viewport " + window.innerWidth + "x" + window.innerHeight + ")";
+           })()`;
         note(
           "geometry",
-          await app.body("A").evalJS<string>(
-            `(function(){
-               var s = document.querySelector(${JSON.stringify(SESSION_MIC)}).getBoundingClientRect();
-               var o = document.querySelector(${JSON.stringify(OVERVIEW_MIC)}).getBoundingClientRect();
-               return "session " + Math.round(s.x) + "," + Math.round(s.y) +
-                 " overview " + Math.round(o.x) + "," + Math.round(o.y) +
-                 " viewport " + window.innerWidth + "x" + window.innerHeight;
-             })()`,
-          ),
+          "session " + (await app.body("A").evalJS<string>(micAt(SESSION_MIC))) +
+            " overview " + (await kindBody(app, "overview").evalJS<string>(micAt(OVERVIEW_MIC))),
         );
 
         // ── 1. The mic moves. ─────────────────────────────────────────────
@@ -170,7 +150,12 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         const firstId = await app.body("A").getElementAttribute(SESSION_MIC, "data-dictation-id");
         expect((firstId ?? "").length).toBeGreaterThan(0);
 
-        await domClick(app, OVERVIEW_MIC);
+        // A native press, as the session mic's above. The Overview is a body,
+        // and its viewport holds the mic (the geometry note): the dispatched
+        // DOM click this file used while the rail sat past the shell's
+        // viewport reaches the button without the press that activates its
+        // card, and in a body it leaves the mic idle.
+        await kindBody(app, "overview").nativeClickAtElement(OVERVIEW_MIC);
         await kindBody(app, "overview").waitForCondition<boolean>(modeIs(OVERVIEW_MIC, "live"), {
           timeoutMs: 10_000,
         });
@@ -187,7 +172,7 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
 
         // And the handle went with the claim: text for the Overview's id lands
         // in the Overview's field and nowhere else.
-        await push(app, { id: secondId, kind: "final", text: "what changed today" });
+        await push(kindBody(app, "overview"), { id: secondId, kind: "final", text: "what changed today" });
         await kindBody(app, "overview").waitForCondition<boolean>(
           `${textOf(OVERVIEW_TEXT)} === "what changed today"`,
           { timeoutMs: 10_000 },
@@ -198,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
         ).toBe(false);
 
         // ── 2. App resign ends it, keeping the settled text. ──────────────
-        await push(app, { id: secondId, kind: "volatile", text: " and yesterday" });
+        await push(kindBody(app, "overview"), { id: secondId, kind: "volatile", text: " and yesterday" });
         await kindBody(app, "overview").waitForCondition<boolean>(
           `${textOf(OVERVIEW_TEXT)} === "what changed today and yesterday"`,
           { timeoutMs: 10_000 },
@@ -222,7 +207,7 @@ describe.skipIf(!SHOULD_RUN)("AT0647: one mic across the deck", () => {
           timeoutMs: 10_000,
         });
         const thirdId = await app.body("A").getElementAttribute(SESSION_MIC, "data-dictation-id");
-        await push(app, { id: thirdId, kind: "volatile", text: "never mind" });
+        await push(app.body("A"), { id: thirdId, kind: "volatile", text: "never mind" });
         await app.body("A").waitForCondition<boolean>(
           `${textOf(SESSION_EDITOR)} === "never mind"`,
           { timeoutMs: 10_000 },

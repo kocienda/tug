@@ -1363,9 +1363,11 @@ class MainWindow: NSWindow, WKNavigationDelegate, WKUIDelegate {
     ]
 
     /// Names only the shell may post: the deck's own chrome, the window's
-    /// settings, and the commands that direct bodies.
+    /// settings, and the commands that direct bodies. `pageZoom` is not one:
+    /// the Layout card's Zoom row asks for a level from the Layout card's own
+    /// body, and the answer is the window's whole zoom either way.
     static let shellOnlyHandlerNames: Set<String> = [
-        "sourceTree", "setTheme", "pageZoom", "devBadge", "updateAction",
+        "sourceTree", "setTheme", "devBadge", "updateAction",
         "frontendLaunchStalled", "hmrUpdate", "bodyCreate", "placeBodies",
         "bodyDestroy", "bodyFocus", "pointerClaim", "hostFrames", "floorGrid", "beatPlan",
     ]

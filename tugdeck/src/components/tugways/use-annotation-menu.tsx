@@ -71,7 +71,7 @@ import { escapeHtml, writeCopyClipboard } from "@/lib/copy-clipboard";
 import { openAttachmentPreview } from "@/lib/attachment-preview-open";
 import { revealDirectoryInFinder, revealPathInFinder } from "@/lib/os-open";
 import { dispatchCommand } from "@/command-dispatch";
-import { getRegistryHandler } from "@/action-dispatch";
+import { dispatchShellAction } from "@/action-registry";
 import { atomPlainTextFor, atomSegmentFor } from "@/lib/annotator/atom-segment";
 import { TUG_ATOM_CHAR } from "@/lib/tug-atom-img";
 import type { PromptInsertTarget } from "@/components/tugways/prompt-insert-target";
@@ -287,15 +287,16 @@ export function useAnnotationMenu({
     if (insertTarget?.runCommand === undefined) return;
     const { name, args } = payload;
     return () => {
-      // The registry handler directly, not `dispatchCommand`: this is a
-      // menu-only verb over a sampled target and so has no command-registry
-      // row for a command id to name ([ACTIONS_OUTSIDE_THE_TABLE]). The deck
-      // work — the card, the slot, the spawn — lives in `action-dispatch.ts`,
-      // which is the only place holding the DeckManager and the connection.
-      getRegistryHandler(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION)?.({
+      // A shell action, not `dispatchCommand`: this is a menu-only verb over
+      // a sampled target and so has no command-registry row for a command id
+      // to name ([ACTIONS_OUTSIDE_THE_TABLE]). The deck work — the card, the
+      // slot, the spawn — lives in the shell's `action-dispatch.ts`, the only
+      // place holding the DeckManager and the connection, so a menu in a body
+      // hands the action to the shell.
+      dispatchShellAction(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, {
         name,
         args,
-        originCardId: cardId ?? undefined,
+        ...(cardId != null ? { originCardId: cardId } : {}),
       });
     };
   }, [insertTarget, cardId]);

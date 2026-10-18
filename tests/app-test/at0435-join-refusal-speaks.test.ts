@@ -184,23 +184,26 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         silenceJoinPrompt(projectDir(), ARC);
 
         await raiseShade(app);
-        await app.dispatchControlAction("bind_arc_ok", {
-          tug_session_id: SID,
-          arc_id: arcId,
-          arc_name: ARC,
-        });
+        // A broadcast reaches every page, and the lane's binding store is the
+        // card body's own — so the frame is handed to the body as well as the
+        // shell.
+        const bindOk = { tug_session_id: SID, arc_id: arcId, arc_name: ARC };
+        await app.dispatchControlAction("bind_arc_ok", bindOk);
+        await app.body("A").evalJS<null>(
+          `(window.__tug.dispatchControlAction("bind_arc_ok", ${JSON.stringify(bindOk)}), null)`,
+        );
         // A landable arc publishes its OFFER — the `lands as` line — so that
         // is what says the fixture is ready. The report fold is NOT a
         // readiness signal and cannot be waited on here: a clean join has no
         // conflict, blocker, question or account to show, and the section
         // renders nothing it cannot say. Its silence is the clean case's own
         // shape, so it is asserted rather than waited for.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(landsAs(ARC))}) !== null`,
           { timeoutMs: 20000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(landing(ARC))}) === null`,
           ),
           "a clean arc shows no report — the fold speaks only with evidence",
@@ -285,6 +288,7 @@ describe.skipIf(!SHOULD_RUN)("AT0435: a refused land press speaks", () => {
         // And it is the band that carries it. The corner lane is where this
         // refusal used to land, dimmed under the shade's scrim; nothing a
         // shade gesture produces reaches it any more ([B01]).
+        // card-dom: shell — the corner lane is the deck's; a body page has none.
         const corner = await app.evalJS<string[]>(BULLETIN_TEXTS);
         note(`at0435 corner bulletins after the refused press: ${JSON.stringify(corner)}`);
         expect(

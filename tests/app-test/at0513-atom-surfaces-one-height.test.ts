@@ -320,21 +320,23 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
           refs: [{ kind: "file", target: "README.md" }],
           project_dir: projectDir(),
         };
-        expect(
-          await app.evalJS<boolean>(
-            `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
-          ),
-          "the Overview took the post",
-        ).toBe(true);
+        // The Overview's store is its body's, so the card opens first and the
+        // post is delivered in its page, as `at0368` delivers one.
         await app.nativeKey("o", ["cmd", "ctrl"]);
-        // What the Overview actually holds, before the measurement waits on
-        // the mark: a citation that never resolved and a card that never
-        // opened both end as one timeout otherwise, and they are different
-        // faults.
         await kindBody(app, "overview").waitForCondition<boolean>(
           `document.querySelector('[data-testid="overview-card"]') !== null`,
           { timeoutMs: 20_000 },
         );
+        expect(
+          await kindBody(app, "overview").evalJS<boolean>(
+            `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
+          ),
+          "the Overview took the post",
+        ).toBe(true);
+        // What the Overview actually holds, before the measurement waits on
+        // the mark: a citation that never resolved and a card that never
+        // opened both end as one timeout otherwise, and they are different
+        // faults.
         await settle(2000);
         note(
           "at0513 overview",

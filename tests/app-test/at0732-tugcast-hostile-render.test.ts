@@ -205,7 +205,11 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
       });
       try {
         const stubs = await bindStreamingStubs(app, [CARD], stubDir, texts.length, 1, (i) => texts[i]);
-        expect(await app.evalJS<boolean>(watchScript())).toBe(true);
+        // The card's blocks land in its own page, which has its own
+        // `window.__tug`: the watch, the sweep, the row reads and the reparse
+        // all run there. The shell holds only the card's placeholder.
+        const page = app.body(CARD);
+        expect(await page.evalJS<boolean>(watchScript())).toBe(true);
         await startStreams(app, stubs);
         await app.body(CARD).waitForCondition<boolean>(
           `(function(){
@@ -217,8 +221,8 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
         await Bun.sleep(AFTER_TURN_MS);
 
         // The live DOM, through the stream and at its end.
-        await app.evalJS<null>("(window.__at0732.sweep(), null)");
-        const watch = await app.evalJS<Watch>(
+        await page.evalJS<null>("(window.__at0732.sweep(), null)");
+        const watch = await page.evalJS<Watch>(
           "({ checked: window.__at0732.checked, violations: window.__at0732.violations, csp: window.__at0732.csp })",
         );
         note(
@@ -230,19 +234,19 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
         expect(watch.csp, "no Content Security Policy violation").toEqual([]);
 
         // What was checked is tugcast's render, not the page's parse.
-        const parses = await app.evalJS<{ byIdentity: Record<string, number> }>("window.__tug.rowParsesByIdentity()");
+        const parses = await page.evalJS<{ byIdentity: Record<string, number> }>("window.__tug.rowParsesByIdentity()");
         const turnParses = Object.entries(parses.byIdentity).filter(([id]) => id.includes(".message.stub-msg-"));
         expect(turnParses, "no row of the turn parsed on the page").toEqual([]);
 
-        await app.evalJS<null>(
+        await page.evalJS<null>(
           `(window.__at0732rows = undefined,
             window.__tug.renderedRows(${JSON.stringify(CARD)}).then(function (r) {
               window.__at0732rows = JSON.stringify(r);
             }),
             null)`,
         );
-        await app.waitForCondition<boolean>("window.__at0732rows !== undefined", { timeoutMs: 8_000 });
-        const rows = (JSON.parse(await app.evalJS<string>("window.__at0732rows")) as RowFacts[] | null) ?? [];
+        await page.waitForCondition<boolean>("window.__at0732rows !== undefined", { timeoutMs: 8_000 });
+        const rows = (JSON.parse(await page.evalJS<string>("window.__at0732rows")) as RowFacts[] | null) ?? [];
         expect(rows.map((r) => r.messageKey)).toEqual(texts.map((_, i) => `stub-msg-${i}-b0`));
         for (const row of rows) {
           expect({ key: row.messageKey, rendered: row.rendered, streaming: row.streaming, current: row.current }).toEqual({
@@ -256,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)("at0732 — a hostile turn through tugcast's render
         // WebKit's own parse of each record, in the live document, held to the whole invariant.
         const html = rows.flatMap((r) => r.recordHtml ?? []);
         expect(html.length, "the records carry blocks").toBeGreaterThan(20);
-        const parsed = await app.evalJS<ElementSeen[][]>(`(function(){
+        const parsed = await page.evalJS<ElementSeen[][]>(`(function(){
           var htmls = ${JSON.stringify(html)};
           return htmls.map(function (h) {
             var box = document.createElement("div");

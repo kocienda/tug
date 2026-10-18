@@ -273,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("AT0484: the Z2 ARC instrument", () => {
         // while the replay is inert, and that reading has no glyphs at all —
         // so wait for the pair that the ARC branch will displace.
         const TASKS_GLYPHS = `${cell("tasks")} [data-slot="tug-progress-pulsing-dot"]`;
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(TASKS_GLYPHS)}).length === 2`,
           { timeoutMs: 30000 },
         );

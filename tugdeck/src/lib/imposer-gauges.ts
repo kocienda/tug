@@ -147,6 +147,8 @@ export function registerGauge(signal: GaugeSignal, el: HTMLElement): () => void 
   }
   if (dragActive) el.setAttribute("data-gauge-drag", "true");
   if (zoneActive) el.setAttribute("data-gauge-zone", "true");
+  noteDemand(1);
+  let registered = true;
   return () => {
     const live = subscribers.get(signal);
     live?.delete(el);
@@ -156,7 +158,93 @@ export function registerGauge(signal: GaugeSignal, el: HTMLElement): () => void 
     }
     el.removeAttribute("data-gauge-drag");
     el.removeAttribute("data-gauge-zone");
+    if (registered) {
+      registered = false;
+      noteDemand(-1);
+    }
   };
+}
+
+// ---- Across pages ----
+//
+// Under per-card web views the publishers (the deck, the canvas) are the
+// shell page's and the instruments (the Layout card's miniature) are a
+// body's, and module state is per page. The relay (`miniature-relay.ts`)
+// carries the channel across: the shell TAPS every publish, and a body that
+// has registrations says so (DEMAND) and APPLIES what the shell published,
+// signal by signal, into its own copy of this channel. Nothing here knows
+// about the bus.
+
+/** Everything published, as `(signal, values)` — the shell's relay. */
+const taps = new Set<(signal: GaugeSignal, values: ReadonlyMap<string, string> | null) => void>();
+
+/** Hear every publish on every signal, subscribers or not. Returns the removal. */
+export function tapGaugePublishes(
+  fn: (signal: GaugeSignal, values: ReadonlyMap<string, string> | null) => void,
+): () => void {
+  taps.add(fn);
+  return () => {
+    taps.delete(fn);
+  };
+}
+
+/** Every signal's standing value, a retired one as `null` — what a page
+ *  that starts listening late is primed with. The retirements are part of
+ *  it: a page that stopped listening mid-drag and listens again must hear
+ *  that the drag ended, or it stands drawing the last frame it heard. */
+export function standingGauges(): Array<[GaugeSignal, ReadonlyMap<string, string> | null]> {
+  return [...latest];
+}
+
+let registrations = 0;
+const demandObservers = new Set<(wanted: boolean) => void>();
+
+function noteDemand(delta: 1 | -1): void {
+  const was = registrations > 0;
+  registrations += delta;
+  const now = registrations > 0;
+  if (was !== now) for (const fn of [...demandObservers]) fn(now);
+}
+
+/**
+ * Hear whether this page has anything registered on the channel at all —
+ * `true` on the first registration, `false` when the last one goes. Called
+ * at once with the standing answer when it is `true`. Returns the removal.
+ */
+export function observeGaugeDemand(fn: (wanted: boolean) => void): () => void {
+  demandObservers.add(fn);
+  if (registrations > 0) fn(true);
+  return () => {
+    demandObservers.delete(fn);
+  };
+}
+
+/** Whether `name` is a signal this channel carries. */
+export function isGaugeSignal(name: string): name is GaugeSignal {
+  if (name === "flow-offset" || name === "drag-frame" || name === "drag-zone") return true;
+  return /^column-offset:\d+$/.test(name);
+}
+
+/**
+ * Publish one signal's values as another page published them — the drag
+ * signals carry their attributes with them, exactly as
+ * {@link publishDragFrame} and {@link publishDragZone} do. `null` retires.
+ */
+export function applyGaugeSignal(
+  signal: GaugeSignal,
+  values: ReadonlyMap<string, string> | null,
+): void {
+  if (values !== null) {
+    const allowed = new Set(gaugeProperties(signal));
+    for (const property of values.keys()) if (!allowed.has(property)) return;
+  }
+  publish(signal, values);
+  if (signal === "drag-frame") {
+    setDragActive(values !== null);
+  } else if (signal === "drag-zone") {
+    zoneActive = values !== null;
+    stamp("data-gauge-zone", zoneActive);
+  }
 }
 
 /** How many elements are listening to `signal` — the publishers' fast path,
@@ -192,10 +280,16 @@ export function registerGaugeListener(
   listeners.set(signal, set);
   const standing = latest.get(signal);
   if (standing !== undefined) fn(standing);
+  noteDemand(1);
+  let registered = true;
   return () => {
     const live = listeners.get(signal);
     live?.delete(fn);
     if (live !== undefined && live.size === 0) listeners.delete(signal);
+    if (registered) {
+      registered = false;
+      noteDemand(-1);
+    }
   };
 }
 
@@ -208,6 +302,7 @@ function publish(
   const set = subscribers.get(signal);
   const heard = listeners.get(signal);
   latest.set(signal, values);
+  for (const tap of taps) tap(signal, values);
   // The fast path has to count listeners as well as elements, or a signal
   // nothing draws in CSS but something derives in JS would never fire.
   if ((set === undefined || set.size === 0) && (heard === undefined || heard.size === 0)) {

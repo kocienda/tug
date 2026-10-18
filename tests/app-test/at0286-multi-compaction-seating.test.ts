@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)(
             });
           }
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(DIVIDER)}).length === ${COMPACTIONS}`,
             { timeoutMs: 8000 },
           );
@@ -175,7 +175,7 @@ describe.skipIf(!SHOULD_RUN)(
   return el.scrollTop;
 })()`);
             await new Promise((r) => setTimeout(r, 250));
-            sweptText += await app.evalJS<string>(
+            sweptText += await app.body("A").evalJS<string>(
               `document.body.textContent || ""`,
             );
           }

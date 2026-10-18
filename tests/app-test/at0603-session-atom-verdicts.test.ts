@@ -269,8 +269,9 @@ describe.skipIf(!SHOULD_RUN)("at0603 — the three verdicts, in the real app", (
             return null;
           })()`,
         );
+        // The tooltip renders in A's body, beside the pill it explains.
         const TIP = '[data-slot="tug-tooltip"]';
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `(document.querySelector(${JSON.stringify(TIP)})?.textContent || "")
              .indexOf("Not on this machine") !== -1`,
           { timeoutMs: 10_000 },

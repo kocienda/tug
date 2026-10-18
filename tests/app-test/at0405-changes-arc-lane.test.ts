@@ -801,11 +801,14 @@ describe.skipIf(!SHOULD_RUN)("AT0405: the Changes shade's arc lane", () => {
         ]);
 
         // ── Bind: the arc fronts, expanded, under its own label ───────────
-        await app.dispatchControlAction("bind_arc_ok", {
-          tug_session_id: SID,
-          arc_id: arcOwnerId,
-          arc_name: ARC_NAME,
-        });
+        // A broadcast reaches every page, and the lane's binding store is the
+        // card body's own — so the frame is handed to the body as well as the
+        // shell.
+        const bindOk = { tug_session_id: SID, arc_id: arcOwnerId, arc_name: ARC_NAME };
+        await app.dispatchControlAction("bind_arc_ok", bindOk);
+        await app.body("A").evalJS<null>(
+          `(window.__tug.dispatchControlAction("bind_arc_ok", ${JSON.stringify(bindOk)}), null)`,
+        );
         await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(FRONTED_LABEL)}) !== null`,
           { timeoutMs: 8000 },

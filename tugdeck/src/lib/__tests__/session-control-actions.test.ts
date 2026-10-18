@@ -77,3 +77,30 @@ describe("a body's card filter", () => {
     expect(admitted?.bindings).toEqual([{ card_id: "c1", session_id: "s1" }]);
   });
 });
+
+describe("a listing body's card filter", () => {
+  // The Cards card lists every card's session, a parked workspace's too, and
+  // holds no session of its own. A cut bindings list would replace its page's
+  // whole bindings cache with one row.
+  const filter = bodyCardFilter(() => ({ cardId: "cards", sessionIds: [], lineId: null }), { lists: true });
+
+  test("is shown every session's row push", () => {
+    const other = { session_id: "s2", fields: { line_id: "line-2" } };
+    expect(filter("session_updated", other)).toBe(other);
+  });
+
+  test("is shown the whole bindings list, every card's row", () => {
+    const payload = {
+      bindings: [{ card_id: "c1", session_id: "s1" }, { card_id: "c2", session_id: "s2" }],
+    };
+    expect(filter("list_card_bindings_ok", payload)?.bindings).toEqual(payload.bindings);
+  });
+
+  test("still drives no session but its own card's", () => {
+    expect(filter("spawn_session_ok", { card_id: "c2", tug_session_id: "s2", workspace_key: "/w" })).toBe(null);
+    expect(filter("session_line_seated", { card_id: "c2", session_id: "s2", line_id: "line-2" })).toBe(null);
+    expect(filter("bind_arc_ok", { card_id: "c2", tug_session_id: "s2" })).toBe(null);
+    expect(filter("rename_session_ok", { line_id: "line-2", name: "n" })).toBe(null);
+    expect(filter("set_session_private_ok", { session_id: "s2", private: true })).toBe(null);
+  });
+});

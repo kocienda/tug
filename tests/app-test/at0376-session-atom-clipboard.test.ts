@@ -82,7 +82,8 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -101,6 +102,27 @@ const COMPOSER = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
 /** The bound Session card's masthead title — the third way into the atom copy. */
 const MASTHEAD_TITLE =
   '.tug-pane[data-pane-id="p1"] [data-slot="session-masthead"] .session-masthead-title';
+
+/**
+ * Deliver a `session_updated` ledger row to the pages that take it: the shell
+ * (the pane's masthead, and the identity `copySessionAtom` resolves) and A's
+ * body (the composer's chip — A wears the session, so its filter admits the
+ * row). The wire reaches each page; the harness's publish reaches only the
+ * page it runs in. A body's surface has no `publishSessionUpdated`, so the
+ * row goes in through its `dispatchControlAction` — the same
+ * `dispatchAction({ ...row, action: "session_updated" })` the shell's publish
+ * makes, into the handler the body registered.
+ */
+async function publishSessionUpdated(app: App, fields: Record<string, unknown>): Promise<void> {
+  const row = { session_id: SESSION_ID, fields };
+  // card-dom: shell — the masthead resolves the identity in the shell.
+  await app.evalJS<boolean>(
+    `window.__tug.publishSessionUpdated(${JSON.stringify(JSON.stringify(row))})`,
+  );
+  await app.body("A").evalJS<boolean>(
+    `(window.__tug.dispatchControlAction("session_updated", ${JSON.stringify(row)}), true)`,
+  );
+}
 
 function setPasteboard(text: string): void {
   Bun.spawnSync(["pbcopy"], { stdin: Buffer.from(text) });
@@ -156,18 +178,13 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
       });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
+        await waitForBodyReady(app, "A");
+        await waitForBodyReady(app, "G");
         await app.bindSession("A", {
           tugSessionId: SESSION_ID,
           projectDir: "/Users/tester/src/tugtool",
         });
-        await app.evalJS<boolean>(
-          `window.__tug.publishSessionUpdated(${JSON.stringify(
-            JSON.stringify({
-              session_id: SESSION_ID,
-              fields: { tag: TAG, name: null, name_user_set: false },
-            }),
-          )})`,
-        );
+        await publishSessionUpdated(app, { tag: TAG, name: null, name_user_set: false });
         await app.body("G").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHIP)}) !== null`,
           { timeoutMs: 20_000 },
@@ -193,7 +210,8 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
           }));
           return null;
         })()`);
-        await app.waitForCondition<boolean>(
+        // The chip's menu is raised in the page the chip is in.
+        await app.body("G").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
         );
@@ -220,6 +238,8 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // only code here that this phase wrote. The sentinel makes "the copy
         // never happened" distinguishable from "the copy wrote this".
         setPasteboard(SENTINEL);
+        // card-dom: shell — `copySessionAtom` is the shell's surface, whose
+        // identity store took the row too; the pasteboard is the app's.
         expect(
           await app.evalJS<boolean>(
             `window.__tug.copySessionAtom(${JSON.stringify(SESSION_ID)})`,
@@ -246,6 +266,8 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // production validator. What comes back is what a paste would insert.
         // The read is async (the native bridge calls back), and `evalJS`
         // cannot return a promise — so kick it off, park the result, and poll.
+        // card-dom: shell — `readClipboardAtoms` is the shell's surface; the
+        // pasteboard it reads is the app's.
         await app.evalJS<null>(
           `(window.__at0376sidecar = undefined,
             window.__tug.readClipboardAtoms().then(function (r) {
@@ -285,10 +307,15 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // pins is that the masthead's title CLAIMS the gesture — a title that
         // silently ignored a right-click would leave the popover as the only
         // door, which is the thing this decision exists to fix.
+        //
+        // The masthead is the pane's chrome (`tug-pane.tsx` mounts it), so it,
+        // and the menu its title raises, are the shell's.
+        // card-dom: shell — the masthead is pane chrome.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MASTHEAD_TITLE)}) !== null`,
           { timeoutMs: 10_000 },
         );
+        // card-dom: shell — the masthead is pane chrome.
         await app.evalJS<null>(`(function(){
           var title = document.querySelector(${JSON.stringify(MASTHEAD_TITLE)});
           var r = title.getBoundingClientRect();
@@ -299,6 +326,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
           }));
           return null;
         })()`);
+        // card-dom: shell — the masthead title's menu rises in the shell.
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(MENU)}) !== null`,
           { timeoutMs: 8_000 },
@@ -309,6 +337,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // title's own single-Copy menu AND the surrounding surface's read-only
         // one. The claim here is the one [D132] makes — the title offers a live
         // Copy — and the diagnostic below records the overlap for the follow-on.
+        // card-dom: shell — the masthead title's menu rises in the shell.
         const titleMenus = await app.evalJS<
           ReadonlyArray<ReadonlyArray<{ label: string; disabled: boolean }>>
         >(
@@ -503,14 +532,7 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         );
         note("at0376 chip before rename", JSON.stringify(chipBefore));
 
-        await app.evalJS<boolean>(
-          `window.__tug.publishSessionUpdated(${JSON.stringify(
-            JSON.stringify({
-              session_id: SESSION_ID,
-              fields: { name: NAME, name_user_set: true },
-            }),
-          )})`,
-        );
+        await publishSessionUpdated(app, { name: NAME, name_user_set: true });
         await app.body("A").waitForCondition<boolean>(
           `(function(){
             var img = document.querySelector(

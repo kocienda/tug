@@ -138,8 +138,8 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // Drag C's ROW to just below A's top edge → C lands at index 0. The
           // grab point is the row's own middle, which is the whole gesture
           // under test: no handle, just the row.
-          const aBounds = await app.getElementBounds(rowSel("test-session-A"));
-          await app.nativeDragElement(rowSel("test-session-C"), {
+          const aBounds = await kindBody(app, "cards").getElementBounds(rowSel("test-session-A"));
+          await kindBody(app, "cards").nativeDragElement(rowSel("test-session-C"), {
             x: Math.round(aBounds.x + aBounds.width / 2),
             y: Math.round(aBounds.y + 4),
           });
@@ -232,7 +232,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           // so an unclamped translate puts its BOTTOM half a row past the
           // container; the clamp is what keeps it inside.
           const wrap = await kindBody(app, "cards").getElementBounds(WRAP);
-          await app.nativeDragElementWithoutRelease(rowSel("test-session-A"), {
+          await kindBody(app, "cards").nativeDragElementWithoutRelease(rowSel("test-session-A"), {
             x: Math.round(wrap.x + wrap.width / 2),
             y: Math.round(wrap.y + wrap.height - 2),
           });
@@ -255,7 +255,7 @@ describe.skipIf(!SHOULD_RUN)("at0257 — Cards Sessions reorder + bottom-append"
           );
           expect(escaped).toBeLessThanOrEqual(2);
 
-          await app.nativeMouseUp({
+          await kindBody(app, "cards").nativeMouseUp({
             x: Math.round(wrap.x + wrap.width / 2),
             y: Math.round(wrap.y + wrap.height - 2),
           });

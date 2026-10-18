@@ -43,6 +43,7 @@ import { join } from "node:path";
 import { launchTugApp, type App } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 import { claudeProjectDir } from "./_harness/claude-home";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 240_000;
@@ -204,7 +205,9 @@ describe.skipIf(!SHOULD_RUN)("at0495 — a restored transcript still names the W
         await awaitDeck(app);
         await app.spawnSessionResume("A", { tugSessionId: SESSION, projectDir });
 
-        await app.waitForCondition<boolean>(
+        // The transcript is in A's body.
+        await waitForBodyReady(app, "A");
+        await app.body("A").waitForCondition<boolean>(
           `Array.from(document.querySelectorAll(${JSON.stringify(
             ENTRY,
           )})).some((el) => (el.textContent || "").includes(${JSON.stringify(TYPED)}))`,
@@ -212,7 +215,7 @@ describe.skipIf(!SHOULD_RUN)("at0495 — a restored transcript still names the W
         );
 
         const rows = JSON.parse(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `JSON.stringify(Array.from(document.querySelectorAll(${JSON.stringify(
               ENTRY,
             )})).map((el) => [el.getAttribute("data-participant"), (el.textContent || "").trim()]))`,

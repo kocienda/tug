@@ -278,7 +278,6 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
           hostMissing: string;
           hostSession: string;
           chipVariant: string;
-          masthead: string;
           breathing: string;
           animation: string;
         }>(
@@ -293,16 +292,6 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
               hostSession: host.getAttribute('data-session-id') || "",
               chipVariant: document.querySelector(
                 ${JSON.stringify(CHIP)}).dataset.chipVariant || "",
-              masthead: (function(){
-                var m = document.querySelector(
-                  '[data-slot="session-masthead"] [data-slot="tug-progress-indicator"]');
-                if (m === null) return "absent";
-                return [
-                  m.getAttribute('data-state') || "",
-                  m.getAttribute('data-role') || "",
-                  m.hasAttribute('data-phase') ? "has-phase" : "no-phase",
-                ].join("/");
-              })(),
               breathing: root === null
                 ? "absent" : String(root.dataset.breathing !== undefined),
               animation: inner === null
@@ -310,7 +299,26 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
             };
           })()`,
         );
-        note("at0619 breath", JSON.stringify(breath));
+        // The masthead is the pane's title bar, the shell's chrome
+        // (`tug-pane.tsx`), so its mark is read in the shell.
+        // The shell hears the card's phase from its body across the bus, so
+        // the read waits a beat for it to arrive; the assertion is the read.
+        const mastheadExpr = `(function(){
+            var m = document.querySelector(${JSON.stringify(MASTHEAD_DOT)});
+            if (m === null) return "absent";
+            return [
+              m.getAttribute('data-state') || "",
+              m.getAttribute('data-role') || "",
+              m.hasAttribute('data-phase') ? "has-phase" : "no-phase",
+            ].join("/");
+          })()`;
+        // card-dom: shell — the masthead is pane chrome, drawn in the shell's page.
+        await app
+          .waitForCondition<boolean>(`${mastheadExpr} === "running/action/no-phase"`, { timeoutMs: 3_000 })
+          .catch(() => undefined);
+        // card-dom: shell — the masthead is pane chrome, drawn in the shell's page.
+        const masthead = await app.evalJS<string>(mastheadExpr);
+        note("at0619 breath", JSON.stringify({ ...breath, masthead }));
         // The chip resolves to nothing, so the host says so...
         expect(breath.chipVariant).toBe("missing");
         expect(breath.hostMissing).toBe("true");
@@ -328,7 +336,7 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
         // returns — vacuous, and it would have stayed green through this
         // whole change. Both halves are asserted: the reading that survives,
         // and the absence that made the old one meaningless.
-        expect(breath.masthead).toBe("running/action/no-phase");
+        expect(masthead).toBe("running/action/no-phase");
 
         // ---- E. The mark is bounded by the pill it stands in. ------------
         //
@@ -443,11 +451,11 @@ describe.skipIf(!SHOULD_RUN)("at0619 — the live dot in the composer chip", () 
              .indexOf(${JSON.stringify("registration")}) >= 0`,
           { timeoutMs: 8_000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `window.__at0619.samples.length > 0`,
           { timeoutMs: 8_000 },
         );
-        const samples = await app.evalJS<ReadonlyArray<{ dx: number; dy: number }>>(
+        const samples = await app.body("A").evalJS<ReadonlyArray<{ dx: number; dy: number }>>(
           `(function(){ window.__at0619.stop(); return window.__at0619.samples; })()`,
         );
         note(

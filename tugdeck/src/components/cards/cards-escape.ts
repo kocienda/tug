@@ -53,8 +53,30 @@ export function shrinkCardsState(): CardsEscapeRung {
   const field = binding?.field() ?? null;
   if (field?.hasQuery() === true && field.clearQuery()) return "filter";
   if (cardsSelectionStore.getSnapshot().ids.length > 0) {
+    // The Cards card drawn in its own body holds the filter this page cannot
+    // see, beside its copy of the selection: the table runs there, filter
+    // first, and a clear there comes back here (`cards-selection-mirror.ts`).
+    // Which rung it spends the press on is the body's; it spends it.
+    if (binding === null && shrinkForwarder?.() === true) return "selection";
     cardsSelectionStore.clear();
     return "selection";
   }
   return "focus-out";
+}
+
+/**
+ * The `dispatch` id a shell sends a Cards body to run {@link shrinkCardsState}
+ * in its own page.
+ */
+export const CARDS_SHRINK_COMMAND = "cards-shrink";
+
+let shrinkForwarder: (() => boolean) | null = null;
+
+/**
+ * Install (or, with `null`, remove) the shell's door to the Cards body's
+ * table: called with no Cards card in this page, it answers whether a Cards
+ * body was asked to shrink.
+ */
+export function setCardsShrinkForwarder(next: (() => boolean) | null): void {
+  shrinkForwarder = next;
 }

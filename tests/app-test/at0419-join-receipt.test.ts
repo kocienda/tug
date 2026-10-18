@@ -414,7 +414,7 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
             `${JOIN_BOUNDARY} ${FOLD_CUE}`,
           )}).click(), null)`,
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(RECORD)}).length === 1`,
           { timeoutMs: 20000 },
         );
@@ -494,13 +494,13 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         await receiptRow(app, "join-real", "/arc-join", realJoinSummary, realRepoRoot);
         // The file rows are in the receipt, mounted without a gesture — no
         // fold to open first.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('[data-path="${realPath}"] .tug-changes-list-row-hit').length === 1`,
           { timeoutMs: 20000 },
         );
         note(`at0419 expanding ${realPath} at ${realSha.slice(0, 10)}`);
-        await app.click(`[data-path="${realPath}"] .tug-changes-list-row-hit`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").click(`[data-path="${realPath}"] .tug-changes-list-row-hit`);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelectorAll('[data-path="${realPath}"] [data-slot="tug-changes-list-file-diff"]').length === 1`,
           { timeoutMs: 20000 },
         );
@@ -510,12 +510,13 @@ describe.skipIf(!SHOULD_RUN)("AT0419: the join and discard receipts", () => {
         // timeout here still falls through to the note, so a failure says
         // WHICH notice it got stuck on.
         await app
+          .body("A")
           .waitForCondition<boolean>(
             `!(document.querySelector('[data-path="${realPath}"] [data-slot="tug-changes-list-file-diff"]')?.textContent ?? "").includes("Loading diff")`,
             { timeoutMs: 20000 },
           )
           .catch(() => undefined);
-        const hunks = await app.evalJS<string>(
+        const hunks = await app.body("A").evalJS<string>(
           `(document.querySelector('[data-path="${realPath}"] [data-slot="tug-changes-list-file-diff"]')?.textContent ?? "").trim()`,
         );
         note(`at0419 expanded diff body: ${JSON.stringify(hunks.slice(0, 300))}`);

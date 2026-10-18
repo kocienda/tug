@@ -167,7 +167,8 @@ describe.skipIf(!SHOULD_RUN)("at0455 — column split: the tiling", () => {
             x: Math.round(seam.x + seam.width / 2),
             y: 20,
           });
-          await app.body("L").waitForCondition<boolean>(
+          // card-dom: shell — the pane frames are the shell's chrome
+          await app.waitForCondition<boolean>(
             `(function () {
               var r = document.querySelector(${JSON.stringify(frame("p1"))})
                 .getBoundingClientRect();

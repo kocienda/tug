@@ -104,9 +104,22 @@ function committedOffset(app: App): Promise<number> {
   );
 }
 
+/**
+ * Where the Layout card's body sits in the window: its placeholder's rect on
+ * the shell, in viewport px. A rect read in the body is in the body's own
+ * viewport, whose origin is this.
+ */
+function bodyOrigin(app: App): Promise<{ left: number; top: number }> {
+  // card-dom: shell — the body's placeholder is the shell's.
+  return app.evalJS<{ left: number; top: number }>(`(function () {
+    var r = document.querySelector('[data-body-placeholder][data-card-id="L"]').getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  })()`);
+}
+
 /** The flow-offset gauge the committed drawing carries, as a fraction. */
 function gauge(app: App): Promise<number | null> {
-  return app.evalJS<number | null>(
+  return app.body("L").evalJS<number | null>(
     `(function () {
       var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
       if (mini === null) return null;
@@ -133,10 +146,12 @@ async function bandWidth(app: App): Promise<number> {
  * CGEvents and a read through the RPC, and the two are not ordered — under a
  * parallel batch a read can run before the event it follows. A bubble-phase
  * window listener runs after the target's own handlers, so once this has
- * moved, the release has done everything it does synchronously.
+ * moved, the release has done everything it does synchronously. The
+ * gestures land in the Layout card, so the window that hears them is its
+ * body's.
  */
 function pointerUps(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("L").evalJS<number>(
     `(function () {
       if (window.__at0661Ups === undefined) {
         window.__at0661Ups = 0;
@@ -148,13 +163,13 @@ function pointerUps(app: App): Promise<number> {
 }
 
 async function afterPointerUp(app: App, before: number): Promise<void> {
-  await app.waitForCondition<boolean>(`window.__at0661Ups > ${before}`, {
+  await app.body("L").waitForCondition<boolean>(`window.__at0661Ups > ${before}`, {
     timeoutMs: 8_000,
   });
 }
 
 function bracketLeft(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("L").evalJS<number>(
     `document.querySelector(${JSON.stringify(BRACKET)}).getBoundingClientRect().left`,
   );
 }
@@ -193,8 +208,13 @@ describe.skipIf(!SHOULD_RUN)("at0661 — the window slides by its frame", () => 
         const band = await bandWidth(app);
         const startOffset = await committedOffset(app);
 
-        // (b) Hold a drag from the right edge, 40px rightward.
-        const from = { x: grip.right - 1, y: (grip.top + grip.bottom) / 2 };
+        // (b) Hold a drag from the right edge, 40px rightward. The grip's
+        // rect is in the body's viewport; the drag is driven in the window's.
+        const origin = await bodyOrigin(app);
+        const from = {
+          x: origin.left + grip.right - 1,
+          y: origin.top + (grip.top + grip.bottom) / 2,
+        };
         const to = { x: from.x + 40, y: from.y };
         const mark = await app.evalJS<number>(
           `(function () {
@@ -276,7 +296,8 @@ describe.skipIf(!SHOULD_RUN)("at0661 — the window slides by its frame", () => 
         expect(inside, "a block stands inside the window").not.toBeNull();
         if (inside === null) throw new Error("no block inside the window");
         const upsBeforePress = await pointerUps(app);
-        await app.nativeClick({ x: inside.x, y: inside.y });
+        // `inside` is in the body's viewport, so the press is the body's.
+        await app.body("L").nativeClick({ x: inside.x, y: inside.y });
         await afterPointerUp(app, upsBeforePress);        expect(
           await app.getActiveCardId(),
           "the press went to the block under the window",

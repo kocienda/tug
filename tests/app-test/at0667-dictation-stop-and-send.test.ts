@@ -85,8 +85,13 @@ function deckShape() {
   };
 }
 
+/**
+ * One dictation event. The host sends a claim's events back to the page that
+ * made it (`MainWindow.swift`, `dictationTarget`), and A's composer is in A's
+ * body.
+ */
 async function push(app: App, event: Record<string, unknown>): Promise<void> {
-  await app.evalJS<null>(
+  await app.body("A").evalJS<null>(
     `(window.__tugBridge.onDictation(${JSON.stringify(event)}), null)`,
   );
 }

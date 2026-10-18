@@ -43,8 +43,19 @@ import { AppLifecycle, registerAppLifecycle } from "../lib/app-lifecycle";
 import { SheetLifecycle, registerSheetLifecycle } from "../lib/sheet-lifecycle";
 import { BannerLifecycle, registerBannerLifecycle } from "../lib/banner-lifecycle";
 import { installLifecycleCascade } from "../lib/lifecycle-cascade";
-import { cycleFocusMode, dispatchAction, registerAction, registerEvalAction, registerStoreTailActions } from "../action-dispatch";
+import {
+  cycleFocusMode,
+  dispatchAction,
+  registerAction,
+  registerEvalAction,
+  registerRunCardCommand,
+  registerStoreTailActions,
+  RUN_CARD_COMMAND,
+} from "../action-dispatch";
 import { dispatchCommand, sendToCardContent, setUnhandledCommandFallback } from "../command-dispatch";
+import { bodyUnhandledRoute } from "../lib/body-command-route";
+import { setBodyGestureCard } from "../gesture-interpreter";
+import { setShellActionForwarder } from "../action-registry";
 import { COMMANDS_BY_ID } from "../components/tugways/command-registry";
 import { setUnhandledTargetHook } from "../components/tugways/responder-chain";
 import { TUG_ACTIONS } from "../lib/action-vocabulary";
@@ -89,6 +100,8 @@ import { installDictationBridge } from "../lib/dictation-bridge";
 import { ARRIVAL_REVEAL_BOUND_MS, type ArrivalQuiet } from "../lib/arrival-reveal";
 import { sessionPickerQuiet } from "../components/tugways/cards/session-picker-quiet";
 import { onBus, sendBus } from "../lib/deck-bus";
+import { createBodyMiniatureRelay } from "../lib/miniature-relay";
+import { registerMiniatureDropHost } from "../lib/drop-zone-host-registry";
 import { pendingAskStore } from "../lib/pending-ask-store";
 import { UsageStore } from "../lib/usage-store";
 import type { PendingAsk } from "../lib/code-session-store/types";
@@ -97,7 +110,7 @@ import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
 import { exposePerfMonitor, startPerfMonitor } from "../lib/perf-monitor";
 import { getSettings } from "../lib/maker-mode-bridge";
-import { getRegistration, type CardIdentityFacts } from "../card-registry";
+import { getRegistration, isSidebarCard, type CardIdentityFacts } from "../card-registry";
 import { cardIdentityElsewhere } from "../lib/card-identity";
 import { cardActivityElsewhere } from "../lib/card-activity-elsewhere";
 import { getOpenTextCard } from "../lib/text-card-open-registry";
@@ -116,6 +129,12 @@ import { cardTitleStore, type CardMastheadPayload } from "../lib/card-title-stor
 import type { CardSessionBinding } from "../lib/card-session-binding-store";
 import type { BodyArrangement } from "../lib/body-arrangement";
 import { cardsSpaceVerbRequest } from "../components/cards/cards-space-verb-request";
+import { mirrorSelectionInBody } from "../lib/cards-selection-mirror";
+import { CARDS_SHRINK_COMMAND, shrinkCardsState } from "../components/cards/cards-escape";
+import { spaceBindingsLedgerStore } from "../lib/space-bindings-ledger-store";
+import { CARDS_CARD_ID } from "../lib/cards-card-id";
+import { OVERVIEW_CARD_ID } from "../lib/overview-card-id";
+import { ARCS_CARD_ID } from "../lib/arcs-card-id";
 import { BodyDeckBridge } from "./body-deck-bridge";
 import { renderBodyRoot } from "./body-root";
 import { installBodyPublisher } from "./body-publisher";
@@ -158,6 +177,13 @@ declare global {
     };
   }
 }
+
+/**
+ * The kinds that list other cards' sessions — the Cards card's rows, the
+ * Overview's posts, the Arcs card's workers — and so are shown every ledger
+ * row push and the whole bindings list (`bodyCardFilter`'s `lists`).
+ */
+const LISTS_SESSIONS: ReadonlySet<string> = new Set([CARDS_CARD_ID, OVERVIEW_CARD_ID, ARCS_CARD_ID]);
 
 /** Whether `value` is a log entry as the shell relays one, its id left to this page. */
 function isRelayedLogEntry(value: unknown): value is Omit<TugDevLogEntry, "id"> {
@@ -501,6 +527,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   registerDeckStore(bridge);
   registerCardLifecycle(bridge.cardLifecycle);
   setKeyboardYield(() => bridge.getFirstResponderCardId() !== cardId);
+  // A press places the engine at what it landed on, for this page's card.
+  setBodyGestureCard(cardId);
   // This page holds the card's own stops; its chrome's are the shell's. So
   // a Tab off either end of the walk goes to the shell, which takes it into
   // the chrome or hands it back here at the end it came in by ([F05]).
@@ -561,43 +589,63 @@ async function bindBody(bind: BodyBind): Promise<void> {
         ? intent.kind === "restore" || intent.kind === "mount" ? [] : [intent.tugSessionId]
         : [binding.tugSessionId, ...(binding.seatedSessionId === undefined ? [] : [binding.seatedSessionId])];
       return { cardId, sessionIds: sessions, lineId: binding?.lineId ?? null };
-    }),
+    }, { lists: LISTS_SESSIONS.has(componentId) }),
   );
+  // A card that lists every card's session reads the bindings cache, which
+  // only a restore pass installs, and no restore pass runs here.
+  if (LISTS_SESSIONS.has(componentId)) spaceBindingsLedgerStore.installOnce();
+  // The Cards list's selection and cursor are one with the shell's, whose
+  // deck verbs read them (`cards-selection-mirror.ts`).
+  const selectionMirror =
+    componentId === CARDS_CARD_ID
+      ? mirrorSelectionInBody((method, args) => {
+          sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "deck-call", method, args } });
+        })
+      : null;
   cardServicesStore.attachBody(cardId);
   // What this page's chain does not answer — a chord its funnel matched
   // for the deck, a close the pane handles — is the shell's: it dispatches
   // in its own chain, where the pane and the deck stand.
   //
-  // Cancel is the one command declined rather than forwarded. The funnel
-  // consumes a chord whose dispatch reports it handled, and a fallback that
-  // claimed Cancel would spend every Escape nothing in this page wanted —
-  // the completion popup's, the editor's — before they saw it; and a body
-  // holding the keyboard has no shell surface ahead of it for the shell to
-  // cancel. The shell's own chain declines an unanswered Cancel the same
-  // way, and the key goes on to the surface that owns it ([F17]).
+  // Cancel is forwarded and NOT claimed. The funnel consumes a chord whose
+  // dispatch reports it handled, and a fallback that claimed Cancel would
+  // spend every Escape nothing in this page's chain wanted — the completion
+  // popup's, the editor's — before they saw it; so the key goes on here, to
+  // the surface that owns it ([F17]). But the shell's chain may want it: its
+  // root takes Escape's last rung while a layout selection stands, and a row
+  // click in the Cards card fronts the card it names, putting the keyboard
+  // in that card's page (`at0451`). So the shell hears the Cancel this page
+  // left unanswered and answers it, or declines it, as its own chain does.
+  // (A surface or gesture of the shell's own takes the keyboard for its
+  // length — `keyboardBodyFor` — so its Escape never comes this way.)
   //
-  // Undo and Redo are declined too. An edit history is the focused
+  // Undo and Redo are declined. An edit history is the focused
   // surface's, and nothing the shell holds answers for this card's; what
   // this page's chain leaves unanswered is a native text control's, whose
   // only undo is the platform's — the Edit menu's, reached when the funnel
   // lets ⌘Z go on. Claimed here, ⌘Z after typing in an input undid nothing.
   setUnhandledCommandFallback((entry, payload) => {
-    if (
-      entry.id === TUG_ACTIONS.CANCEL_DIALOG ||
-      entry.id === TUG_ACTIONS.UNDO ||
-      entry.id === TUG_ACTIONS.REDO
-    ) {
-      return false;
-    }
+    const route = bodyUnhandledRoute(entry.id);
+    if (route === "decline") return false;
     sendBus(connection, "shell", {
       kind: "card-advice",
       payload: { advice: "dispatch", id: entry.id, ...(payload !== undefined ? { payload } : {}) },
     });
-    return true;
+    return route === "forward";
   });
   // A control's action sent to its parent responder that this page's chain
   // does not answer — the Cards card's New Workspace, its header's Rename
   // and Delete — is a registered command the shell's deck answers.
+  // A deck verb no command names — Resume Session from a session menu, Run
+  // in New Session from a command line's — is the shell's handler's: it rides
+  // the same `dispatch` advice, which the shell runs against its registry.
+  setShellActionForwarder((action, payload) => {
+    sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "dispatch", id: action, payload } });
+    return true;
+  });
+  // A menu's `run-card-command` with arguments, which the shell forwards to
+  // this card when it is the key card: run here, where its surface map is.
+  registerRunCardCommand();
   setUnhandledTargetHook((event) => {
     const entry = COMMANDS_BY_ID.get(event.action);
     if (entry === undefined || entry.id === TUG_ACTIONS.CANCEL_DIALOG) return false;
@@ -628,6 +676,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // before the bridge notifies, so the card's first read of them finds them.
   const mirror = createCardFactsMirror(cardId);
   let lastSpaceVerbToken = 0;
+  let lastLedgerBindings = "";
   onBus(connection, "card-context", (message) => {
     // The crossing the shell's pane stands under, held here on this page's
     // own frame so the card root holds through it as an in-document one does.
@@ -653,6 +702,17 @@ async function bindBody(bind: BodyBind): Promise<void> {
       lastSpaceVerbToken = verb.token;
       cardsSpaceVerbRequest.request(verb.verb, verb.spaceId);
     }
+    // The Cards card's: the layout selection as the shell holds it, and the
+    // shell's bindings cache, which enters here at the action the server's
+    // own frame enters at, so its rows seed what the frame's rows seed.
+    if (arrangement?.selection !== undefined) selectionMirror?.applyShell(arrangement.selection);
+    if (arrangement?.ledgerBindings != null) {
+      const json = JSON.stringify(arrangement.ledgerBindings);
+      if (json !== lastLedgerBindings) {
+        lastLedgerBindings = json;
+        dispatchAction({ action: "list_card_bindings_ok", bindings: arrangement.ledgerBindings });
+      }
+    }
     bridge.applyContext(message.payload);
   });
   // The inspection this card publishes for a devtools card that follows it,
@@ -663,7 +723,21 @@ async function bindBody(bind: BodyBind): Promise<void> {
   pendingAskStore.forwardResponses((requestId, choice) => {
     sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "ask-response", requestId, choice } });
   });
+  // An arrangement card's miniature draws the shell's gauges and drags on the
+  // shell's canvas (`miniature-relay.ts`). A pane is named to the shell by
+  // the card in front of it: this card's own pane has another id here.
+  const miniatureRelay =
+    registration?.bodyDeck === "arrangement"
+      ? createBodyMiniatureRelay({
+          call: (method, args) =>
+            sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "deck-call", method, args } }),
+          cardOfPane: (paneId) =>
+            bridge.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId ?? null,
+        })
+      : null;
+  if (miniatureRelay !== null) registerMiniatureDropHost(miniatureRelay.host);
   onBus(connection, "card-command", (message) => {
+    if (miniatureRelay?.receive(message.payload) === true) return;
     // The walk coming back in from the shell lands on this page's first
     // or last stop; with none, it goes back out, marked so the shell keeps
     // it rather than handing it here again.
@@ -771,6 +845,18 @@ async function bindBody(bind: BodyBind): Promise<void> {
     // page's own chain, whose key card is the card's pane responder
     // (`BodyRoot`). The other commands are not a body's yet.
     if (message.payload.command !== "dispatch" || message.payload.id === undefined) return;
+    // `run-card-command` with arguments has no command entry to name it; it
+    // runs through this page's own registration, against this page's chain.
+    if (message.payload.id === RUN_CARD_COMMAND) {
+      dispatchAction({ ...(message.payload.payload ?? {}), action: RUN_CARD_COMMAND });
+      return;
+    }
+    // The shell's Escape met a layout selection: the Cards table runs here,
+    // where the filter is (`cards-escape.ts`).
+    if (message.payload.id === CARDS_SHRINK_COMMAND) {
+      if (componentId === CARDS_CARD_ID) shrinkCardsState();
+      return;
+    }
     dispatchCommand(message.payload.id, message.payload.payload);
   });
 
@@ -797,6 +883,8 @@ async function bindBody(bind: BodyBind): Promise<void> {
   installBodyPublisher(
     cardId,
     (message) => sendBus(connection, "shell", message),
+    // A rail card's content height, for the shell's Resize Sidebars to Fit.
+    { watchContent: isSidebarCard(componentId) },
   );
 
   replayBodyIntent(intent, cardId, connection, bridge);

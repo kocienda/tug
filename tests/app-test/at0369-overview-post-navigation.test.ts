@@ -114,7 +114,7 @@ describe.skipIf(!SHOULD_RUN)("at0369 — the Overview steps by post", () => {
 
         for (let id = 20; id <= 31; id++) {
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(wirePost(id)))})`,
             ),
           ).toBe(true);

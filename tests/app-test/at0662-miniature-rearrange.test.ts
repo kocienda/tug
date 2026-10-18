@@ -174,9 +174,24 @@ async function centerOf(app: App, selector: string): Promise<Point> {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
-/** How many pointerups the window has heard — the barrier a release waits on. */
+/**
+ * A point in the Layout card's body's viewport, in the window's: a rect read
+ * in the body is in the body's own viewport, whose origin is its
+ * placeholder's rect on the shell.
+ */
+async function inWindow(app: App, point: Point): Promise<Point> {
+  // card-dom: shell — the body's placeholder is the shell's.
+  const o = await app.evalJS<{ left: number; top: number }>(`(function () {
+    var r = document.querySelector('[data-body-placeholder][data-card-id="L"]').getBoundingClientRect();
+    return { left: r.left, top: r.top };
+  })()`);
+  return { x: point.x + o.left, y: point.y + o.top };
+}
+
+/** How many pointerups the window has heard — the barrier a release waits on.
+ *  The gestures land in the Layout card, so the window is its body's. */
 function pointerUps(app: App): Promise<number> {
-  return app.evalJS<number>(
+  return app.body("L").evalJS<number>(
     `(function () {
       if (window.__at0662Ups === undefined) {
         window.__at0662Ups = 0;
@@ -188,34 +203,43 @@ function pointerUps(app: App): Promise<number> {
 }
 
 async function afterPointerUp(app: App, before: number): Promise<void> {
-  await app.waitForCondition<boolean>(`window.__at0662Ups > ${before}`, {
+  await app.body("L").waitForCondition<boolean>(`window.__at0662Ups > ${before}`, {
     timeoutMs: 8_000,
   });
 }
 
-/** A whole drag, from press to release, waiting until the release is handled. */
+/** A whole drag, from press to release, waiting until the release is handled.
+ *  The points are in the Layout card's body's viewport, so the drag is its. */
 async function drag(app: App, from: Point, to: Point): Promise<void> {
   const before = await pointerUps(app);
-  await app.nativeDrag(from, to);
+  await app.body("L").nativeDrag(from, to);
   await afterPointerUp(app, before);
   await wait(AFTER_LAND_MS);
 }
 
-/** Whether the drag's three marks are on: ghost, offered place, carrying. */
-function dragMarks(
+/** Whether the drag's three marks are on: ghost, offered place, carrying. The
+ *  ghost and the place are the drawing's, in the Layout card's body; the
+ *  carrying stamp is the canvas's, in the shell. */
+async function dragMarks(
   app: App,
 ): Promise<{ drag: boolean; zone: boolean; carrying: string | null }> {
-  return app.body("L").evalJS(
+  const marks = await app.body("L").evalJS<{ drag: boolean; zone: boolean }>(
     `(function () {
       var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
-      var canvas = document.querySelector("[data-carrying]");
       return {
         drag: mini !== null && mini.hasAttribute("data-gauge-drag"),
         zone: mini !== null && mini.hasAttribute("data-gauge-zone"),
-        carrying: canvas === null ? null : canvas.getAttribute("data-carrying"),
       };
     })()`,
   );
+  // card-dom: shell — `data-carrying` is written on the deck canvas (`deck-canvas.tsx`).
+  const carrying = await app.evalJS<string | null>(
+    `(function () {
+      var canvas = document.querySelector("[data-carrying]");
+      return canvas === null ? null : canvas.getAttribute("data-carrying");
+    })()`,
+  );
+  return { drag: marks.drag, zone: marks.zone, carrying };
 }
 
 const BLOCK = (slot: number) => `[data-testid="layout-card-target-block-${slot}"]`;
@@ -231,8 +255,11 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
         const fromA = await centerOf(app, BLOCK(0));
         const toEmpty = await centerOf(app, BLOCK(2));
         const ups = await pointerUps(app);
-        await app.nativeDragWithoutRelease(fromA, toEmpty);
-        await app.waitForCondition<boolean>(
+        // The held drag is driven in the window's viewport; the blocks' points
+        // are the body's.
+        const toEmptyInWindow = await inWindow(app, toEmpty);
+        await app.nativeDragWithoutRelease(await inWindow(app, fromA), toEmptyInWindow);
+        await app.body("L").waitForCondition<boolean>(
           `(function () {
             var mini = document.querySelector(${JSON.stringify(COMMITTED_MINI)});
             return mini !== null && mini.hasAttribute("data-gauge-zone");
@@ -246,7 +273,7 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
         expect(held.carrying, "and the canvas says a card is in the air").toBe(
           "card",
         );
-        await app.nativeMouseUp(toEmpty);
+        await app.nativeMouseUp(toEmptyInWindow);
         await afterPointerUp(app, ups);
         await wait(AFTER_LAND_MS);
         const released = await dragMarks(app);
@@ -347,17 +374,20 @@ describe.skipIf(!SHOULD_RUN)("at0662 — the miniature rearranges the deck", () 
         const overEmpty = await centerOf(app, BLOCK(2));
         const beforeEsc = await snapshot(app);
         const upsEsc = await pointerUps(app);
-        await app.nativeDragWithoutRelease(fromEsc, overEmpty);
+        const overEmptyInWindow = await inWindow(app, overEmpty);
+        await app.nativeDragWithoutRelease(await inWindow(app, fromEsc), overEmptyInWindow);
+        // card-dom: shell — `data-carrying` is written on the deck canvas.
         await app.waitForCondition<boolean>(
           `document.querySelector("[data-carrying]") !== null`,
           { timeoutMs: 8_000 },
         );
         await app.nativeKey("Escape");
+        // card-dom: shell — `data-carrying` is written on the deck canvas.
         await app.waitForCondition<boolean>(
           `document.querySelector("[data-carrying]") === null`,
           { timeoutMs: 8_000 },
         );
-        await app.nativeMouseUp(overEmpty);
+        await app.nativeMouseUp(overEmptyInWindow);
         await afterPointerUp(app, upsEsc);
         await wait(AFTER_LAND_MS);
         const afterEsc = await snapshot(app);

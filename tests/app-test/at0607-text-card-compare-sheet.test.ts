@@ -68,6 +68,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp, note, type App } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
+import { AUTOMATIC_SAVE_MODE, mkSeededTugbank, rmTempTugbank } from "./_harness/tugbank-helpers";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -135,7 +136,10 @@ function deckShape() {
 
 /**
  * Seed the deck-wide save-mode default BEFORE the card mounts —
- * `setTugbankValue` populates the same client cache `readSaveMode` reads.
+ * `setTugbankValue` populates the shell page's client cache. A Text card in
+ * its own page reads its own tugbank snapshot instead, so the automatic
+ * scenario also launches on a tugbank seeded with `AUTOMATIC_SAVE_MODE`
+ * (`mkSeededTugbank`); manual is the shipping default.
  */
 async function seedTextCard(
   app: App,
@@ -239,8 +243,9 @@ async function waitForDisk(
   return last;
 }
 
+/** The banner, the conflict sheet and the compare sheet all render in card A's body. */
 async function waitFor(app: App, selector: string, present: boolean): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(selector)}) ${present ? "!==" : "==="} null`,
     { timeoutMs: 15_000 },
   );
@@ -265,7 +270,7 @@ interface DiffRead {
  * the two row shapes `DiffBlock` rendered.
  */
 function readDiff(app: App): Promise<DiffRead> {
-  return app.evalJS<DiffRead>(`(function(){
+  return app.body("A").evalJS<DiffRead>(`(function(){
     var out = { mode: "none", added: [], removed: [], addMarkers: [], removeMarkers: [] };
     var sheet = document.querySelector(${JSON.stringify(COMPARE_SHEET)});
     if (sheet === null) return out;
@@ -338,7 +343,11 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
       const EXTERNAL_ONE = "EXTERNAL-LINE-ONE marker";
       const EXTERNAL_TWO = "EXTERNAL-LINE-TWO marker";
       const { dir, file } = mkTextFixture("at0607-auto-", FIXTURE_CONTENT, { realpath: true });
-      const app = await launchTugApp({ testName: "at0607-compare-automatic" });
+      // A body Text card reads its save mode from the tugbank the app opens,
+      // not from the shell's cache `seedTextCard` writes, so automatic is
+      // seeded there too.
+      const tugbankPath = mkSeededTugbank([AUTOMATIC_SAVE_MODE]);
+      const app = await launchTugApp({ testName: "at0607-compare-automatic", env: { TUGBANK_PATH: tugbankPath } });
       try {
         await seedTextCard(app, file, "automatic");
         await waitForEditorShowing(app, "fixture line 01");
@@ -355,12 +364,12 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
         await waitFor(app, BANNER_DIFF, true);
         expect(fs.readFileSync(file, "utf8")).toContain(EXTERNAL_ONE);
 
-        await app.click(BANNER_DIFF);
+        await app.body("A").click(BANNER_DIFF);
         await waitFor(app, COMPARE_SHEET, true);
         await assertDiffShows(app, "automatic first diff", EXTERNAL_ONE, TYPED_ONE.trim());
 
         // Cancel decides nothing: the sheet goes and the question stays.
-        await app.click(COMPARE_CANCEL);
+        await app.body("A").click(COMPARE_CANCEL);
         await waitFor(app, COMPARE_SHEET, false);
         await settle();
         await waitFor(app, BANNER_RELOAD, true);
@@ -374,9 +383,9 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
 
         // Keep Mine, from inside the sheet: the buffer wins and the write
         // lands, so the external line is gone from disk.
-        await app.click(BANNER_DIFF);
+        await app.body("A").click(BANNER_DIFF);
         await waitFor(app, COMPARE_SHEET, true);
-        await app.click(COMPARE_KEEP_MINE);
+        await app.body("A").click(COMPARE_KEEP_MINE);
         await waitFor(app, COMPARE_SHEET, false);
         await waitFor(app, BANNER_RELOAD, false);
         const kept = await waitForDisk(file, (c) => c.includes(TYPED_ONE.trim()));
@@ -396,11 +405,11 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
         fs.writeFileSync(file, touchingExternal(EXTERNAL_TWO), "utf8");
         await waitFor(app, BANNER_DIFF, true);
 
-        await app.click(BANNER_DIFF);
+        await app.body("A").click(BANNER_DIFF);
         await waitFor(app, COMPARE_SHEET, true);
         await assertDiffShows(app, "automatic second diff", EXTERNAL_TWO, TYPED_TWO.trim());
 
-        await app.click(COMPARE_RELOAD);
+        await app.body("A").click(COMPARE_RELOAD);
         await waitFor(app, COMPARE_SHEET, false);
         await waitFor(app, BANNER_RELOAD, false);
         await waitForEditorShowing(app, EXTERNAL_TWO, 15_000);
@@ -415,6 +424,7 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
       } finally {
         await app.close();
         rmFixture(dir);
+        rmTempTugbank(tugbankPath);
       }
     },
     TEST_TIMEOUT_MS,
@@ -453,12 +463,12 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
         // external bytes exactly as they were written.
         expect(fs.readFileSync(file, "utf8")).toBe(touchingExternal(EXTERNAL_ONE));
 
-        await app.click(SHEET_DIFF);
+        await app.body("A").click(SHEET_DIFF);
         await waitFor(app, COMPARE_SHEET, true);
         await assertDiffShows(app, "manual first diff", EXTERNAL_ONE, TYPED_ONE.trim());
 
         // The loop: Cancel out of the diff and the QUESTION comes back.
-        await app.click(COMPARE_CANCEL);
+        await app.body("A").click(COMPARE_CANCEL);
         await waitFor(app, COMPARE_SHEET, false);
         await waitFor(app, SHEET_DIFF, true);
         await settle();
@@ -467,9 +477,9 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
           "looking at the diff changed nothing",
         ).toContain(TYPED_ONE.trim());
 
-        await app.click(SHEET_DIFF);
+        await app.body("A").click(SHEET_DIFF);
         await waitFor(app, COMPARE_SHEET, true);
-        await app.click(COMPARE_RELOAD);
+        await app.body("A").click(COMPARE_RELOAD);
         await waitFor(app, COMPARE_SHEET, false);
         // Both surfaces are gone: the conflict is resolved, not re-asked.
         await waitFor(app, SHEET_DIFF, false);
@@ -489,13 +499,13 @@ describe.skipIf(!SHOULD_RUN)("at0607: Text card compare sheet", () => {
         fs.writeFileSync(file, touchingExternal(EXTERNAL_TWO), "utf8");
         await waitFor(app, SHEET_DIFF, true);
 
-        await app.click(SHEET_DIFF);
+        await app.body("A").click(SHEET_DIFF);
         await waitFor(app, COMPARE_SHEET, true);
         await assertDiffShows(app, "manual second diff", EXTERNAL_TWO, TYPED_TWO.trim());
 
         // Keep Mine in manual mode routes to the real-file save, which is the
         // one gesture that puts the buffer on disk here.
-        await app.click(COMPARE_KEEP_MINE);
+        await app.body("A").click(COMPARE_KEEP_MINE);
         await waitFor(app, COMPARE_SHEET, false);
         await waitFor(app, SHEET_DIFF, false);
         const kept = await waitForDisk(file, (c) => c.includes(TYPED_TWO.trim()));

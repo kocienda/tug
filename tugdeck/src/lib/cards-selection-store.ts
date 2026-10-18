@@ -102,6 +102,15 @@ export class CardsSelectionStore extends Subscribable {
   }
 
   /**
+   * Take `next` whole — the other page's copy of the selection, which the
+   * shell and the Cards card's body each hold one of
+   * (`lib/cards-selection-mirror.ts`). An equal snapshot notifies nobody.
+   */
+  replace(next: LensSelectionSnapshot): void {
+    this.publish(next.ids.length === 0 && next.anchorId === null ? EMPTY : next);
+  }
+
+  /**
    * Skip the next auto-select in {@link attachLayoutSelectionToDeck} — the
    * collapse that turns a fresh content-card activation into a selection of
    * that card.

@@ -74,7 +74,7 @@ function wirePost(id: number): WirePost {
 }
 
 async function publish(app: App, post: WirePost): Promise<boolean> {
-  return app.evalJS<boolean>(
+  return kindBody(app, "overview").evalJS<boolean>(
     `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
   );
 }

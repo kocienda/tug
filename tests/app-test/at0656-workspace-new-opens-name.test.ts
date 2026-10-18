@@ -252,6 +252,17 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );
+          // The field is the Workspaces card's, in its own body, and the
+          // rename it commits is the deck's: it crosses the bus to the shell
+          // a beat after the field closes, so the name is waited for in the
+          // shell rather than read the instant the body lets go.
+          await app
+            // card-dom: shell
+            .waitForCondition<boolean>(
+              `window.tugdeck.diag.getSpaces().spaces.some(function (s) { return s.id === ${JSON.stringify(created)} && s.name !== ${JSON.stringify(defaultName)}; })`,
+              { timeoutMs: 4_000 },
+            )
+            .catch(() => undefined);
           const named = await spaces(app);
           expect(
             named.spaces.find((s) => s.id === created)?.name,

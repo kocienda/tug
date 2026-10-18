@@ -139,8 +139,9 @@ async function toggleFolded(app: App, want: boolean): Promise<void> {
   );
   // The flag arms the motion; the card writes `data-fold` when the motion
   // ENDS, so the record moving is not yet the form being worn — and a rect
-  // read mid-tween is a rect of the tween.
-  await app.waitForCondition<boolean>(
+  // read mid-tween is a rect of the tween. The card is in its body, which
+  // hears the flag a beat after the shell, so the form is read there.
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
        var card = document.querySelector(${JSON.stringify(CARD)} + " .session-card");
        if (card === null) return false;

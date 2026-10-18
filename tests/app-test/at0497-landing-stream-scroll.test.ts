@@ -164,8 +164,10 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
           { timeoutMs: 6000 },
         );
 
+        // The composer reads A's body's own changeset draft store, so the
+        // frame is delivered in A's body (SURFACE_VERSION 2.45.0).
         const draftFrame = (body: Record<string, unknown>) =>
-          app.evalJS<boolean>(
+          app.body("A").evalJS<boolean>(
             `window.__tug.publishDraftFrame(${JSON.stringify(
               JSON.stringify({
                 workspace_key: projectDir,
@@ -205,7 +207,8 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
         // worth: the scroll is held across CodeMirror's measure cycle, and that
         // cycle is driven by `requestAnimationFrame`. A window that never
         // animates never runs it, and a green run would be proving nothing.
-        await app.evalJS<boolean>(
+        // The editor's cycle runs in A's body, so the frames counted are its.
+        await app.body("A").evalJS<boolean>(
           `(() => {
              window.__at0497Frames = 0;
              const tick = () => { window.__at0497Frames += 1; requestAnimationFrame(tick); };
@@ -215,7 +218,7 @@ describe.skipIf(!SHOULD_RUN)("AT0497: the streamed message's scroll", () => {
         );
         await settle(300);
         note(
-          `at0497 animation: ${await app.evalJS<string>(
+          `at0497 animation: ${await app.body("A").evalJS<string>(
             `window.__at0497Frames + " frames in 300ms, visibility " + document.visibilityState`,
           )}`,
         );

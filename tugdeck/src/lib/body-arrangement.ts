@@ -26,6 +26,7 @@ import type { CardIdentityFacts } from "../card-registry";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { CardSessionBinding } from "./card-session-binding-store";
 import type { CardMastheadPayload } from "./card-title-store";
+import type { CardBinding } from "../protocol";
 
 /** A card's title override and masthead, as the shell's title store holds them. */
 export interface ArrangementTitle {
@@ -77,6 +78,19 @@ export interface BodyArrangement {
    * sent it. Its `token` tells a fresh request from one already answered.
    */
   spaceVerb?: { verb: "rename" | "delete"; spaceId: string; token: number } | null;
+  /**
+   * The shell's layout selection, for the Cards card, whose list builds it in
+   * its own page while the deck's verbs read the shell's
+   * (`lib/cards-selection-mirror.ts`).
+   */
+  selection?: { ids: string[]; anchorId: string | null };
+  /**
+   * The shell's cache of the server's card bindings (`spaceBindingsLedgerStore`),
+   * for the Cards card, which lists every card's session — a parked
+   * workspace's included — and whose page may have come up after the frame
+   * that filled it. Null until the shell's cache has loaded.
+   */
+  ledgerBindings?: CardBinding[] | null;
 }
 
 /**
@@ -84,6 +98,7 @@ export interface BodyArrangement {
  * drops a `deck-call` naming anything else.
  */
 export const BODY_DECK_CALLS = [
+  "activateCard",
   "setFlowOffset",
   "previewFlowOffset",
   "activateSpace",

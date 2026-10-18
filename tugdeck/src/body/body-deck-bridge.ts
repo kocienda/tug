@@ -438,8 +438,16 @@ export class BodyDeckBridge implements IDeckManagerStore {
     this.advise({ advice: "sheet-reservation", heightPx: height });
   setOpeningBid = (_memberId: string, height: number | null): void =>
     this.advise({ advice: "opening-bid", heightPx: height });
-  activateCard = (_cardId: string, _opts?: { reveal?: boolean }): void =>
+  // An arrangement card raising another card — the Layout miniature's press,
+  // a Cards row — names that card to the shell; activating this card itself
+  // is the body's own `activate`.
+  activateCard = (cardId: string, opts?: { reveal?: boolean }): void => {
+    if (cardId !== this.cardId && this.arrangement !== null) {
+      this.deckCall("activateCard", opts === undefined ? [cardId] : [cardId, opts]);
+      return;
+    }
     this.advise({ advice: "activate" });
+  };
   focusCard = (_cardId: string): void => this.advise({ advice: "activate" });
   removeCard = (_paneId: string, _cardId: string): void => this.advise({ advice: "close-request" });
   handlePaneClosed = (_paneId: string): void => this.advise({ advice: "close-request" });
@@ -531,7 +539,21 @@ export class BodyDeckBridge implements IDeckManagerStore {
     };
   };
   getSpacesSnapshot = (): SpacesSnapshot => this.spacesSnapshot;
-  spaceOf = (_cardId: string): string | null => this.context.spaceId;
+  /**
+   * The workspace holding `cardId`. A card-mode body holds only its own card;
+   * an arrangement body lists every workspace's, so a card of a parked one is
+   * found in that workspace's deck — the read that lets the Cards card draw a
+   * parked Session card from the bindings ledger (`cardIdentity`'s `parked`).
+   */
+  spaceOf = (cardId: string): string | null => {
+    const arrangement = this.arrangement;
+    if (arrangement === null || cardId === this.cardId) return this.context.spaceId;
+    if (arrangement.deck.cards.some((c) => c.id === cardId)) return arrangement.spaces.activeSpaceId;
+    for (const [spaceId, deck] of Object.entries(arrangement.spaces.decks)) {
+      if (deck.cards.some((c) => c.id === cardId)) return spaceId;
+    }
+    return null;
+  };
   getSpaceDeck = (spaceId: string): DeckState | null => {
     if (this.arrangement === null) return null;
     if (spaceId === this.arrangement.spaces.activeSpaceId) return this.deckState;

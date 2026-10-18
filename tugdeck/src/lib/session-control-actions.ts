@@ -110,9 +110,23 @@ function str(value: unknown): string | null {
  * pushes at once). Card-keyed acks need the card's id; session-keyed acks
  * need a session or line the card wears; the bindings list is cut to the
  * card's own row.
+ *
+ * A card that **lists** other sessions (`lists: true` — the Cards card, the
+ * Overview, the Arcs card) is shown what it lists: every ledger row push and
+ * the whole bindings list, which only fill identity caches and the bindings
+ * cache its rows read. Nothing it is shown drives a session — the card-keyed
+ * acks and the arc and rename answers stay its own card's — and a cut list
+ * would replace the page's whole bindings cache with its own card's one row.
  */
-export function bodyCardFilter(held: () => HeldSession): SessionControlFilter {
+export function bodyCardFilter(
+  held: () => HeldSession,
+  options: { lists?: boolean } = {},
+): SessionControlFilter {
+  const lists = options.lists === true;
   return (action, payload) => {
+    if (lists && (action === "session_updated" || action === "list_card_bindings_ok")) {
+      return payload;
+    }
     const h = held();
     const wearsSession = (id: string | null): boolean =>
       id !== null && h.sessionIds.includes(id);

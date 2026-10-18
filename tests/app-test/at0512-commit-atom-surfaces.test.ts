@@ -80,7 +80,8 @@ import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { resolve } from "node:path";
 
-import { launchTugApp, note, type App } from "./_harness";
+import { launchTugApp, note, type App, type BodyApp } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -383,21 +384,24 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
         });
-        const read = async (selector: string): Promise<Mount> =>
-          JSON.parse(await app.evalJS<string>(mountJs(selector))) as Mount;
+        // Each mount is read in the page that holds it: S's body for the
+        // transcript, the receipt, the sent row and the History shade, and
+        // the Overview's own body for its post.
+        const read = async (page: BodyApp, selector: string): Promise<Mount> =>
+          JSON.parse(await page.evalJS<string>(mountJs(selector))) as Mount;
 
         try {
           await openBoundCard(app);
 
           // ---- 1. A sha in transcript prose ------------------------------
           await writeMention(app);
-          const mention = await read(MENTION_PILL);
+          const mention = await read(app.body("S"), MENTION_PILL);
           note("at0512 transcript mention", JSON.stringify(mention));
           expect(mention.label).toBe(LABEL);
 
           // ---- 2. A `/commit` receipt's header ---------------------------
           await writeReceipt(app);
-          const receipt = await read(RECEIPT_PILL);
+          const receipt = await read(app.body("S"), RECEIPT_PILL);
           note("at0512 commit receipt", JSON.stringify(receipt));
           expect(receipt.label).toBe(LABEL);
 
@@ -406,7 +410,7 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           // body renderer rather than by the composer's baker. The mark must
           // not change kind on the way through.
           await writeSentAtom(app);
-          const sent = await read(SENT_PILL);
+          const sent = await read(app.body("S"), SENT_PILL);
           note("at0512 sent user row", JSON.stringify(sent));
           expect(sent.label).toBe(LABEL);
           const sentAtom = JSON.parse(
@@ -424,12 +428,14 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           // ---- 4. A History shade row ------------------------------------
           // Before the Overview: raising the rail moves focus off this card,
           // and `toggle-history-view` acts on whichever card holds it.
+          // card-dom: shell — the shell's action, which it routes to the key
+          // card's body; the shade it raises is S's (`session-card.tsx`).
           await app.dispatchControlAction("toggle-history-view");
-          await app.waitForCondition<boolean>(
+          await app.body("S").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(HISTORY_PILL)}) !== null`,
             { timeoutMs: 20_000 },
           );
-          const history = await read(HISTORY_PILL);
+          const history = await read(app.body("S"), HISTORY_PILL);
           note("at0512 history row", JSON.stringify(history));
           // The top row is this repo's HEAD, so it wears the same label.
           expect(history.label).toBe(LABEL);
@@ -437,8 +443,10 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
           // ---- 5. An Overview post's trailing ref ------------------------
           // A post whose prose never names the sha, so the ref survives
           // `unmentionedRefs` and rides the trailing strip as a placed atom.
+          // The Overview is a card of its own, and its store is its body's:
+          // the post is delivered in that page and read there.
           await app.nativeKey("o", ["cmd", "ctrl"]);
-          await app.body("S").waitForCondition<boolean>(
+          await kindBody(app, "overview", 15_000).waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERVIEW_CARD)}) !== null`,
             { timeoutMs: 15_000 },
           );
@@ -451,15 +459,15 @@ describe.skipIf(!SHOULD_RUN)("AT0512: the commit atom across its surfaces", () =
             project_dir: REPO,
           };
           expect(
-            await app.evalJS<boolean>(
+            await kindBody(app, "overview").evalJS<boolean>(
               `window.__tug.publishOverviewPost(${JSON.stringify(JSON.stringify(post))})`,
             ),
           ).toBe(true);
-          await app.body("S").waitForCondition<boolean>(
+          await kindBody(app, "overview").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERVIEW_PILL)}) !== null`,
             { timeoutMs: 15_000 },
           );
-          const overview = await read(OVERVIEW_PILL);
+          const overview = await read(kindBody(app, "overview"), OVERVIEW_PILL);
           note("at0512 overview ref", JSON.stringify(overview));
           expect(overview.label).toBe(LABEL);
 

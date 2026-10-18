@@ -36,7 +36,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
-import type { SessionDriveAction } from "./_harness/client";
+import { waitForBodyReady } from "./_harness/card-reach";
+import { enableDeckTrace, type SessionDriveAction } from "./_harness/client";
 import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -103,14 +104,14 @@ function seedTurn(app: App, n: number): Promise<void> {
  *  (Comments inside the evaluated source below must not use backticks:
  *  it is a template literal, and a backtick would end it.) */
 async function settle(app: App, grewFrom?: number): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+  await app.body("A").evalJS<boolean>(`(function () {
   window.__at0335Frames = false;
   requestAnimationFrame(function () {
     requestAnimationFrame(function () { window.__at0335Frames = true; });
   });
   return true;
 })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
   if (!window.__at0335Frames) return false;
   var el = document.querySelector('${SCROLLER}');
@@ -131,7 +132,7 @@ async function settle(app: App, grewFrom?: number): Promise<void> {
  *  true. Never an assertion itself: the caller asserts what it reads
  *  next, so a condition that never arrives still fails there. */
 async function awaitQuietly(app: App, expr: string): Promise<void> {
-  await app.waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
+  await app.body("A").waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
 }
 
 const BUTTON_VISIBLE = `(function () {
@@ -154,12 +155,15 @@ async function standUp(testName: string): Promise<App> {
   await app.waitForCondition<boolean>(
     `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
   );
+  await waitForBodyReady(app, "A");
+  // The transcript is in A's body, which records into its own trace.
+  await enableDeckTrace(app.body("A"), true);
   await app.bindSession("A", { tugSessionId: SID });
   await app.awaitEngineReady("A", { timeoutMs: 20_000 });
   for (let n = 0; n < TURNS; n += 1) {
     await seedTurn(app, n);
   }
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
     { timeoutMs: 30_000 },
   );
@@ -181,7 +185,7 @@ interface ScrollSnap {
 // null would fail assertions about a state that is, behaviorally,
 // exactly "not showing".
 function readSnap(app: App): Promise<ScrollSnap> {
-  return app.evalJS<ScrollSnap>(`(function () {
+  return app.body("A").evalJS<ScrollSnap>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var btn = document.querySelector('${JUMP_BUTTON}');
   return {
@@ -202,7 +206,7 @@ function readDisplacementRecords(app: App): Promise<
     following: boolean;
   }[]
 > {
-  return app.evalJS(`(function () {
+  return app.body("A").evalJS(`(function () {
   return window.__deckTrace.dump()
     .filter(function (e) { return e.kind === "scroll-displacement"; })
     .map(function (e) {
@@ -222,7 +226,7 @@ async function expectZeroDisplacements(app: App): Promise<void> {
 /** Park the transcript well above the live edge, the way a native
  *  scrollbar drag does — no pointer or wheel events. */
 async function parkMidHistory(app: App): Promise<number> {
-  const top = await app.evalJS<number>(`(function () {
+  const top = await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = el.scrollTop - ${AT_BOTTOM_PX * 15};
   return el.scrollTop;
@@ -247,7 +251,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
         // the reading-position hold back. SmartScroll stamps
         // `overflow-anchor: none` only while following the bottom.
         expect(
-          await app.evalJS<string>(
+          await app.body("A").evalJS<string>(
             `document.querySelector('${SCROLLER}').style.overflowAnchor`,
           ),
         ).toBe("");
@@ -280,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
         // several times. Every one of these moves re-windows: rows
         // leave the DOM and the spacers absorb their extent. That is
         // exactly the moment the geometry used to tear.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var max = el.scrollHeight - el.clientHeight;
   var stops = [max, max * 0.6, max * 0.2, 0, max * 0.4, max * 0.8, max];
@@ -288,7 +292,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
   return true;
 })()`);
         for (let i = 0; i < 7; i += 1) {
-          await app.evalJS<number>(`(function () {
+          await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = window.__at0335.stops[${i}];
   return el.scrollTop;
@@ -306,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
 
         // The extent floor is standing and tracks the settled extent
         // (extent − 1, with a commit's rebase slack).
-        const floor = await app.evalJS<{
+        const floor = await app.body("A").evalJS<{
           present: boolean;
           floorPx: number;
           scrollHeight: number;
@@ -335,7 +339,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
       try {
         // Park near the top, behind a large evicted top spacer — the
         // geometry the field report was captured on.
-        await app.evalJS<number>(`(function () {
+        await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = 0;
   return el.scrollTop;
@@ -349,7 +353,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
         // event with the movement it stands for — the phase machine
         // and the disengage rules see a genuine downward gesture, and
         // any upward jump between ticks is somebody else's doing.
-        const run = await app.evalJS<{
+        const run = await app.body("A").evalJS<{
           worstUpJump: number;
           finalTop: number;
           maxScroll: number;
@@ -388,7 +392,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: a reader is held", () => {
         // scrollend that will never come) instead of idle. Settling
         // first makes the gesture end where a real one does.
         await settle(app);
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
   return true;
 })()`);

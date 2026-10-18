@@ -45,7 +45,7 @@
 
 import type { BodyIntent } from "../body/body-intent";
 import { getRegistration } from "../card-registry";
-import type { DeckState } from "../layout-tree";
+import type { CardStateBag, DeckState } from "../layout-tree";
 import { bodyCardsStore } from "./body-cards-store";
 import { bodyFactsStore } from "./body-facts-store";
 import { getDeckStore } from "./deck-store-registry";
@@ -176,6 +176,23 @@ export function reloadBody(cardId: string): void {
   reloader?.(cardId);
 }
 
+/** Each kind's seed for a card's first body, when the deck holds no state for the card. */
+const firstBagSeeds = new Map<string, () => CardStateBag | undefined>();
+
+/**
+ * Seed the first body of every `componentId` card the deck holds no state
+ * for with what `seed` returns at the hand-off — app-scoped state a kind
+ * keeps in the shell across its cards, which a fresh card id cannot find in
+ * the deck's cache (the Overview's draft across a rail hidden and shown).
+ * Returns the release.
+ */
+export function setFirstBodyBagSeed(componentId: string, seed: () => CardStateBag | undefined): () => void {
+  firstBagSeeds.set(componentId, seed);
+  return () => {
+    if (firstBagSeeds.get(componentId) === seed) firstBagSeeds.delete(componentId);
+  };
+}
+
 /**
  * Hand `cardId` to a body, if it is one the shell hands off. Returns true
  * when the funnel must send nothing: the card is now a body card, or already
@@ -200,9 +217,10 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   const card = cardInItsSpace(cardId);
   if (card === undefined || !isBodyKind(card.componentId)) return false;
   bodyCardsStore.mark(cardId);
-  // The card's first body: it takes the state the shell holds for it.
+  // The card's first body: it takes the state the shell holds for it, or,
+  // for a card the deck holds none for, what its kind's seed holds.
   const asked = intent();
-  const bag = asked.bag ?? deck.getCardState(cardId);
+  const bag = asked.bag ?? deck.getCardState(cardId) ?? firstBagSeeds.get(card.componentId)?.();
   const made = bag === undefined ? asked : { ...asked, bag };
   intents.set(cardId, made);
   postToHost("bodyCreate", { cardId, componentId: card.componentId, intent: made });

@@ -397,7 +397,9 @@ async function letTimePass(app: App, ms: number): Promise<void> {
   await app.evalJS<null>(`(window.__at0612.mark = Date.now(), null)`);
   await app.waitForCondition<boolean>(
     `Date.now() - window.__at0612.mark >= ${ms}`,
-    { timeoutMs: ms + 10_000, pollMs: 250 },
+    // A tight poll: the wait is the `ms` itself, and a coarse poll only adds
+    // up to a poll's length past it on every call ([B07]).
+    { timeoutMs: ms + 10_000, pollMs: 50 },
   );
 }
 

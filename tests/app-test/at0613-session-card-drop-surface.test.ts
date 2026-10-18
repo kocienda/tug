@@ -169,11 +169,13 @@ async function dragFileOnto(
  * bag reflects the editor's current state rather than the last quiescent one.
  */
 async function readDraftText(app: App, card: string): Promise<string | null> {
-  // The save is the shell's deck; the bag is the card's own, in its body.
-  await app.evalJS<boolean>(
+  // The card's save callback and its bag are both in its body, which carries
+  // its own `saveState`; the shell's saves only the shell's own cards.
+  const page = app.body(card);
+  await page.evalJS<boolean>(
     `(window.tugdeck && window.tugdeck.saveState && window.tugdeck.saveState(), true)`,
   );
-  return app.body(card).evalJS<string | null>(
+  return page.evalJS<string | null>(
     `(function(){
       var bag = window.__tug.getCardStateBag(${JSON.stringify(card)});
       var draft = bag && bag.content ? bag.content.draft : null;

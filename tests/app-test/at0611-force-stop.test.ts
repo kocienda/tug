@@ -116,7 +116,7 @@ describe.skipIf(!SHOULD_RUN)(
               decoded,
             });
 
-          await app.waitForCondition<boolean>(`${SUBMIT_MODE} === "submit"`, {
+          await app.body("A").waitForCondition<boolean>(`${SUBMIT_MODE} === "submit"`, {
             timeoutMs: 6000,
           });
 
@@ -143,40 +143,40 @@ describe.skipIf(!SHOULD_RUN)(
             is_partial: true,
             tug_session_id: TUG_SESSION_ID,
           });
-          await app.waitForCondition<boolean>(`${SUBMIT_MODE} === "stop"`, {
+          await app.body("A").waitForCondition<boolean>(`${SUBMIT_MODE} === "stop"`, {
             timeoutMs: 6000,
           });
 
           // ── the user presses Stop, and nothing at all comes back ────
           await app.driveSession("A", { op: "interrupt" });
-          await app.waitForCondition<boolean>(`${SUBMIT_MODE} === "stopping"`, {
+          await app.body("A").waitForCondition<boolean>(`${SUBMIT_MODE} === "stopping"`, {
             timeoutMs: 6000,
           });
-          expect(await app.evalJS<string>(STATE_TEXT)).toContain("Interrupting");
+          expect(await app.body("A").evalJS<string>(STATE_TEXT)).toContain("Interrupting");
 
           // No `turn_complete`, no `turn_cancelled`, no `interrupt_noop`, no
           // terminal. This is where the card used to stay forever.
 
           // ── the deck's own clock is what ends the wait ──────────────
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${SUBMIT_MODE} === "force-stop"`,
             { timeoutMs: DEADLINE_WAIT_MS },
           );
           // And the control is live. The defect was not that the card said
           // the wrong thing — it was that the button was inert.
-          expect(await app.evalJS<boolean>(SUBMIT_ENABLED)).toBe(true);
-          expect(await app.evalJS<string>(SUBMIT_LABEL)).toBe("Force stop");
+          expect(await app.body("A").evalJS<boolean>(SUBMIT_ENABLED)).toBe(true);
+          expect(await app.body("A").evalJS<string>(SUBMIT_LABEL)).toBe("Force stop");
           // The card stops claiming an interrupt is in progress and names
           // what actually happened.
-          const stalledState = await app.evalJS<string>(STATE_TEXT);
+          const stalledState = await app.body("A").evalJS<string>(STATE_TEXT);
           expect(stalledState).toContain("Unanswered");
           expect(stalledState).not.toContain("Interrupting");
 
           // ── the user presses Force Stop ─────────────────────────────
-          await app.click(SUBMIT_BUTTON);
+          await app.body("A").click(SUBMIT_BUTTON);
           // The frame has gone out and nothing has come back, so the offer
           // stands: pressing it is not itself an answer.
-          expect(await app.evalJS<string>(SUBMIT_MODE)).toBe("force-stop");
+          expect(await app.body("A").evalJS<string>(SUBMIT_MODE)).toBe("force-stop");
 
           // ── tugcode's teardown answers ──────────────────────────────
           // `handleStopAllWork` sets `activeTurn.interrupted` before it
@@ -199,10 +199,10 @@ describe.skipIf(!SHOULD_RUN)(
           });
 
           // The card comes all the way back.
-          await app.waitForCondition<boolean>(`${SUBMIT_MODE} === "submit"`, {
+          await app.body("A").waitForCondition<boolean>(`${SUBMIT_MODE} === "submit"`, {
             timeoutMs: 6000,
           });
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `${STATE_TEXT}.indexOf("Unanswered") === -1`,
             { timeoutMs: 6000 },
           );

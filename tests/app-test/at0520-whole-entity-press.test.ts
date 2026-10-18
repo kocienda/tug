@@ -230,27 +230,33 @@ async function writeReceipt(app: App): Promise<void> {
 /** A prompt whose one atom is a session, sent through the production send. */
 async function writeSentSession(app: App): Promise<void> {
   // The `session_updated` frame the supervisor pushes after a ledger write —
-  // what teaches this client the callsign the atom names.
+  // what teaches this client the callsign the atom names. The wire reaches
+  // every page; the send and the chip that resolves the callsign are W's
+  // body's, whose surface takes the row through `dispatchControlAction` (the
+  // same `dispatchAction` the shell's `publishSessionUpdated` makes).
+  const row = {
+    session_id: SID,
+    fields: {
+      session_id: SID,
+      project_dir: REPO,
+      tag: CALLSIGN,
+      name: null,
+      name_user_set: false,
+      turn_count: 2,
+      file_size: 4_096,
+      last_user_prompt: "hello",
+      last_used_at: 1_754_600_000_000,
+    },
+  };
+  // card-dom: shell — the shell's own identity stores take the row too.
   expect(
     await app.evalJS<boolean>(
-      `window.__tug.publishSessionUpdated(${JSON.stringify(
-        JSON.stringify({
-          session_id: SID,
-          fields: {
-            session_id: SID,
-            project_dir: REPO,
-            tag: CALLSIGN,
-            name: null,
-            name_user_set: false,
-            turn_count: 2,
-            file_size: 4_096,
-            last_user_prompt: "hello",
-            last_used_at: 1_754_600_000_000,
-          },
-        }),
-      )})`,
+      `window.__tug.publishSessionUpdated(${JSON.stringify(JSON.stringify(row))})`,
     ),
   ).toBe(true);
+  await app.body("W").evalJS<boolean>(
+    `(window.__tug.dispatchControlAction("session_updated", ${JSON.stringify(row)}), true)`,
+  );
   await app.driveSession("W", {
     op: "send",
     text: `ask ${FFFC} about it`,
@@ -357,17 +363,21 @@ interface Surface {
   label?: string;
 }
 
+// Every surface here is W's — the transcript and the History shade are in its
+// body, and so are the menus a press in them raises — so the press is aimed in
+// the body's viewport and every read is made there.
 async function pressAndRead(app: App, s: Surface): Promise<Settled> {
-  await app.evalJS<boolean>(revealJS(s.press));
-  await app.nativeRightClickAtElement(s.press);
-  await app.waitForCondition<boolean>(
+  const body = app.body("W");
+  await body.evalJS<boolean>(revealJS(s.press));
+  await body.nativeRightClickAtElement(s.press);
+  await body.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) !== null`,
     { timeoutMs: 8_000 },
   );
-  const settled = JSON.parse(await app.evalJS<string>(settledJS(s.entity))) as Settled;
+  const settled = JSON.parse(await body.evalJS<string>(settledJS(s.entity))) as Settled;
   note(`at0520 ${s.where}`, JSON.stringify(settled));
   await app.nativeKey("Escape");
-  await app.waitForCondition<boolean>(
+  await body.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(MENU)}) === null`,
     { timeoutMs: 8_000 },
   );
@@ -417,8 +427,10 @@ describe.skipIf(!SHOULD_RUN)("at0520 — the whole-entity press", () => {
               // claims the press; the atom is what the menu is about.
               where: "History row pressed off the atom",
               prepare: async (a) => {
+                // card-dom: shell — the shell's action, routed to the key
+                // card's body; the shade is W's (`session-card.tsx`).
                 await a.dispatchControlAction("toggle-history-view");
-                await a.waitForCondition<boolean>(
+                await a.body("W").waitForCondition<boolean>(
                   `document.querySelector(${JSON.stringify(HISTORY_PILL)}) !== null`,
                   { timeoutMs: 20_000 },
                 );

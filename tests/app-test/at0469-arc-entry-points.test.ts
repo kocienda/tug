@@ -319,11 +319,12 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // not the checkout's git bookkeeping — so success speaks here or it
         // does not speak at all.
         await pressArcRowMenuItem(kindBody(app, "dashes"), arcRow(BEHIND), "request-replay-arc");
-        await app.waitForCondition<boolean>(
+        // The bulletin is the bound card's pane bulletin, in A's body.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BULLETIN)}) !== null`,
           { timeoutMs: 30000 },
         );
-        const landed = await app.evalJS<string>(
+        const landed = await app.body("A").evalJS<string>(
           `(document.querySelector(${JSON.stringify(BULLETIN_TITLE)})?.textContent ?? "")`,
         );
         note("at0469 the replay's own bulletin", landed);
@@ -448,7 +449,12 @@ describe.skipIf(!SHOULD_RUN)("AT0469: acting on an arc from a surface that shows
         // controller that forgot to check the stamp would put this sentence
         // behind the scrim as well as in the band, and every other assertion
         // above would still pass.
-        const corner = await app.evalJS<string[]>(CORNER_TEXTS);
+        // Both lanes a toast can land in: the card's pane bulletin, in A's
+        // body, and the deck's corner, which is the shell's.
+        const corner = [
+          ...(await app.body("A").evalJS<string[]>(CORNER_TEXTS)),
+          ...(await app.evalJS<string[]>(CORNER_TEXTS)),
+        ];
         note("at0469 corner bulletins after the shade's press", JSON.stringify(corner));
         expect(
           corner.every((t) => !t.includes(CLASH) && !t.includes("Nothing was touched")),

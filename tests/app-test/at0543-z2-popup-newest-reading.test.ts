@@ -26,6 +26,7 @@
  *
  * @covers tugdeck/src/components/tugways/tug-popup-list.tsx
  * @covers tugdeck/src/components/tugways/cards/session-card-telemetry-popovers.tsx
+ * @covers tugdeck/src/lib/shell-surface.ts
  */
 
 import { describe, expect, test } from "bun:test";
@@ -122,6 +123,12 @@ describe.skipIf(!SHOULD_RUN)(
               })()`,
             ),
           ).toBe(true);
+          // The placard the reader sees is the shell's: a body has no room
+          // above its status row, so it renders the placard hidden
+          // (`tug-placard-drawn-elsewhere`) and the shell draws its content
+          // over the deck (`lib/shell-surface.ts`). The log read is that drawn
+          // copy's.
+          // card-dom: shell — the Z2 placard is drawn by the shell.
           await app.waitForCondition<boolean>(
             `(function(){
               var el = document.querySelector(${JSON.stringify(LOG_SCROLLER)});
@@ -131,6 +138,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8000 },
           );
 
+          // card-dom: shell — the Z2 placard is drawn by the shell.
           const opened = await app.evalJS<{
             rows: number;
             scrollable: boolean;

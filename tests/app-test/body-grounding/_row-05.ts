@@ -294,8 +294,11 @@ export function deckChords(launch: Launch): Promise<void> {
     await app.nativeKey("y", ["ctrl", "cmd"]);
     const folded = await pollFor(() => foldedOf(app, A), (v) => v, SETTLE_MS);
     expect(folded, "⌃⌘Y folds A's pane").toBe(true);
-    const hidden = await pollFor(() => bodyOf(app, A), (x) => x?.visible === false, SETTLE_MS);
-    expect(hidden?.visible, "the host hides A's folded body").toBe(false);
+    // A Session card draws its own folded form in its body, so the host keeps
+    // that body shown under the fold ([B23] of the bodies-migration brief,
+    // which reversed "a folded body hides" for such kinds).
+    const underFold = await pollFor(() => bodyOf(app, A), (x) => x !== null && x !== undefined, SETTLE_MS);
+    expect(underFold?.visible, "the host keeps A's folded body shown: the Session card draws its own fold").toBe(true);
     await app.nativeKey("y", ["ctrl", "cmd"]);
     const unfolded = await pollFor(() => foldedOf(app, A), (v) => !v, SETTLE_MS);
     expect(unfolded, "⌃⌘Y unfolds it").toBe(false);

@@ -321,6 +321,13 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // And the hold rides with it: same closed doors as the typed path.
+          // The cover is in A's body and the hold reaches the shell's title
+          // bar over the bus, one message behind it ([B23]), so the shell is
+          // given that message's time before it is read.
+          await app.waitForCondition<boolean>(
+            `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,
+            { timeoutMs: 4000 },
+          ).catch(() => undefined);
           expect(
             await app.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(TITLE_BAR)}).hasAttribute("data-modal-hold")`,

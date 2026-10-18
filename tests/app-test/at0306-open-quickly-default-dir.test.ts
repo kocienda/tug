@@ -89,6 +89,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import { kindBody, waitForBodyPainted } from "./_harness/card-reach";
+import { appIsActive } from "./_harness/selectors";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -642,6 +643,19 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
             { timeoutMs: 20000 },
           );
+          // The paint asserted below is the focus language of a foreground
+          // app, which `focus-ring.css` stands down under
+          // `data-app-active="false"`. The deck's `hasFocus` follows the app's
+          // activity ([B13] of the bodies migration), and a pid-mode harness
+          // app never activates, so the launch's own deck is re-seeded as it
+          // stands with the bit set — the way every seeded fixture sets it.
+          await app.seedDeckState({
+            state: {
+              ...(await app.evalJS<Record<string, unknown>>(`window.tugdeck.diag.getDeckState()`)),
+              hasFocus: true,
+            },
+          });
+          await app.waitForCondition<boolean>(appIsActive(), { timeoutMs: 8000 });
           await app.evalJS<null>(
             `(window.__tug.setTugbankValue("dev.tugapp.app", "default-project-path", { kind: "string", value: ${JSON.stringify(`${base}/tug`)} }), null)`,
           );

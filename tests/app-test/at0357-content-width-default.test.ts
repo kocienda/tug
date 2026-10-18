@@ -45,6 +45,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, type App } from "./_harness";
+import { bodyOfKind, waitForBodyPainted } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 90_000;
@@ -121,16 +122,42 @@ async function paneWidth(app: App, paneId: string): Promise<number> {
   return app.evalJS<number>(PANE_WIDTH_JS(paneId));
 }
 
-/** The width of the pane hosting a card, addressed by the card's own testid —
- *  the singleton configurators land on panes with generated ids. */
-async function cardPaneWidth(app: App, testid: string): Promise<number> {
+/** The width of the pane hosting a card, addressed by the card's kind — the
+ *  singleton configurators land on panes with generated ids. The card is a
+ *  body, so its pane is the shell's frame around the body's placeholder. */
+async function cardPaneWidth(app: App, componentId: string): Promise<number> {
+  const { cardId } = await bodyOfKind(app, componentId);
+  // card-dom: shell — the pane frame around the body's placeholder is the shell's chrome
   return app.evalJS<number>(
     `Math.round(
-       document.querySelector('[data-testid="${testid}"]')
+       document.querySelector('[data-body-placeholder][data-card-id=${JSON.stringify(cardId)}]')
          .closest('.tug-pane')
          .getBoundingClientRect().width
      )`,
   );
+}
+
+/**
+ * Wait until the Layout card's body is painted, shown and standing still: the
+ * state a native click on it lands in. The seed opens the rail at the left
+ * and the imposition pins it right, so it arrives across the deck; a press
+ * read against its viewport while the host is still carrying it lands
+ * outside it, on the shell, and the tile never hears it.
+ */
+async function awaitLayoutBodyAtRest(app: App): Promise<void> {
+  await waitForBodyPainted(app, "layout");
+  const deadline = Date.now() + 8_000;
+  let last = "";
+  let still = 0;
+  while (still < 3) {
+    const frame = (await app.bodies()).find((b) => b.cardId === "L")?.frame;
+    // By field, not by the object's own key order, which the host varies.
+    const now = frame === undefined ? "none" : [frame.x, frame.y, frame.width, frame.height].join(",");
+    still = now === last ? still + 1 : 0;
+    last = now;
+    if (Date.now() > deadline) throw new Error(`the Layout body did not stand still within 8000 ms (last frame ${now})`);
+    await Bun.sleep(100);
+  }
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -146,13 +173,14 @@ describe.skipIf(!SHOULD_RUN)(
           // The seed carries the rail pane, so the Layout card is already open —
           // toggling here would close it.
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WIDTH_TILE("slim"))}) !== null`,
             { timeoutMs: 8_000 },
           );
+          await awaitLayoutBodyAtRest(app);
 
           // ── Slim, from the real control. ──
-          await app.nativeClickAtElement(WIDTH_TILE("slim"));
+          await app.body("L").nativeClickAtElement(WIDTH_TILE("slim"));
           await app.waitForCondition<boolean>(
             `(${PANE_WIDTH_JS("p1")}) === ${SLIM}`,
             { timeoutMs: 8_000 },
@@ -189,7 +217,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── Comfy: the default overwrites what slim had set, on every
           //    content pane including the one opened since. ──
-          await app.nativeClickAtElement(WIDTH_TILE("comfy"));
+          await awaitLayoutBodyAtRest(app);
+          await app.body("L").nativeClickAtElement(WIDTH_TILE("comfy"));
           await app.waitForCondition<boolean>(
             `(${PANE_WIDTH_JS("p1")}) === ${COMFY}`,
             { timeoutMs: 8_000 },
@@ -226,12 +255,13 @@ describe.skipIf(!SHOULD_RUN)(
         });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
+          await app.body("L").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WIDTH_TILE("slim"))}) !== null`,
             { timeoutMs: 8_000 },
           );
+          await awaitLayoutBodyAtRest(app);
 
-          await app.nativeClickAtElement(WIDTH_TILE("slim"));
+          await app.body("L").nativeClickAtElement(WIDTH_TILE("slim"));
           await app.waitForCondition<boolean>(
             `(${PANE_WIDTH_JS("p1")}) === ${SLIM}`,
             { timeoutMs: 8_000 },
@@ -244,26 +274,31 @@ describe.skipIf(!SHOULD_RUN)(
           await app.evalJS(
             `window.__tug.dispatchControlAction("show-keyboard-shortcuts", {})`,
           );
-          await app.body("L").waitForCondition<boolean>(
-            `document.querySelector('[data-testid="settings-card"]') !== null
-             && document.querySelector('[data-testid="keyboard-card"]') !== null`,
+          // Each configurator is its own body.
+          await (await bodyOfKind(app, "settings")).waitForCondition<boolean>(
+            `document.querySelector('[data-testid="settings-card"]') !== null`,
+            { timeoutMs: 8_000 },
+          );
+          await (await bodyOfKind(app, "keyboard")).waitForCondition<boolean>(
+            `document.querySelector('[data-testid="keyboard-card"]') !== null`,
             { timeoutMs: 8_000 },
           );
 
           // They arrive at the deck's width rather than at the number their
           // registrations used to freeze in (900 and 800).
-          expect(await cardPaneWidth(app, "settings-card")).toBe(SLIM);
-          expect(await cardPaneWidth(app, "keyboard-card")).toBe(SLIM);
+          expect(await cardPaneWidth(app, "settings")).toBe(SLIM);
+          expect(await cardPaneWidth(app, "keyboard")).toBe(SLIM);
 
           // And a later Card Width click reaches them like any other content
           // pane.
-          await app.nativeClickAtElement(WIDTH_TILE("comfy"));
+          await awaitLayoutBodyAtRest(app);
+          await app.body("L").nativeClickAtElement(WIDTH_TILE("comfy"));
           await app.waitForCondition<boolean>(
             `(${PANE_WIDTH_JS("p1")}) === ${COMFY}`,
             { timeoutMs: 8_000 },
           );
-          expect(await cardPaneWidth(app, "settings-card")).toBe(COMFY);
-          expect(await cardPaneWidth(app, "keyboard-card")).toBe(COMFY);
+          expect(await cardPaneWidth(app, "settings")).toBe(COMFY);
+          expect(await cardPaneWidth(app, "keyboard")).toBe(COMFY);
         } finally {
           await app.close();
         }

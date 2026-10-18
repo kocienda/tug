@@ -555,6 +555,40 @@ describe("a reconnect re-binds the same server and reloads only a restarted one"
     expect(findRequestReplayFrames()).toEqual([{ tugSessionId, reason: "launch" }]);
   });
 
+  it("the same server, a new session whose first read was shadowed by its first turn: re-bound, never rebuilt", () => {
+    const cardId = "reconnect-new-shadowed";
+    const tugSessionId = "sess-reconnect-new-shadowed";
+    const deck = createFakeDeck([{ id: cardId, componentId: "session" }]);
+    cardServicesStore.attachDeckManager(
+      deck as unknown as Parameters<typeof cardServicesStore.attachDeckManager>[0],
+    );
+    sendSpawnSession(fakeConnection, cardId, tugSessionId, "/work/r1c-test", "new", "launch");
+    ack(cardId, tugSessionId, "new");
+    const services = cardServicesStore.getServices(cardId)!;
+    // The prompt goes in before the first read's bracket opens, so the
+    // bracket is shadowed and closes without being a replay the card had.
+    services.codeSessionStore.send("say it", []);
+    for (const frame of [
+      { type: "replay_started", ipc_version: 2 },
+      { type: "replay_complete", count: 0, ipc_version: 2 },
+    ]) {
+      services.codeSessionStore._ingestFrameForTest(FeedId.CODE_OUTPUT, { ...frame, tug_session_id: tugSessionId });
+    }
+    expect(services.codeSessionStore.getSnapshot().replayEverCompleted).toBe(false);
+    sentFrames.length = 0;
+
+    bounceTheWire();
+    reassertOnReconnect(asDeck(deck), reconnectedConnection("srv-A", "srv-A"));
+    answerTheBindingsQuery(cardId, tugSessionId);
+    expect(cardServicesStore.getServices(cardId), "a card born on this session lost nothing").toBe(services);
+    sentFrames.length = 0;
+    ack(cardId, tugSessionId, "resume");
+
+    expect(cardServicesStore.getServices(cardId)).toBe(services);
+    expect(findRequestReplayFrames(), "the JSONL is not read").toEqual([]);
+    expect(sentActions().filter((a) => a.startsWith("request_"))).toEqual(["request_inflight"]);
+  });
+
   it("the same server, a card the ledger no longer names: that card alone is cleared", () => {
     const cardId = "reconnect-unlisted";
     const { deck } = launched(cardId, "sess-reconnect-unlisted");
