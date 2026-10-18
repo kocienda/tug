@@ -6,9 +6,9 @@
  * goes (`tugtool progress --unit …`, `tugtool test run`). The panel is one
  * shape for every run, in one column, top to bottom:
  *
- *   1. **Masthead** — the ring while running and the verdict word, PASS or
- *      FAIL, in its place once over; the label, the fraction with its unit
- *      word, the tally as words, and the run's facts: jobs and the projection
+ *   1. **Masthead** — the verdict word, PASS or FAIL, once the run is over;
+ *      the label, the fraction with its unit word, the tally as words, and
+ *      the run's facts: jobs and the projection
  *      while running, wall time once over. A test run's line before it has a
  *      count (a crate compiling) is a fact too.
  *   2. **Track** — a cell per unit in run order, coloured as it lands, in one
@@ -438,10 +438,11 @@ export interface TugRunPanelProps {
 }
 
 /**
- * The masthead: the lead, the label, the fraction, the tally, the facts. The
- * lead is the ring while the run goes and the verdict word once it is over,
- * in the same place, so a run that finishes changes one thing on this line.
- * The panel and the strip both open with it.
+ * The masthead: the label, the fraction, the tally, the facts — and, once
+ * the run is over, the verdict word in front of them. While the run goes
+ * there is no lead: the block's own dot, the count and the track already
+ * say it is running, and a ring said it a fourth time. The panel and the
+ * strip both open with it.
  */
 function Masthead({
   m,
@@ -470,18 +471,7 @@ function Masthead({
   if (state === "finished" && wallSecs !== undefined) facts.push(<span key="w">wall {formatSecs(wallSecs)}</span>);
   return (
     <div className="tug-run-panel-masthead">
-      {state === "running" ? (
-        <TugProgressIndicator
-          variant="ring"
-          size={22}
-          role="action"
-          state="running"
-          {...(m.total !== undefined ? { value: m.done, max: m.total } : {})}
-          aria-label="Progress"
-        />
-      ) : (
-        <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>
-      )}
+      {state === "finished" && <span className="tug-run-panel-verdict-word">{verdictWord(m)}</span>}
       {m.label.length > 0 && <span className="tug-run-panel-label">{m.label}</span>}
       <Fraction done={m.done} total={m.total} unit={m.unit} />
       <Tally m={m} />

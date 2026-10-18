@@ -492,8 +492,8 @@ body {
 
 /* ---- The verdict, and the strip ----------------------------------------- */
 
-/* The verdict word stands in the masthead where the ring stood, the same
-   height, so a run that finishes changes that one thing on the line. */
+/* The verdict word leads the masthead once the run is over, at the
+   masthead's own height so the line does not grow to fit it. */
 .tug-run-panel-verdict-word {
   display: inline-flex;
   align-items: center;
