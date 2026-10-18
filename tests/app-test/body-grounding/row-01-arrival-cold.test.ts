@@ -1,12 +1,12 @@
 /**
- * row-01-arrival-cold.test.ts — ⌘N: a card spawned while the spare is taken
+ * row-01-arrival-cold.test.ts — ⌘N: a card opened while the spare is taken
  * arrives cold, with nothing of the canvas, grid or window showing at any
  * frame.
  *
  * A piece of row 1 ([B02] row 1; the arrival and its reading are
  * `_row-01.ts`'s): a second card takes the spare unobserved, and a third
- * is spawned at once behind it, inside the second the spare takes to be
- * replaced, so it is made cold.
+ * is opened behind it, inside the second the spare takes to be replaced,
+ * so it is made cold.
  *
  * @foreground
  * @family row-01-arrival

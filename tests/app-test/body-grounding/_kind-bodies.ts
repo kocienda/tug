@@ -103,9 +103,14 @@ export interface PlaceholderSample {
   wall: number;
   /** Each standing placeholder's rect, by card id. */
   rects: Record<string, { x: number; y: number; width: number; height: number }>;
+  /**
+   * The cards whose pane the deck is still bringing in, by card id: the pane
+   * is arriving, or a settle is running. Its card is not on screen yet.
+   */
+  moving: Record<string, boolean>;
 }
 
-/** Arm a per-animation-frame sampler of every body placeholder's rect, by card id. */
+/** Arm a per-animation-frame sampler of every body placeholder's rect and whether its pane is still coming in, by card id. */
 export async function armPlaceholderSampler(app: App): Promise<void> {
   await app.evalJS<null>(
     `(function () {
@@ -113,11 +118,15 @@ export async function armPlaceholderSampler(app: App): Promise<void> {
       var tick = function () {
         if (rec.stop) return;
         var rects = {};
+        var moving = {};
+        var settling = document.querySelector("[data-imposer-settling]") !== null;
         document.querySelectorAll("[data-body-placeholder][data-card-id]").forEach(function (el) {
           var r = el.getBoundingClientRect();
-          rects[el.getAttribute("data-card-id")] = { x: r.x, y: r.y, width: r.width, height: r.height };
+          var id = el.getAttribute("data-card-id");
+          rects[id] = { x: r.x, y: r.y, width: r.width, height: r.height };
+          moving[id] = settling || el.closest(".tug-pane[data-arriving]") !== null;
         });
-        rec.samples.push({ wall: Date.now(), rects: rects });
+        rec.samples.push({ wall: Date.now(), rects: rects, moving: moving });
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -142,6 +151,21 @@ export function placeholderAt(
     found = s;
   }
   return found?.rects[cardId] ?? null;
+}
+
+/**
+ * The wall time from which `cardId`'s pane stood landed for good: the first
+ * sample after the last one that had it arriving or under a settle, or null
+ * when no sample ever held its placeholder.
+ */
+export function landedFrom(samples: readonly PlaceholderSample[], cardId: string): number | null {
+  let from: number | null = null;
+  for (const s of samples) {
+    if (!(cardId in s.rects)) continue;
+    if (s.moving[cardId]) from = null;
+    else from ??= s.wall;
+  }
+  return from;
 }
 
 /**
