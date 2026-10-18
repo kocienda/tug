@@ -30,7 +30,8 @@
  *   5. **Folds**, collapsed: what passed (standing from the first report,
  *      for a run that lists its units — a test run counts its passes and has
  *      none to fold), the wall-time chart (one bar per unit, the recorded
- *      median a ghost tick), and the run's own output.
+ *      median a ghost tick, said in the chart's own tooltip), and the run's
+ *      own output. Every fold is one line of its own text.
  *
  * {@link TugRunStrip} is the finished run for a collapsed block: rows 1 and 2,
  * and row 4 when the run went red, so the running panel, the strip and the
@@ -281,6 +282,7 @@ function Reds({ reds, foldKey }: { reds: readonly RunUnit[]; foldKey: string | u
         <TugAccordion
           type="multiple"
           variant="plain"
+          density="compact"
           className="tug-run-panel-folds tug-run-panel-earlier-reds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: `${foldKey}-earlier-reds` } : {})}
         >
@@ -303,7 +305,13 @@ function DurationChart({ units }: { units: readonly RunUnit[] }) {
   const landed = units.filter((u) => u.secs !== undefined);
   const max = Math.max(1, ...landed.map((u) => Math.max(u.secs ?? 0, u.median ?? 0)));
   return (
-    <div className="tug-run-panel-durations" data-slot="tug-run-panel-durations" role="img" aria-label="wall time per unit">
+    <div
+      className="tug-run-panel-durations"
+      data-slot="tug-run-panel-durations"
+      role="img"
+      aria-label="wall time per unit; the ghost tick is the recorded median"
+      title="ghost tick: the recorded median"
+    >
       {landed.map((u) => (
         <div
           key={`${u.index ?? 0}-${u.name}`}
@@ -515,6 +523,7 @@ export function TugRunPanel({
         <TugAccordion
           type="multiple"
           variant="plain"
+          density="compact"
           className="tug-run-panel-folds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: foldKey } : {})}
         >
@@ -526,7 +535,7 @@ export function TugRunPanel({
             </TugAccordionItem>
           )}
           {state === "finished" && landed.length > 1 && (
-            <TugAccordionItem value="wall" trigger={<FoldTitle label="Wall time" count="ghost tick is the recorded median" />}>
+            <TugAccordionItem value="wall" trigger={<FoldTitle label="Wall time" />}>
               <DurationChart units={m.units} />
             </TugAccordionItem>
           )}
@@ -541,6 +550,7 @@ export function TugRunPanel({
         <TugAccordion
           type="multiple"
           variant="plain"
+          density="compact"
           className="tug-run-panel-folds"
           {...(foldKey !== undefined ? { componentStatePreservationKey: foldKey } : {})}
         >

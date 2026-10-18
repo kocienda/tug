@@ -29,7 +29,7 @@
 
 import type React from "react";
 
-import { registerCard, type CardRegistration, type CardSizePolicy } from "@/card-registry";
+import { registerCard, type CardSizePolicy } from "@/card-registry";
 import { SpikeHome, spikeComponentId } from "./spike-home";
 import { spike as slotLayoutSpike } from "./spike-slot-layout";
 import { spike as configureTugSpike } from "./spike-configure-tug";
@@ -134,13 +134,8 @@ export const SPIKES: readonly SpikeDef[] = [
  * saved layouts, because `filterDeckStateByRegistration` drops restored cards
  * whose componentId no longer resolves.
  */
-/** Register one spike card. Every spike kind lives in a body (`body: true`), set here once. */
-function registerSpikeCard(registration: Omit<CardRegistration, "body">): void {
-  registerCard({ ...registration, body: true });
-}
-
 export function registerSpikeCards(): void {
-  registerSpikeCard({
+  registerCard({
     componentId: SPIKE_HOME_ID,
     contentFactory: () => <SpikeHome spikes={SPIKES} />,
     defaultMeta: { title: "Spikes", icon: "FlaskConical", closable: true },
@@ -151,7 +146,7 @@ export function registerSpikeCards(): void {
   });
 
   for (const def of SPIKES) {
-    registerSpikeCard({
+    registerCard({
       componentId: spikeComponentId(def.name),
       contentFactory: def.component,
       defaultMeta: {

@@ -168,6 +168,12 @@
   border-radius: 0.25rem;
 }
 
+/* compact: the trigger is its own text's line and nothing around it */
+.tug-accordion[data-density="compact"] .tug-accordion-trigger {
+  padding: 0;
+  border-radius: 0;
+}
+
 /* ---- Hover ---- */
 
 /* @tug-renders-on: --tug7-surface-field-primary-normal-plain-hover */

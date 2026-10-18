@@ -47,8 +47,8 @@ body {
   --tugx-run-pending-edge: var(--tug7-element-global-border-normal-muted-rest);
   --tugx-run-band-track:   var(--tug7-surface-global-primary-normal-control-rest);
 
-  --tugx-run-gap:  var(--tug-space-lg);
-  --tugx-run-pad:  var(--tug-space-lg);
+  --tugx-run-gap:  var(--tug-space-sm);
+  --tugx-run-pad:  var(--tug-space-sm);
 }
 
 /* ---- The panel ---------------------------------------------------------- */
@@ -57,7 +57,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--tugx-run-gap);
-  padding: var(--tugx-run-pad) var(--tugx-run-pad) var(--tug-space-xl);
+  padding: var(--tugx-run-pad);
   background-color: var(--tugx-run-surface);
   color: var(--tugx-run-text-color);
   font-size: var(--tug-font-size-sm);
@@ -67,7 +67,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--tug-space-md);
-  min-height: 28px;
+  min-height: 22px;
   min-width: 0;
 }
 
@@ -158,7 +158,6 @@ body {
   flex-wrap: nowrap;
   gap: 4px;
   min-width: 0;
-  padding: var(--tug-space-2xs) 0;
 }
 
 .tug-run-panel-track[data-many] {
@@ -167,10 +166,10 @@ body {
 
 /* @tug-renders-on: --tugx-run-surface */
 .tug-run-panel-cell {
-  /* 16px while the row has room, down to 3px as the count grows. */
-  flex: 0 1 16px;
+  /* 12px while the row has room, down to 3px as the count grows. */
+  flex: 0 1 12px;
   min-width: 3px;
-  height: 16px;
+  height: 10px;
   border-radius: var(--tug-radius-2xs);
   box-shadow: inset 0 0 0 1px var(--tugx-run-pending-edge);
 }
@@ -240,8 +239,8 @@ body {
 .tug-run-panel-lanes {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xs);
-  padding: var(--tug-space-sm) var(--tug-space-md);
+  gap: 0;
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
   border-radius: var(--tug-radius-sm);
   background-color: var(--tugx-run-card-surface);
   color: var(--tugx-run-text-color);
@@ -252,7 +251,7 @@ body {
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: var(--tug-space-sm);
-  min-height: 22px;
+  min-height: 18px;
 }
 
 /* @tug-renders-on: --tugx-run-surface, --tugx-run-card-surface */
@@ -280,9 +279,9 @@ body {
 .tug-run-panel-red {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xs);
-  padding: var(--tug-space-sm) var(--tug-space-md);
-  line-height: 1.5;
+  gap: var(--tug-space-2xs);
+  padding: var(--tug-space-2xs) var(--tug-space-sm);
+  line-height: 1.35;
   border-radius: var(--tug-radius-sm);
   background-color: var(--tugx-run-card-surface);
   color: var(--tugx-run-text-color);
@@ -299,7 +298,6 @@ body {
   align-items: center;
   gap: var(--tug-space-sm);
   min-width: 0;
-  margin-bottom: var(--tug-space-2xs);
 }
 
 /* @tug-renders-on: --tugx-run-card-surface */
@@ -382,9 +380,15 @@ body {
 .tug-run-panel-folds {
   display: flex;
   flex-direction: column;
-  gap: var(--tug-space-xs);
-  padding-top: var(--tug-space-xs);
+  gap: 0;
+  padding-top: 0;
   border-top: 1px solid var(--tugx-run-rule-color);
+}
+
+/* The earlier-failures fold belongs to the red card above it, not to the
+   foot: no rule of its own between the two. */
+.tug-run-panel-earlier-reds {
+  border-top: none;
 }
 
 /* @tug-renders-on: --tugx-run-surface */
@@ -392,7 +396,7 @@ body {
   display: inline-flex;
   align-items: baseline;
   gap: var(--tug-space-sm);
-  padding: var(--tug-space-xs) 0;
+  padding: var(--tug-space-2xs) 0;
   font-size: var(--tug-font-size-2xs);
   font-weight: var(--tug-font-weight-semibold);
   letter-spacing: 0.06em;
@@ -418,7 +422,7 @@ body {
   grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--tug-space-sm);
-  min-height: 26px;
+  min-height: 20px;
   padding: 0 var(--tug-space-xs);
   font-size: var(--tug-font-size-xs);
 }
@@ -522,7 +526,4 @@ body {
 }
 
 /* The strip is the panel's first two rows and nothing under them: the same
-   box and sizes, only without the room the body below would need. */
-.tug-run-strip {
-  padding-bottom: var(--tugx-run-pad);
-}
+   box and sizes. */

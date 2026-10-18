@@ -119,6 +119,9 @@ export interface TugAccordionMultipleProps {
 /** Border variant for the accordion. */
 export type TugAccordionVariant = "separator" | "outline" | "inset" | "plain";
 
+/** How much room a trigger takes: a padded row, or one line of its own text. */
+export type TugAccordionDensity = "regular" | "compact";
+
 /** Shared props merged with the discriminated union. */
 export interface TugAccordionSharedProps {
   /**
@@ -131,6 +134,13 @@ export interface TugAccordionSharedProps {
    * @default "separator"
    */
   variant?: TugAccordionVariant;
+  /**
+   * `compact` strips the trigger to one line of its own text, for an
+   * accordion that is a fold at the foot of something rather than a list.
+   * @selector [data-density="compact"]
+   * @default "regular"
+   */
+  density?: TugAccordionDensity;
   /**
    * Disables all items. Merges with TugBox disabled cascade.
    * @selector [data-disabled]
@@ -211,6 +221,7 @@ export const TugAccordion = React.forwardRef<HTMLDivElement, TugAccordionProps>(
   function TugAccordion(props, ref) {
     const {
       variant = "separator",
+      density = "regular",
       disabled = false,
       senderId,
       className,
@@ -511,6 +522,7 @@ export const TugAccordion = React.forwardRef<HTMLDivElement, TugAccordionProps>(
       <Accordion.Root
         ref={setRootRef}
         data-slot="tug-accordion"
+        data-density={density === "compact" ? "compact" : undefined}
         className={cn(
           "tug-accordion",
           `tug-accordion-${variant}`,
