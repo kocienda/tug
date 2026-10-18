@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp, note } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -65,12 +66,9 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
-          await app.waitForCondition<boolean>(
-            `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-            // Generous: a cold single-file run pays the tugdeck Vite
-            // first-compile cost, which exceeds the 10s default.
-            { timeoutMs: 30_000 },
-          );
+          // Generous: a cold single-file run pays the tugdeck Vite
+          // first-compile cost, which exceeds the 10s default.
+          await waitForBodyReady(app, "A", 30_000);
           await app.bindSession("A", { projectDir });
           await app.awaitEngineReady("A", { timeoutMs: 30_000 });
 
@@ -92,11 +90,11 @@ describe.skipIf(!SHOULD_RUN)(
             },
           });
 
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(DIVIDER)}) !== null`,
             { timeoutMs: 6000 },
           );
-          const label = await app.evalJS<string>(
+          const label = await app.body("A").evalJS<string>(
             `(document.querySelector(${JSON.stringify(DIVIDER_LABEL)})||{}).textContent || ""`,
           );
           // Bar header label + trailing token count, concatenated in the DOM.
@@ -106,7 +104,7 @@ describe.skipIf(!SHOULD_RUN)(
           // A compaction-only turn stands OUTSIDE the assistant attribution —
           // the marker bar has no `.tug-transcript-entry` ancestor (no
           // `Opus …` / `#a` header, per the session-meta treatment).
-          const attributed = await app.evalJS<boolean>(
+          const attributed = await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(DIVIDER)}).closest(".tug-transcript-entry") !== null`,
           );
           expect(attributed).toBe(false);
@@ -115,7 +113,7 @@ describe.skipIf(!SHOULD_RUN)(
           // boundary takes. The comparison is against a neighbouring entry's
           // left, which is where a speaker's row begins: a boundary belongs to
           // the transcript rather than to a column inside one.
-          const edge = await app.evalJS<number | null>(
+          const edge = await app.body("A").evalJS<number | null>(
             `(() => {
                const b = document.querySelector(${JSON.stringify(DIVIDER)});
                const entry = document.querySelector(".session-card-transcript .tug-transcript-entry");

@@ -265,6 +265,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const perCard = new Map<string, () => void>();
   /** Cards whose body has spoken, so their first `card-facts` is answered. */
   const heard = new Set<string>();
+  /**
+   * Whether a command for `cardId` goes to its body: the card is a body card
+   * and its body has spoken. Until then no page is bound to take a bus
+   * message for it, so one sent then is lost — a ⌘W just after ⌘N, or a
+   * second workspace switch right behind the first, did nothing. The shell
+   * answers those itself; its chain reaches the deck through the card's
+   * pane.
+   */
+  const takesCommands = (cardId: string): boolean => bodyCardsStore.has(cardId) && heard.has(cardId);
   /** The last `card-context` sent each card, as JSON. */
   const sentContext = new Map<string, string>();
   /** Cards that have shown a masthead, so its going away clears the binding. */
@@ -998,7 +1007,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   releases.push(
     setFocusWalkEdge((direction) => {
       const fr = deck.getFirstResponderCardId();
-      if (fr === null || !bodyCardsStore.has(fr)) return false;
+      if (fr === null || !takesCommands(fr)) return false;
       if (shellHoldsStop(fr)) {
         enterBody(fr, direction === 1 ? "first" : "last");
         return true;
@@ -1015,7 +1024,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   releases.push(
     setCycleFocusForwarder(() => {
       const fr = deck.getFirstResponderCardId();
-      if (fr === null || !bodyCardsStore.has(fr)) return false;
+      if (fr === null || !takesCommands(fr)) return false;
       sendBus(connection, { card: fr }, { kind: "card-command", payload: { command: "dispatch", id: TUG_ACTIONS.CYCLE_FOCUS_MODE } });
       return true;
     }),
@@ -1173,7 +1182,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       const target = bodyCommandRoute({
         routing: entry.routing,
         firstResponderCardId,
-        isBodyCard: bodyCardsStore.has,
+        isBodyCard: takesCommands,
         shellResponderAhead: shellAheadNow(),
       });
       if (target === null) return false;

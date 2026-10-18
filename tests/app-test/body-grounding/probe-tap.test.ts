@@ -118,6 +118,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding probe: the app's own path reaches a
         )}`);
         expect(typed, "the character lands in the body's composer").toContain("q");
         expect(
+          // card-dom: shell — the shell's own document, which must not have taken the key.
           await app.evalJS<boolean>(`document.body.textContent.includes("q") && document.activeElement !== null && document.activeElement.matches(${JSON.stringify(PROMPT_INPUT)})`),
           "the shell's own document did not take the key",
         ).toBe(false);

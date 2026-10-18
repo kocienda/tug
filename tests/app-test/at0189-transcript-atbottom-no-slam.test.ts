@@ -173,7 +173,7 @@ describe.skipIf(!SHOULD_RUN)("at0189: atBottom restore never slams a scrolled-up
             );
 
             // Let the observer fire and any slam play out (~500ms).
-            await app.waitForCondition<boolean>(
+            await app.body(CARD_ID).waitForCondition<boolean>(
               `(window.__noSlam && window.__noSlam.samples >= 28)`,
               { timeoutMs: 4000 },
             );

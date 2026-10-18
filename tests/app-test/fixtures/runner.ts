@@ -7,10 +7,15 @@
  * the perf corpus's snapshot/budget machinery: the source is a small
  * committed fixture, so these legs run everywhere and never touch the
  * private live archive.
+ *
+ * Card A is a body, so every read of its picker and transcript is made in
+ * A's own page: the picker is drawn there while the card is unbound, and the
+ * spawn re-binds that same body in place.
  */
 
 import { expect } from "bun:test";
-import type { App } from "../_harness";
+import type { App, BodyApp } from "../_harness";
+import { waitForBodyReady } from "../_harness/card-reach";
 import type { SeededFixtureSession } from "./resolve";
 
 export const PICKER_FORM = ".session-card-picker-form";
@@ -42,8 +47,8 @@ export function deckShape() {
   };
 }
 
-function clickElement(app: App, selector: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+function clickElement(page: App | BodyApp, selector: string): Promise<boolean> {
+  return page.evalJS<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(selector)});
       if (el === null) return false;
@@ -60,8 +65,8 @@ function clickElement(app: App, selector: string): Promise<boolean> {
  * then blur so the dropdown the typing opened doesn't overlay the sessions list.
  * Returns false if the field isn't present.
  */
-function setPickerPath(app: App, path: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+function setPickerPath(page: App | BodyApp, path: string): Promise<boolean> {
+  return page.evalJS<boolean>(
     `(function(){
       var input = document.querySelector(".session-card-picker-form input");
       if (input === null) return false;
@@ -78,6 +83,12 @@ export interface OpenFixtureOpts {
   /** Saved card-state bag to inject (Phase B restore). */
   cardStates?: Record<string, unknown>;
   listTimeoutMs?: number;
+  /**
+   * Run in card A's body once the picker stands, before Open is clicked —
+   * the earliest point a probe can be armed in the page the session card
+   * will come up in.
+   */
+  beforeOpen?: (page: BodyApp) => Promise<void>;
 }
 
 /**
@@ -95,10 +106,8 @@ export async function openFixtureSession(
     ...(opts.cardStates ? { cardStates: opts.cardStates } : {}),
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
-    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-  );
-  await app.waitForCondition<boolean>(
+  const page = await waitForBodyReady(app, "A");
+  await page.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
     { timeoutMs: 8000 },
   );
@@ -107,21 +116,21 @@ export async function openFixtureSession(
   // be assumed to hold the seeded project dir — drive the field directly with a
   // React-compatible value write (the native setter + an `input` event), then
   // blur so the combo box dropdown the typing opened doesn't overlay the list.
-  expect(await setPickerPath(app, seeded.projectDir)).toBe(true);
-  await app.waitForCondition<boolean>(
+  expect(await setPickerPath(page, seeded.projectDir)).toBe(true);
+  await page.waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(".session-card-picker-form input");
       return el !== null && el.value === ${JSON.stringify(seeded.projectDir)};
     })()`,
     { timeoutMs: 8000 },
   );
-  await app.waitForCondition<boolean>(
+  await page.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(rowSel(seeded.sessionId))}) !== null`,
     { timeoutMs: opts.listTimeoutMs ?? 15_000 },
   );
 
-  expect(await clickElement(app, rowSel(seeded.sessionId))).toBe(true);
-  await app.waitForCondition<boolean>(
+  expect(await clickElement(page, rowSel(seeded.sessionId))).toBe(true);
+  await page.waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(rowSel(seeded.sessionId))});
       return el !== null && el.getAttribute("data-selected") === "true";
@@ -129,8 +138,9 @@ export async function openFixtureSession(
     { timeoutMs: 6000 },
   );
 
+  if (opts.beforeOpen !== undefined) await opts.beforeOpen(page);
   const openedAt = Date.now();
-  expect(await clickElement(app, OPEN)).toBe(true);
+  expect(await clickElement(page, OPEN)).toBe(true);
   return { openedAt };
 }
 
@@ -153,7 +163,7 @@ export async function waitForTranscriptSettled(
   app: App,
   timeoutMs = 20_000,
 ): Promise<void> {
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function(){
       var host = document.querySelector(${JSON.stringify(TRANSCRIPT)});
       if (host === null || host.hasAttribute("data-replaying")) return false;

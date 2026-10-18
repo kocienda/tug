@@ -388,6 +388,13 @@ function scopedThroughConst(text: string, bindings: Map<string, string>): boolea
     const value = (bindings.get(m[1]) ?? "").trim().replace(/^["'`]|["'`]$/g, "");
     if (/^\[data-card-id=[^\]]*\]$/.test(value)) return true;
   }
+  // The same scope built by a call — `${CARD("B")} input`, with
+  // `CARD = (id) => \`[data-card-id="${id}"]\`` — is the same reach.
+  for (const name of selectorBuilders(bindings)) {
+    const body = /=>\s*`([^`]*)`\s*;?$/.exec((bindings.get(name) ?? "").trim());
+    if (body === null || !/^\[data-card-id=[^\]]*\]$/.test(body[1])) continue;
+    if (new RegExp(`\\$\\{\\s*${name}\\([^()]*\\)\\s*\\}\\s+[[.#A-Za-z]`).test(text)) return true;
+  }
   return false;
 }
 
@@ -547,6 +554,11 @@ export function censusOfSource(
   const fileKinds = kindsSeeded(seeding);
   const covered = coveredKind(src, vocabulary.coversKinds);
   const onBody = bodyNames(masked);
+  // A name bound to a call of a helper the file binds whose signature says it
+  // answers a body (`async function seeded(app): Promise<BodyApp>`) is a body.
+  for (const m of masked.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?([A-Za-z_$][\w$]*)\(/g)) {
+    if (/\)\s*:\s*(?:Promise<\s*)?BodyApp\s*>?\s*(?:=>|\{)/.test(bindings.get(m[2]) ?? "")) onBody.add(m[1]);
+  }
   const lines = src.split("\n");
   const selectors = [...CARD_SELECTORS, ...vocabulary.extraSelectors, ...vocabulary.kindRoots.map((k) => k.root)];
   const entries: CensusEntry[] = [];

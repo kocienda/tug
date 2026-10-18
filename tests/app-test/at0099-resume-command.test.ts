@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
 import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
@@ -65,9 +66,7 @@ describe.skipIf(!SHOULD_RUN)("AT0099: /resume focused sessions overlay", () => {
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: sessionCardShape(SESSION_CARD_SIZE_COMPACT), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
+        await waitForBodyReady(app, "A");
         await app.bindSession("A", { tugSessionId: SID, projectDir });
         await app.awaitEngineReady("A");
 
@@ -95,14 +94,14 @@ describe.skipIf(!SHOULD_RUN)("AT0099: /resume focused sessions overlay", () => {
         await app.nativeKey("Escape");
         await new Promise((r) => setTimeout(r, 200));
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 6000 },
         );
 
         // Sessions-only chrome: the sessions list is present; the full
         // picker's project-path combo box field is NOT.
-        const chrome = await app.evalJS<{ hasSessions: boolean; hasPathField: boolean }>(
+        const chrome = await app.body("A").evalJS<{ hasSessions: boolean; hasPathField: boolean }>(
           `({
              hasSessions: document.querySelector(${JSON.stringify(SHEET_SESSIONS)}) !== null,
              hasPathField: document.querySelector(${JSON.stringify(SHEET_PATH_FIELD)}) !== null,
@@ -112,8 +111,8 @@ describe.skipIf(!SHOULD_RUN)("AT0099: /resume focused sessions overlay", () => {
         expect(chrome.hasPathField).toBe(false);
 
         // Cancel → overlay dismisses, the live session is untouched.
-        await app.nativeClickAtElement(RESUME_CANCEL);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(RESUME_CANCEL);
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 4000 },
         );

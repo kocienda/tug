@@ -237,8 +237,11 @@ export function dispatchCommand(
   const manager = getResponderChainManager();
   if (manager === null) {
     console.warn(`dispatchCommand: ${id}: responder chain manager not registered yet`);
-    notifyCommandObservers(id, false);
-    return false;
+    // A page with no chain yet — a body that has just taken its card — has
+    // nothing to run the command against, so it goes where any unanswered
+    // command goes: a body hands it back to the shell, whose chain answers
+    // it. Dropping it here lost a menu command sent in that window.
+    return unhandled();
   }
 
   const action = commandAction(entry);

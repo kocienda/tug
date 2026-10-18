@@ -49,8 +49,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
-import type { SessionDriveAction } from "./_harness/client";
+import { enableDeckTrace, type SessionDriveAction } from "./_harness/client";
 import { sessionCardShape } from "./_harness/shapes";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -116,14 +117,14 @@ function seedTurn(app: App, n: number): Promise<void> {
  *  (Comments inside the evaluated source below must not use backticks:
  *  it is a template literal, and a backtick would end it.) */
 async function settle(app: App, grewFrom?: number): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+  await app.body("A").evalJS<boolean>(`(function () {
   window.__at0335Frames = false;
   requestAnimationFrame(function () {
     requestAnimationFrame(function () { window.__at0335Frames = true; });
   });
   return true;
 })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
   if (!window.__at0335Frames) return false;
   var el = document.querySelector('${SCROLLER}');
@@ -144,7 +145,7 @@ async function settle(app: App, grewFrom?: number): Promise<void> {
  *  true. Never an assertion itself: the caller asserts what it reads
  *  next, so a condition that never arrives still fails there. */
 async function awaitQuietly(app: App, expr: string): Promise<void> {
-  await app.waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
+  await app.body("A").waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
 }
 
 const AT_LIVE_EDGE = `(function () {
@@ -174,15 +175,15 @@ async function standUp(testName: string): Promise<App> {
   // recording back OFF and checking that a displacement still lands.
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
-    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-  );
+  await waitForBodyReady(app, "A");
+  // The transcript is in A's body, which records into its own trace.
+  await enableDeckTrace(app.body("A"), true);
   await app.bindSession("A", { tugSessionId: SID });
   await app.awaitEngineReady("A", { timeoutMs: 20_000 });
   for (let n = 0; n < TURNS; n += 1) {
     await seedTurn(app, n);
   }
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
     { timeoutMs: 30_000 },
   );
@@ -207,7 +208,7 @@ interface ScrollSnap {
 // assertions about a state that is, behaviorally, exactly "not
 // showing".
 function readSnap(app: App): Promise<ScrollSnap> {
-  return app.evalJS<ScrollSnap>(`(function () {
+  return app.body("A").evalJS<ScrollSnap>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var btn = document.querySelector('${JUMP_BUTTON}');
   var spacer = document.querySelector('.tug-list-view-spacer--top');
@@ -230,7 +231,7 @@ function readDisplacementRecords(app: App): Promise<
     following: boolean;
   }[]
 > {
-  return app.evalJS(`(function () {
+  return app.body("A").evalJS(`(function () {
   return window.__deckTrace.dump()
     .filter(function (e) { return e.kind === "scroll-displacement"; })
     .map(function (e) {
@@ -241,7 +242,7 @@ function readDisplacementRecords(app: App): Promise<
 
 /** Follow-bottom sources recorded in the dev log, oldest first. */
 function readFollowBottomSources(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(`(function () {
+  return app.body("A").evalJS<string[]>(`(function () {
   return window.tugDevLog.getSnapshot().entries
     .filter(function (e) {
       return e.source === "smart-scroll" && e.message === "follow-bottom";
@@ -268,7 +269,7 @@ async function expectZeroDisplacements(app: App): Promise<void> {
 /** Park the transcript well above the live edge, the way a native
  *  scrollbar drag does — no pointer or wheel events. */
 async function parkMidHistory(app: App): Promise<number> {
-  const top = await app.evalJS<number>(`(function () {
+  const top = await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = el.scrollTop - ${AT_BOTTOM_PX * 15};
   return el.scrollTop;
@@ -290,7 +291,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
         // clean run.
         expect(snap.displacements).not.toBeNull();
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `window.__tug.getScrollDisplacementCount('${SCROLLER}')`,
           ),
         ).toBe(Number(snap.displacements));
@@ -311,7 +312,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
         // stand-up: a transcript that mounts at the live edge mounts
         // ALREADY engaged, and `_setFollowingBottom` early-returns on a
         // no-op, so a clean stand-up has no transition to log.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.dispatchEvent(new WheelEvent('wheel', { deltaY: -400, bubbles: true, cancelable: true }));
   el.scrollTop = Math.max(0, el.scrollTop - 400);
@@ -328,7 +329,8 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
         // because the sessions that hold this evidence are the ones
         // nobody thought to instrument.
         await app.enableDeckTrace(false);
-        await app.evalJS<boolean>(
+        await enableDeckTrace(app.body("A"), false);
+        await app.body("A").evalJS<boolean>(
           `(function () { window.__tug.clearDeckTrace(); return true; })()`,
         );
         const parkedSnap = await readSnap(app);
@@ -339,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
         expect(beforeClamp.buttonVisible).toBe("true");
         await expectZeroDisplacements(app);
 
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `(function () { window.__tug.forceCommitClamp('${SCROLLER}'); return true; })()`,
         );
         // Long enough for the clamp's deferred scroll event to be
@@ -360,11 +362,11 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
 
         // Detected, on both surfaces, with recording off.
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `window.__tug.getScrollDisplacementCount('${SCROLLER}')`,
           ),
         ).toBeGreaterThan(0);
-        const gated = await app.evalJS<{ displacement: number; other: number }>(
+        const gated = await app.body("A").evalJS<{ displacement: number; other: number }>(
           `(function () {
   var rows = window.__deckTrace.dump();
   return {
@@ -403,7 +405,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
 
         // Loud means the dev log carries it at warn with no opt-in —
         // the defect record must exist in sessions nobody instrumented.
-        const warned = await app.evalJS<number>(`(function () {
+        const warned = await app.body("A").evalJS<number>(`(function () {
   return window.tugDevLog.getSnapshot().entries.filter(function (e) {
     return e.source === "list-view" && e.message === "scroll-displacement" &&
       e.level === "warn";
@@ -427,7 +429,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
         const before = await readSnap(app);
         expect(before.buttonVisible).toBe("false");
 
-        await app.evalJS<boolean>(
+        await app.body("A").evalJS<boolean>(
           `(function () { window.__tug.forceCommitClamp('${SCROLLER}'); return true; })()`,
         );
         // A negative: nothing to wait on but time for the clamp's
@@ -462,7 +464,7 @@ describe.skipIf(!SHOULD_RUN)("AT0335: scroll clamp", () => {
         // edge with follow-bottom off. It has to be forced — a
         // downward `scrollTop` assignment into the band re-engages
         // before a test can observe it.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   window.__tug.setTranscriptFollowBottom('${SCROLLER}', false);
   return true;
 })()`);

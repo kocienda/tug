@@ -104,7 +104,11 @@ describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
       // freshly-restored card the captured engine state should
       // carry the seeded text. If a stub-state slip-through exists,
       // bag.content.text becomes "" here.
-      await app.evalJS<void>(
+      //
+      // Card A is a body: its save callback and its state bag are in its own
+      // page, which carries its own `saveState`.
+      const page = await waitForBodyReady(app, "A");
+      await page.evalJS<void>(
         `(function(){
           if (!window.tugdeck || typeof window.tugdeck.saveState !== "function") {
             throw new Error("window.tugdeck.saveState missing");
@@ -113,7 +117,7 @@ describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
         })()`,
       );
 
-      const text = await app.evalJS<string | null>(
+      const text = await page.evalJS<string | null>(
         `(function(){
           var bag = window.__tug.getCardStateBag("A");
           if (bag === null || bag.content === undefined) return null;
@@ -138,8 +142,7 @@ describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
       // Anchor focus first so the resign produces a real blur. The editor is
       // in the card's body; the deck's `hasFocus` is the app's activity,
       // which a body holding the keyboard leaves true.
-      const body = await waitForBodyReady(app, "A");
-      await body.nativeClickAtElement(`[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content`);
+      await page.nativeClickAtElement(`[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content`);
       await app.waitForCondition<boolean>(
         `window.__tug.getHasFocus() === true`,
         { timeoutMs: 2000 },
@@ -147,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
       await app.simulateAppResign();
       await app.simulateAppBecomeActive();
 
-      const textAfterCycle = await app.evalJS<string | null>(
+      const textAfterCycle = await page.evalJS<string | null>(
         `(function(){
           var bag = window.__tug.getCardStateBag("A");
           if (bag === null || bag.content === undefined) return null;

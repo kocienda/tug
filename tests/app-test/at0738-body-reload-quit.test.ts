@@ -78,6 +78,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
         const back = await pollFor(safeBody, readyBody, BODY_READY_MS);
         const boundTo = await pollFor(
           () =>
+            // card-dom: shell — the binding is the shell's record of the card.
             app.evalJS<string | null>(
               `(function () { try { return window.__tug.cardLineFacts(${JSON.stringify(SAFE)}).tugSessionId; } catch (e) { return null; } })()`,
             ),

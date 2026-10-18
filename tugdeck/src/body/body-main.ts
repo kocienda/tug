@@ -95,6 +95,7 @@ import type { PendingAsk } from "../lib/code-session-store/types";
 import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-episode";
 import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
+import { exposePerfMonitor, startPerfMonitor } from "../lib/perf-monitor";
 import { getSettings } from "../lib/maker-mode-bridge";
 import { getRegistration, type CardIdentityFacts } from "../card-registry";
 import { cardIdentityElsewhere } from "../lib/card-identity";
@@ -241,6 +242,15 @@ const tugbankClient = new TugbankClient(connection);
 setTugbankClient(tugbankClient);
 
 const isTestMode = window.__tugTestMode === true;
+
+// The shell's dev handles, in this page too: a test reads a card's log and its
+// perf census in the page that draws the card, as the shell's own are read in
+// the shell's (`main.tsx`). Dev and test builds only, for the same reason.
+if (import.meta.env.DEV || isTestMode) {
+  (window as unknown as { tugDevLog?: typeof tugDevLogStore }).tugDevLog = tugDevLogStore;
+  startPerfMonitor();
+  exposePerfMonitor();
+}
 
 /** Durable card-state writes, held back in test mode as the deck holds its own. */
 function putCardStateGuarded(

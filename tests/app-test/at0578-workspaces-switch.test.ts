@@ -66,11 +66,13 @@
  * @covers tugdeck/src/components/cards/cards-card.tsx
  * @covers tugdeck/src/components/cards/cards-space-header.tsx
  * @covers tugdeck/src/components/cards/cards-data-source.ts
+ * @covers tugdeck/src/command-dispatch.ts
+ * @covers tugdeck/src/lib/body-shell.ts
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { launchTugApp, note } from "./_harness";
+import { launchTugApp, note, type App } from "./_harness";
 import { RESTORE_TOL_PX } from "./_harness/tolerances";
 import {
   mkTempTugbank,
@@ -476,6 +478,20 @@ const CURSOR_ROW = `${SHOWN}.cards-list .tug-list-view-cell[data-key-cursor]`;
 const wait = (ms: number): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
 
+/**
+ * Wait until `cardId` — one workspace's Workspaces card — is the body the
+ * host shows. A switch commits before the host has placed the incoming
+ * card, and a kind lookup made in that window finds the outgoing one, whose
+ * page keeps the mark it had.
+ */
+async function untilShown(app: App, cardId: string): Promise<void> {
+  const deadline = Date.now() + 8_000;
+  while (!(await app.bodies()).some((b) => b.cardId === cardId && b.visible)) {
+    if (Date.now() >= deadline) throw new Error(`${cardId}'s body was not shown within 8 s`);
+    await wait(50);
+  }
+}
+
 describe.skipIf(!SHOULD_RUN)(
   "at0578 — the workspaces are the card's outer level, and its verbs act on a row",
   () => {
@@ -531,6 +547,7 @@ describe.skipIf(!SHOULD_RUN)(
             `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(SURFACE_TWO)}`,
             { timeoutMs: 8_000 },
           );
+          await untilShown(app, "C2");
           await kindBody(app, "cards").waitForCondition<boolean>(
             `(function () {
                var el = document.querySelector(${JSON.stringify(headerFor(SURFACE_TWO))});
@@ -571,6 +588,7 @@ describe.skipIf(!SHOULD_RUN)(
             `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(SURFACE_ONE)}`,
             { timeoutMs: 8_000 },
           );
+          await untilShown(app, "C1");
 
           // ---- 4. The fold cue folds a parked workspace shut, and opens it
           // again. Every workspace now arrives EXPANDED ([B02]), so the rows
@@ -732,6 +750,13 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8_000 },
           );
           await kindBody(app, "cards").nativeClickAtElement(CONFIRM_OK);
+          // Deleting goes to the workspace's neighbour, whose own Workspaces
+          // card is the one on screen.
+          await app.waitForCondition<boolean>(
+            `window.tugdeck.diag.getSpaces().spaces.length === 2`,
+            { timeoutMs: 8_000 },
+          );
+          await untilShown(app, "C2");
           await kindBody(app, "cards").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(HEADER)}).length === 2`,
             { timeoutMs: 8_000 },

@@ -4,28 +4,12 @@
     "kind": "gallery-input"
   },
   {
-    "file": "at0018-async-content-race.test.ts",
-    "kind": "gallery-prompt-entry"
-  },
-  {
     "file": "at0019-pane-teardown-flush.test.ts",
     "kind": "gallery-input"
   },
   {
-    "file": "at0174-edit-menu-validation.test.ts",
-    "kind": "gallery-prompt-entry"
-  },
-  {
-    "file": "at0420-case-transforms.test.ts",
-    "kind": "unknown"
-  },
-  {
     "file": "at0620-workspace-switch-still.test.ts",
     "kind": "unknown"
-  },
-  {
-    "file": "at0738-body-reload-quit.test.ts",
-    "kind": "session"
   },
   {
     "file": "at0740-body-switch.test.ts",
@@ -33,10 +17,6 @@
   },
   {
     "file": "body-grounding/_row-12.ts",
-    "kind": "session"
-  },
-  {
-    "file": "body-grounding/probe-tap.test.ts",
     "kind": "session"
   },
   {

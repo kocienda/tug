@@ -46,6 +46,7 @@ import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
 import type { SessionDriveAction } from "./_harness/client";
 import { sessionCardShape } from "./_harness/shapes";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 300_000;
@@ -114,14 +115,14 @@ function seedTurn(app: App, n: number): Promise<void> {
  *  (Comments inside the evaluated source below must not use backticks:
  *  it is a template literal, and a backtick would end it.) */
 async function settle(app: App, grewFrom?: number): Promise<void> {
-  await app.evalJS<boolean>(`(function () {
+  await app.body("A").evalJS<boolean>(`(function () {
   window.__at0333Frames = false;
   requestAnimationFrame(function () {
     requestAnimationFrame(function () { window.__at0333Frames = true; });
   });
   return true;
 })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `(function () {
   if (!window.__at0333Frames) return false;
   var el = document.querySelector('${SCROLLER}');
@@ -142,7 +143,7 @@ async function settle(app: App, grewFrom?: number): Promise<void> {
  *  true. Never an assertion itself: the caller asserts what it reads
  *  next, so a condition that never arrives still fails there. */
 async function awaitQuietly(app: App, expr: string): Promise<void> {
-  await app.waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
+  await app.body("A").waitForCondition<boolean>(expr, { timeoutMs: 3_000 }).catch(() => undefined);
 }
 
 const AT_LIVE_EDGE = `(function () {
@@ -168,15 +169,13 @@ async function standUp(testName: string): Promise<App> {
   const app = await launchTugApp({ testName });
   await app.enableDeckTrace(true);
   await app.seedDeckState({ state: sessionCardShape({ width: 900, height: 760 }), focusCardId: "A" });
-  await app.waitForCondition<boolean>(
-    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-  );
+  await waitForBodyReady(app, "A");
   await app.bindSession("A", { tugSessionId: SID });
   await app.awaitEngineReady("A", { timeoutMs: 20_000 });
   for (let n = 0; n < TURNS; n += 1) {
     await seedTurn(app, n);
   }
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `!!document.querySelector('${SCROLLER}[data-evict-active]')`,
     { timeoutMs: 30_000 },
   );
@@ -197,7 +196,7 @@ interface ScrollSnap {
 function readFollowBottomTransitions(
   app: App,
 ): Promise<{ source: string; following: boolean }[]> {
-  return app.evalJS(`(function () {
+  return app.body("A").evalJS(`(function () {
   return window.tugDevLog.getSnapshot().entries
     .filter(function (e) {
       return e.source === "smart-scroll" && e.message === "follow-bottom";
@@ -211,7 +210,7 @@ function readFollowBottomTransitions(
 /** The container's anchoring gate, as SmartScroll stamped it:
  *  `"none"` while following the bottom, `""` while the user reads. */
 function readAnchoringGate(app: App): Promise<string> {
-  return app.evalJS<string>(
+  return app.body("A").evalJS<string>(
     `document.querySelector('${SCROLLER}').style.overflowAnchor`,
   );
 }
@@ -250,7 +249,7 @@ async function presentQuestion(app: App, tag: string): Promise<string> {
       input: { questions },
     }),
   ]);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `!!document.querySelector('[data-slot="session-question-dialog"]')`,
     { timeoutMs: 10_000 },
   );
@@ -264,14 +263,14 @@ async function withdrawQuestion(app: App, msgId: string): Promise<void> {
     "A",
     frame({ type: "turn_complete", seq: 0, msg_id: msgId, result: "success" }),
   );
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `document.querySelector('[data-slot="session-question-dialog"]') === null`,
     { timeoutMs: 10_000 },
   );
 }
 
 function readSnap(app: App): Promise<ScrollSnap> {
-  return app.evalJS<ScrollSnap>(`(function () {
+  return app.body("A").evalJS<ScrollSnap>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   var btn = document.querySelector('${JUMP_BUTTON}');
   return {
@@ -298,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         // are still unmounted and take the estimated-jump + post-commit-
         // correction path; the final scrollTop assignment then drifts
         // well past the supersede band before any commit runs.
-        const armed = await app.evalJS<{
+        const armed = await app.body("A").evalJS<{
           afterPresses: number;
           assigned: number;
         }>(`(function () {
@@ -318,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
 
         // Let commits settle; the voided correction must never fire.
         // A negative, so the window is time, not a condition.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   window.__at0333 = { minSeen: Infinity, maxSeen: -Infinity };
   window.__at0333Timer = setInterval(function () {
     var e = document.querySelector('${SCROLLER}');
@@ -329,7 +328,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
   return true;
 })()`);
         await new Promise((r) => setTimeout(r, 1500));
-        const result = await app.evalJS<{
+        const result = await app.body("A").evalJS<{
           minSeen: number;
           maxSeen: number;
           finalTop: number;
@@ -371,7 +370,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         // gesture-end route must exist: the gesture ends at the live
         // edge, and stranding the user disengaged there turns a twitch
         // into a transcript that silently stops arriving.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.dispatchEvent(new WheelEvent('wheel', {
     deltaY: -20, bubbles: true, cancelable: true,
@@ -385,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         // do not reliably produce a scrollend, and any that does arrive
         // early lands in the same gesture-end check.
         await settle(app);
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
   return true;
 })()`);
@@ -440,7 +439,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         // while the question waits.
         const first = await presentQuestion(app, "a");
         await settle(app);
-        await app.evalJS<number>(`(function () {
+        await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = el.scrollTop - ${AT_BOTTOM_PX * 15};
   return el.scrollTop;
@@ -479,7 +478,7 @@ describe.skipIf(!SHOULD_RUN)("AT0333: unattributed scroll attribution", () => {
         // assert only — the machine may legitimately re-engage this
         // parked-in-band user before the close does (growth-at-bottom),
         // and either route is a correct arrival.
-        await app.evalJS<number>(`(function () {
+        await app.body("A").evalJS<number>(`(function () {
   var el = document.querySelector('${SCROLLER}');
   el.scrollTop = el.scrollHeight - el.clientHeight;
   return el.scrollTop;

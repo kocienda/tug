@@ -55,7 +55,7 @@ usage: bun scripts/card-dom-census.ts [--json] [--kind <componentId>] [--check] 
 
 /**
  * The app-test files the corpus runs — top level, `harness-smoke/`,
- * `body-grounding/` — and the modules they share there (`*-fixture.ts`,
+ * `body-grounding/` — and the modules they share there and in `fixtures/` (`*-fixture.ts`,
  * `find-probes.ts`, `body-grounding/_row-*.ts`): a helper's reach is every
  * caller's, and a census of the tests alone never sees it.
  */
@@ -65,7 +65,7 @@ export function corpusFiles(dir = APP_TEST_DIR): string[] {
       .filter((n) => n.endsWith(".ts") && !n.endsWith(".d.ts"))
       .sort()
       .map((n) => (sub === "." ? n : `${sub}/${n}`));
-  return [...at("harness-smoke"), ...at("."), ...at("body-grounding")];
+  return [...at("harness-smoke"), ...at("."), ...at("body-grounding"), ...at("fixtures")];
 }
 
 /** The selectors `_harness/transcript.ts` exports as string constants, by name and by value. */

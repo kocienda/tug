@@ -85,7 +85,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden restore
         // view or its transcript exist — so every phase of the restore
         // (spawn, replay, list mount, measurement) runs behind
         // `display:none`.
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   var card = document.querySelector('[data-card-id="A"]');
   window.__at0330PrevDisplay = card.style.display;
   card.style.display = "none";
@@ -136,7 +136,7 @@ describe.skipIf(!SHOULD_RUN)("AT0330: transcript DOM eviction — hidden restore
         // Restore the card's ORIGINAL inline display (the deck's layout
         // styles live inline on the card element — clearing to "" would
         // clobber them and unconstrain the scroller).
-        await app.evalJS<boolean>(`(function () {
+        await app.body("A").evalJS<boolean>(`(function () {
   var card = document.querySelector('[data-card-id="A"]');
   card.style.display = window.__at0330PrevDisplay || "";
   return true;

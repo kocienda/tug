@@ -21,7 +21,7 @@ export interface BodyCommandFacts {
   routing: CommandEntry["routing"];
   /** The deck's first-responder card, or null. */
   firstResponderCardId: string | null;
-  /** Whether a card is a body card. */
+  /** Whether a card is a body card whose body can take a command now. */
   isBodyCard: (cardId: string) => boolean;
   /** Whether a shell-owned responder holds the chain ahead of the card. */
   shellResponderAhead: boolean;

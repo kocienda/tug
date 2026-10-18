@@ -15,7 +15,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { ResponderChainManager, setUnhandledTargetHook } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { COMMANDS_BY_ID } from "@/components/tugways/command-registry";
-import { dispatchCommand, observeCommands, sendToCardContent, setCardContentForwarder } from "../command-dispatch";
+import { dispatchCommand, observeCommands, sendToCardContent, setCardContentForwarder, setUnhandledCommandFallback } from "../command-dispatch";
 import {
   _resetForTest,
   dispatchAction,
@@ -252,6 +252,26 @@ describe("native routing", () => {
 describe("the funnel's edges", () => {
   test("an unknown id is unhandled", () => {
     expect(dispatchCommand("no-such-command")).toBe(false);
+  });
+
+  // A body that has just taken its card has no chain yet: a command the
+  // shell forwarded in that window goes back to the shell, which answers
+  // it, rather than being dropped with nobody asked.
+  test("a page whose chain has not mounted hands a chain command to its fallback", () => {
+    const handed: string[] = [];
+    const uninstall = setUnhandledCommandFallback((entry) => {
+      handed.push(entry.id);
+      return true;
+    });
+    try {
+      expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" })).toBe(true);
+      expect(handed).toEqual([TUG_ACTIONS.ACTIVATE_SPACE]);
+      // A local dispatch is the fallback's own answer, and never goes back.
+      expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" }, { local: true })).toBe(false);
+      expect(handed).toEqual([TUG_ACTIONS.ACTIVATE_SPACE]);
+    } finally {
+      uninstall();
+    }
   });
 
   test("observers see every dispatch, handled or not", () => {

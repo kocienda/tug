@@ -129,19 +129,19 @@ function line(label: string, s: Stats): string {
 async function typeAndMeasure(
   app: App,
 ): Promise<{ gaps: Stats; latency: Stats; keys: number; text: number }> {
-  await app.evalJS<void>(`window.__at0293Reset()`);
-  await app.evalJS<void>(`window.__at0293Start()`);
+  await app.body("A").evalJS<void>(`window.__at0293Reset()`);
+  await app.body("A").evalJS<void>(`window.__at0293Start()`);
   for (let b = 0; b < BURSTS; b++) {
     await app.nativeType("x".repeat(BURST_KEYS));
     // Space the bursts: synthetic gestures need a settle beat, and the gap
     // between them is where a deferred cost would surface if one existed.
     await new Promise((r) => setTimeout(r, 400));
   }
-  await app.evalJS<void>(`window.__at0293Stop()`);
+  await app.body("A").evalJS<void>(`window.__at0293Stop()`);
   return {
-    gaps: await app.evalJS<Stats>(`window.__at0293Read("gap")`),
-    latency: await app.evalJS<Stats>(`window.__at0293Read("lat")`),
-    keys: await app.evalJS<number>(`window.__at0293.keys`),
+    gaps: await app.body("A").evalJS<Stats>(`window.__at0293Read("gap")`),
+    latency: await app.body("A").evalJS<Stats>(`window.__at0293Read("lat")`),
+    keys: await app.body("A").evalJS<number>(`window.__at0293.keys`),
     text: await app.body("A").evalJS<number>(
       `(document.querySelector('${PROMPT}')?.textContent ?? "").length`,
     ),
@@ -175,7 +175,7 @@ describe.skipIf(!SHOULD_RUN)("at0293: typing latency", () => {
         await waitForTranscriptSettled(app);
         await new Promise((r) => setTimeout(r, 4_000));
 
-        const dots = await app.evalJS<number>(
+        const dots = await app.body("A").evalJS<number>(
           `document.querySelectorAll('[data-slot="tug-progress-pulsing-dot"]').length`,
         );
         expect(
@@ -183,7 +183,7 @@ describe.skipIf(!SHOULD_RUN)("at0293: typing latency", () => {
           "restored transcript mounted no pulsing dots — fixture or restore path broke",
         ).toBeGreaterThanOrEqual(20);
 
-        await app.evalJS<void>(INSTALL_PROBE);
+        await app.body("A").evalJS<void>(INSTALL_PROBE);
         await app.body("A").nativeClickAtElement(PROMPT);
         await new Promise((r) => setTimeout(r, 800));
 

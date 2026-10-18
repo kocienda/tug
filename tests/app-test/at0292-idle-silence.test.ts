@@ -36,6 +36,7 @@
  * fires at rest — which is the shape every waker convicted so far has had.
  *
  * @covers tugdeck/src/lib/perf-monitor.ts
+ * @covers tugdeck/src/body/body-main.ts
  * @covers tugdeck/src/components/tugways/cards/session-activity-card.tsx
  */
 
@@ -99,7 +100,7 @@ function reportWrites(label: string, census: MutationCensus): void {
 
 /** One measured window, plus the waker census taken across the same span. */
 async function measureQuiet(app: App, slot: string): Promise<MutationCensus> {
-  await app.evalJS<void>(`(function(){
+  await app.body("A").evalJS<void>(`(function(){
     window.tugPerfMonitor.mutationCensus(${CENSUS_MS}).then(function(r){
       window.__at0292[${JSON.stringify(slot)}] = r;
     });
@@ -107,11 +108,11 @@ async function measureQuiet(app: App, slot: string): Promise<MutationCensus> {
       window.__at0292.wakers = r;
     });
   })()`);
-  await app.waitForCondition<boolean>(
+  await app.body("A").waitForCondition<boolean>(
     `window.__at0292[${JSON.stringify(slot)}] !== undefined && window.__at0292.wakers !== undefined`,
     { timeoutMs: 20_000 },
   );
-  return app.evalJS<MutationCensus>(
+  return app.body("A").evalJS<MutationCensus>(
     `window.__at0292[${JSON.stringify(slot)}]`,
   );
 }
@@ -141,14 +142,15 @@ describe.skipIf(!SHOULD_RUN)("at0292: idle silence", () => {
       try {
         // Arm before the restore so every timer the session card registers
         // on its way up is attributed — the census only sees registrations
-        // made after it starts.
-        await app.evalJS<void>(`window.tugPerfMonitor.startWakerCensus()`);
-
-        await openFixtureSession(app, seeded);
+        // made after it starts. The card comes up in its own body, so the
+        // census is armed there, once the picker stands and before Open.
+        await openFixtureSession(app, seeded, {
+          beforeOpen: (page) => page.evalJS<void>(`window.tugPerfMonitor.startWakerCensus()`),
+        });
         await waitForTranscriptSettled(app);
         await new Promise((r) => setTimeout(r, SETTLE_MS));
 
-        const dots = await app.evalJS<number>(
+        const dots = await app.body("A").evalJS<number>(
           `document.querySelectorAll('[data-slot="tug-progress-pulsing-dot"]').length`,
         );
         // The floor under the whole test: a transcript with nothing in it
@@ -159,7 +161,7 @@ describe.skipIf(!SHOULD_RUN)("at0292: idle silence", () => {
         ).toBeGreaterThanOrEqual(20);
 
         // --- anti-vacuity: the instrument is observing right now ---------
-        await app.evalJS<void>(`(function(){
+        await app.body("A").evalJS<void>(`(function(){
           window.__at0292 = {};
           var el = document.createElement("div");
           el.className = "at0292-floor";
@@ -172,11 +174,11 @@ describe.skipIf(!SHOULD_RUN)("at0292: idle silence", () => {
           el.textContent = "the census must see this";
           el.remove();
         })()`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `window.__at0292.floor !== undefined`,
           { timeoutMs: 10_000 },
         );
-        const floor = await app.evalJS<MutationCensus>(
+        const floor = await app.body("A").evalJS<MutationCensus>(
           `window.__at0292.floor`,
         );
         reportWrites("anti-vacuity floor (deliberate write)", floor);
@@ -198,7 +200,7 @@ describe.skipIf(!SHOULD_RUN)("at0292: idle silence", () => {
           quiet = await measureQuiet(app, "quiet-2");
           reportWrites("settled deck (second window)", quiet);
         }
-        const wakers = await app.evalJS<WakerCensus>(
+        const wakers = await app.body("A").evalJS<WakerCensus>(
           `window.__at0292.wakers`,
         );
         console.log(

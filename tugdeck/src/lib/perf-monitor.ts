@@ -1087,3 +1087,31 @@ export function stopPerfMonitor(): void {
     uptimeMs: 0,
   };
 }
+
+/** The probes this module offers a test, as `window.tugPerfMonitor` exposes them. */
+export interface PerfMonitorHandle {
+  snapshot: typeof getPerfMonitorSnapshot;
+  animationCensus: typeof animationCensus;
+  layerTreeProbe: typeof layerTreeProbe;
+  startWakerCensus: typeof startWakerCensus;
+  readWakerCensus: typeof readWakerCensus;
+  stopWakerCensus: typeof stopWakerCensus;
+  mutationCensus: typeof mutationCensus;
+}
+
+/**
+ * Put this page's probes on `window.tugPerfMonitor`. The shell and every body
+ * page call it in dev and test builds, so a test reads a card's census in the
+ * page that draws the card.
+ */
+export function exposePerfMonitor(): void {
+  (window as unknown as { tugPerfMonitor?: PerfMonitorHandle }).tugPerfMonitor = {
+    snapshot: getPerfMonitorSnapshot,
+    animationCensus,
+    layerTreeProbe,
+    startWakerCensus,
+    readWakerCensus,
+    stopWakerCensus,
+    mutationCensus,
+  };
+}

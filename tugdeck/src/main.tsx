@@ -84,14 +84,9 @@ import { BASE_THEME_NAME } from "./theme-constants";
 import "./components/tugways/tug-markdown-view.css";
 import { tugDevLogStore } from "./lib/tug-dev-log-store/tug-dev-log-store";
 import {
-  animationCensus,
-  getPerfMonitorSnapshot,
-  layerTreeProbe,
-  mutationCensus,
-  readWakerCensus,
+  exposePerfMonitor,
   startPerfMonitor,
   startWakerCensus,
-  stopWakerCensus,
 } from "./lib/perf-monitor";
 import { initMotionObserver } from "./lib/scale-timing";
 import { installMotionGuard } from "./lib/motion-guard";
@@ -500,27 +495,7 @@ async function loadTestSurface(
     if (new URLSearchParams(window.location.search).get("wakerCensus") === "1") {
       startWakerCensus();
     }
-    (
-      window as unknown as {
-        tugPerfMonitor?: {
-          snapshot: typeof getPerfMonitorSnapshot;
-          animationCensus: typeof animationCensus;
-          layerTreeProbe: typeof layerTreeProbe;
-          startWakerCensus: typeof startWakerCensus;
-          readWakerCensus: typeof readWakerCensus;
-          stopWakerCensus: typeof stopWakerCensus;
-          mutationCensus: typeof mutationCensus;
-        };
-      }
-    ).tugPerfMonitor = {
-      snapshot: getPerfMonitorSnapshot,
-      animationCensus,
-      layerTreeProbe,
-      startWakerCensus,
-      readWakerCensus,
-      stopWakerCensus,
-      mutationCensus,
-    };
+    exposePerfMonitor();
   }
   // Extract card IDs from the loaded layout and read per-card state bags
   // from the tugbank cache (`dev.tugapp.deck.cardstate`).

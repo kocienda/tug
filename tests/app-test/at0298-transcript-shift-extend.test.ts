@@ -39,6 +39,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { holdModifier } from "./_harness/client";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -332,12 +333,14 @@ describe.skipIf(!SHOULD_RUN)(
             shift: boolean,
           ): Promise<void> => {
             const viewportPoint = await pointFor(name);
+            // The point is in A's body viewport, so the press is made there.
+            const body = app.body("A");
             if (shift) {
-              await app.holdModifier(["shift"], async (inner) => {
+              await holdModifier(body, ["shift"], async (inner) => {
                 await inner.rpcCall<void>("nativeClick", { viewportPoint });
               });
             } else {
-              await app.nativeClick(viewportPoint);
+              await body.nativeClick(viewportPoint);
             }
             await settle(GESTURE_SETTLE_MS);
           };
@@ -387,7 +390,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ── Leg 4: word granularity survives the extension. ──
           const wordPoint = await pointFor("mid");
-          await app.nativeDoubleClick(wordPoint);
+          await app.body("A").nativeDoubleClick(wordPoint);
           await settle(GESTURE_SETTLE_MS);
           const word = await readSelection(app);
           expect(word.empty, `double-click selected nothing: ${word.detail}`).toBe(false);

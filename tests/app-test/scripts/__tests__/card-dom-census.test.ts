@@ -39,6 +39,11 @@ describe("an entry", () => {
     expect(census(`${SEED}const jots = (app: App) => kindBody(app, "jots");\nawait jots(app).evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toEqual([]);
   });
 
+  test("is not a call on a name bound to a file helper declared to return a body", () => {
+    const helper = `async function seeded(app: App, id = "a"): Promise<BodyApp> {\n  return waitForBodyReady(app, id);\n}\n`;
+    expect(census(`${SEED}${helper}const page = await seeded(app);\nawait page.evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toEqual([]);
+  });
+
   test("is a call on an arrow that finds no body", () => {
     expect(census(`${SEED}const page = (app: App) => app;\nawait page(app).evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toHaveLength(1);
   });
@@ -55,6 +60,16 @@ describe("an entry", () => {
     const entries = census(`${SEED}const CARD = "a";\nconst COMPOSER = \`[data-card-id="\${CARD}"] .cm-content\`;\nawait app.waitForCondition(present(COMPOSER));\n`);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ cardId: "a", kind: "session", cardIdSource: "CARD" });
+  });
+
+  test("counts a card scope a builder call composes inside a template, and resolves its card", () => {
+    const entries = census(`${SEED}const CARD = (id: string) => \`[data-card-id="\${id}"]\`;\nawait app.evalJS(\`document.querySelector(\${JSON.stringify(\`\${CARD("a")} input\`)}) !== null\`);\n`);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ cardId: "a", kind: "session" });
+  });
+
+  test("does not count a builder's bare card scope, which in the shell is the placeholder", () => {
+    expect(census(`${SEED}const CARD = (id: string) => \`[data-card-id="\${id}"]\`;\nawait app.evalJS(\`document.querySelector(\${JSON.stringify(CARD("a"))}) !== null\`);\n`)).toEqual([]);
   });
 
   test("counts a selector an imported constant holds, and the kind an imported deck shape seeds", () => {
