@@ -1497,20 +1497,31 @@ const DECK_COUNT_MENU_ITEMS: ReadonlySet<string> = new Set(
  * panes, workspaces, recents, theme, the capture and modal flags — and the
  * gates of the deck's own commands, every `changesCardCount` entry among
  * them, stay the shell's.
+ *
+ * While the deck holds no selection (a canvas-background click cleared it),
+ * the body posts an empty edit block and none of its gates. In the shell a
+ * deselected card resigns first responder and the chain's answers fall to
+ * the canvas; a body's chain is its one card and resigns nothing, so its
+ * editor's Undo would stay lit over a deck with nothing selected. Its
+ * session, file and document blocks still ride, as the shell's do for the
+ * frontmost card.
  */
 export function bodyMenuPayload(payload: MenuStatePayload): Pick<
   MenuStatePayload,
   "session" | "file" | "document" | "edit" | "commands"
 > {
+  const keyed = payload.selectionActive;
   const commands: Record<string, MenuCommandGate> = {};
-  for (const [id, gate] of Object.entries(payload.commands)) {
-    if (CARD_SCOPED_MENU_ITEMS.has(id) && !DECK_COUNT_MENU_ITEMS.has(id)) commands[id] = gate;
+  if (keyed) {
+    for (const [id, gate] of Object.entries(payload.commands)) {
+      if (CARD_SCOPED_MENU_ITEMS.has(id) && !DECK_COUNT_MENU_ITEMS.has(id)) commands[id] = gate;
+    }
   }
   return {
     session: payload.session,
     file: payload.file,
     document: payload.document,
-    edit: payload.edit,
+    edit: keyed ? payload.edit : EMPTY_EDIT_CAPABILITIES,
     commands,
   };
 }

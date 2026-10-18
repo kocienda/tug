@@ -30,8 +30,14 @@
  *      reveal must be taken at the activation or never at all, and "never"
  *      left the aimed-at card active and still half-occluded.
  *
+ * Whether the app is forward is the deck's `hasFocus`, the bit the host's
+ * app-lifecycle frames drive — not the shell page's `document.hasFocus()`,
+ * which is false whenever a card's body holds the keyboard, as card B's does
+ * once the click lands.
+ *
  * @foreground
  * @covers tugapp/Sources/MainWindow.swift
+ * @covers tugdeck/src/deck-manager.ts
  * @covers tugdeck/src/lib/activation-click-bridge.ts
  * @covers tugdeck/src/gesture-interpreter.ts
  */
@@ -163,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
   test(
     "the activating click activates the card under it, and leaves a canvas click's selection alone",
     async () => {
-      const app = await launchTugApp({ bodies: false,
+      const app = await launchTugApp({
     // Foreground: drives a real app resign / hide / become-active cycle,
     // which only happens to an app that is actually active (pid-mode default
     // never activates).
@@ -198,7 +204,7 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
         // -------------------------------------------------------------
         await app.simulateAppResign();
         await settle();
-        expect(await app.evalJS<boolean>(`document.hasFocus()`)).toBe(false);
+        await app.waitForCondition<boolean>(`window.__tug.getHasFocus() === false`, { timeoutMs: 6000 });
 
         expect(
           await app.evalJS<string | null>(
@@ -216,7 +222,9 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
         await app.waitForCondition<boolean>(paneSelected("p2"), {
           timeoutMs: 10000,
         });
-        expect(await app.evalJS<boolean>(`document.hasFocus()`)).toBe(true);
+        // The app came forward: the host's `didBecomeActive` frame reaches the
+        // deck over the wire, so it is waited for rather than read at once.
+        await app.waitForCondition<boolean>(`window.__tug.getHasFocus()`, { timeoutMs: 6000 });
         // No pointer gesture ran: the click activated the card without ever
         // being delivered to the document.
         expect(
@@ -242,7 +250,7 @@ describe.skipIf(!SHOULD_RUN)("at0295 — background activation click", () => {
         await app.simulateAppResign();
         await settle();
         await app.nativeClick(CANVAS_POINT, { activateFirst: false });
-        await app.waitForCondition<boolean>(`document.hasFocus()`, {
+        await app.waitForCondition<boolean>(`window.__tug.getHasFocus()`, {
           timeoutMs: 6000,
         });
         await settle();

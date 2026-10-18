@@ -534,8 +534,20 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // holding the keyboard has no shell surface ahead of it for the shell to
   // cancel. The shell's own chain declines an unanswered Cancel the same
   // way, and the key goes on to the surface that owns it ([F17]).
+  //
+  // Undo and Redo are declined too. An edit history is the focused
+  // surface's, and nothing the shell holds answers for this card's; what
+  // this page's chain leaves unanswered is a native text control's, whose
+  // only undo is the platform's — the Edit menu's, reached when the funnel
+  // lets ⌘Z go on. Claimed here, ⌘Z after typing in an input undid nothing.
   setUnhandledCommandFallback((entry, payload) => {
-    if (entry.id === TUG_ACTIONS.CANCEL_DIALOG) return false;
+    if (
+      entry.id === TUG_ACTIONS.CANCEL_DIALOG ||
+      entry.id === TUG_ACTIONS.UNDO ||
+      entry.id === TUG_ACTIONS.REDO
+    ) {
+      return false;
+    }
     sendBus(connection, "shell", {
       kind: "card-advice",
       payload: { advice: "dispatch", id: entry.id, ...(payload !== undefined ? { payload } : {}) },

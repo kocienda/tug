@@ -242,7 +242,7 @@ import {
   BannerLifecycleContext,
   registerBannerLifecycle,
 } from "./lib/banner-lifecycle";
-import { registerDeckStore, getDeckStore } from "./lib/deck-store-registry";
+import { registerDeckStore } from "./lib/deck-store-registry";
 import { isDevEnv } from "./lib/dev-env";
 import {
   installLifecycleCascade,
@@ -300,49 +300,51 @@ export type { TeardownSaveResult, TerminationVerdict } from "./teardown";
 export { columnIsWall, panesWithFolded, panesWithWallFolded } from "./fold";
 
 /**
- * Module-scope guard so the window `focus` / `blur` listeners that
- * drive `DeckState.hasFocus` install exactly once per JS context, even
- * if a test (or a future multi-deck scenario) constructs more than one
- * `DeckManager`. Handlers read the live store via
- * {@link getDeckStore} rather than closing over a specific instance,
- * so they remain correct across deck-store replacement.
+ * Make `DeckState.hasFocus` follow the app's activity, as the host's
+ * `app-lifecycle` frames publish it ([L28]): the app lifecycle is the
+ * source, and the bit is one of its delegates. Returns the release ([L27]).
+ *
+ * Not the page's own window `focus` / `blur`. Every card is a body — a web
+ * view of its own beneath this page — so this page blurs whenever a card
+ * takes the keyboard, with the app as active as it was. Read off the page,
+ * the bit went false while the user typed in a card: the deck's focus
+ * language went quiet, and every body, told the app was inactive, refused
+ * its own activation focus.
+ *
+ * Subscribed before the lifecycle cascade, so the bit has flipped by the
+ * time the cascade's activation notices ask the engine for permission,
+ * which reads it.
  */
-let focusListenersInstalled = false;
-
-function installDeckStoreFocusListeners(): void {
-  if (focusListenersInstalled) return;
-  if (typeof window === "undefined") return;
-  focusListenersInstalled = true;
-  const onFocus = (): void => {
-    const store = getDeckStore();
-    if (store === null) return;
-    // Order matters: setHasFocus(true) must land before the helper
-    // call because the engine's activation-permission query reads
-    // state.hasFocus — it would refuse a transfer issued while
-    // hasFocus is still false from the prior blur.
+function followAppActivity(store: IDeckManagerStore, lifecycle: AppLifecycle): () => void {
+  const becameActive = (): void => {
+    // Order matters: setHasFocus(true) must land before the helper call
+    // because the engine's activation-permission query reads
+    // state.hasFocus — it would refuse a transfer issued while hasFocus is
+    // still false from the resign.
     store.setHasFocus(true);
     reactivateCurrentFocusDestination(store);
   };
-  const onBlur = (): void => {
-    const store = getDeckStore();
-    if (store === null) return;
-    // Synchronous save-on-blur. Closes the stale-bag residual: a
-    // user who cmd-tabs away mid-typing leaves `bag.focus` /
-    // `bag.formControls` reflecting the moment of the last
-    // debounced save (which may be hundreds of ms stale). Without
-    // this flush, the subsequent reactivate on window-focus would
-    // restore stale form-control values. visibilitychange covers
-    // tab-hide on browsers, but window-blur without tab-hide is
-    // the common cmd-tab case on macOS — saving here makes the
-    // pre-resign capture unconditional.
+  const willResign = (): void => {
+    // Synchronous save before the app goes. Closes the stale-bag residual:
+    // a user who cmd-tabs away mid-typing leaves `bag.focus` /
+    // `bag.formControls` reflecting the moment of the last debounced save
+    // (which may be hundreds of ms stale). Without this flush, the
+    // reactivate on return would restore stale form-control values.
     const fr = store.getFirstResponderCardId();
     if (fr !== null) {
       store.invokeSaveCallback(fr, "window-blur");
     }
     store.setHasFocus(false);
   };
-  window.addEventListener("focus", onFocus);
-  window.addEventListener("blur", onBlur);
+  const releases = [
+    lifecycle.observeApplicationWillResignActive(willResign),
+    lifecycle.observeApplicationWillHide(willResign),
+    lifecycle.observeApplicationDidBecomeActive(becameActive),
+    lifecycle.observeApplicationDidUnhide(becameActive),
+  ];
+  return () => {
+    for (const release of releases) release();
+  };
 }
 
 /** How many distinct cards {@link DeckManager}'s activation history keeps. */
@@ -1068,6 +1070,8 @@ export class DeckManager implements IDeckManagerStore {
   public readonly bannerLifecycle: BannerLifecycle;
 
   private readonly lifecycleCascade: LifecycleCascadeHandle;
+
+  private readonly releaseAppActivity: () => void;
 
   public addCardToPane: (
     paneId: string,
@@ -2290,6 +2294,7 @@ export class DeckManager implements IDeckManagerStore {
     // that sits outside the `DeckManagerContext` provider and so cannot
     // reach the store through React context).
     registerDeckStore(this);
+    this.releaseAppActivity = followAppActivity(this, this.appLifecycle);
     this.lifecycleCascade = installLifecycleCascade(
       this.cardLifecycle,
       this.appLifecycle,
@@ -2334,11 +2339,6 @@ export class DeckManager implements IDeckManagerStore {
     // focus language is correctly quiet/lit on the very first paint (setHasFocus
     // only fires it on a subsequent transition).
     this.reflectAppActive(this.deckState.hasFocus);
-
-    // Install window focus/blur listeners exactly once per JS context.
-    // Safe to call unconditionally — the module-scope flag short-circuits
-    // subsequent constructions.
-    installDeckStoreFocusListeners();
 
     // Fire CONSTRUCTION for every card loaded from the saved layout so the
     // lifecycle's `constructedCards` set matches reality and later-subscribing
@@ -2427,13 +2427,12 @@ export class DeckManager implements IDeckManagerStore {
   // ---- App-foreground tracking ([A1]) ----
 
   /**
-   * Flip the session-only `hasFocus` slice when the window gains or
-   * loses OS foreground. Idempotent: a no-op when the bit is already
-   * at `value`, so spurious duplicate events don't churn React
-   * subscribers. Called from the module-scope listeners installed by
-   * {@link installDeckStoreFocusListeners}; tests may call this
-   * directly to simulate focus transitions without dispatching DOM
-   * events.
+   * Flip the session-only `hasFocus` slice when the app gains or loses
+   * OS foreground. Idempotent: a no-op when the bit is already at
+   * `value`, so spurious duplicate events don't churn React subscribers.
+   * Called from the app-lifecycle delegate {@link followAppActivity};
+   * tests may call this directly to simulate focus transitions without
+   * sending lifecycle frames.
    */
   public setHasFocus = (value: boolean): void => {
     if (this.deckState.hasFocus === value) return;
@@ -7254,5 +7253,6 @@ export class DeckManager implements IDeckManagerStore {
     this.containerSizeObserver?.disconnect();
     window.removeEventListener("resize", this.dropContainerSize);
     this.lifecycleCascade.dispose();
+    this.releaseAppActivity();
   }
 }

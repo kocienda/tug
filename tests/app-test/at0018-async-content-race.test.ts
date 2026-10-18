@@ -36,6 +36,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 
@@ -46,7 +47,7 @@ const TUG_PROMPT_ENTRY_DEFAULT_ROUTE = "❯";
 
 describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
   test("saveState() after seed-and-mount preserves seeded bag.content", async () => {
-    const app = await launchTugApp({ bodies: false,
+    const app = await launchTugApp({
     // Foreground: drives a real app resign / hide / become-active cycle,
     // which only happens to an app that is actually active (pid-mode default
     // never activates).
@@ -134,8 +135,11 @@ describe.skipIf(!SHOULD_RUN)("m18: async-content-race audit", () => {
 
       // Second pass: the window-blur save path goes through
       // identical machinery; verify it also preserves content.
-      // Anchor focus first so the resign produces a real blur.
-      await app.nativeClickAtElement(`[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content`);
+      // Anchor focus first so the resign produces a real blur. The editor is
+      // in the card's body; the deck's `hasFocus` is the app's activity,
+      // which a body holding the keyboard leaves true.
+      const body = await waitForBodyReady(app, "A");
+      await body.nativeClickAtElement(`[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content`);
       await app.waitForCondition<boolean>(
         `window.__tug.getHasFocus() === true`,
         { timeoutMs: 2000 },

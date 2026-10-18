@@ -14,6 +14,11 @@
  *      absence of a pane under the pointer, which made portal gaps, overlay
  *      seams and below-the-fold geometry silently deselect the deck.
  *
+ * The interpreter is the shell's, so every press it classifies here lands on
+ * the shell: the canvas, and the pane's title bar for the re-select between
+ * the two scenarios. The pane's content is the card's body, a page of its
+ * own, and a press there never reaches this interpreter.
+ *
  * Scenario 2 dispatches its pointerdown at a named element (the deck root
  * wrapper, which is not the marked background surface) because the geometry it
  * models — a seam with no pane under it but something else on top — has no
@@ -32,6 +37,7 @@ const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 120_000;
 
 // One card in a pane on the left, leaving bare canvas on the right (x ≈ 700).
+// The pane's title bar spans y 40–78; its body starts below it.
 function oneCard() {
   return {
     cards: [
@@ -71,7 +77,7 @@ describe.skipIf(!SHOULD_RUN)("at0269 — gesture classification", () => {
   test(
     "bare canvas deselects; a deck gesture that merely misses every pane does not",
     async () => {
-      const app = await launchTugApp({ bodies: false,
+      const app = await launchTugApp({
         testName: "at0269-gesture-classification",
       });
       try {
@@ -114,8 +120,9 @@ describe.skipIf(!SHOULD_RUN)("at0269 — gesture classification", () => {
           null,
         );
 
-        // Re-select for scenario 2: a click inside the pane activates it again.
-        await app.nativeMouseDown({ x: 200, y: 300 });
+        // Re-select for scenario 2: a click on the pane's title bar activates
+        // it again.
+        await app.nativeMouseDown({ x: 200, y: 58 });
         await app.waitForCondition<boolean>(
           `window.__tug.currentGesture() !== null`,
           { timeoutMs: 6000 },
@@ -123,7 +130,7 @@ describe.skipIf(!SHOULD_RUN)("at0269 — gesture classification", () => {
         const reselectGesture = await app.evalJS<GestureRecord | null>(
           `window.__tug.currentGesture()`,
         );
-        await app.nativeMouseUp({ x: 200, y: 300 });
+        await app.nativeMouseUp({ x: 200, y: 58 });
         console.log("[at0269] reselect gesture:", JSON.stringify(reselectGesture));
         expect(reselectGesture?.site).toBe("pane");
         expect(reselectGesture?.activation).toBe("activate");

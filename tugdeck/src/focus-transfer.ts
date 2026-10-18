@@ -1165,13 +1165,13 @@ export function transferFocusAfterMove(
 }
 
 /**
- * Re-focus the current first responder after the tugdeck window
- * regains OS focus (cmd-tab return, click-back-from-Finder, etc.).
+ * Re-focus the current first responder after the app regains OS
+ * focus (cmd-tab return, click-back-from-Finder, etc.).
  *
- * Called from `installDeckStoreFocusListeners`'s window-`focus`
- * handler, AFTER `setHasFocus(true)` has flipped the gate axis.
- * Three-step body — no save here; the companion window-`blur`
- * handler already flushed the bag synchronously before the
+ * Called from the deck's `applicationDidBecomeActive` delegate,
+ * AFTER `setHasFocus(true)` has flipped the gate axis. Three-step
+ * body — no save here; the companion `applicationWillResignActive`
+ * delegate already flushed the bag synchronously before the
  * `hasFocus` axis went false:
  *
  *   1. Resolve `cardId` from `store.getFirstResponderCardId()`. If
@@ -1191,7 +1191,7 @@ export function transferFocusAfterMove(
  *   4. Post-dispatch DOM-selection restore for `applied` results
  *      that carry a saved `bag.domSelection`.
  *
- * No `commitMutation`. The window-`focus` event arrives outside any
+ * No `commitMutation`. The lifecycle frame arrives outside any
  * pending React commit; React reconciliation has already drained
  * by the time the helper runs, so `flushSync` would be redundant.
  */

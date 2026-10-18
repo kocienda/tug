@@ -1847,17 +1847,14 @@ export interface TugTestSurface {
   };
 
   /**
-   * Read the deck's current `hasFocus` state. The deck's
-   * `installDeckStoreFocusListeners` flips this to `true` on
-   * `window.focus` and `false` on `window.blur`; reading it from
-   * the harness gives a synchronous probe for "has the JS-side
-   * focus event fired and drained?" — useful after
-   * `simulateAppResign` / `simulateAppBecomeActive` to confirm
-   * WKWebView actually dispatched the blur/focus event (not just
-   * AppKit's `did...Active` notification, which the Swift
-   * primitive already waits for). Under rapid back-to-back
-   * lifecycle simulations WebKit's window event dispatch can
-   * lag the AppKit notification by several milliseconds.
+   * Read the deck's current `hasFocus` state: whether the app is
+   * active. The deck flips it on the host's `app-lifecycle` frames
+   * (`willResignActive` / `willHide` → false, `didBecomeActive` /
+   * `didUnhide` → true), never on this page's own focus — this page
+   * blurs whenever a card's body takes the keyboard. Reading it from
+   * the harness after `simulateAppResign` / `simulateAppBecomeActive`
+   * confirms the frame has reached the deck, which can lag AppKit's
+   * notification that the Swift primitive waits for.
    */
   getHasFocus(): boolean;
 

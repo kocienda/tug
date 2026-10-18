@@ -31,6 +31,12 @@
  * own keys, while ⌘A is an Edit-menu key equivalent that AppKit resolves
  * against a key window this instance does not have.
  *
+ * Every card is a body, so its surface is reached through `app.body(id)`;
+ * the menu and the control frames are the shell's, which hands an action to
+ * the key card's body. A seed that changes a card's component under the same
+ * id keeps the body it has, so the menu case seeds each surface under its own
+ * id.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugapp/Sources/AppDelegate.swift
@@ -40,7 +46,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 150_000;
@@ -53,19 +60,20 @@ const OPTION = 1 << 19;
 const COMMAND = 1 << 20;
 
 const EDITOR = '[data-card-id="A"] [data-slot="tug-text-editor"] .cm-content';
-const INPUT = '[data-card-id="A"] input';
+const inputOf = (cardId: string): string => `[data-card-id="${cardId}"] input`;
+const INPUT = inputOf("A");
 
 /** One pane holding one gallery card of the given component. */
-function paneOf(component: string) {
+function paneOf(component: string, cardId: string) {
   return {
-    cards: [{ id: "A", componentId: component, title: "Card A", closable: true }],
+    cards: [{ id: cardId, componentId: component, title: `Card ${cardId}`, closable: true }],
     panes: [
       {
         id: "p1",
         position: { x: 60, y: 60 },
         size: { width: 720, height: 540 },
-        cardIds: ["A"],
-        activeCardId: "A",
+        cardIds: [cardId],
+        activeCardId: cardId,
         title: "",
         acceptsFamilies: ["maker"],
       },
@@ -76,13 +84,15 @@ function paneOf(component: string) {
 }
 
 // Kept local: every file's `seed` builds its own deck and waits on its own
-// readiness, so the name is shared and the function is not.
-async function seed(app: App, component: string): Promise<void> {
+// readiness, so the name is shared and the function is not. Returns the
+// card's body.
+async function seed(app: App, component: string, cardId = "A"): Promise<BodyApp> {
   await app.enableDeckTrace(true);
-  await app.seedDeckState({ state: paneOf(component), focusCardId: "A" });
+  await app.seedDeckState({ state: paneOf(component, cardId), focusCardId: cardId });
   await app.waitForCondition<boolean>(
-    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered(${JSON.stringify(cardId)})`,
   );
+  return waitForBodyReady(app, cardId);
 }
 
 /** Select the last `count` characters back from the caret. */
@@ -95,7 +105,7 @@ async function selectBack(app: App, count: number): Promise<void> {
 
 /** Wait for a surface's text to settle on `want`, and report what it held. */
 async function waitText(
-  app: App,
+  page: BodyApp,
   script: string,
   want: string,
   timeoutMs = 4000,
@@ -103,7 +113,7 @@ async function waitText(
   const deadline = Date.now() + timeoutMs;
   let last: string | null = null;
   while (Date.now() < deadline) {
-    last = await app.evalJS<string | null>(script);
+    last = await page.evalJS<string | null>(script);
     if (last === want) return last;
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -127,37 +137,37 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
   test(
     "CM6 editor: the selected run transforms, keeps its selection, and undoes whole",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0420-editor" });
+      const app = await launchTugApp({ testName: "at0420-editor" });
       const readText = `(function(){
         var ed = document.querySelector(${JSON.stringify(EDITOR)});
         return ed === null ? null : ed.textContent;
       })()`;
       try {
-        await seed(app, "gallery-text-editor");
+        const body = await seed(app, "gallery-text-editor");
         await app.awaitEngineReady("A");
-        await app.nativeClickAtElement(EDITOR);
-        await app.waitForCondition<boolean>(
+        await body.nativeClickAtElement(EDITOR);
+        await body.waitForCondition<boolean>(
           `document.activeElement !== null && document.activeElement.matches(${JSON.stringify(EDITOR)})`,
           { timeoutMs: 2000 },
         );
 
         await app.nativeType("hello tug");
-        expect(await waitText(app, readText, "hello tug")).toBe("hello tug");
+        expect(await waitText(body, readText, "hello tug")).toBe("hello tug");
 
         // Select "tug" — three characters back from the caret, so the
         // untouched "hello " in front of it is the control.
         await selectBack(app, 3);
         await app.dispatchControlAction("make-uppercase");
-        expect(await waitText(app, readText, "hello TUG")).toBe("hello TUG");
+        expect(await waitText(body, readText, "hello TUG")).toBe("hello TUG");
 
         // The second press proves the first left the selection on the run it
         // rewrote: a collapsed caret here would leave "hello TUG" standing.
         await app.dispatchControlAction("make-lowercase");
-        expect(await waitText(app, readText, "hello tug")).toBe("hello tug");
+        expect(await waitText(body, readText, "hello tug")).toBe("hello tug");
 
         // One transaction per transform — one undo takes the whole run back.
         await app.dispatchControlAction("undo");
-        expect(await waitText(app, readText, "hello TUG")).toBe("hello TUG");
+        expect(await waitText(body, readText, "hello TUG")).toBe("hello TUG");
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0420-editor] log tail:\n${tail}\n`);
@@ -172,41 +182,41 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
   test(
     "native input: the selected run transforms and a bare caret is a no-op",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0420-input" });
+      const app = await launchTugApp({ testName: "at0420-input" });
       const readValue = `(function(){
         var el = document.querySelector(${JSON.stringify(INPUT)});
         return el === null ? null : el.value;
       })()`;
       try {
-        await seed(app, "gallery-input");
-        await app.waitForCondition<boolean>(
+        const body = await seed(app, "gallery-input");
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INPUT)}) !== null`,
           { timeoutMs: 6000 },
         );
-        await app.nativeClickAtElement(INPUT);
+        await body.nativeClickAtElement(INPUT);
         // The gallery input ships with sample text; clear it so the typed
         // string is the whole value and the assertions can name it.
-        await app.evalJS(`(function(){
+        await body.evalJS(`(function(){
           var el = document.querySelector(${JSON.stringify(INPUT)});
           if (el !== null) { el.focus(); el.select(); }
         })()`);
         await app.nativeKey("Delete");
         await app.nativeType("hello tug");
-        expect(await waitText(app, readValue, "hello tug")).toBe("hello tug");
+        expect(await waitText(body, readValue, "hello tug")).toBe("hello tug");
 
         await selectBack(app, 3);
         await app.dispatchControlAction("make-uppercase");
-        expect(await waitText(app, readValue, "hello TUG")).toBe("hello TUG");
+        expect(await waitText(body, readValue, "hello TUG")).toBe("hello TUG");
 
         await app.dispatchControlAction("make-lowercase");
-        expect(await waitText(app, readValue, "hello tug")).toBe("hello tug");
+        expect(await waitText(body, readValue, "hello tug")).toBe("hello tug");
 
         // A collapsed caret is a no-op: the verb acts on a selection, and
         // nothing should land on the undo stack for it.
         await app.nativeKey("ArrowRight");
         await app.dispatchControlAction("make-uppercase");
         await new Promise((r) => setTimeout(r, 400));
-        expect(await app.evalJS<string | null>(readValue)).toBe("hello tug");
+        expect(await body.evalJS<string | null>(readValue)).toBe("hello tug");
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") process.stderr.write(`\n[at0420-input] log tail:\n${tail}\n`);
@@ -221,10 +231,12 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
   test(
     "the menu items follow focus and take their chords from the sweep",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0420-menu" });
+      const app = await launchTugApp({ testName: "at0420-menu" });
       try {
-        // A static label card handles neither verb, so both items are dark.
-        await seed(app, "gallery-label");
+        // A card of labels and separators handles neither verb, so both items
+        // are dark. Not `gallery-label`: its paired inputs answer both, and an
+        // activated card's first responder is its default focus target's.
+        await seed(app, "gallery-separator");
         await expectEnabled(app, UPPERCASE, false);
         await expectEnabled(app, LOWERCASE, false);
 
@@ -232,12 +244,12 @@ describe.skipIf(!SHOULD_RUN)("AT0420: Make Uppercase / Make Lowercase", () => {
         // not caret-granular — the edit block republishes on focus and
         // registration changes, so a selection-granular gate would be stale
         // by the time the menu opened.
-        await seed(app, "gallery-input");
-        await app.waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(INPUT)}) !== null`,
+        const body = await seed(app, "gallery-input", "B");
+        await body.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(inputOf("B"))}) !== null`,
           { timeoutMs: 6000 },
         );
-        await app.nativeClickAtElement(INPUT);
+        await body.nativeClickAtElement(inputOf("B"));
         await expectEnabled(app, UPPERCASE, true);
         await expectEnabled(app, LOWERCASE, true);
 

@@ -822,6 +822,7 @@ describe("edit-caps refresher registry", () => {
 describe("bodyMenuPayload", () => {
   test("posts the key card's own gates and never a deck-count item's, whose modal gate is the shell's", () => {
     const payload = {
+      selectionActive: true,
       commands: {
         "edit.copy": { enabled: true },
         "file.openQuickly": { enabled: true },
@@ -830,6 +831,20 @@ describe("bodyMenuPayload", () => {
       },
     } as unknown as MenuStatePayload;
     expect(Object.keys(bodyMenuPayload(payload).commands)).toEqual(["edit.copy", "window.columnSplit"]);
+  });
+
+  test("over a deck with nothing selected, posts no gates and an empty edit block, and keeps its blocks", () => {
+    const session = { cardId: "c" };
+    const payload = {
+      selectionActive: false,
+      session,
+      edit: { ...EMPTY_EDIT_CAPABILITIES, undo: true, copy: true },
+      commands: { "edit.copy": { enabled: true }, "window.columnSplit": { enabled: true } },
+    } as unknown as MenuStatePayload;
+    const posted = bodyMenuPayload(payload);
+    expect(posted.commands).toEqual({});
+    expect(posted.edit).toEqual(EMPTY_EDIT_CAPABILITIES);
+    expect(posted.session as unknown).toBe(session);
   });
 });
 

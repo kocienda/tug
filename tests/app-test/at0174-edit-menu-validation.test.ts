@@ -11,9 +11,12 @@
  * always "selectable"; now enablement follows app focus.
  *
  * Two cases:
- *   1. **No editing surface focused** (a static label card): every Edit
- *      item — including Copy and Select All — and every Find item is
- *      disabled.
+ *   1. **No editing surface focused** (a card with none, `gallery-separator`):
+ *      every Edit item — including Copy and Select All — and every Find
+ *      item is disabled. Not `gallery-label`: it pairs its labels with two
+ *      live `TugInput`s, and an activated card's first responder is its
+ *      default focus target's responder, which there is an input that
+ *      answers Copy.
  *   2. **A text input focused**: the actions that text surface handles
  *      (Cut / Copy / Paste / Select All) enable, while Find — including Use
  *      Selection for Find — stays disabled (no surface implements find).
@@ -37,6 +40,10 @@
  *      per-web-view stack never outlives focus in one control: leave the
  *      control and its history is gone.
  *
+ * Every card is a body, so its DOM — the input, the editor — is reached
+ * through `app.body("A")`; the menu, the canvas and the control frames are
+ * the shell's.
+ *
  * Verified through the harness's native-menu introspection
  * (`menuItemState`) — the real `NSMenuItemValidation` path, not a stored
  * flag. Assertions by identifier only.
@@ -58,7 +65,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 150_000;
@@ -97,6 +105,14 @@ function paneOf(component: string) {
   };
 }
 
+/** Card A's body, once the shell has registered its host and the body stands ready. */
+async function seededBody(app: App): Promise<BodyApp> {
+  await app.waitForCondition<boolean>(
+    `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
+  );
+  return waitForBodyReady(app, "A");
+}
+
 /** Poll the validated menu-item state until it matches `wantEnabled`. */
 async function waitMenuEnabled(
   app: App,
@@ -124,15 +140,13 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "no editing surface focused: Copy / Select All / Find all disabled",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0174-static" });
+      const app = await launchTugApp({ testName: "at0174-static" });
       try {
         await app.enableDeckTrace(true);
-        // A static label card has no text-editing responder, so nothing
-        // in focus handles any edit action.
-        await app.seedDeckState({ state: paneOf("gallery-label"), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
+        // A card of labels and separators has no text-editing responder,
+        // so nothing in focus handles any edit action.
+        await app.seedDeckState({ state: paneOf("gallery-separator"), focusCardId: "A" });
+        await seededBody(app);
 
         await expectEnabled(app, COPY, false);
         await expectEnabled(app, SELECT_ALL, false);
@@ -159,21 +173,19 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "text input focused: Cut/Copy/Paste/Select All enable; Find stays off",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0174-textinput", foreground: true });
+      const app = await launchTugApp({ testName: "at0174-textinput", foreground: true });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: paneOf("gallery-input"), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
-        await app.waitForCondition<boolean>(
+        const body = await seededBody(app);
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(`${CARD("A")} input`)}) !== null`,
           { timeoutMs: 6000 },
         );
 
         // Focus the text input — it becomes the first responder, a
         // text-editing substrate that handles Cut/Copy/Paste/Select All.
-        await app.nativeClickAtElement(`${CARD("A")} input`);
+        await body.nativeClickAtElement(`${CARD("A")} input`);
 
         await expectEnabled(app, COPY, true);
         await expectEnabled(app, CUT, true);
@@ -209,7 +221,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "CM6 editor: Undo tracks history depth and goes dark on canvas deselect",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0174-cm6undo" });
+      const app = await launchTugApp({ testName: "at0174-cm6undo" });
       try {
         await app.enableDeckTrace(true);
         // One pane hosting the CM6 prompt-entry editor, positioned to
@@ -233,17 +245,15 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
           hasFocus: true,
         };
         await app.seedDeckState({ state, focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
+        const body = await seededBody(app);
         const EDITOR = `${CARD("A")} [data-slot="tug-text-editor"] .cm-content`;
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(EDITOR)}) !== null`,
           { timeoutMs: 6000 },
         );
 
         // Focused editor, empty history → Undo disabled.
-        await app.nativeClickAtElement(EDITOR);
+        await body.nativeClickAtElement(EDITOR);
         await expectEnabled(app, UNDO, false);
 
         // Type. CM6's history gains a step; the depth-flip refresher
@@ -263,13 +273,13 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
         // adapter must invoke it — a dropped continuation is the
         // "menu Undo does nothing" bug.
         await app.evalJS<void>(`window.__tug.dispatchControlAction("undo")`);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){ var el = document.querySelector(${JSON.stringify(EDITOR)}); return el !== null && el.textContent.indexOf("hello") === -1; })()`,
           { timeoutMs: 6000 },
         );
         await expectEnabled(app, REDO, true);
         await app.evalJS<void>(`window.__tug.dispatchControlAction("redo")`);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){ var el = document.querySelector(${JSON.stringify(EDITOR)}); return el !== null && el.textContent.indexOf("hello") !== -1; })()`,
           { timeoutMs: 6000 },
         );
@@ -285,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
 
         // Click back into the editor: its per-instance history survived
         // in-session, so Undo lights back up.
-        await app.nativeClickAtElement(EDITOR);
+        await body.nativeClickAtElement(EDITOR);
         await expectEnabled(app, UNDO, true);
       } catch (err) {
         const tail = app.tailLog(200);
@@ -301,21 +311,19 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
   test(
     "native input: Undo rides the web view's NSUndoManager, cleared on blur",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0174-nativeundo", foreground: true });
+      const app = await launchTugApp({ testName: "at0174-nativeundo", foreground: true });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: paneOf("gallery-input"), focusCardId: "A" });
-        await app.waitForCondition<boolean>(
-          `(typeof window.__tug !== "undefined") && window.__tug.assertHostRootRegistered("A")`,
-        );
+        const body = await seededBody(app);
         const INPUT = `${CARD("A")} input`;
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(INPUT)}) !== null`,
           { timeoutMs: 6000 },
         );
 
         // Focused, untouched input → Undo disabled (empty native stack).
-        await app.nativeClickAtElement(INPUT);
+        await body.nativeClickAtElement(INPUT);
         await expectEnabled(app, COPY, true);
         await expectEnabled(app, UNDO, false);
 
@@ -333,7 +341,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
         // matching the way a real keyboard's does (it types a literal
         // "Z"), so the chord itself isn't drivable from here.
         await app.nativeKey("z", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){ var el = document.querySelector(${JSON.stringify(INPUT)}); return el !== null && el.value === ""; })()`,
           { timeoutMs: 6000 },
         );
@@ -350,7 +358,7 @@ describe.skipIf(!SHOULD_RUN)("AT0174: Edit-menu capability validation", () => {
         // Clicking back in does NOT resurrect the old history — the
         // clear-on-blur semantics: keep undo while you stay, lose it when
         // you leave. Fresh typing builds a fresh stack.
-        await app.nativeClickAtElement(INPUT);
+        await body.nativeClickAtElement(INPUT);
         await expectEnabled(app, UNDO, false);
         await app.nativeType("x");
         await expectEnabled(app, UNDO, true);

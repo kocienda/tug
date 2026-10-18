@@ -23,6 +23,11 @@
  *      Escape closes the bar and clears the decorations.
  *   2. The Case toggle survives into a fresh bar (global persistence).
  *
+ * The card is a body, so everything of it — the editor, the bar, the wrap
+ * indicator its own page's overlay root carries, the keyboard walk's
+ * `data-kbf` — is read through `app.body("A")`. Keys are the app's: they go
+ * to whichever view holds the keyboard, which is the card's.
+ *
  * Gating: `describe.skipIf(!SHOULD_RUN)`.
  *
  * @covers tugdeck/src/components/tugways/cards/text-card-find-bar.tsx
@@ -43,7 +48,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import { ROUTE_CHOICE } from "./_harness/selectors";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -98,7 +104,8 @@ const BAR_SELECTOR = '[data-card-id="A"] [data-slot="text-card-find-bar"]';
 const INPUT_SELECTOR = `${BAR_SELECTOR} [data-testid="text-card-find-input"] .cm-content`;
 const CHIP_SELECTOR = `${BAR_SELECTOR} [data-slot="find-count"] [data-slot="find-count-value"]`;
 
-async function mountTextCard(app: App): Promise<void> {
+/** Seed the card over the fixture file and return its body once the file is shown. */
+async function mountTextCard(app: App): Promise<BodyApp> {
   await app.enableDeckTrace(true);
   await app.seedDeckState({
     state: deckShape(),
@@ -107,20 +114,22 @@ async function mountTextCard(app: App): Promise<void> {
     },
     focusCardId: "A",
   });
-  await app.waitForCondition<boolean>(
+  const body = await waitForBodyReady(app, "A");
+  await body.waitForCondition<boolean>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(EDITOR_CONTENT_SELECTOR)});
       return el !== null && el.innerText.indexOf("alpha meridian") !== -1;
     })()`,
     { timeoutMs: 15_000 },
   );
+  return body;
 }
 
-async function openBar(app: App): Promise<void> {
+async function openBar(body: BodyApp): Promise<void> {
   // ⌘F rides the responder chain — focus the editor, then dispatch the
   // chord synthetically (the keybinding matcher keys on code+modifiers).
-  await app.nativeClickAtElement(EDITOR_CONTENT_SELECTOR);
-  await app.evalJS<boolean>(
+  await body.nativeClickAtElement(EDITOR_CONTENT_SELECTOR);
+  await body.evalJS<boolean>(
     `(function(){
       var target = document.activeElement || document;
       return target.dispatchEvent(new KeyboardEvent("keydown", {
@@ -129,7 +138,7 @@ async function openBar(app: App): Promise<void> {
       }));
     })()`,
   );
-  await app.waitForCondition<boolean>(
+  await body.waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(BAR_SELECTOR)}) !== null`,
     { timeoutMs: 4000 },
   );
@@ -137,7 +146,7 @@ async function openBar(app: App): Promise<void> {
   // queries land in the field, not the document editor. A text surface is a
   // dom-granted target, so `document.activeElement` IS the truth here; the
   // engine grants it real focus rather than parking the sink.
-  await app.waitForCondition<boolean>(
+  await body.waitForCondition<boolean>(
     `(() => {
       const input = document.querySelector(${JSON.stringify(INPUT_SELECTOR)});
       return input !== null && document.activeElement !== null &&
@@ -147,8 +156,8 @@ async function openBar(app: App): Promise<void> {
   );
 }
 
-async function waitForChip(app: App, expected: string): Promise<void> {
-  await app.waitForCondition<boolean>(
+async function waitForChip(body: BodyApp, expected: string): Promise<void> {
+  await body.waitForCondition<boolean>(
     `(() => {
       const el = document.querySelector(${JSON.stringify(CHIP_SELECTOR)});
       return el !== null && (el.textContent || '').trim() === ${JSON.stringify(expected)};
@@ -161,13 +170,13 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
   test(
     "⌘F opens the bottom bar; query counts, navigates, narrows on Case, closes on Escape",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0223-bar" });
+      const app = await launchTugApp({ testName: "at0223-bar" });
       try {
-        await mountTextCard(app);
-        await openBar(app);
+        const body = await mountTextCard(app);
+        await openBar(body);
 
         // Placement: the bar sits BETWEEN the editor and the status bar.
-        const order = await app.evalJS<boolean>(
+        const order = await body.evalJS<boolean>(
           `(() => {
             const bar = document.querySelector(${JSON.stringify(BAR_SELECTOR)});
             const editor = document.querySelector('[data-card-id="A"] [data-slot="tug-text-card-editor"]');
@@ -185,7 +194,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
         // and neither a route trigger nor a ✕ (the bar is the Dev entry's
         // find face minus Z4A/Z2; Escape is the dismiss gesture).
         const anatomy = JSON.parse(
-          await app.evalJS<string>(
+          await body.evalJS<string>(
             `(() => {
               const bar = document.querySelector(${JSON.stringify(BAR_SELECTOR)});
               return JSON.stringify({
@@ -211,13 +220,13 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
         // Query: three case-insensitive hits, first active. The bar focused
         // its CM6 field on mount, so typing lands there directly.
         await app.nativeType("meridian");
-        await waitForChip(app, "1 of 3");
-        const decorated = await app.evalJS<number>(
+        await waitForChip(body, "1 of 3");
+        const decorated = await body.evalJS<number>(
           `document.querySelectorAll('[data-card-id="A"] .cm-searchMatch').length`,
         );
         expect(decorated).toBeGreaterThanOrEqual(3);
         // The count badge is visibly painted (not just present in the DOM).
-        const badgeVisible = await app.evalJS<boolean>(
+        const badgeVisible = await body.evalJS<boolean>(
           `(() => {
             const badge = document.querySelector(${JSON.stringify(BAR_SELECTOR)} + ' [data-slot="find-count"]');
             if (!badge) return false;
@@ -228,20 +237,20 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
         expect(badgeVisible, "count badge must be visibly painted").toBe(true);
         // Search-as-you-type SELECTED the first match (the document editor
         // wears .cm-searchMatch-selected without any Enter press).
-        const selected = await app.evalJS<number>(
+        const selected = await body.evalJS<number>(
           `document.querySelectorAll('[data-card-id="A"] [data-slot="tug-text-card-editor"] .cm-searchMatch-selected').length`,
         );
         expect(selected, "typing must land on the first match").toBeGreaterThanOrEqual(1);
 
         // Enter advances from the typed-landing first match to the second.
         await app.nativeKey("Return");
-        await waitForChip(app, "2 of 3");
+        await waitForChip(body, "2 of 3");
         // Shift-Enter retreats…
         await app.nativeKey("Return", ["shift"]);
-        await waitForChip(app, "1 of 3");
+        await waitForChip(body, "1 of 3");
         // …and the filled ↓ button advances (the pointer twin).
-        await app.click(`${BAR_SELECTOR} button[aria-label="Find next"]`);
-        await waitForChip(app, "2 of 3");
+        await body.click(`${BAR_SELECTOR} button[aria-label="Find next"]`);
+        await waitForChip(body, "2 of 3");
 
         // Case toggle narrows to the two lowercase hits, live — and the
         // toggles ride the shared cluster.
@@ -253,20 +262,20 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
         // lowercase hit at or after it is line 4's — the last of the two.
         // Narrowing to two matches is what this assertion is about, and
         // that is unchanged.
-        await app.click(`${BAR_SELECTOR} button[aria-label="Match case"]`);
-        await waitForChip(app, "2 of 2");
+        await body.click(`${BAR_SELECTOR} button[aria-label="Match case"]`);
+        await waitForChip(body, "2 of 2");
 
         // Wrapping past the last match raises the SHARED wrap indicator —
         // the same `FindSession`-driven overlay the Session card shows (the two
         // surfaces ride one controller, so the affordance cannot diverge).
         await app.nativeKey("Return");
         // The panel portals into the canvas overlay root (it centres on the
-        // card but lives at deck level), so the probe is document-wide.
-        await app.waitForCondition<boolean>(
+        // card but lives at the page's level), so the probe is document-wide.
+        await body.waitForCondition<boolean>(
           `document.querySelector('.tugx-find-wrap') !== null`,
           { timeoutMs: 5000 },
         );
-        await waitForChip(app, "1 of 2");
+        await waitForChip(body, "1 of 2");
 
         // ⌥⇥ from the query caret engages KBF at the field's own stop — the
         // stop PARKS (ring, no caret) — and Escape at that parked text stop
@@ -275,7 +284,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
         // stays open — the grant consumed the Escape before the field's own
         // Escape-closes keymap could see it.
         await app.nativeKey("Tab", ["alt"]);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(() => {
             const input = document.querySelector(${JSON.stringify(INPUT_SELECTOR)});
             return input !== null && !input.contains(document.activeElement) &&
@@ -284,7 +293,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
           { timeoutMs: 6000 },
         );
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(() => {
             const input = document.querySelector(${JSON.stringify(INPUT_SELECTOR)});
             return input !== null && document.activeElement !== null &&
@@ -294,20 +303,20 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<boolean>(
+          await body.evalJS<boolean>(
             `document.querySelector(${JSON.stringify(BAR_SELECTOR)}) !== null`,
           ),
           "the grant consumed the Escape — the bar survives it",
         ).toBe(true);
 
         // Escape closes the bar and clears the decorations.
-        await app.nativeClickAtElement(INPUT_SELECTOR);
+        await body.nativeClickAtElement(INPUT_SELECTOR);
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BAR_SELECTOR)}) === null`,
           { timeoutMs: 4000 },
         );
-        const remaining = await app.evalJS<number>(
+        const remaining = await body.evalJS<number>(
           `document.querySelectorAll('[data-card-id="A"] .cm-searchMatch').length`,
         );
         expect(remaining).toBe(0);
@@ -321,13 +330,13 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
   test(
     "the Case toggle persists into a freshly opened bar (global find options)",
     async () => {
-      const app = await launchTugApp({ bodies: false, testName: "at0223-persist" });
+      const app = await launchTugApp({ testName: "at0223-persist" });
       try {
-        await mountTextCard(app);
-        await openBar(app);
+        const body = await mountTextCard(app);
+        await openBar(body);
         // Seed: turn Case ON (persists via putFindOptions).
-        await app.click(`${BAR_SELECTOR} button[aria-label="Match case"]`);
-        await app.waitForCondition<boolean>(
+        await body.click(`${BAR_SELECTOR} button[aria-label="Match case"]`);
+        await body.waitForCondition<boolean>(
           `(() => {
             const btn = document.querySelector(${JSON.stringify(BAR_SELECTOR)} + ' button[aria-label="Match case"]');
             return btn !== null && btn.getAttribute('aria-pressed') === 'true';
@@ -335,14 +344,14 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
           { timeoutMs: 4000 },
         );
         // Close and reopen: the fresh bar seeds from the persisted options.
-        await app.nativeClickAtElement(INPUT_SELECTOR);
+        await body.nativeClickAtElement(INPUT_SELECTOR);
         await app.nativeKey("Escape");
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(BAR_SELECTOR)}) === null`,
           { timeoutMs: 4000 },
         );
-        await openBar(app);
-        const pressed = await app.evalJS<string>(
+        await openBar(body);
+        const pressed = await body.evalJS<string>(
           `(() => {
             const btn = document.querySelector(${JSON.stringify(BAR_SELECTOR)} + ' button[aria-label="Match case"]');
             return btn ? String(btn.getAttribute('aria-pressed')) : 'absent';
@@ -351,7 +360,7 @@ describe.skipIf(!SHOULD_RUN)("AT0223: text card bottom find bar", () => {
         expect(pressed).toBe("true");
         // And the case-sensitive count reflects it immediately.
         await app.nativeType("meridian");
-        await waitForChip(app, "1 of 2");
+        await waitForChip(body, "1 of 2");
       } finally {
         await app.close();
       }
