@@ -93,7 +93,6 @@ export function registerSessionCard(): void {
     identity: { live: liveSessionIdentity, parked: parkedSessionIdentity },
     // A body, handed off at its spawn funnel: the funnel decides how the
     // card's session starts, and the body is told.
-    body: true,
     bodyHandOff: "spawn",
     // No CODE_OUTPUT: no frame on it carries `workspace_key`, so the card
     // feed's filter never admitted one, and the page reads that feed only

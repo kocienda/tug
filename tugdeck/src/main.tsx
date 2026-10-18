@@ -144,7 +144,7 @@ declare global {
        */
       diag: {
         listCardIds(): string[];
-        registeredKinds(): { componentId: string; body: boolean; bodyHandOff: string | null; hidden: boolean; family: string | null }[];
+        registeredKinds(): { componentId: string; bodyHandOff: string | null; hidden: boolean; family: string | null }[];
         getDeckState(): unknown;
         getBodyPlacement(): unknown;
         getSpaces(): unknown;
@@ -936,13 +936,12 @@ async function loadTestSurface(
       listCardIds: () => deck.getSnapshot().cards.map((c) => c.id),
       /**
        * Every registered card kind, in registration order, with the facts
-       * of its registration a test seeds a card by: whether it lives in a
-       * body and how its body is handed off.
+       * of its registration a test seeds a card by: how its body is handed
+       * off, whether it is hidden, and its family.
        */
       registeredKinds: () =>
         [...getAllRegistrations().values()].map((r) => ({
           componentId: r.componentId,
-          body: r.body === true,
           bodyHandOff: r.bodyHandOff ?? null,
           hidden: r.hidden === true,
           family: r.family ?? null,

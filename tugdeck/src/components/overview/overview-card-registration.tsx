@@ -73,10 +73,6 @@ export function registerOverviewCard(): void {
     // are the deck's content cards, each carrying a slot picker for an
     // arrangement a rail can never stand in.
     cardsGroup: "none",
-    // A body, mounted as soon as the deck holds the card: nothing about its
-    // start waits on a session. Its prompt insert is its own composer's, so
-    // it never reaches another card's page.
-    body: true,
     sizePolicy: {
       min: { width: MIN_OVERVIEW_WIDTH_PX, height: 240 },
       preferred: { width: DEFAULT_OVERVIEW_WIDTH_PX, height: 900 },

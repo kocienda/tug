@@ -302,9 +302,6 @@ export function registerCommitCard(): void {
   registerCard({
     componentId: "commit",
     contentFactory: (cardId) => <CommitCardContent cardId={cardId} />,
-    // A body: the record is fetched and drawn in the card's own page; its
-    // masthead reaches the shell's pane as a card fact.
-    body: true,
     defaultMeta: { title: "Commit", icon: "GitCommitHorizontal", closable: true },
     category: { label: "Files", icon: "GitCommitHorizontal" },
     identity: { live: liveCommitIdentity, parked: parkedCommitIdentity },

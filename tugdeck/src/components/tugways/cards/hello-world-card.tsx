@@ -69,7 +69,6 @@ export function registerHelloWorldCard(): void {
     componentId: "hello",
     contentFactory: () => <HelloWorldCardContent />,
     defaultMeta: { title: "Hello, World!", icon: "Star", closable: true },
-    body: true,
     sizePolicy: {
       min: { width: 200, height: 150 },
       preferred: { width: 320, height: 280 },

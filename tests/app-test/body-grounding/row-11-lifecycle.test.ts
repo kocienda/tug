@@ -71,8 +71,6 @@ const DRAFT_BEFORE_RELOAD = "row11 draft before reload";
 const DRAFT_BEFORE_QUIT = "row11 draft before quit";
 const SETTLE_MS = 8_000;
 const CARD_IDS = `window.tugdeck.diag.listCardIds()`;
-/** The Text card in B's pane is a body too, once its kind is one. */
-const TEXT_BODY: string[] = cardKind("text").moved ? [T] : [];
 const X = "row11-x";
 const ORIGINAL = "alpha\nbeta\n";
 const TEXT_EDITOR = '[data-slot="tug-text-card-editor"] .cm-content';
@@ -250,7 +248,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
     );
   }
 
-  test.skipIf(!cardKind("text").moved || !cardKind("cards").moved)(
+  test(
     "a dirty Text body asks before its pane closes and before a Cards body deletes its workspace, and Cancel keeps both",
     async () => {
       const dir = mkdtempSync(join(tmpdir(), "tug-row11-guard-"));
@@ -344,14 +342,14 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         await app.seedDeckState({ state: deck(), focusCardId: A });
         for (const id of [A, B, D]) await spawnStub(app, id, stubDir, 2);
         for (const id of [A, B, D]) await waitForBody(app, id);
-        await expectBodiesMatchCards(app, "at the start", [A, B, D, ...TEXT_BODY]);
+        await expectBodiesMatchCards(app, "at the start", [A, B, D, T]);
 
         // ---- Close: A holds a draft, so the shell asks; Close, and A goes with its body ----
         await typeDraft(app, A, "row11 draft in A");
         await focusBody(app, A, { composer: false });
         await closeThrough(app, "file.closeCard", 3, "close A", true);
         expect(await pollFor(() => bodyOf(app, A), (b) => b === null, SETTLE_MS), "the host holds no body for A after the close").toBeNull();
-        await expectBodiesMatchCards(app, "after closing A", [B, D, ...TEXT_BODY]);
+        await expectBodiesMatchCards(app, "after closing A", [B, D, T]);
 
         // ---- Close all: B holds a draft, so the shell asks; B's pane empties, the text card and the body card together ----
         await typeDraft(app, B, "row11 draft in B");

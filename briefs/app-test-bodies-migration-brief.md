@@ -304,6 +304,13 @@ Test-side, the census now counts a name bound to `kindBody(…)`, or an arrow re
   - `card-dom-allow.json` loses `at0223` and `at0738-body-fallback`, which no longer reach a card.
 - **(verified:** tugdeck type-check clean; the tugdeck unit suite 10,999 of 10,999 after the `hasFocus` change, then `host-menu-state.test.ts` and the body tests after the last two; `deck-has-focus.test.ts` 4 of 4. The six files are green on the final tree: `at0174` 4 of 4 and `at0295` 1 of 1 alone, then `at0018`, `at0223`, `at0269-gesture-classification` and `at0420` 4 of 4 together. The body-grounding Edit-menu sweeps (`row-05-chords-edit`, `row-06-menus-edit-*`) cover the menu change and have not been run: they carry no recorded time.**)**
 
+**[B14] The `body: true` registration flag is removed: every registered kind is a body (2026-10-17).** After the cut-over ([B09]) the flag no longer chose anything, but it could still do harm: the shell's document has no card hosts, so a kind registered without it would stand as an empty placeholder forever.
+- `CardRegistration` loses `body?: true`. `isBodyKind` (`body-handoff.ts`) is now "the shell has the body capability and the kind is registered". `bodyHandOff`, `bodyDeck` and `bodyFollows` stay, and their docs no longer describe a body kind as opt-in.
+- The fifteen card registrations lose the flag, along with six comments that annotated it. `registerGalleryCard`, `registerFixtureCard` and `registerSpikeCard` existed only to add it, so they are gone and their callers call `registerCard`. The diag door's `registeredKinds()` (`main.tsx`) drops `body`.
+- **A flag assertion went, not a decision.** `at0741-every-kind-a-body` asserted that every registered kind said `body: true`. With no flag there is nothing to assert, so that check is removed. The guarantee it stood for, that every kind is a body, is still checked by the file's other half, which is now the whole test: one card of each of the 115 kinds stands ready in a body while the shell's document mounts no card host.
+- `body-handoff.test.ts` now states the new rule: an unregistered kind (`git`) is not a body kind, and any registered kind is. The grounding table's `moved` flag (`body-grounding/_kinds.ts`) mirrored the registration flag and was true for every kind, so it is gone, along with `row-11-lifecycle`'s two reads of it (one conditional list entry and one `skipIf`, both always on).
+- **(verified:** tugdeck and app-test type-checks clean; the tugdeck unit suite 11,004 of 11,004; `just app-test-body-scope-check` and `just app-test-covers-check` clean; `at0741` alone 1 of 1 in 17 s.**)**
+
 ---
 
 ## Removals pending the user's approval {#removals}
@@ -350,6 +357,6 @@ Files and legs whose premise is gone on bodies, written by the batches that met 
 2. **The one run — superseded ([B11], [F12]).** Stopped at 95 files of 527 on 2026-10-17; results under `.tug/slice2/`.
 3. **The bodies gate ([B11]) — baseline taken ([F13]).** Run it once for a baseline, in two foreground batches, and read every red as a product defect or a row fix. 90 of 94 green on 2026-10-17.
 4. **The shared helpers ([B11]).** Move `fixtures/runner.ts`, the `SHEET` constants and the picker-form waits onto the card's body.
-5. **The product work ([B12]).** Slice 2 is paused and the work is product-led. [F14] settled [F12]'s three defects. The cut-over ([B09]) came first and is done, and so is the body-focus facet ([B13]). Next is removing the `body: true` registration flag, then a look at the ⌘N landing latency [F14] names. Each slice is verified by the few app-tests that show it.
+5. **The product work ([B12]).** Slice 2 is paused and the work is product-led. [F14] settled [F12]'s three defects. The cut-over ([B09]) came first and is done, and so are the body-focus facet ([B13]) and the removal of the `body: true` registration flag ([B14]). Next is a look at the ⌘N landing latency [F14] names. Each slice is verified by the few app-tests that show it.
 6. **The removal stop.** The list above, put to the user once.
 7. **The harness flip ([B08]),** deleting the `bodies` option, once the cut-over has removed the other mode.

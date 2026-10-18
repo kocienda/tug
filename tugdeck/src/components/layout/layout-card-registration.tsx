@@ -70,7 +70,6 @@ export function registerLayoutCard(): void {
     // A body that reads the shell's arrangement off its card context; its row
     // presses are commands the shell answers, and its miniature's drags are
     // deck calls the shell runs.
-    body: true,
     bodyDeck: "arrangement",
     sizePolicy: {
       min: { width: MIN_LAYOUT_WIDTH_PX, height: 240 },

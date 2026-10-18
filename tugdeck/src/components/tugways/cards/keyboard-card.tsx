@@ -51,7 +51,6 @@ export function registerKeyboardCard(): void {
     contentFactory: () => <KeyboardCardContent />,
     defaultMeta: { title: "Keyboard Shortcuts", icon: "Keyboard", closable: true },
     hidden: true,
-    body: true,
     // A list of bindings, read by keyboard ([P10]).
     kbfAtRest: true,
     sizePolicy: {

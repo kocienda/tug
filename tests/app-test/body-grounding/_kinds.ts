@@ -4,8 +4,7 @@
  * Every kind of card can be a body. A row that applies to more than one kind
  * runs once per kind under test, seeding that kind's pane with `kindPane` and
  * waiting on its `root` in the card's body; a row that applies to one kind
- * reads that kind's entry. A kind's move is adding nothing here but flipping
- * its `moved` flag, the day its registration says `body: true`.
+ * reads that kind's entry.
  *
  * `rows` is the bar each kind is held to: the row numbers of this directory's
  * `row-NN-*.test.ts` files that apply to it. A row not listed does not apply,
@@ -36,8 +35,6 @@ export interface CardKind {
   readonly marks: readonly string[];
   /** The text field typing lands in when the card holds the keyboard; absent for a kind with none. */
   readonly field?: string;
-  /** Whether the kind's registration says `body: true` at this commit. */
-  readonly moved: boolean;
   /** The grounding rows that apply to the kind. */
   readonly rows: readonly number[];
   /** Why a row does not apply, where the reason is the kind's own. */
@@ -103,7 +100,6 @@ function kind(
   root: string,
   extraRows: readonly number[],
   notApplicable: Readonly<Record<number, string>> = {},
-  moved = false,
 ): CardKind {
   const rows = [...new Set([...EVERY_KIND, ...extraRows])].filter((r) => !(rail && r in RAIL_ONLY_NOT)).sort((a, b) => a - b);
   const field = FIELDS[componentId];
@@ -113,7 +109,6 @@ function kind(
     root,
     marks: [root, ...(MARKS[componentId] ?? [])],
     ...(field !== undefined ? { field } : {}),
-    moved,
     rows,
     notApplicable: { ...SESSION_ONLY, ...(rail ? RAIL_ONLY_NOT : {}), ...notApplicable },
   };
@@ -129,26 +124,25 @@ export const CARD_KINDS: readonly CardKind[] = [
     root: '[data-slot="tug-prompt-entry"]',
     marks: ['[data-slot="tug-prompt-entry"]'],
     field: FIELDS.session,
-    moved: true,
     rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
     notApplicable: {},
   },
-  kind("overview", true, ".overview-card", [5, 12, 17, 25, 32], { 8: NO_SHEET }, true),
-  kind("jots", true, '[data-testid="jots-toolbar"]', [5, 12, 25, 27], { 8: NO_SHEET, 17: "rails do not cross" }, true),
+  kind("overview", true, ".overview-card", [5, 12, 17, 25, 32], { 8: NO_SHEET }),
+  kind("jots", true, '[data-testid="jots-toolbar"]', [5, 12, 25, 27], { 8: NO_SHEET, 17: "rails do not cross" }),
   // The Arcs card, under the component id it has always carried (`ARCS_CARD_ID`).
-  kind("dashes", true, '[data-testid="arcs-card-content"]', [13, 25], { 8: NO_SHEET, 12: NO_FIELD, 17: "rails do not cross" }, true),
-  kind("cards", true, ".cards-card", [5, 8, 25, 33], { 12: NO_FIELD, 17: "rails do not cross" }, true),
-  kind("layout", true, '[data-testid="layout-card-content"]', [25, 33], { 8: NO_SHEET, 12: NO_FIELD, 17: "rails do not cross" }, true),
-  kind("text", false, '[data-slot="text-card"]', [12, ...CONTENT_SURFACES], { 8: NO_SHEET }, true),
-  kind("file-view", false, ".file-view-card", CONTENT_SURFACES, { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("diff", false, '[data-slot="diff-card"]', CONTENT_SURFACES, { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("commit", false, '[data-slot="commit-card"]', CONTENT_SURFACES, { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("devtools", false, '[data-testid="devtools-card"]', [], { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("settings", false, '[data-testid="settings-card"]', [8], { 12: NO_FIELD }, true),
-  kind("keyboard", false, '[data-testid="keyboard-card"]', [], { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("about", false, '[data-testid="about-card"]', [], { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("hello", false, '[data-testid="hello-world-card-content"]', [], { 8: NO_SHEET, 12: NO_FIELD }, true),
-  kind("gallery-buttons", false, '[data-testid="gallery-buttons"]', [], { 8: NO_SHEET, 12: NO_FIELD }, true),
+  kind("dashes", true, '[data-testid="arcs-card-content"]', [13, 25], { 8: NO_SHEET, 12: NO_FIELD, 17: "rails do not cross" }),
+  kind("cards", true, ".cards-card", [5, 8, 25, 33], { 12: NO_FIELD, 17: "rails do not cross" }),
+  kind("layout", true, '[data-testid="layout-card-content"]', [25, 33], { 8: NO_SHEET, 12: NO_FIELD, 17: "rails do not cross" }),
+  kind("text", false, '[data-slot="text-card"]', [12, ...CONTENT_SURFACES], { 8: NO_SHEET }),
+  kind("file-view", false, ".file-view-card", CONTENT_SURFACES, { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("diff", false, '[data-slot="diff-card"]', CONTENT_SURFACES, { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("commit", false, '[data-slot="commit-card"]', CONTENT_SURFACES, { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("devtools", false, '[data-testid="devtools-card"]', [], { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("settings", false, '[data-testid="settings-card"]', [8], { 12: NO_FIELD }),
+  kind("keyboard", false, '[data-testid="keyboard-card"]', [], { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("about", false, '[data-testid="about-card"]', [], { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("hello", false, '[data-testid="hello-world-card-content"]', [], { 8: NO_SHEET, 12: NO_FIELD }),
+  kind("gallery-buttons", false, '[data-testid="gallery-buttons"]', [], { 8: NO_SHEET, 12: NO_FIELD }),
 ];
 
 /** The entry for `componentId`; throws for a kind the table does not hold. */
@@ -169,7 +163,7 @@ export function cardKind(componentId: string): CardKind {
 export function kindsUnderTest(row: number, env: string | undefined = process.env.TUG_BODY_KINDS): CardKind[] {
   const named =
     env === undefined || env.trim() === ""
-      ? CARD_KINDS.filter((k) => k.moved && SHAPE_REPRESENTATIVES.includes(k.componentId))
+      ? CARD_KINDS.filter((k) => SHAPE_REPRESENTATIVES.includes(k.componentId))
       : env.split(",").map((name) => cardKind(name.trim()));
   return named.filter((k) => k.rows.includes(row));
 }

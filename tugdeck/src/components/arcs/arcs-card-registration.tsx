@@ -54,7 +54,6 @@ export function registerArcsCard(): void {
     cardsGroup: "none",
     // A body that follows the Session card focused before it: its Bind target
     // reads that card's binding off the card context the shell sends.
-    body: true,
     bodyFollows: true,
     sizePolicy: {
       min: { width: MIN_ARCS_WIDTH_PX, height: 240 },

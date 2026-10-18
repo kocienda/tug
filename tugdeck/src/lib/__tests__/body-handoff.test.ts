@@ -1,9 +1,9 @@
 /**
- * A card of a body kind is handed to a body — a spawn kind at its spawn
+ * A card of a registered kind is handed to a body — a spawn kind at its spawn
  * funnel, and only then: with no body capability the funnel sends as it
  * always did; with it, such a card becomes a body card once, the host is
- * told its kind, and the funnel sends nothing; a card whose kind's
- * registration does not say `body` stays in the shell; a card that already
+ * told its kind, and the funnel sends nothing; a card whose kind is not
+ * registered is handed nowhere; a card that already
  * is a body card is sent the intent its
  * funnel has just decided, once; and the reconnect pass's fire for a body
  * card asks the host for nothing and sends its body nothing.
@@ -68,14 +68,12 @@ registerCard({
   componentId: "handoff-spawn",
   contentFactory: () => null,
   defaultMeta: { title: "Spawn", closable: true },
-  body: true,
   bodyHandOff: "spawn",
 });
 registerCard({
   componentId: "handoff-mount",
   contentFactory: () => null,
   defaultMeta: { title: "Mount", closable: true },
-  body: true,
 });
 
 /** The state the shell holds per card; empty unless a test seeds it. */
@@ -154,7 +152,7 @@ describe("with the capability", () => {
     expect(bodyCardsStore.stateOf("s1")).toBe("creating");
   });
 
-  test("a body kind is a registration fact; only one without a spawn hand-off is the shell's to hand off", () => {
+  test("every registered kind is a body kind; only one without a spawn hand-off is the shell's to hand off", () => {
     expect(isBodyKind("handoff-spawn")).toBe(true);
     expect(isBodyKind("handoff-mount")).toBe(true);
     expect(isBodyKind("git")).toBe(false);

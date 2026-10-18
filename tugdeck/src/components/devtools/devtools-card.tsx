@@ -100,7 +100,6 @@ export function registerDevtoolsCard(): void {
     contentFactory: () => <DevToolsCardContent />,
     defaultMeta: { title: "DevTools", closable: true },
     hidden: true,
-    body: true,
     // The Telemetry tab follows another card, which only the shell's focus
     // manager knows; the shell sends it in the body's context ([P17]).
     bodyFollows: true,

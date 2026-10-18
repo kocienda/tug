@@ -8,8 +8,10 @@
  * card is a body, and absent in a body page, which mounts its one card itself
  * and hands nothing off. There is no setting that turns bodies off.
  *
- * **Which cards.** A card whose kind's registration says `body: true`
- * ({@link isBodyKind}). A kind whose registration also says
+ * **Which cards.** Every card of a registered kind ({@link isBodyKind}).
+ * There is no flag that keeps a kind in the shell: the shell's document has
+ * no card hosts, so a kind it would not hand off would stand as an empty
+ * placeholder forever. A kind whose registration says
  * `bodyHandOff: "spawn"` — the Session card — is handed off by its spawn
  * funnels when the shell has a session to start for it, and by the shell's
  * deck scan, with a `restore` intent, once it has none; every other body kind
@@ -95,9 +97,9 @@ export function isBodyCard(cardId: string): boolean {
   return capabilities.bodyViews && bodyCardsStore.has(cardId);
 }
 
-/** Whether a card of `componentId` lives in a body on this host. */
+/** Whether a card of `componentId` lives in a body on this page: in the shell, any registered kind. */
 export function isBodyKind(componentId: string): boolean {
-  return capabilities.bodyViews && getRegistration(componentId)?.body === true;
+  return capabilities.bodyViews && getRegistration(componentId) !== undefined;
 }
 
 /**
