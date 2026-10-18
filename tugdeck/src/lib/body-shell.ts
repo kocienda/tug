@@ -92,6 +92,9 @@ import { requestLogout } from "./logout-store";
 import { ShellSurfaceDrawer } from "./shell-surface";
 import { onBus, sendBus } from "./deck-bus";
 import type { BodyIntent } from "../body/body-intent";
+import type { PendingAsk } from "./code-session-store/types";
+import { setAskForwarder } from "./ask-forwarder";
+import { pendingAskStore } from "./pending-ask-store";
 import {
   askForBodyAgain,
   bodyIntentOf,
@@ -286,6 +289,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const pendingIntents = new Map<string, BodyIntent>();
   /** The Jots body cards owed a jot capture their body has not yet spoken to take. */
   const pendingJotCaptures = new Set<string>();
+  /**
+   * The question each body card is showing, sent again to each body the
+   * card's first `card-facts` says is new — a body not yet heard, or one
+   * remade after a termination or a failure — so it stands until answered.
+   */
+  const standingAsks = new Map<string, PendingAsk>();
+  const sendAsk = (cardId: string, ask: PendingAsk | null): void => {
+    sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "ask", payload: { ask } } });
+  };
   /** Each body card's deck-scope surface, drawn over the deck. */
   const surfaces = new ShellSurfaceDrawer({
     onActivate: (cardId, path) => {
@@ -331,6 +343,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     paintHeard.delete(cardId);
     pendingIntents.delete(cardId);
     pendingJotCaptures.delete(cardId);
+    standingAsks.delete(cardId);
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
@@ -834,6 +847,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         if (pendingJotCaptures.delete(cardId)) {
           sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "new-jot" } });
         }
+        const standing = standingAsks.get(cardId);
+        if (standing !== undefined) sendAsk(cardId, standing);
         relaySpaceVerb();
         const kind = kindOf(cardId);
         if (kind === DEVTOOLS_KIND) relayDevLog(cardId);
@@ -950,6 +965,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return;
       case "close-decision":
         pendingDecisions.get(cardId)?.(advice.answer);
+        return;
+      case "ask-response":
+        // The card's dialog answered: the question is this page's, and so is
+        // the answer to the blocked caller.
+        pendingAskStore.respond(advice.requestId, advice.choice);
         return;
       case "inspection": {
         // The followed card's inspection goes to every devtools body following it.
@@ -1194,6 +1214,18 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         pendingJotCaptures.add(cardId);
       }
       return true;
+    }),
+    // A question for a Session card is shown in the card's own page, whose
+    // store holds its session; one whose body has not yet spoken takes it
+    // once its body does. A card whose body failed shows nothing, so the
+    // question finds no card and its caller hears the fallback at once.
+    setAskForwarder({
+      holds: (cardId) => bodyCardsStore.has(cardId) && bodyCardsStore.stateOf(cardId) !== "failed",
+      show: (cardId, ask) => {
+        if (ask === null) standingAsks.delete(cardId);
+        else standingAsks.set(cardId, ask);
+        if (heard.has(cardId)) sendAsk(cardId, ask);
+      },
     }),
     // An open of a file a body Text card already holds reveals the asked-for
     // line in that card, whose editor is in its own page.

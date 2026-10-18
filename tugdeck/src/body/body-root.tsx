@@ -38,6 +38,8 @@ import * as paneRootRegistry from "../components/chrome/pane-root-registry";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
 import { RAIL_TREATMENT, RAIL_TREATMENT_ATTRIBUTE } from "../lib/layout-imposer";
 import { bodyPaneId, type BodyDeckBridge } from "./body-deck-bridge";
+import { UsageContext } from "../lib/usage-context";
+import type { UsageStore } from "../lib/usage-store";
 
 export interface BodyRootProps {
   bridge: BodyDeckBridge;
@@ -45,6 +47,8 @@ export interface BodyRootProps {
   appLifecycle: AppLifecycle;
   sheetLifecycle: SheetLifecycle;
   bannerLifecycle: BannerLifecycle;
+  /** This page's `/usage` store, which the Session card's sheet reads. */
+  usageStore: UsageStore;
 }
 
 /**
@@ -160,6 +164,7 @@ export function renderBodyRoot(props: BodyRootProps): React.ReactElement {
       [ErrorBoundary, null],
       [ResponderChainProvider, null],
       [DeckManagerContext.Provider, { value: bridge }],
+      [UsageContext.Provider, { value: props.usageStore }],
       [CardLifecycleContext.Provider, { value: bridge.cardLifecycle }],
       [AppLifecycleContext.Provider, { value: props.appLifecycle }],
       [SheetLifecycleContext.Provider, { value: props.sheetLifecycle }],

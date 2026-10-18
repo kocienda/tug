@@ -76,6 +76,7 @@ import {
   cardSessionBindingStore,
 } from "./lib/card-session-binding-store";
 import { arcPressStore } from "./lib/arc-press-store";
+import { askForwarderFor } from "./lib/ask-forwarder";
 import { sessionNameStore } from "./lib/session-name-store";
 import {
   identityKeyForSession,
@@ -1467,39 +1468,6 @@ export function initActionDispatch(
   // The store tails' answers: the shell's, and each body's too.
   registerStoreTailActions();
 
-  // resolve_sessions_ok / _err: the ledger's answer to "which of these cited
-  // sessions do you hold?" ([D132]). The store settles both the hits and the
-  // misses — a named miss is what lets an unresolvable citation be a cached
-  // fact instead of a re-ask on every repaint — and seeds the identity stores
-  // from the rows, which is how a citation names a session no card is bound to.
-  registerAction("resolve_sessions_ok", (payload) => {
-    const decoded = decodeResolveSessionsOk(payload);
-    if (decoded === null) {
-      console.warn("resolve_sessions_ok: undecodable payload", payload);
-      return;
-    }
-    sessionCitationStore.applyResolved(decoded);
-  });
-
-  // session_index_changed: some instance on this machine wrote the shared
-  // session index. The two answers that could have become wrong are the
-  // misses and the foreign findings, so those are dropped and the next
-  // repaint asks again. Pushed by a watch rather than polled — the frame IS
-  // the event, and there is no timer anywhere on either side of it.
-  registerAction("session_index_changed", () => {
-    sessionCitationStore.forgetUnsettled();
-  });
-  registerAction("resolve_sessions_err", (payload) => {
-    // A read error says nothing about the sessions, so the asks are dropped
-    // rather than cached as misses: caching one would slash a resolvable
-    // citation until the next reconnect.
-    const ids = Array.isArray(payload.ids)
-      ? payload.ids.filter((id): id is string => typeof id === "string")
-      : [];
-    console.warn("resolve_sessions_err", payload.reason, ids.length);
-    sessionCitationStore.applyFailed(ids);
-  });
-
   // trash_session_ok / _err
   registerAction("trash_session_ok", (payload) => {
     const sessionId = payload.session_id;
@@ -1641,7 +1609,13 @@ export function initActionDispatch(
       focusedTugSessionId: () => {
         const cardId = deckManager.getFocusedCardId();
         if (cardId === null) return null;
-        return cardServicesStore.getServices(cardId)?.tugSessionId ?? null;
+        // A Session card that is a body has no services in this page; its
+        // binding is the shell's.
+        return (
+          cardServicesStore.getServices(cardId)?.tugSessionId ??
+          cardSessionBindingStore.getBinding(cardId)?.tugSessionId ??
+          null
+        );
       },
       sessionFor: (tugSessionId) => {
         // Exact id first, then by **line**. A question asked from inside a
@@ -1653,19 +1627,35 @@ export function initActionDispatch(
         // `cardIdForSession` is the deck's existing segment → line → card
         // walk; the direct match stays for a segment whose line no frame has
         // named this run.
-        const services =
-          cardServicesStore.getByTugSessionId(tugSessionId) ??
-          (() => {
-            const cardId = cardIdForSession(tugSessionId);
-            return cardId === null ? null : cardServicesStore.getServices(cardId);
-          })();
-        if (services === null) return null;
+        const direct = cardServicesStore.getByTugSessionId(tugSessionId);
+        const cardId = direct === null ? cardIdForSession(tugSessionId) : null;
+        const services = direct ?? (cardId === null ? null : cardServicesStore.getServices(cardId));
+        if (services !== null) {
+          return {
+            tugSessionId: services.tugSessionId,
+            setPendingAsk: (ask) => services.codeSessionStore.setPendingAsk(ask),
+          };
+        }
+        // A Session card that is a body holds its store in its own page, so
+        // the question is shown there and stays this store's to answer.
+        const binding = cardId === null ? undefined : cardSessionBindingStore.getBinding(cardId);
+        const forwarder = cardId === null ? null : askForwarderFor(cardId);
+        if (cardId === null || binding === undefined || forwarder === null) return null;
         return {
-          tugSessionId: services.tugSessionId,
-          setPendingAsk: (ask) => services.codeSessionStore.setPendingAsk(ask),
+          tugSessionId: binding.tugSessionId,
+          setPendingAsk: (ask) => forwarder.show(cardId, ask),
         };
       },
-      observeSessions: (listener) => cardServicesStore.subscribe(listener),
+      // A body card's session goes when its binding does, which this page's
+      // services never see.
+      observeSessions: (listener) => {
+        const unsubServices = cardServicesStore.subscribe(listener);
+        const unsubBindings = cardSessionBindingStore.subscribe(listener);
+        return () => {
+          unsubServices();
+          unsubBindings();
+        };
+      },
     }),
   ];
   const appLifecycle = getAppLifecycle();
@@ -1704,6 +1694,39 @@ export function initActionDispatch(
  * and never the page before them, so a body's Overview showed no posts.
  */
 export function registerStoreTailActions(): void {
+  // resolve_sessions_ok / _err: the ledger's answer to "which of these cited
+  // sessions do you hold?" ([D132]). The store settles both the hits and the
+  // misses — a named miss is what lets an unresolvable citation be a cached
+  // fact instead of a re-ask on every repaint — and seeds the identity stores
+  // from the rows, which is how a citation names a session no card is bound to.
+  registerAction("resolve_sessions_ok", (payload) => {
+    const decoded = decodeResolveSessionsOk(payload);
+    if (decoded === null) {
+      console.warn("resolve_sessions_ok: undecodable payload", payload);
+      return;
+    }
+    sessionCitationStore.applyResolved(decoded);
+  });
+
+  // session_index_changed: some instance on this machine wrote the shared
+  // session index. The two answers that could have become wrong are the
+  // misses and the foreign findings, so those are dropped and the next
+  // repaint asks again. Pushed by a watch rather than polled — the frame IS
+  // the event, and there is no timer anywhere on either side of it.
+  registerAction("session_index_changed", () => {
+    sessionCitationStore.forgetUnsettled();
+  });
+  registerAction("resolve_sessions_err", (payload) => {
+    // A read error says nothing about the sessions, so the asks are dropped
+    // rather than cached as misses: caching one would slash a resolvable
+    // citation until the next reconnect.
+    const ids = Array.isArray(payload.ids)
+      ? payload.ids.filter((id): id is string => typeof id === "string")
+      : [];
+    console.warn("resolve_sessions_err", payload.reason, ids.length);
+    sessionCitationStore.applyFailed(ids);
+  });
+
   // list_sessions_ok / _err: response to a `list_sessions` request. The
   // store consumer (step 4) resolves its pending workspace fetch with
   // the rows or surfaces the error.

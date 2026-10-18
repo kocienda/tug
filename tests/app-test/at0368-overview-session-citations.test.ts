@@ -28,10 +28,12 @@
  * And the other direction, which is the half a session scan can break: a real
  * repository path in the same post still ends up a path annotation.
  *
- * The ledger's answer is delivered through `dispatchControlAction`, which is
- * the production `resolve_sessions_ok` handler — the same function the wire
- * frame reaches. Everything downstream of it is production: the citation
- * store, the verdict batch, the re-mark, the portal.
+ * The ledger's answer is delivered through `dispatchControlAction` in the
+ * Overview card's own page, which is the production `resolve_sessions_ok`
+ * handler — the same function the wire frame reaches, and tugcast broadcasts
+ * that frame to every page, the card's body included. Everything downstream
+ * of it is production: the citation store, the verdict batch, the re-mark,
+ * the portal.
  *
  * And one geometry claim about the OTHER place a session shows up in this card
  * — the narrated session's own citation, which leads the provenance strip under
@@ -336,7 +338,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
         expect(pending.text).toContain(`${PROJECT}/${MISSING}`);
 
         // ---- 2 & 3. The ledger answers: one session, one miss. ----
-        await app.evalJS<unknown>(resolveSessions());
+        await kindBody(app, "overview").evalJS<unknown>(resolveSessions());
 
         // Waited on the CHIP rather than on the mark: the mark is the
         // annotator's layout pass, the chip is the React commit that follows
@@ -423,7 +425,7 @@ describe.skipIf(!SHOULD_RUN)("at0368 — sessions named in Overview prose", () =
             ${JSON.stringify(`${CARD} .overview-post-refs .tug-session-identity`)}).length === 2`,
           { timeoutMs: 15_000 },
         );
-        await app.evalJS<unknown>(resolveNamedSessions());
+        await kindBody(app, "overview").evalJS<unknown>(resolveNamedSessions());
         await kindBody(app, "overview").waitForCondition<boolean>(
           `(function () {
             var runs = document.querySelectorAll(

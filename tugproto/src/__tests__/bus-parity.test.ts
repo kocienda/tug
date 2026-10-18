@@ -97,6 +97,12 @@ const DELIVERED: BusDelivered[] = [
     payload: { command: "intent", payload: { kind: "resume", tugSessionId: "s1", projectDir: "/p", reason: "launch" } },
   },
   { from: SHELL, to: { card: "c2" }, kind: "card-command", payload: { command: "new-jot" } },
+  {
+    from: SHELL,
+    to: { card: "c2" },
+    kind: "card-command",
+    payload: { command: "ask", payload: { ask: { requestId: "r1", title: "Run them?", options: [{ value: "yes", label: "Yes" }] } } },
+  },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "close-advice", waive: true } },
   { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "sheet-reservation", heightPx: 240 } },
@@ -149,6 +155,7 @@ const DELIVERED: BusDelivered[] = [
     kind: "card-advice",
     payload: { advice: "inspection", inspection: { transportState: "live", turns: 3 } },
   },
+  { from: BODY_C1, to: "shell", kind: "card-advice", payload: { advice: "ask-response", requestId: "r1", choice: "yes" } },
   {
     from: SHELL,
     to: "body",
@@ -248,6 +255,7 @@ describe("bus envelope parity", () => {
       "close-decision": true,
       "capture-armed": true,
       inspection: true,
+      "ask-response": true,
     };
     const allCommands: Record<CardCommandKind, true> = {
       find: true,
@@ -269,6 +277,7 @@ describe("bus envelope parity", () => {
       "dev-log": true,
       intent: true,
       "new-jot": true,
+      ask: true,
     };
     expect([...advice].sort()).toEqual(Object.keys(allAdvice).sort());
     expect([...commands].sort()).toEqual(Object.keys(allCommands).sort());

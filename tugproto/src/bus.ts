@@ -92,7 +92,14 @@ export type CardCommandKind =
   /** A session the shell decided for a card already in its body: `payload` is the intent, opaque to the bus. */
   | "intent"
   /** Capture a jot in the Jots card: create an empty one and open its editor, the shell's ⌘J. */
-  | "new-jot";
+  | "new-jot"
+  /**
+   * A question raised from outside the turn stream (`tugtool host ask`), for
+   * the Session card's dialog: `payload.ask` is the deck's `PendingAsk`, or
+   * null to take the dialog down. The shell keeps the question; the card
+   * answers with `ask-response` advice.
+   */
+  | "ask";
 
 /** `card-command`: the chrome asking a card to act. */
 export interface CardCommand {
@@ -190,7 +197,9 @@ export type CardAdvice =
    */
   | { advice: "capture-armed"; armed: boolean }
   /** The card's session inspection, for the devtools card that follows it. Opaque to the bus. */
-  | { advice: "inspection"; inspection: unknown };
+  | { advice: "inspection"; inspection: unknown }
+  /** The card's dialog answered the question the shell sent with an `ask` command. */
+  | { advice: "ask-response"; requestId: string; choice: string };
 
 /** `deck-facts`: what the chrome tells every card about the deck. */
 export interface DeckFacts {

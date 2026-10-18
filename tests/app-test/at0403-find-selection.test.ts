@@ -220,8 +220,10 @@ async function seedSession(app: App): Promise<void> {
   // The turns arrive as a replay — `add_user_message` rather than a live
   // `send`, bracketed by `replay_started`/`replay_complete` — the shape
   // every bodies-on Session file seeds with (`at0191`, `at0418`). A live
-  // `send` followed by a synthetic `assistant_text` left the reply unrendered
-  // in the card's own page: the user turn showed, its text never did.
+  // `send` followed by a synthetic `assistant_text` renders too: it once left
+  // the reply unrendered, because the send reached tugcast and the fake
+  // session was answered `session_unknown`, and a harness-bound session is
+  // now kept off the wire (`lib/harness-sessions.ts`).
   await app.driveSession("A", f({ type: "replay_started" }));
   for (const [i, tail] of ["ridge", "mesa"].entries()) {
     await app.driveSession("A", f({ type: "add_user_message", content: [{ type: "text", text: `ask ${i}` }] }));

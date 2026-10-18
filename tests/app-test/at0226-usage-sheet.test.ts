@@ -31,6 +31,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { launchTugApp, type App } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import { sessionCardShape } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -101,35 +102,38 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
 
-        // Seed the account-global usage store as if `claude -p "/usage"` replied.
-        await app.evalJS<null>(
+        // Seed the account-global usage store as if `claude -p "/usage"` replied:
+        // the store card A's page holds, since A is a body and its sheet reads
+        // the store there.
+        const body = await waitForBodyReady(app, "A");
+        await body.evalJS<null>(
           `(window.__tug.ingestUsage(${JSON.stringify({ request_id: "usage-seed", ok: true, text: USAGE_TEXT, account: USAGE_ACCOUNT })}), null)`,
         );
 
         await runUsage(app);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){ var e = document.querySelector(${JSON.stringify(SHEET_TITLE)}); return e !== null && e.textContent === "Usage"; })()`,
           { timeoutMs: 6000 },
         );
 
         // Session window → arc hero; the two weekly windows → linear gauges;
         // each period's two characteristics → linear gauges (2 periods → 4).
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelectorAll(${JSON.stringify(ARC_GAUGE)}).length === 1`,
           { timeoutMs: 6000 },
         );
         expect(
-          await app.evalJS<number>(
+          await body.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(WINDOW_GAUGE)}).length`,
           ),
         ).toBe(2);
         expect(
-          await app.evalJS<number>(
+          await body.evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(CHAR_GAUGE)}).length`,
           ),
         ).toBe(4);
 
-        const sheetText = await app.evalJS<string>(
+        const sheetText = await body.evalJS<string>(
           `(function(){ var e = document.querySelector(${JSON.stringify(SHEET)}); return e ? (e.textContent || "") : ""; })()`,
         );
         expect(sheetText).toContain("69%"); // session hero
@@ -138,26 +142,26 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
 
         // The account the panel was fetched as heads the sheet.
         expect(
-          await app.evalJS<string>(
+          await body.evalJS<string>(
             `(function(){ var e = document.querySelector(${JSON.stringify(ACCOUNT)}); return e ? (e.textContent || "") : ""; })()`,
           ),
         ).toBe("Signed in as user@example.com · Claude Max plan");
 
-        const windowLabels = await app.evalJS<string[]>(
+        const windowLabels = await body.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(WINDOW_LABEL)})).map(function(e){ return e.textContent; })`,
         );
         expect(windowLabels).toContain("Current week (all models)");
         expect(windowLabels).toContain("Current week (Fable)");
 
         // Both contribution periods render.
-        const periodLabels = await app.evalJS<string[]>(
+        const periodLabels = await body.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(PERIOD_LABEL)})).map(function(e){ return e.textContent; })`,
         );
         expect(periodLabels).toContain("Last 24h");
         expect(periodLabels).toContain("Last 7d");
 
         // The top-skills table parsed its entries.
-        const tableNames = await app.evalJS<string[]>(
+        const tableNames = await body.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(TABLE_NAME)})).map(function(e){ return e.textContent; })`,
         );
         expect(tableNames).toContain("/tugplug:implement");
@@ -165,7 +169,7 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
         expect(tableNames).toContain("tugplug");
 
         // Session cost grid renders (fresh session — real zero totals).
-        const statValues = await app.evalJS<string[]>(
+        const statValues = await body.evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(STAT_VALUE)})).map(function(e){ return e.textContent; })`,
         );
         expect(statValues).toContain("$0.00");
@@ -173,7 +177,7 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
 
         // The panel is a sheet, not a wall: it keeps a real gutter on both
         // sides of the card rather than running out to the pane's edges.
-        const gutters = await app.evalJS<{ left: number; right: number }>(
+        const gutters = await body.evalJS<{ left: number; right: number }>(
           `(function(){
             var c = document.querySelector(${JSON.stringify(SHEET)}).getBoundingClientRect();
             var k = document.querySelector(${JSON.stringify(SHEET)}).closest(".tug-sheet-clip").getBoundingClientRect();
@@ -183,8 +187,8 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
         expect(gutters.left).toBeGreaterThan(40);
         expect(gutters.right).toBeGreaterThan(40);
 
-        await app.nativeClickAtElement(DONE_BTN);
-        await app.waitForCondition<boolean>(
+        await body.nativeClickAtElement(DONE_BTN);
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 6000 },
         );
@@ -207,26 +211,27 @@ describe.skipIf(!SHOULD_RUN)("AT0226: /usage sheet", () => {
         );
         await app.bindSession("A", { tugSessionId: SID });
         await app.awaitEngineReady("A");
-        await app.evalJS<null>(
+        const body = await waitForBodyReady(app, "A");
+        await body.evalJS<null>(
           `(window.__tug.ingestUsage(${JSON.stringify({ request_id: "usage-seed", ok: true, text: USAGE_TEXT, account: USAGE_ACCOUNT })}), null)`,
         );
 
         await app.nativeKey("u", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){ var e = document.querySelector(${JSON.stringify(SHEET_TITLE)}); return e !== null && e.textContent === "Usage"; })()`,
           { timeoutMs: 6000 },
         );
 
         // Same chord again — the door closes the way it opened.
         await app.nativeKey("u", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 6000 },
         );
 
         // And it re-opens, so a full cycle leaves nothing latched.
         await app.nativeKey("u", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){ var e = document.querySelector(${JSON.stringify(SHEET_TITLE)}); return e !== null && e.textContent === "Usage"; })()`,
           { timeoutMs: 6000 },
         );

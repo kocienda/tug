@@ -50,6 +50,7 @@
  * so it carries no `@foreground`.
  *
  * @covers tugdeck/src/lib/pending-ask-store.ts
+ * @covers tugdeck/src/lib/ask-forwarder.ts
  * @covers tugdeck/src/components/tugways/chrome/session-app-test-ask-dialog.tsx
  * @covers tugdeck/src/components/tugways/chrome/session-app-test-ask-dialog.css
  * @covers tugdeck/src/lib/code-session-store/lifecycle-state.ts
@@ -61,7 +62,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { launchTugApp, type App } from "./_harness";
+import { launchTugApp, type App, type BodyApp } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import { sessionCardShape, SESSION_CARD_SIZE_COMPACT } from "./_harness/shapes";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -80,8 +82,8 @@ const ACTIONS = `${DIALOG} [data-slot="tug-inline-dialog-actions"] button`;
 const COUNTDOWN = `${DIALOG} [data-slot="session-app-test-ask-dialog-countdown"]`;
 
 /** Whether the element matched by `selector` carries `attr`. */
-function hasAttr(app: App, selector: string, attr: string): Promise<boolean> {
-  return app.evalJS<boolean>(
+function hasAttr(body: BodyApp, selector: string, attr: string): Promise<boolean> {
+  return body.evalJS<boolean>(
     `(function(){var el=document.querySelector(${JSON.stringify(selector)});` +
       `return el!==null && el.hasAttribute(${JSON.stringify(attr)});})()`,
   );
@@ -102,9 +104,9 @@ function stateCellLabel(app: App, cardId: string): Promise<string | null> {
 }
 
 /** Wait for `selector` to carry `attr`, then assert it does. */
-async function expectRing(app: App, selector: string, attr: string): Promise<boolean> {
+async function expectRing(body: BodyApp, selector: string, attr: string): Promise<boolean> {
   try {
-    await app.waitForCondition<boolean>(
+    await body.waitForCondition<boolean>(
       `(function(){var el=document.querySelector(${JSON.stringify(selector)});` +
         `return el!==null && el.hasAttribute(${JSON.stringify(attr)});})()`,
       { timeoutMs: 4000 },
@@ -112,12 +114,12 @@ async function expectRing(app: App, selector: string, attr: string): Promise<boo
   } catch {
     // Fall through to the assertion so the failure names the selector.
   }
-  return hasAttr(app, selector, attr);
+  return hasAttr(body, selector, attr);
 }
 
 /** The `value` of the currently checked option. */
-function checkedOption(app: App): Promise<string | null> {
-  return app.evalJS<string | null>(`(function(){
+function checkedOption(body: BodyApp): Promise<string | null> {
+  return body.evalJS<string | null>(`(function(){
     var items = Array.prototype.slice.call(
       document.querySelectorAll(${JSON.stringify(OPTION_ITEMS)}));
     var on = items.filter(function (el) {
@@ -201,6 +203,9 @@ function startCountdownAsk(instanceId: string, secs: number) {
 
 describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
   let app: App;
+  // Card A is a body: its dialog, like the rest of its content, is in its
+  // own page.
+  let body: BodyApp;
 
   beforeAll(async () => {
     app = await launchTugApp();
@@ -211,6 +216,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
     );
     await app.bindSession("A", { tugSessionId: SID });
     await app.awaitEngineReady("A");
+    body = await waitForBodyReady(app, "A");
   });
 
   afterAll(async () => {
@@ -224,7 +230,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
 
       // --- it arrives -------------------------------------------------
       try {
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `!!document.querySelector('${DIALOG}')`,
           { timeoutMs: 15_000 },
         );
@@ -238,7 +244,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         });
       }
 
-      const rendered = await app.evalJS<{
+      const rendered = await body.evalJS<{
         title: string;
         provenance: string;
         detail: string;
@@ -311,7 +317,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       // composer here would mean a Return meant for a prompt silently answers
       // the question with whatever is preselected.
       expect(
-        await hasAttr(app, '[data-card-id="A"] .session-card', "data-inline-dialog-pending"),
+        await hasAttr(body, '[data-card-id="A"] .session-card', "data-inline-dialog-pending"),
         "MODAL: the card is card-modal while the question is up",
       ).toBe(true);
       const entryInert = await app.body("A").evalJS<boolean>(`(function(){
@@ -327,18 +333,18 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       // The safe option is preselected and the ring seeds on Continue, so the
       // routine answer is one keystroke and a reflexive Return declines.
       expect(
-        await checkedOption(app),
+        await checkedOption(body),
         "SAFE DEFAULT: the declining option (last) starts checked",
       ).toContain("Cancel");
       expect(
-        await expectRing(app, ACTIONS, "data-key-view-kbd"),
+        await expectRing(body, ACTIONS, "data-key-view-kbd"),
         "SEED: the ring opens on Continue, so Return commits",
       ).toBe(true);
 
       // Down crosses the seam into the options; Up returns. Neither commits.
       await app.nativeKey("ArrowDown");
       expect(
-        await expectRing(app, OPTION_GROUP, "data-key-view-kbd"),
+        await expectRing(body, OPTION_GROUP, "data-key-view-kbd"),
         "ARROWS: Down crosses from Continue into the option group",
       ).toBe(true);
 
@@ -347,7 +353,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       await app.nativeKey("ArrowUp");
       // Space, spelled as the character — `VirtualKeyMap` has no "Space" name.
       await app.nativeKey(" ");
-      await app.waitForCondition<boolean>(
+      await body.waitForCondition<boolean>(
         `(function(){
           var items = Array.prototype.slice.call(
             document.querySelectorAll(${JSON.stringify(OPTION_ITEMS)}));
@@ -359,7 +365,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         { timeoutMs: 4000 },
       );
       expect(
-        await checkedOption(app),
+        await checkedOption(body),
         "ARROWS: the cursor moved and Space checked the row under it",
       ).toContain("Run the 3 background tests");
 
@@ -378,7 +384,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       ).toBe("background");
 
       // --- and the dialog goes away -----------------------------------
-      await app.waitForCondition<boolean>(
+      await body.waitForCondition<boolean>(
         `!document.querySelector('${DIALOG}')`,
         { timeoutMs: 5_000 },
       );
@@ -392,7 +398,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       const proc = startCountdownAsk(app.instanceId, 3);
 
       try {
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `!!document.querySelector('${COUNTDOWN}')`,
           { timeoutMs: 15_000 },
         );
@@ -408,7 +414,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       // The caller sent a `--description` and a description on each option;
       // none of it renders, which is the point — the slimness is the
       // component's doing as much as the caller's.
-      const shape = await app.evalJS<{
+      const shape = await body.evalJS<{
         buttons: Array<{ label: string; ring: boolean }>;
         radioItems: number;
         description: number;
@@ -464,7 +470,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       // width is what a reader sees, and `at0320` has no business asserting on
       // a CSS width — so the same tick writes the seconds where both a test
       // and the accessibility tree can read them.
-      const count = await app.evalJS<{
+      const count = await body.evalJS<{
         role: string | null;
         max: string | null;
         remaining: string | null;
@@ -488,7 +494,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
       // rule positioned against the dialog root instead spans the whole pane
       // and sits below the frame entirely — visible, wrong, and invisible to
       // every assertion above.
-      const edge = await app.evalJS<{ dx: number; dy: number; dw: number }>(
+      const edge = await body.evalJS<{ dx: number; dy: number; dw: number }>(
         `(() => {
           const frame = document.querySelector('${DIALOG} [data-slot="tug-inline-dialog"]');
           const rule = document.querySelector('${COUNTDOWN}');
@@ -518,7 +524,7 @@ describe.skipIf(!SHOULD_RUN)("at0320 — ask dialog round trip", () => {
         "COUNTDOWN: silence answers with the caller's unattended choice",
       ).toBe("run-all");
 
-      await app.waitForCondition<boolean>(
+      await body.waitForCondition<boolean>(
         `!document.querySelector('${DIALOG}')`,
         { timeoutMs: 5_000 },
       );

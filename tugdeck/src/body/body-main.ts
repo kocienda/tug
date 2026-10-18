@@ -88,6 +88,9 @@ import { advanceKeyViewFocus, enterKeyViewWalk, getFocusManager } from "../compo
 import { installDictationBridge } from "../lib/dictation-bridge";
 import { ARRIVAL_REVEAL_BOUND_MS } from "../lib/arrival-reveal";
 import { onBus, sendBus } from "../lib/deck-bus";
+import { pendingAskStore } from "../lib/pending-ask-store";
+import { UsageStore } from "../lib/usage-store";
+import type { PendingAsk } from "../lib/code-session-store/types";
 import { beginResizeEpisode, type ResizeEpisodeHandle } from "../lib/resize-episode";
 import { loadMakerTooling, registerCardKinds } from "../card-kinds";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
@@ -617,6 +620,11 @@ async function bindBody(bind: BodyBind): Promise<void> {
   // The inspection this card publishes for a devtools card that follows it,
   // while the shell says one does.
   let releaseInspection: (() => void) | null = null;
+  // A question the shell holds, shown in this card's dialog: the press goes
+  // back to the shell, which answers the caller.
+  pendingAskStore.forwardResponses((requestId, choice) => {
+    sendBus(connection, "shell", { kind: "card-advice", payload: { advice: "ask-response", requestId, choice } });
+  });
   onBus(connection, "card-command", (message) => {
     // The walk coming back in from the shell lands on this page's first
     // or last stop; with none, it goes back out, marked so the shell keeps
@@ -692,6 +700,13 @@ async function bindBody(bind: BodyBind): Promise<void> {
       getJotsStore().createJot(null);
       return;
     }
+    // A question raised from outside the turn stream, parked on this card's
+    // session so its dialog comes up here; `null` takes the dialog down.
+    if (message.payload.command === "ask") {
+      const ask = (message.payload.payload as { ask?: PendingAsk | null } | undefined)?.ask ?? null;
+      cardServicesStore.getServices(cardId)?.codeSessionStore.setPendingAsk(ask);
+      return;
+    }
     // A reveal the shell parked for the Settings card, now that this page
     // holds it: the card's own consumer takes it.
     if (message.payload.command === "reveal-settings") {
@@ -716,9 +731,12 @@ async function bindBody(bind: BodyBind): Promise<void> {
   });
 
   initBodyHostMenuState(bridge);
+  // The `/usage` panel is account-global, and a Session card's sheet reads it
+  // from its own page, which asks tugcast on its own connection.
+  const usageStore = new UsageStore(connection);
   if (isTestMode) {
     const surface = await import("../test-surface");
-    surface.attachBodyTestSurface(bridge);
+    surface.attachBodyTestSurface(bridge, { usageStore });
   }
 
   createRoot(document.getElementById("deck-container") ?? document.body).render(
@@ -728,6 +746,7 @@ async function bindBody(bind: BodyBind): Promise<void> {
       appLifecycle,
       sheetLifecycle,
       bannerLifecycle,
+      usageStore,
     }),
   );
   bridge.cardLifecycle.notifyCardDidFinishConstruction(cardId);

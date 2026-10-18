@@ -151,6 +151,12 @@
       "payload": { "command": "new-jot" }
     },
     {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c2" },
+      "kind": "card-command",
+      "payload": { "command": "ask", "payload": { "ask": { "requestId": "r1", "title": "Run them?", "options": [{ "value": "yes", "label": "Yes" }] } } }
+    },
+    {
       "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
       "to": "shell",
       "kind": "card-advice",
@@ -286,6 +292,12 @@
       "to": "shell",
       "kind": "card-advice",
       "payload": { "advice": "inspection", "inspection": { "transportState": "live", "turns": 3 } }
+    },
+    {
+      "from": { "pageId": "body-c1", "role": "body", "cardId": "c1" },
+      "to": "shell",
+      "kind": "card-advice",
+      "payload": { "advice": "ask-response", "requestId": "r1", "choice": "yes" }
     },
     {
       "from": { "pageId": "shell-1", "role": "shell", "cardId": null },

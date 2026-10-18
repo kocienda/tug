@@ -99,6 +99,9 @@ pub enum CardCommandKind {
     Intent,
     /// Capture a jot in the Jots card: create an empty one and open its editor.
     NewJot,
+    /// A question raised from outside the turn stream, for the Session card's
+    /// dialog (`payload`: `ask`, or null to take it down), opaque here.
+    Ask,
 }
 
 /// Where a `focus-enter` lands the keyboard.
@@ -243,6 +246,9 @@ pub enum CardAdvice {
     CaptureArmed { armed: bool },
     /// The card's session inspection, opaque here.
     Inspection { inspection: serde_json::Value },
+    /// The card's dialog answered the question an `ask` command sent.
+    #[serde(rename_all = "camelCase")]
+    AskResponse { request_id: String, choice: String },
 }
 
 /// What a card's close guard decided.
@@ -453,6 +459,7 @@ mod tests {
             "close-decision",
             "capture-armed",
             "inspection",
+            "ask-response",
         ] {
             assert!(
                 has(&|e| match &e.message {
@@ -475,6 +482,7 @@ mod tests {
             CardCommandKind::DevLog,
             CardCommandKind::Intent,
             CardCommandKind::NewJot,
+            CardCommandKind::Ask,
         ] {
             assert!(
                 has(&|e| matches!(&e.message, BusMessage::CardCommand(c) if c.command == command)),

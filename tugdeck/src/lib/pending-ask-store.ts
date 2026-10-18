@@ -132,6 +132,9 @@ class PendingAskStore extends Subscribable {
 
   private _servicesUnsub: (() => void) | null = null;
 
+  /** Where this page sends an answer to a question it does not hold; see {@link forwardResponses}. */
+  private _responder: ((requestId: string, choice: string) => void) | null = null;
+
   /** Wire the store to the app. Called once from `initActionDispatch`. */
   init = (context: PendingAskContext): (() => void) => {
     this._context = context;
@@ -148,6 +151,20 @@ class PendingAskStore extends Subscribable {
       this._servicesUnsub?.();
       this._servicesUnsub = null;
       this._context = null;
+    };
+  };
+
+  /**
+   * Hand this page's answers to the page that holds the questions. A body
+   * page holds none: the shell keeps every question and shows it in the
+   * card's body (`lib/ask-forwarder.ts`), so a press in the body's dialog is
+   * sent back to the shell, which answers the caller. Returns the uninstall
+   * ([L27]).
+   */
+  forwardResponses = (fn: (requestId: string, choice: string) => void): (() => void) => {
+    this._responder = fn;
+    return () => {
+      if (this._responder === fn) this._responder = null;
     };
   };
 
@@ -253,16 +270,20 @@ class PendingAskStore extends Subscribable {
    * Answer a question and release the caller. Clearing the session's
    * `pendingAsk` is what unmounts the dialog.
    *
-   * Returns whether the store still tracked the question. `false` means the
-   * request was already answered on its way out (a reap during a transient
-   * services miss can answer the wire while the session's own `pendingAsk`
-   * survives) — the caller still holds the session and must clear the parked
-   * question itself, or the dialog stands forever and every press on it is a
-   * silent no-op.
+   * Returns whether the store still tracked the question. `false` means this
+   * page does not hold it: either it was already answered on its way out (a
+   * reap during a transient services miss can answer the wire while the
+   * session's own `pendingAsk` survives), or this is a body page, which sent
+   * the answer to the shell ({@link forwardResponses}). Either way the caller
+   * still holds the session and must clear the parked question itself, or the
+   * dialog stands until something else takes it down.
    */
   respond = (requestId: string, choice: string): boolean => {
     const live = this._live.get(requestId);
-    if (live === undefined) return false;
+    if (live === undefined) {
+      this._responder?.(requestId, choice);
+      return false;
+    }
     this._commit((next) => next.delete(requestId));
     this._context?.sessionFor(live.tugSessionId)?.setPendingAsk(null);
     this.respondOnWire(requestId, choice);
