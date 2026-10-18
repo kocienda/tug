@@ -272,6 +272,12 @@ pub trait ChildSpawner: Send + Sync + 'static {
     /// `relocate_from` names the conversation a directory change forks from,
     /// forwarded as `--relocate-from` / `--relocate-from-dir`. `None` for
     /// every session that did not move.
+    ///
+    /// `crash_respawn` is true on every spawn after the loop's first: the
+    /// child before this one died. Forwarded as `--crash-respawn`, so tugcode
+    /// re-creates a session claude never wrote to disk instead of resuming
+    /// it. A segment killed before its first message has no conversation
+    /// file, and `--resume` of it is "No conversation found".
     fn spawn_child(
         &self,
         project_dir: &Path,
@@ -280,6 +286,7 @@ pub trait ChildSpawner: Send + Sync + 'static {
         resume_claude_session_id: Option<&str>,
         permission_mode: Option<&str>,
         relocate_from: Option<&RelocateOrigin>,
+        crash_respawn: bool,
     ) -> SpawnFuture;
 }
 
@@ -389,6 +396,7 @@ impl ChildSpawner for TugcodeSpawner {
         resume_claude_session_id: Option<&str>,
         permission_mode: Option<&str>,
         relocate_from: Option<&RelocateOrigin>,
+        crash_respawn: bool,
     ) -> SpawnFuture {
         let tugcode_path = self.tugcode_path.clone();
         let project_dir = project_dir.to_path_buf();
@@ -397,7 +405,7 @@ impl ChildSpawner for TugcodeSpawner {
         let permission_mode = permission_mode.map(|s| s.to_string());
         let relocate_from = relocate_from.cloned();
         Box::pin(async move {
-            let (cmd, args) = build_tugcode_command(
+            let (cmd, mut args) = build_tugcode_command(
                 &tugcode_path,
                 &project_dir,
                 &session_id,
@@ -406,6 +414,9 @@ impl ChildSpawner for TugcodeSpawner {
                 permission_mode.as_deref(),
                 relocate_from.as_ref(),
             );
+            if crash_respawn {
+                args.push("--crash-respawn".to_string());
+            }
             tracing::info!(
                 target: "dev::session-lifecycle",
                 event = "bridge.tugcode_spawn",
@@ -678,6 +689,7 @@ pub async fn run_session_bridge(
         // nothing, so there is no instant exit left to explain, and the
         // verdict below is the same whoever is logged in.
         let probe_auth = is_respawn && !ledger_entry.lock().await.crash_budget.is_exhausted();
+        let crash_respawn = is_respawn;
         is_respawn = true;
         let auth_detail = if probe_auth {
             match auth_probe.resolve().await {
@@ -816,6 +828,7 @@ pub async fn run_session_bridge(
                 resume_claude_session_id.as_deref(),
                 permission_mode.as_deref(),
                 relocate_from.as_ref(),
+                crash_respawn,
             ) => result,
             _ = cancel.cancelled() => return,
         };
@@ -6926,6 +6939,7 @@ mod tests {
                 None,
                 None,
                 None,
+                false,
             )
             .await
             .expect("spawn stand-in tugcode");
@@ -6940,6 +6954,52 @@ mod tests {
             out, "tug-sess-xyz",
             "tugcode child must inherit TUG_SESSION_ID set on the spawn"
         );
+    }
+
+    #[tokio::test]
+    async fn tugcode_spawn_says_crash_respawn_only_when_asked() {
+        // A crash respawn is the one spawn whose session claude may never
+        // have written to disk, and tugcode can only re-create it rather
+        // than resume it if it is told which spawn this is. Drive the real
+        // spawner against a stand-in that echoes its argv, once each way.
+        use tokio::io::AsyncReadExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let script = dir.path().join("tugcode");
+        std::fs::write(&script, "#!/bin/sh\nprintf '%s ' \"$@\"\n").expect("write stand-in tugcode");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+                .expect("chmod +x");
+        }
+
+        let spawner = TugcodeSpawner::new(script);
+        let mut argv = Vec::new();
+        for crash_respawn in [false, true] {
+            let mut child = spawner
+                .spawn_child(
+                    dir.path(),
+                    "tug-sess-xyz",
+                    SessionMode::Resume,
+                    Some("claude-seg-2"),
+                    None,
+                    None,
+                    crash_respawn,
+                )
+                .await
+                .expect("spawn stand-in tugcode");
+            let mut out = String::new();
+            child
+                .stdout
+                .read_to_string(&mut out)
+                .await
+                .expect("read child stdout");
+            argv.push(out);
+        }
+        assert!(!argv[0].contains("--crash-respawn"), "a first spawn is not a respawn: {}", argv[0]);
+        assert!(argv[1].contains("--crash-respawn"), "a respawn says so: {}", argv[1]);
+        assert!(argv[1].contains("--resume-session claude-seg-2"), "and still names the segment: {}", argv[1]);
     }
 
     // ── parse_user_message_text ──────────────────────────────────────────────

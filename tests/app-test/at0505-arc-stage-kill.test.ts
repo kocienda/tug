@@ -149,7 +149,16 @@ const projectDir = (): string => scratch?.repo ?? "";
 
 beforeAll(() => {
   if (!SHOULD_RUN) return;
-  scratch = makeArcScratchRepo({ prefix: "at0505", checkout: CHECKOUT });
+  scratch = makeArcScratchRepo({
+    prefix: "at0505",
+    checkout: CHECKOUT,
+    // No idle settle before the rotation. The settle holds an idle reading
+    // before anything irreversible, and the rotation this file needs is
+    // one; at the shipped settle it was most of the file's 20 s. A death is
+    // decided above the settle (`settle_gate` passes `SessionGone`
+    // through), so what is asserted does not wait on it either way.
+    files: { ".tugtool/config.toml": "[tugtool.arc]\nidle_settle_secs = 0\n" },
+  });
   // A brief and a task list — the shape `/arc` leaves, and the shape whose
   // recorded `arc` kind opens straight at implement. One rotation is all
   // this file needs and the opening one is the cheapest there is.

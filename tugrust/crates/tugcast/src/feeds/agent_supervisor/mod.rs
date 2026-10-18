@@ -5213,6 +5213,7 @@ pub(crate) fn test_minimal_supervisor_with_recorder_reading(
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
+            _crash_respawn: bool,
         ) -> super::agent_bridge::SpawnFuture {
             Box::pin(async {
                 std::future::pending::<std::io::Result<super::agent_bridge::SessionChild>>().await
@@ -6129,6 +6130,7 @@ mod tests {
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
+            _crash_respawn: bool,
         ) -> SpawnFuture {
             Box::pin(async { pending::<std::io::Result<SessionChild>>().await })
         }
@@ -11980,6 +11982,7 @@ mod bridge_panic_tests {
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
+            _crash_respawn: bool,
         ) -> SpawnFuture {
             Box::pin(async {
                 let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
@@ -12282,6 +12285,7 @@ mod replay_bracket_close_tests {
             _resume_claude_session_id: Option<&str>,
             _permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
+            _crash_respawn: bool,
         ) -> SpawnFuture {
             Box::pin(async {
                 let (bridge_stdin, child_stdin_read) = tokio::io::duplex(8192);
@@ -12375,6 +12379,7 @@ mod replay_bracket_close_tests {
             _resume_claude_session_id: Option<&str>,
             permission_mode: Option<&str>,
             _relocate_from: Option<&crate::feeds::agent_bridge::RelocateOrigin>,
+            _crash_respawn: bool,
         ) -> SpawnFuture {
             let _ = self.modes.send(permission_mode.map(str::to_string));
             let first = self

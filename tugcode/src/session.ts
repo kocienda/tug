@@ -611,6 +611,13 @@ export class SessionManager {
    * every spawn is the fork, because nothing else carries the context.
    */
   private relocation: { parentClaudeId: string; parentProjectDir: string } | null;
+  /**
+   * The tugcode before this one died, and tugcast is respawning it
+   * (`--crash-respawn`). Read once, by the first claude spawn: a resume whose
+   * conversation claude never wrote is re-created under its own id rather
+   * than refused ({@link spawnClaudeAndWatch}).
+   */
+  private crashRespawn: boolean;
   /** Configurable JSONL reader; default uses `Bun.file`. */
   private jsonlReader: (path: string) => Promise<JsonlReadResult>;
   /** Configurable JSONL writer ([#step-7-2]); default uses `Bun.write`. */
@@ -788,6 +795,11 @@ export class SessionManager {
        */
       relocation?: { parentClaudeId: string; parentProjectDir: string };
       /**
+       * The tugcode before this one died — forwarded by tugcast as
+       * `--crash-respawn` ([main.ts]). Omit for every first spawn.
+       */
+      crashRespawn?: boolean;
+      /**
        * Starts the claude process from the arguments and environment the
        * manager composed. Omit → `ClaudeProcess`'s default spawner, which resolves the
        * binary and calls `Bun.spawn`. Tests pass a fake child here.
@@ -815,6 +827,7 @@ export class SessionManager {
     this.claudeHome =
       options?.claudeHome ?? claudeHomeFromEnv();
     this.relocation = options?.relocation ?? null;
+    this.crashRespawn = options?.crashRespawn ?? false;
     this.jsonlReader = options?.jsonlReader ?? defaultJsonlReader;
     this.jsonlWriter = options?.jsonlWriter ?? defaultJsonlWriter;
     this.contextBreakdownEmitter = options?.contextBreakdownEmitter ?? null;
@@ -918,15 +931,25 @@ export class SessionManager {
    */
   private relocationForkPending(): boolean {
     if (this.relocation === null) return false;
+    return !this.conversationOnDisk(this.sessionId);
+  }
+
+  /**
+   * Whether claude has written `<id>.jsonl` under this session's (canonical)
+   * project directory. Claude writes it only when the first user message
+   * arrives, so a session spawned and never spoken to has none.
+   *
+   * Synchronous because {@link spawnClaude} is — hence `realpathSync`, with
+   * the raw path as the fallback for a directory that does not resolve.
+   */
+  private conversationOnDisk(claudeId: string): boolean {
     let canonicalProjectDir = this.projectDir;
     try {
       canonicalProjectDir = realpathSync(this.projectDir);
     } catch {
       // Unresolvable (test fixture, deleted dir) — keep the raw path.
     }
-    return !existsSync(
-      jsonlPathFor(this.claudeHome, canonicalProjectDir, this.sessionId),
-    );
+    return existsSync(jsonlPathFor(this.claudeHome, canonicalProjectDir, claudeId));
   }
 
   /**
@@ -1548,8 +1571,29 @@ export class SessionManager {
    * from "idle" without sending a probe.
    */
   spawnClaudeAndWatch(): Promise<void> {
-    const claudeFlag = this.sessionMode === "resume" ? "resume" : "session-id";
     const claudeId = this.resolveClaudeId();
+    // A crash respawn of a segment claude never wrote to disk — a rotation's
+    // fresh claude, or a new session, killed before its first message. There
+    // is no conversation to resume ("No conversation found", which ends the
+    // card's binding), and nothing was lost, so the segment is re-created
+    // under its own id and is a fresh session from here on: the exit watcher
+    // and a live-setting respawn read `sessionMode`. The same rule
+    // `liveRespawnMode` applies, for the respawn tugcast drives. A first
+    // spawn's resume of a missing conversation is still refused.
+    if (
+      this.crashRespawn &&
+      this.sessionMode === "resume" &&
+      this.relocation === null &&
+      !this.conversationOnDisk(claudeId)
+    ) {
+      logSessionLifecycle("tugcode.crash_respawn_recreated", {
+        session_id: this.sessionId,
+        claude_session_id: claudeId,
+      });
+      this.sessionMode = "new";
+    }
+    this.crashRespawn = false;
+    const claudeFlag = this.sessionMode === "resume" ? "resume" : "session-id";
 
     this.claudeProcess = this.spawnClaude(claudeId, claudeFlag);
     this.startStdoutDrain(this.claudeProcess);

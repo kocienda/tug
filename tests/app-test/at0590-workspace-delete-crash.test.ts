@@ -263,6 +263,7 @@ function threeSpaceBlob(): Record<string, unknown> {
  * kept because a throw somewhere OTHER than a render still takes them.
  */
 async function armRecorder(app: App): Promise<void> {
+  // card-dom: shell — the recorder listens where the delete runs, which is the shell.
   await app.evalJS<boolean>(
     `(function () {
        window.__at0590 = [];
@@ -334,6 +335,7 @@ async function armRecorder(app: App): Promise<void> {
  * emptied again before the gesture.
  */
 async function proveRecorder(app: App): Promise<string[]> {
+  // card-dom: shell — the shell's recorder, proved in the page it listens in.
   await app.evalJS<boolean>(
     `(function () {
        console.error("[ErrorBoundary]", new Error("at0590 instrument check"));
@@ -351,6 +353,7 @@ async function proveRecorder(app: App): Promise<string[]> {
   // The banner channel is a MutationObserver, so its record is delivered on a
   // later task than the append. Read across that boundary, not inside it.
   await settle(200);
+  // card-dom: shell — the shell's recorder, read where it records.
   return app.evalJS<string[]>(
     `(function () {
        var el = document.getElementById("at0590-instrument-check");
@@ -425,6 +428,7 @@ describe.skipIf(!SHOULD_RUN)(
           const before = await app.evalJS<SpacesProbe>(
             `window.tugdeck.diag.getSpaces()`,
           );
+          // card-dom: shell — the space layers are the shell's canvas.
           const mounted = await app.evalJS<string[]>(MOUNTED_LAYERS);
           note(`at0590 mounted before: ${JSON.stringify(mounted)}`);
           expect(

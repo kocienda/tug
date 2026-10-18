@@ -98,6 +98,10 @@ let permissionMode: PermissionMode | undefined;
 // JSONL exists. Honored only as a pair, and only in new mode.
 let relocateFrom: string | undefined;
 let relocateFromDir: string | undefined;
+// `--crash-respawn` says the tugcode before this one died: tugcast passes it
+// on every spawn after its loop's first. A resume of a segment claude never
+// wrote to disk is then re-created under its own id rather than refused.
+let crashRespawn = false;
 // `--stub-transcript=<path>` (or `--stub-transcript <path>`) routes
 // the IPC loop through the deterministic replay engine in
 // `stub-replay.ts` instead of spawning claude. Test-only;
@@ -200,6 +204,8 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === "--relocate-from-dir" && i + 1 < args.length) {
     relocateFromDir = args[i + 1];
     i++;
+  } else if (args[i] === "--crash-respawn") {
+    crashRespawn = true;
   } else if (args[i] === "--permission-mode" && i + 1 < args.length) {
     const raw = args[i + 1];
     // Ignore an unknown value (future / corrupt client) rather than seed the
@@ -444,7 +450,7 @@ async function main() {
         sessionId,
         sessionMode,
         resumeSessionId,
-        { contextBreakdownEmitter, initialPermissionMode: permissionMode, relocation },
+        { contextBreakdownEmitter, initialPermissionMode: permissionMode, relocation, crashRespawn },
       );
 
       // Send protocol_ack first (with placeholder session_id)
