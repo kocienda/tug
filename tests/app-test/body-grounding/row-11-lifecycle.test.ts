@@ -185,7 +185,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
           foreground: true,
           persistInTestMode: true,
           restoreInTestMode: true,
-          bodies: true,
           env: { TUGBANK_PATH: tugbankPath },
         });
         try {
@@ -254,7 +253,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
       const dir = mkdtempSync(join(tmpdir(), "tug-row11-guard-"));
       const file = join(dir, "notes.md");
       writeFileSync(file, ORIGINAL);
-      const app = await launchTugApp({ testName: `${TEST_NAME}-text-guard`, foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: `${TEST_NAME}-text-guard`, foreground: true });
       try {
         await app.seedDeckState({
           state: {
@@ -335,7 +334,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 11: close, close all, reload an
         // makes the bodies again.
         persistInTestMode: true,
         restoreInTestMode: true,
-        bodies: true,
         env: { TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

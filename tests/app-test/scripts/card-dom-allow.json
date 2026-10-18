@@ -1,26 +1,6 @@
 [
   {
-    "file": "at0017-savestate-rpc-parity.test.ts",
-    "kind": "gallery-input"
-  },
-  {
-    "file": "at0019-pane-teardown-flush.test.ts",
-    "kind": "gallery-input"
-  },
-  {
     "file": "at0620-workspace-switch-still.test.ts",
     "kind": "unknown"
-  },
-  {
-    "file": "at0740-body-switch.test.ts",
-    "kind": "session"
-  },
-  {
-    "file": "body-grounding/_row-12.ts",
-    "kind": "session"
-  },
-  {
-    "file": "harness-smoke/smoke-capture-phase-save.test.ts",
-    "kind": "gallery-input"
   }
 ]

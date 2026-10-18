@@ -97,7 +97,7 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true, testName: "at0527-jot-copies-out-as-a-chip",
+          testName: "at0527-jot-copies-out-as-a-chip",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
         });

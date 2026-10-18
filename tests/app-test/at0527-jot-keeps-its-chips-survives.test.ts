@@ -93,7 +93,6 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
         // ── Phase A: copy an atom, paste it into a jot, close and reopen. ──
         {
           const app = await launchTugApp({
-            bodies: true,
             testName: "at0527-jot-keeps-its-chips",
             env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
             persistInTestMode: true,
@@ -286,7 +285,6 @@ describe.skipIf(!SHOULD_RUN)("at0527 — a Jot keeps its chips, and hands them o
         // ── Phase B: level three — a new app, reading the same file. ──────
         {
           const app = await launchTugApp({
-            bodies: true,
             testName: "at0527-jot-keeps-its-chips-relaunch",
             env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
             persistInTestMode: true,

@@ -167,7 +167,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind checks: Text, file-view, Diff 
       writeFileSync(textFile, "alpha\nbeta\n");
       const picture = join(scratch, "picture.png");
       copyFileSync(PICTURE, picture);
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
       try {
         await app.seedDeckState({
           state: deck(),

@@ -162,7 +162,7 @@ describe.skipIf(!SHOULD_RUN)("at0681 — the deck's content width lands on its p
     test(
       `${c.name}: every content pane takes min(preset, band) exactly, on screen and in the record`,
       async () => {
-        const app = await launchTugApp({ testName: "at0681-content-width-lands-on-preset", bodies: true });
+        const app = await launchTugApp({ testName: "at0681-content-width-lands-on-preset" });
         try {
           await app.seedDeckState({ state: deckShape(c.imposed), focusCardId: "A" });
           await app.waitForCondition<boolean>(

@@ -16,7 +16,6 @@ interface State {
   waive: boolean;
   guarded: boolean;
   asks: boolean | null;
-  firstResponder: boolean;
 }
 
 function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher } {
@@ -25,7 +24,6 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
     waive: true,
     guarded: true,
     asks: null,
-    firstResponder: false,
   };
   const sent: BusMessage[] = [];
   const publisher = new BodyPublisher(
@@ -34,7 +32,6 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
       readWaive: () => state.waive,
       readGuarded: () => state.guarded,
       readAsks: () => state.asks,
-      isFirstResponder: () => state.firstResponder,
     },
     (message) => sent.push(message),
   );
@@ -92,11 +89,13 @@ describe("publish on change", () => {
 });
 
 describe("activation", () => {
-  test("a pointer asks to activate only while the card is not the first responder", () => {
-    const { state, sent, publisher } = setup();
+  test("a pointer asks to activate on every press: only the shell knows whether the card is already key", () => {
+    const { sent, publisher } = setup();
     publisher.pointerDown();
-    state.firstResponder = true;
     publisher.pointerDown();
-    expect(sent).toEqual([{ kind: "card-advice", payload: { advice: "activate" } }]);
+    expect(sent).toEqual([
+      { kind: "card-advice", payload: { advice: "activate" } },
+      { kind: "card-advice", payload: { advice: "activate" } },
+    ]);
   });
 });

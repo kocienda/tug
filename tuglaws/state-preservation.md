@@ -154,7 +154,7 @@ The framework drives both layers from a small set of well-defined moments. Outsi
 
    **A workspace *switch* is not on this list, and used to be.** It ran the same iterate-and-save body under the same tag, on the reading that every card in the outgoing workspace was about to unmount and [L26] — do not tear down what is logically continuous — had to be answered rather than obeyed, the answer being that holding every workspace's panes mounted-but-hidden was a cost the design rejected. The measurement behind [B06] refuted the premise: the teardown and the rebuild *were* what a switch cost, and paying them for a workspace the user is only looking away from buys nothing. So a visited workspace now stays mounted and `DeckCanvas` hides it with `display: none`, exactly as `CardHost` has always hidden a pane's background tabs. Nothing is torn down, so there is nothing to capture and nothing to replay, and `activateSpace` runs neither. What survives is the workspace's parked *record*, which persistence and the Workspaces card read — a copy, not a capture.
 
-The capture-phase invariant ([A9], gated by [`smoke-capture-phase-save.test.ts`](../tests/app-test/harness-smoke/smoke-capture-phase-save.test.ts)) is that capture runs **before any DOM mutation** in the same React commit. If a tab switch tears down the outgoing card's DOM and then runs capture, the captured value is empty. The protocol guarantees the inverse: capture runs in `useLayoutEffect` (Rule 3 / [L03]) before the commit phase that would unmount, so the live DOM is always observable when `captureState` / `onSave` fire. The smoke test asserts this at the architecture level so the invariant can never silently regress.
+The capture-phase invariant ([A9]) is that capture runs **before any DOM mutation** in the same React commit. If a tab switch tears down the outgoing card's DOM and then runs capture, the captured value is empty. The protocol guarantees the inverse: capture runs in `useLayoutEffect` (Rule 3 / [L03]) before the commit phase that would unmount, so the live DOM is always observable when `captureState` / `onSave` fire. No app-test gates it any more: a card's input lives in its own body page, which the shell's capture-phase pointerdown never sees, so `smoke-capture-phase-save` was removed with the in-document card host (`briefs/app-test-bodies-migration-brief.md`, the removals table). What a user sees of it, the bag restored, is `at0024-prompt-state-roundtrip`'s.
 
 ### Restore moments
 
@@ -559,13 +559,12 @@ Each of these pins one transition or one component-roster axis of [A9]. They are
 |------|------|
 | [`at0010-cold-boot-selection`](../tests/app-test/at0010-cold-boot-selection.test.ts) | The same selection across a full process restart |
 | [`at0014-cold-boot-scroll`](../tests/app-test/at0014-cold-boot-scroll.test.ts) | Region-scroll restore across a full process restart |
-| [`at0017-savestate-rpc-parity`](../tests/app-test/at0017-savestate-rpc-parity.test.ts) | `saveState` RPC captures the same axes as the will-phase save |
 | [`at0024-prompt-state-roundtrip`](../tests/app-test/at0024-prompt-state-roundtrip.test.ts) | The foundational round-trip matrix, reload + relaunch |
 | [`at0430-resize-scroll-preservation-transcript`](../tests/app-test/at0430-resize-scroll-preservation-transcript.test.ts), [`-documents`](../tests/app-test/at0430-resize-scroll-preservation-documents.test.ts) | A width change never moves what the reader is looking at |
 
 The EM-flavored halves of several of these (tab switch, cross-pane move, inactive mount) were retired on 2026-08-11 — they asserted the same orchestrator contract as their FC counterparts, differing only in which component reacquired focus. [`at0032-em-cold-boot-selection`](../tests/app-test/at0032-em-cold-boot-selection.test.ts) is kept as the EM representative, on the restore path where a break would be silent.
 
-The capture-phase invariant itself is gated by [`smoke-capture-phase-save.test.ts`](../tests/app-test/harness-smoke/smoke-capture-phase-save.test.ts) — the architecture-level smoke test that asserts capture runs before any DOM mutation in the same commit.
+`at0017-savestate-rpc-parity` (the `saveState` RPC bag matched the window-blur save) and `smoke-capture-phase-save` went with the in-document card host: a body page has no window-blur save and the shell's capture-phase save reaches no body card. A body's `saveState` and `prepareForTermination` are `at0018-async-content-race`'s and `at0279-quit-draft-survival`'s.
 
 ---
 
@@ -586,7 +585,6 @@ Secondary sources — where the protocol is wired up in practice.
 - [`tugdeck/src/hmr-bridge.ts`](../tugdeck/src/hmr-bridge.ts) — Dev-only `installHmrBridge(deck)`; routes Vite's `vite:beforeUpdate` and `vite:beforeFullReload` events into `deck.captureAllForTeardown(reason)`.
 - [`tugdeck/src/components/tugways/tug-edit.tsx`](../tugdeck/src/components/tugways/tug-edit.tsx) — Per-instance `fastRefreshSnapshotRef` mount-effect snapshot/replay, covering Fast Refresh's same-instance effect re-run case the framework signal can't observe.
 - [`tugdeck/src/__tests__/card-host-hmr-remount.test.tsx`](../tugdeck/src/__tests__/card-host-hmr-remount.test.tsx) — CardHost integration test pinning the count-based remount detector (content + components axes round-trip across simulated remount, cold-boot guard preserved, multi-cycle stability).
-- [`tests/app-test/harness-smoke/smoke-capture-phase-save.test.ts`](../tests/app-test/harness-smoke/smoke-capture-phase-save.test.ts) — Architecture-level smoke test gating the capture-phase invariant.
 
 ---
 

@@ -53,7 +53,6 @@ describe.skipIf(!SHOULD_RUN)(
     test("typing a template and leaving the field stores it verbatim", async () => {
       const app = await launchTugApp({
         ...NO_AX,
-        bodies: true,
         testName: "at0526-settings-briefs-dir",
       });
       try {

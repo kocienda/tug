@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "each row lands its own preset, on its own pane only, and no rail pays for it",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0371-card-width" });
+        const app = await launchTugApp({ testName: "at0371-card-width" });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

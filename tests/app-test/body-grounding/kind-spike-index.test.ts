@@ -66,7 +66,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the Spikes index's rows
   test(
     "a row clicked in the index's body adds that spike to the index's pane in the shell",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
       try {
         await app.seedDeckState({ state: DECK, focusCardId: HOME });
         const ready = await pollFor(() => bodySnapshot(app, HOME), (b) => b !== null && b.state === "ready" && b.visible, BODY_READY_MS);

@@ -87,7 +87,6 @@ describe.skipIf(!SHOULD_RUN)("AT0360: /diff opens the Project Diff card", () => 
       const tugbankPath = mkTempTugbank();
       seedTugbankForLaunch(tugbankPath, { sourceTreePath: PROJECT_DIR });
       const app = await launchTugApp({
-        bodies: true,
         testName: "at0360-project-diff-card",
         env: { TUGBANK_PATH: tugbankPath },
       });

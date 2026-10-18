@@ -83,7 +83,6 @@ describe.skipIf(!SHOULD_RUN)("at0252 — accessibility focus-follows mirror", ()
         const app = await launchTugApp({
           testName: "at0252-accessibility-focus-follows",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
-          bodies: true,
         });
         const jotsCard = kindBody(app, "jots");
         try {

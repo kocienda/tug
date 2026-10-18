@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)(
       "About keeps 320×360 and centres in an ordinary card's slot",
       async () => {
         const app = await launchTugApp({
-          bodies: true, testName: "at0362-height-pinned-imposed",
+          testName: "at0362-height-pinned-imposed",
         });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });

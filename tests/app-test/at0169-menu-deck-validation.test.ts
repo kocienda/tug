@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
   test(
     "single pane, single card: the whole navigation section is disabled",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0169-single" });
+      const app = await launchTugApp({ testName: "at0169-single" });
       try {
         await app.seedDeckState({ state: singlePaneSingleCard(), focusCardId: "C0" });
         await app.waitForCondition<boolean>(
@@ -180,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
   test(
     "multi-card pane: lateral navigation enabled, depth still disabled",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0169-multicard" });
+      const app = await launchTugApp({ testName: "at0169-multicard" });
       try {
         await app.seedDeckState({ state: singlePaneMultiCard(), focusCardId: "C0" });
         await app.waitForCondition<boolean>(
@@ -204,7 +204,7 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
   test(
     "two free panes: the lateral ring crosses them; non-session card gates the dev-command surfaces off",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0169-twopanes" });
+      const app = await launchTugApp({ testName: "at0169-twopanes" });
       try {
         await app.seedDeckState({ state: twoPanes(), focusCardId: "C1" });
         await app.waitForCondition<boolean>(
@@ -240,7 +240,7 @@ describe.skipIf(!SHOULD_RUN)("AT0169: deck-tier menu validation", () => {
   test(
     "stacked panes: the depth items light up, Reveal Stack takes ⌘R, and the lateral ring shrinks",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0169-stack" });
+      const app = await launchTugApp({ testName: "at0169-stack" });
       try {
         await app.seedDeckState({ state: stackedPanes(), focusCardId: "C1" });
         await app.waitForCondition<boolean>(

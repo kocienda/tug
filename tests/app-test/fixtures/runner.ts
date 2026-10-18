@@ -2,11 +2,9 @@
  * runner.ts — drive a COMMITTED fixture session through the production
  * session-card picker → spawn → reveal path, for behavior/correctness legs.
  *
- * Mirrors `corpus/runner.ts`'s picker dance (never Tab/Tab/Enter — the
- * picker's Enter fall-through opens a NEW session) but is decoupled from
- * the perf corpus's snapshot/budget machinery: the source is a small
- * committed fixture, so these legs run everywhere and never touch the
- * private live archive.
+ * The picker dance is never Tab/Tab/Enter — the picker's Enter fall-through
+ * opens a NEW session. The source is a small committed fixture, so these
+ * legs run everywhere and never touch the private live archive.
  *
  * Card A is a body, so every read of its picker and transcript is made in
  * A's own page: the picker is drawn there while the card is unbound, and the

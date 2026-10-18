@@ -5,9 +5,7 @@
  * Part of the gate for the body path, which was one file
  * (`at0738-session-body`) and is now one file per leg, each its own launch:
  * placement (this file), `at0738-body-arrival`, `at0738-body-fallback`,
- * `at0738-body-reload-quit` and `at0738-body-turn`. The app launches with
- * bodies on (`TUG_BODY_VIEWS=1`), which the harness otherwise leaves off so
- * the rest of the corpus runs every card in the shell. Shared helpers live in
+ * `at0738-body-reload-quit` and `at0738-body-turn`. Shared helpers live in
  * `session-body-fixture.ts`.
  *
  * **Placement and the pointer.** Both Session cards are body cards from the
@@ -223,7 +221,6 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: TEST_NAME,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

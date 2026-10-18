@@ -278,7 +278,6 @@ async function runLeg(launch: Launch, leg: string, env: Record<string, string>, 
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${leg}`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, ...env },
   });
   try {

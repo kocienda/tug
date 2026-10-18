@@ -56,7 +56,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "open, autosave-to-disk, conflict banner, reload-from-disk",
     async () => {
       const { dir, file } = mkTextFixture("at0209-", FIXTURE_CONTENT);
-      const app = await launchTugApp({ bodies: true, testName: "at0209-core-loop", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
+      const app = await launchTugApp({ testName: "at0209-core-loop", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "fixture line 01");
@@ -121,7 +121,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
       // Phase A: type and quit immediately — the teardown flush (not
       // the debounce timer) must land the edit.
       {
-        const appA = await launchTugApp({ bodies: true, testName: "at0209-quit-A", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
+        const appA = await launchTugApp({ testName: "at0209-quit-A", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
         let closed = false;
         try {
           await seedTextCard(appA, file);
@@ -144,7 +144,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
       // Phase B: a fresh process re-opens the file and shows the
       // flushed content (disk is the only source of truth).
       {
-        const appB = await launchTugApp({ bodies: true, testName: "at0209-quit-B", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
+        const appB = await launchTugApp({ testName: "at0209-quit-B", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
         try {
           await seedTextCard(appB, file);
           await waitForEditorShowing(appB, "QUIT-FLUSH-EDIT");

@@ -272,7 +272,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the badge marks a stack, the picker lists it, and choosing a row raises that pane",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0347-stack-badge-picker" });
+        const app = await launchTugApp({ testName: "at0347-stack-badge-picker" });
         try {
           await seed(app, deckShape(), "A");
 
@@ -469,7 +469,7 @@ describe.skipIf(!SHOULD_RUN)(
         // About card is that same shape with no backend behind it. Naming a
         // pane from its `CardState.title` (which the deck happens to hold)
         // reads `Untitled` here while the title bar reads the real name.
-        const app = await launchTugApp({ bodies: true, testName: "at0347-stack-override-title" });
+        const app = await launchTugApp({ testName: "at0347-stack-override-title" });
         try {
           await app.seedDeckState({
             state: {
@@ -526,7 +526,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a fully covered pane hides its badge along with everything else",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0347-stack-badge-occluded" });
+        const app = await launchTugApp({ testName: "at0347-stack-badge-occluded" });
         try {
           await seed(app, occludedDeckShape(), "A");
 

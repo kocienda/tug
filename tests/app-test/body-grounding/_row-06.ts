@@ -188,7 +188,7 @@ export async function sweepMenu(app: App, card: string, part: Part, ownItems: Re
  */
 export async function withSessions(launch: Launch, name: string, body: (app: App) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(app, A, stubDir, 6);
@@ -209,7 +209,7 @@ export async function withSessions(launch: Launch, name: string, body: (app: App
  */
 export async function withKind(launch: Launch, kind: CardKind, name: string, body: (app: App, card: string) => Promise<void>): Promise<void> {
   const card = `row06-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: [B] }), focusCardId: card });
     await standUpKind(app, kind, card);

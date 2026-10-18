@@ -64,7 +64,6 @@ describe.skipIf(!SHOULD_RUN)(
       const dir = mkdtempSync(`${tmpdir()}/at0304-projects-`);
       const app = await launchTugApp({
         ...NO_AX,
-        bodies: true,
         testName: "at0304-settings-default-project-dir",
       });
       try {

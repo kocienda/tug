@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "pinned edges are inert, the dragged edge follows the hand, and nothing lands after",
       async () => {
-        const app = await launchTugApp({ testName: "at0692-resize-keeps-slot-fit", bodies: true });
+        const app = await launchTugApp({ testName: "at0692-resize-keeps-slot-fit" });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

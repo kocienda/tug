@@ -714,12 +714,6 @@ export interface LaunchOptions {
    * loops cost needs the deck seen.
    */
   readonly foreground?: boolean;
-  /**
-   * Launch with body views (`TUG_BODY_VIEWS=1`): every session card's
-   * content in a web view of its own, carried on the host's beats. The cards
-   * are bound and read in their bodies' pages.
-   */
-  readonly bodies?: boolean;
 }
 
 /** The whale arm's default subjects: the first column's two members. */
@@ -727,29 +721,6 @@ export const DEFAULT_WHALE_CARDS = ["at0622-c1", "at0622-c2"] as const;
 
 /** The two arms every settle leg runs on, shared with every other settle test. */
 export { transcriptArms, type TranscriptArm } from "./real-transcript-fixture";
-
-/** One arm a per-gesture settle file runs its legs on. */
-export interface SettleArm {
-  readonly size: TranscriptSize;
-  readonly skip: boolean;
-  /** Whether the deck runs body views, so the gesture carries bodies on the host. */
-  readonly bodies: boolean;
-  /** The arm's name in a test title. */
-  readonly label: string;
-}
-
-/**
- * The transcript arms, and the slice arm again with body views on: the same
- * gesture with every session card in a body the host carries, judged by the
- * same shell bar and by the window's row with a per-body clause
- * ({@link expectWindowBar}).
- */
-export function settleArms(): readonly SettleArm[] {
-  return [
-    ...transcriptArms().map((a) => ({ ...a, bodies: false, label: a.size })),
-    { size: "slice", skip: false, bodies: true, label: "slice, bodies" },
-  ];
-}
 
 /** The session cards on a layout blob's active workspace. */
 export function sessionCardsOf(blob: Record<string, unknown>): string[] {
@@ -777,7 +748,6 @@ export async function launch(
   );
   const app = await launchTugApp({
     testName,
-    bodies: opts.bodies !== false,
     env: { ...opts.env, TUGBANK_PATH: tugbankPath },
     skipAccessibilityPreflight: true,
     persistInTestMode: true,
@@ -798,7 +768,6 @@ export async function launch(
     size: opts.transcripts ?? "slice",
     whaleCards: opts.whaleCards ?? DEFAULT_WHALE_CARDS,
     label: testName,
-    bodies: opts.bodies !== false,
   });
   // The seeded copies under `~/.claude/projects/` remove themselves when the
   // test run ends (each seeder registers with `onTestRunEnd`).
@@ -2837,8 +2806,8 @@ export async function readWindowRow(app: App): Promise<WindowRow> {
  * Spec S03's bar on the window: the shell's motion gate closed, no host tick
  * was missed while it stood closed, and every body a plan carried advanced
  * on at least 95 % of its beats' ticks and stood still no longer than one
- * display period. With body views off there are no bodies, and the bar is
- * the window's ticks alone.
+ * display period. A gesture that carries no body is held to the window's
+ * ticks alone.
  */
 export function expectWindowBar(leg: string, w: WindowRow): void {
   note(

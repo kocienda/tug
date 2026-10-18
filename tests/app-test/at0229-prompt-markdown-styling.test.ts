@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)(
           seedTugbankForLaunch(tugbankPath);
 
           const app = await launchTugApp({
-            bodies: true, testName: "at0229-prompt-markdown-styling",
+            testName: "at0229-prompt-markdown-styling",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
             foreground: true,

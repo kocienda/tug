@@ -1,7 +1,6 @@
 /**
  * _row-12.ts — what the pieces of row 12 share: Z2, the composer, paste and
- * the picker-to-body handoff work in a body, and a launch without the switch
- * makes no body.
+ * the picker-to-body handoff work in a body.
  *
  * The bar's twelfth row ([B02] row 12), on one body session card bound to a
  * stub session of two turns:
@@ -22,18 +21,13 @@
  *   completion popup, and an Escape posted through the session tap closes
  *   it ([F17]'s assertion).
  *
- * Then a second launch without `TUG_BODY_VIEWS` seeds the same card, and
- * the host makes no body for it: the session card mounts in the shell's
- * own document and the host's snapshot is empty ([B01]).
- *
  * Every other kind that is a body with a field of its own is read the same
  * way: the Overview's composer takes typing, a text paste and an image
- * paste as an attachment in its body, and a launch without the switch puts
- * the Overview back in the shell's document with no body for it.
+ * paste as an attachment in its body.
  *
- * The pieces: `row-12-composer-session` (the Session body),
- * `row-12-composer-kinds` (the Overview's composer in its body) and
- * `row-12-composer-no-switch` (both launches without the switch).
+ * The pieces: `row-12-composer-session-send` and
+ * `row-12-composer-session-panel` (the Session body) and
+ * `row-12-composer-kinds` (the Overview's composer in its body).
  */
 
 import { expect } from "bun:test";
@@ -151,7 +145,7 @@ export async function overviewComposer(launch: Launch): Promise<void> {
   const kind = cardKind("overview");
   const { pngPath } = scratchWithPng();
   const field = `(document.querySelector(${JSON.stringify(kind.field)}) || { textContent: "" }).textContent`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, ...launch });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row12-seed"] }), focusCardId: card });
     const o = await standUpKind(app, kind, card);
@@ -172,21 +166,6 @@ export async function overviewComposer(launch: Launch): Promise<void> {
   }
 }
 
-/** Without the switch the Overview mounts in the shell's own document and the host makes no body for it. */
-export async function overviewNoSwitch(launch: Launch): Promise<void> {
-  const card = "row12-overview";
-  const kind = cardKind("overview");
-  const plain = await launchTugApp({ testName: `${TEST_NAME}-overview-no-switch`, ...launch, bodies: false });
-  try {
-    await plain.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row12-seed"] }), focusCardId: card });
-    // card-dom: shell
-    await plain.waitForCondition<boolean>(`document.querySelector(${JSON.stringify(kind.root)}) !== null`, { timeoutMs: SETTLE_MS });
-    expect((await plain.bodies()).filter((b) => b.cardId !== null), "with no switch the host makes no body").toEqual([]);
-  } finally {
-    await plain.close();
-  }
-}
-
 /**
  * One Session body bound to a stub of two turns. Part `send`: Z2 stands in
  * it, a prompt sent plays the next turn, and text and an image paste into its
@@ -200,7 +179,7 @@ export async function sessionComposer(launch: Launch, part: "send" | "panel"): P
   const { scratch, pngPath } = scratchWithPng();
   const insertPath = join(scratch, "row12-insert.txt");
   writeFileSync(insertPath, "a file the panel chooses\n");
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${part}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${part}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(app, A, stubDir, 2, 2, undefined, 1);
@@ -296,25 +275,3 @@ export async function sessionComposer(launch: Launch, part: "send" | "panel"): P
   }
 }
 
-/** Without the switch the Session card's composer mounts in the shell's own document and the host holds no body, not even a spare. */
-export async function sessionNoSwitch(launch: Launch): Promise<void> {
-  const stubDir = stubDirectory();
-  const plain = await launchTugApp({ testName: `${TEST_NAME}-no-switch`, ...launch, bodies: false, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
-  try {
-    await plain.seedDeckState({ state: deck(), focusCardId: A });
-    await spawnStub(plain, A, stubDir, 2);
-    // card-dom: shell
-    const inDocument = await pollFor(
-      () => plain.evalJS<boolean>(`document.querySelector(${JSON.stringify(`[data-card-id="${A}"] ${PROMPT_INPUT}`)}) !== null`),
-      (v) => v,
-      30_000,
-    );
-    const bodies = await plain.bodies();
-    const capabilities = await plain.evalJS<unknown>("window.__tugHostCapabilities || null");
-    note(`without the switch: composer in the shell's document ${inDocument}; host bodies ${JSON.stringify(bodies.map((b) => [b.cardId, b.state]))}; capabilities ${JSON.stringify(capabilities)}`);
-    expect(inDocument, "without the switch the session card's composer mounts in the shell's own document").toBe(true);
-    expect(bodies, "and the host holds no body, not even a spare").toEqual([]);
-  } finally {
-    await plain.close();
-  }
-}

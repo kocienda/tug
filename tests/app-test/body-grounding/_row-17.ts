@@ -361,7 +361,7 @@ export interface Stood {
  */
 export async function withKind(launch: Launch, kind: CardKind, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const card = `r17-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch });
   try {
     if (kind.componentId === "overview") {
       const now = Date.now();
@@ -414,7 +414,7 @@ export async function kindResizeLeg(kind: CardKind, inverse: boolean, { app, car
 export async function withFlow(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
   const card = "r17-a";
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: flowDeck(card), focusCardId: card });
     await standUpBody(app, card, stubDir);
@@ -429,7 +429,7 @@ export async function withFlow(launch: Launch, name: string, legs: (at: Stood) =
 export async function withStack(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
   const card = "r17-c";
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: stackDeck(card), focusCardId: card });
     await standUpBody(app, card, stubDir);

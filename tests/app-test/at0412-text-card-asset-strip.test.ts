@@ -220,7 +220,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0412-asset-strip" });
+          const app = await launchTugApp({ testName: "at0412-asset-strip" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -327,7 +327,7 @@ describe.skipIf(!SHOULD_RUN)(
           // run dropped, into an instance whose draft home never received
           // their files.
           const draftId = `A-${Date.now().toString(36)}`;
-          const app = await launchTugApp({ bodies: true, testName: "at0412-untitled-drop" });
+          const app = await launchTugApp({ testName: "at0412-untitled-drop" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -402,7 +402,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.writeFileSync(docPath, "# Notes\n\nSEEDED\n", "utf8");
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0412-image-paste" });
+          const app = await launchTugApp({ testName: "at0412-image-paste" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -460,7 +460,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.chmodSync(dir, 0o500);
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0412-attach-failure" });
+          const app = await launchTugApp({ testName: "at0412-attach-failure" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -538,7 +538,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0412-missing-tile" });
+          const app = await launchTugApp({ testName: "at0412-missing-tile" });
           try {
             await app.seedDeckState({
               state: deckShape(),

@@ -137,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 23: a body card's walk crosses 
       `${kind.componentId}: the View menu and Tab walk its stops round both ways, across its edge and back`,
       async () => {
         const card = `r23-${kind.componentId}`;
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true });
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true });
         try {
           await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r23-seed"] }), focusCardId: card });
           await standUpKind(app, kind, card);
@@ -163,7 +163,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 23: a body card's walk crosses 
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

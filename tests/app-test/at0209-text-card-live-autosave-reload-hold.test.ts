@@ -76,7 +76,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "in-place reload holds the text at the viewport top",
     async () => {
       const { dir, file } = mkTallFixture();
-      const app = await launchTugApp({ bodies: true, testName: "at0209-reload-restore", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
+      const app = await launchTugApp({ testName: "at0209-reload-restore", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "tall line 001");
@@ -185,7 +185,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "in-place reload holds the text when it lands in the scroll's own frame",
     async () => {
       const { dir, file } = mkTallFixture();
-      const app = await launchTugApp({ bodies: true, testName: "at0209-reload-same-task", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
+      const app = await launchTugApp({ testName: "at0209-reload-same-task", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "tall line 001");
@@ -383,7 +383,7 @@ describe.skipIf(!SHOULD_RUN)("at0209: Text card live autosave", () => {
     "in-place reload holds the text with the page's frames held",
     async () => {
       const { dir, file } = mkTallFixture();
-      const app = await launchTugApp({ bodies: true, testName: "at0209-reload-frames-held", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
+      const app = await launchTugApp({ testName: "at0209-reload-frames-held", env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) } });
       try {
         await seedTextCard(app, file);
         await waitForEditorShowing(app, "tall line 001");

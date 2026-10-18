@@ -207,7 +207,7 @@ export async function dragKind(launch: Launch, kind: CardKind, end: "drop" | "ca
   const say = (text: string): void => note(`${kind.componentId} ${end}: ${text}`);
   const card = `r20-${kind.componentId}`;
   const file = blankFile();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}-${end}`, foreground: launch.foreground, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}-${end}`, foreground: launch.foreground });
   try {
     await app.seedDeckState({
       state: {
@@ -263,7 +263,6 @@ export async function dragSession(launch: Launch, end: End): Promise<void> {
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${end}`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

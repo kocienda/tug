@@ -102,7 +102,7 @@ describe.skipIf(!SHOULD_RUN)("m279: typing survives the termination pipeline", (
       seedTugbankForLaunch(tugbankPath);
 
       const app = await launchTugApp({
-        bodies: true, testName: "at0279-quit-draft-survival",
+        testName: "at0279-quit-draft-survival",
         env: { TUGBANK_PATH: tugbankPath },
         skipAccessibilityPreflight: true,
         persistInTestMode: true,

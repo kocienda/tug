@@ -154,7 +154,6 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
     async () => {
       const { dir, file } = mkTextFixture("at0210-", FIXTURE_CONTENT);
       const app = await launchTugApp({
-        bodies: true,
         testName: "at0210-text-card-options",
         env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) },
       });
@@ -265,7 +264,7 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
   test(
     "an untitled draft keeps its Reveal button, dimmed, and says why",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0210-untitled-reveal" });
+      const app = await launchTugApp({ testName: "at0210-untitled-reveal" });
       try {
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("new-text-card", {}), null)`,
@@ -332,7 +331,6 @@ describe.skipIf(!SHOULD_RUN)("at0210: Text card masthead + editor options", () =
     async () => {
       const { dir, file } = mkCrlfFixture();
       const app = await launchTugApp({
-        bodies: true,
         testName: "at0210-crlf",
         env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) },
       });

@@ -186,7 +186,6 @@ async function launchOnFixture(
   // deck never finishes mounting and `window.__tug` is never installed.
   seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
   const app = await launchTugApp({
-    bodies: true,
     testName,
     env: { TUGBANK_PATH: tugbankPath, TUG_DATA_DIR: fixture.dataRoot },
   });

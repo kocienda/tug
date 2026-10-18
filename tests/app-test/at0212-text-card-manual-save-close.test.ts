@@ -61,7 +61,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "dirty close via X-click and control both gate on the close sheet",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ bodies: true, testName: "at0212-close" });
+      const app = await launchTugApp({ testName: "at0212-close" });
       try {
         await seedTextCard(app, file);
         await waitForEditor(app.body("A"), "alpha");
@@ -107,7 +107,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       const fileB = path.join(dir, "b.txt");
       fs.writeFileSync(fileA, ORIGINAL, "utf8");
       fs.writeFileSync(fileB, "other\n", "utf8");
-      const app = await launchTugApp({ bodies: true, testName: "at0212-tab-close" });
+      const app = await launchTugApp({ testName: "at0212-tab-close" });
       try {
         // Two text cards in ONE pane so the tab bar renders; A is active.
         await app.seedDeckState({
@@ -182,7 +182,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       const fileB = path.join(dir, "b.txt");
       fs.writeFileSync(fileA, ORIGINAL, "utf8");
       fs.writeFileSync(fileB, "other\n", "utf8");
-      const app = await launchTugApp({ bodies: true, testName: "at0212-visit-dirty" });
+      const app = await launchTugApp({ testName: "at0212-visit-dirty" });
       const B_EDITOR = `[data-card-id="B"] [data-slot="tug-text-card-editor"] .cm-content`;
       // Same pane, so the same masthead — it reads B while B is the frontmost tab.
       const B_SAVE_LINE = SAVE_LINE;

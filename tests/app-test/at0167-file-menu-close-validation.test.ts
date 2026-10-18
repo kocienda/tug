@@ -87,7 +87,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "single closable card: Close Card enabled, Close All Card Tabs disabled",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0167-single" });
+        const app = await launchTugApp({ testName: "at0167-single" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: paneOf(1), focusCardId: "C0" });
@@ -117,7 +117,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "multi-card pane: Close Card AND Close All Card Tabs both enabled",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0167-multi" });
+        const app = await launchTugApp({ testName: "at0167-multi" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: paneOf(2), focusCardId: "C0" });
@@ -145,7 +145,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "single non-closable card: both close items disabled",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0167-nonclosable" });
+        const app = await launchTugApp({ testName: "at0167-nonclosable" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: paneOf(1, false), focusCardId: "C0" });
@@ -172,7 +172,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "menuSnapshot exposes both File items with key equivalents",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0167-snapshot" });
+        const app = await launchTugApp({ testName: "at0167-snapshot" });
         try {
           await app.enableDeckTrace(true);
           await app.seedDeckState({ state: paneOf(2), focusCardId: "C0" });

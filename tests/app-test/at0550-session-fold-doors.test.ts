@@ -219,7 +219,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "the control frame flips the pane flag, and the menu item says which way it goes",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0550-fold-doors" });
+      const app = await launchTugApp({ testName: "at0550-fold-doors" });
       try {
         // `isEngineReady` reads the deck trace ring, so the trace has to be
         // recording before the engine reports.
@@ -310,7 +310,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "the control stands in Z2, and the composer's row lays out as it did before Z4-lead",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0550-fold-button" });
+      const app = await launchTugApp({ testName: "at0550-fold-button" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
@@ -359,7 +359,7 @@ describe.skipIf(!SHOULD_RUN)("AT0550: the card fold's doors", () => {
   test(
     "a non-Session key card enables the item",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0550-fold-gate" });
+      const app = await launchTugApp({ testName: "at0550-fold-gate" });
       try {
         await app.seedDeckState({ state: plainCardDeck(), focusCardId: "B" });
         await app.waitForCondition<boolean>(

@@ -61,7 +61,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 32: the Overview's insert stays
   test(
     "Insert into Prompt on a post's file lands an atom in the Overview's own composer, in its body",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
       try {
         app.seedLedger({
           overview_posts: [

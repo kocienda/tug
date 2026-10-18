@@ -198,7 +198,7 @@ async function switchQuietly(app: App, toSpaceId: string, arriving: readonly str
 /** A card of `kind` at home and one in a second workspace, switched away → home or (that made first) home → away. */
 export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
   const K = `row10-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, ...launch });
   try {
     await app.seedDeckState({ state: kindDeck(kind, K, { sessions: [A] }), focusCardId: K });
     await standUpKind(app, kind, K);
@@ -236,7 +236,7 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
 /** Two Session bodies at home and a third opened by ⌘N in a second workspace, switched away → home or (that made first) home → away. */
 export async function switchSessions(launch: Launch, leg: Leg): Promise<void> {
   const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: deck(), focusCardId: A });
     await spawnStub(app, A, stubDir, 2);

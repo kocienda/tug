@@ -260,7 +260,7 @@ describe.skipIf(!SHOULD_RUN)("AT0712: overlays open anchored under a zoom", () =
   test(
     "a popover, the completion popup and a sheet at 50 %, 100 % and 200 %",
     async () => {
-      const app = await launchTugApp({ testName: "at0712-zoom-overlays-anchor", bodies: true });
+      const app = await launchTugApp({ testName: "at0712-zoom-overlays-anchor" });
       const readings: Record<string, unknown> = {};
       try {
         await app.enableDeckTrace(true);

@@ -44,7 +44,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 14: a stack move", () => {
       const app = await launchTugApp({
         testName: "body-grounding-row-14-beats-move-stack",
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

@@ -353,7 +353,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.writeFileSync(docPath, DOC_SEED, "utf8");
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0410-text-card-file-drop" });
+          const app = await launchTugApp({ testName: "at0410-text-card-file-drop" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -446,7 +446,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0410-asset-link-click" });
+          const app = await launchTugApp({ testName: "at0410-asset-link-click" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -521,7 +521,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0410-asset-link-open" });
+          const app = await launchTugApp({ testName: "at0410-asset-link-open" });
           try {
             await app.seedDeckState({
               state: deckShape(),

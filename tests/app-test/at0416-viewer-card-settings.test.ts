@@ -239,7 +239,6 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
       const app = await launchTugApp({
         ...NO_AX,
-        bodies: true,
         testName: "at0416-viewer-card-settings-image",
       });
       try {
@@ -384,7 +383,6 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
       const app = await launchTugApp({
         ...NO_AX,
-        bodies: true,
         testName: "at0416-viewer-card-defaults",
       });
       try {
@@ -455,7 +453,6 @@ describe.skipIf(!SHOULD_RUN)("at0416 — the viewer card's own settings", () => 
 
       const app = await launchTugApp({
         ...NO_AX,
-        bodies: true,
         testName: "at0416-viewer-card-settings-pdf",
       });
       try {

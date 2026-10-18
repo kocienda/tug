@@ -57,7 +57,6 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       seedTugbankForLaunch(tugbankPath);
       const app = await launchTugApp({
         testName: "at0738-body-reload-quit",
-        bodies: true,
         env: { TUGBANK_PATH: tugbankPath, [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
         persistInTestMode: true,
         restoreInTestMode: true,

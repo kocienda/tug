@@ -172,7 +172,7 @@ async function runColdBootSelection(
 
 describe.skipIf(!SHOULD_RUN)("at0032-em: saved selection round-trips through cold-boot mount-restore", () => {
   test("gallery-prompt-entry (TugPromptEntry, session-card's editor): seeded selection lands in live DOM after restore", async () => {
-    const app = await launchTugApp({ bodies: true, testName: "at0032-em-cold-boot-entry" });
+    const app = await launchTugApp({ testName: "at0032-em-cold-boot-entry" });
     try {
       await runColdBootSelection(app, "gallery-prompt-entry");
     } finally {

@@ -193,7 +193,6 @@ export async function streamFlow(launch: Launch, leg: "out" | "back"): Promise<v
   const app = await launchTugApp({
     testName: `${TEST_NAME}-flow-${leg}`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {
@@ -220,7 +219,6 @@ export async function streamStack(launch: Launch): Promise<void> {
   const app = await launchTugApp({
     testName: `${TEST_NAME}-stack`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

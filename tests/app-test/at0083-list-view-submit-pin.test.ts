@@ -227,7 +227,6 @@ describe.skipIf(!SHOULD_RUN)(
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0083-list-view-submit-pin-restore",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
@@ -383,7 +382,6 @@ describe.skipIf(!SHOULD_RUN)(
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0083-list-view-submit-pin-funnel",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,

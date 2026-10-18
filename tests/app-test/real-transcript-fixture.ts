@@ -108,17 +108,15 @@ export interface BoundTranscripts {
   cleanup(): void;
 }
 
-/** How long a card's body may take to stand ready on a deck that runs bodies. */
+/** How long a card's body may take to stand ready. */
 const BODY_READY_MS = 30_000;
 
 /**
- * The page a card's content is read in: its body's own page when the deck
- * runs bodies (`launchTugApp({ bodies: true })`), whose transcript the shell's document
- * does not hold, and the shell's otherwise. A body is waited for until it
- * stands ready.
+ * The page a card's content is read in: its body's own page, whose
+ * transcript the shell's document does not hold. The body is waited for
+ * until it stands ready.
  */
-async function contentPage(app: App, cardId: string, bodies: boolean): Promise<App | BodyApp> {
-  if (!bodies) return app;
+async function contentPage(app: App, cardId: string): Promise<BodyApp> {
   const deadline = Date.now() + BODY_READY_MS;
   while (Date.now() < deadline) {
     const body = (await app.bodies()).find((b) => b.cardId === cardId);
@@ -138,7 +136,7 @@ async function contentPage(app: App, cardId: string, bodies: boolean): Promise<A
 export async function bindRealTranscripts(
   app: App,
   cardIds: readonly string[],
-  opts: { size: TranscriptSize; whaleCards?: readonly string[]; bodies?: boolean },
+  opts: { size: TranscriptSize; whaleCards?: readonly string[] },
 ): Promise<BoundTranscripts> {
   const whale = opts.size === "whale" ? whaleSnapshot() : null;
   if (opts.size === "whale" && whale === null) {
@@ -161,7 +159,7 @@ export async function bindRealTranscripts(
         tugSessionId,
         projectDir: seeded.projectDir,
       });
-      await (await contentPage(app, cardId, opts.bodies !== false)).waitForCondition<boolean>(
+      await (await contentPage(app, cardId)).waitForCondition<boolean>(
         `document.querySelector('[data-card-id="${cardId}"] [data-testid="session-card-transcript"]') !== null && ` +
           `document.querySelector('[data-card-id="${cardId}"] .session-card-picker-form') === null`,
         { timeoutMs: BOUND_MS[size] },
@@ -191,12 +189,11 @@ export async function bindRealTranscripts(
 export async function awaitTranscriptsSettled(
   app: App,
   cards: readonly BoundCard[],
-  bodies = false,
 ): Promise<void> {
   for (const { cardId, size } of cards) {
     const host = `[data-card-id="${cardId}"] [data-testid="session-card-transcript"]`;
     const scroller = `[data-card-id="${cardId}"] [data-tug-scroll-key="session-card-transcript"]`;
-    await (await contentPage(app, cardId, bodies)).waitForCondition<boolean>(
+    await (await contentPage(app, cardId)).waitForCondition<boolean>(
       `(function(){
         var host = document.querySelector(${JSON.stringify(host)});
         if (host === null || host.hasAttribute("data-replaying")) return false;
@@ -239,7 +236,6 @@ export interface TranscriptCensus {
 export async function transcriptCensus(
   app: App,
   cards: readonly BoundCard[],
-  bodies = false,
 ): Promise<TranscriptCensus> {
   const ids = cards.map((c) => c.cardId);
   const script = (cardIds: readonly string[]): string =>
@@ -262,13 +258,11 @@ export async function transcriptCensus(
     stackingContexts: number;
   };
   // The shell's document is the deck's; each body's page holds its own card.
-  const counts = await app.evalJS<Counts>(script(bodies ? [] : ids));
-  if (bodies) {
-    for (const id of ids) {
-      const own = await (await contentPage(app, id, true)).evalJS<Counts>(script([id]));
-      counts.cards[id] = own.cards[id] ?? 0;
-      counts.pickers[id] = own.pickers[id] ?? false;
-    }
+  const counts = await app.evalJS<Counts>(script([]));
+  for (const id of ids) {
+    const own = await (await contentPage(app, id)).evalJS<Counts>(script([id]));
+    counts.cards[id] = own.cards[id] ?? 0;
+    counts.pickers[id] = own.pickers[id] ?? false;
   }
   return {
     cards: cards.map((c) => ({
@@ -288,12 +282,12 @@ export async function transcriptCensus(
 export async function bindAndSettle(
   app: App,
   cardIds: readonly string[],
-  opts: { size: TranscriptSize; whaleCards?: readonly string[]; label: string; bodies?: boolean },
+  opts: { size: TranscriptSize; whaleCards?: readonly string[]; label: string },
 ): Promise<BoundTranscripts> {
   const bound = await bindRealTranscripts(app, cardIds, opts);
   try {
-    await awaitTranscriptsSettled(app, bound.cards, opts.bodies !== false);
-    const census = await transcriptCensus(app, bound.cards, opts.bodies !== false);
+    await awaitTranscriptsSettled(app, bound.cards);
+    const census = await transcriptCensus(app, bound.cards);
     note(
       `${opts.label} transcripts (${opts.size}): ` +
         census.cards

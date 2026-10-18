@@ -46,7 +46,7 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
   test(
     "arrives warm from the spare, shown in one step under the shell's lid, and cold when there is no spare",
     async () => {
-      const app = await launchTugApp({ testName: "at0738-body-arrival", bodies: true });
+      const app = await launchTugApp({ testName: "at0738-body-arrival" });
       // A Session card the deck opens, by the id its body answers to.
       const openSessionCard = async (taken: string[]): Promise<string> => {
         await app.dispatchControlAction("show-card", { component: "session" });

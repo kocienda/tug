@@ -305,7 +305,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "each control opens a bubble that names what pressing it does",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0404-title-bar-tooltips" });
+        const app = await launchTugApp({ testName: "at0404-title-bar-tooltips" });
         try {
           await app.seedDeckState({
             state: deckShape(),
@@ -494,7 +494,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "the phrase turns with the state, and the hover wrapper leaves the control working",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0404-title-bar-tooltips-state" });
+        const app = await launchTugApp({ testName: "at0404-title-bar-tooltips-state" });
         try {
           await app.seedDeckState({
             state: deckShape(),

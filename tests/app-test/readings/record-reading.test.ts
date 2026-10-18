@@ -160,7 +160,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding record reading: seven gestures with
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

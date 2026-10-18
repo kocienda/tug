@@ -173,6 +173,12 @@ function deckShape() {
  * pseudo layers whose opacity fades on the settle's landing, which this file's
  * claims are not about and which `at0697` asserts on its own terms. The
  * subject of every claim below is the frame itself, so the census is too.
+ *
+ * A pane behind a body, or moving under one, also wears a `clip-path` beat
+ * for the settle's length, so the hole the body shows through rides with it
+ * (`body-placement.ts`, `cutMoving`). That beat is the body's cut rather than
+ * the settle's motion, and its geometry is `body-placement.test.ts`'s, so an
+ * effect animating nothing but `clip-path` is not in the census either.
  */
 interface FrameAnimation {
   paneId: string;
@@ -192,6 +198,10 @@ async function frameAnimations(app: App): Promise<FrameAnimation[]> {
         (a.effect.getKeyframes() || []).forEach(function (kf) {
           Object.keys(kf).forEach(function (k) { props[k] = true; });
         });
+        var animated = Object.keys(props).filter(function (k) {
+          return k !== "offset" && k !== "computedOffset" && k !== "easing" && k !== "composite";
+        });
+        if (animated.length === 1 && animated[0] === "clipPath") return null;
         var timing = a.effect.getComputedTiming();
         return {
           paneId: target.getAttribute("data-pane-id") || "",
@@ -614,7 +624,16 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 2_000 },
           );
           {
-            const census = await frameAnimations(app);
+            // The window is marked at the arm, a frame or two before the
+            // tween exists: a body moving with the frame is placed first
+            // (set up, then go). So the read is at the tween's start, which
+            // is the moment the raise has to precede.
+            const startedBy = Date.now() + 2_000;
+            let census = await frameAnimations(app);
+            while (!census.some((a) => a.paneId === "p1") && Date.now() < startedBy) {
+              await wait(16);
+              census = await frameAnimations(app);
+            }
             expect(census.map((a) => a.paneId)).toContain("p1");
             expect(await frameZIndex(app, "p1")).toBeGreaterThan(
               await frameZIndex(app, "p2"),

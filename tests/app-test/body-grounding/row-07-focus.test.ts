@@ -148,7 +148,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
         const textDir = mkdtempSync(join(tmpdir(), "tug-row07-text-"));
         const textFile = join(textDir, "notes.txt");
         writeFileSync(textFile, "one\ntwo\nthree\n");
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
         try {
           await app.seedDeckState({
             state: withText(kindDeck(kind, card, { sessions: [B] })),
@@ -219,7 +219,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 7: focus", () => {
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

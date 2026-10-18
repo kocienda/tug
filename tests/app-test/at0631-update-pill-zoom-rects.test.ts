@@ -330,7 +330,7 @@ describe.skipIf(!SHOULD_RUN)("AT0631: zoom rectangles between the pill and the w
   test(
     "the rectangles travel monotonically both ways and clean up after themselves, and timing zero plants none",
     async () => {
-      const app = await launchTugApp({ testName: "at0631-update-pill-zoom-rects", bodies: true });
+      const app = await launchTugApp({ testName: "at0631-update-pill-zoom-rects" });
       const wait = (ms: number): Promise<void> =>
         new Promise((resolve) => setTimeout(resolve, ms));
       try {

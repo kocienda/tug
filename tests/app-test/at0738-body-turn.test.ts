@@ -62,7 +62,6 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const before = new Set(webContentProcesses().map((p) => p.pid));
       const app = await launchTugApp({
         testName: "at0738-body-turn",
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       const TURN = "at0738-turn";

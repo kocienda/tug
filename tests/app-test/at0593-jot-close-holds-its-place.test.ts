@@ -211,7 +211,6 @@ async function withJots(
   try {
     seedTugbankForLaunch(tugbankPath);
     const app = await launchTugApp({
-      bodies: true,
       testName,
       env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
       persistInTestMode: true,
@@ -391,7 +390,6 @@ describe.skipIf(!SHOULD_RUN)("at0593 — opening and closing a jot", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0593-jot-empty-delete",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,

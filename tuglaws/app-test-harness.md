@@ -370,6 +370,6 @@ Procedural reference for test authors.
 ## Cross-Links
 
 - [code-signing-mac.md](code-signing-mac.md) — The signing pipeline that keeps the AX grant stable across rebuilds. The harness depends on it transitively for every native-gesture test.
-- [tuglaws.md](tuglaws.md) — [L11] (responder chain — the action paths the harness exercises end-to-end), [L23] (state preservation across bookkeeping — the contract `harness-smoke/smoke-capture-phase-save.test.ts` gates).
-- [state-preservation.md](state-preservation.md) — The [A9] protocol whose capture-phase invariant is gated by `harness-smoke/smoke-capture-phase-save.test.ts`.
-- [lifecycle-delegates.md](lifecycle-delegates.md) — The deck-level event pipe whose ordering is exercised by AT0008 / AT0019 and the cross-card scenarios.
+- [tuglaws.md](tuglaws.md) — [L11] (responder chain — the action paths the harness exercises end-to-end), [L23] (state preservation across bookkeeping).
+- [state-preservation.md](state-preservation.md) — The [A9] protocol the state round-trip tests exercise.
+- [lifecycle-delegates.md](lifecycle-delegates.md) — The deck-level event pipe whose ordering is exercised by AT0008 and the cross-card scenarios.

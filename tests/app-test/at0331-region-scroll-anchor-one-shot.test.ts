@@ -197,7 +197,6 @@ describe.skipIf(!SHOULD_RUN)(
         const tugbankPath = mkTempTugbank();
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0331-region-scroll-anchor-one-shot",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,

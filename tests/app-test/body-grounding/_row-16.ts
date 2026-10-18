@@ -142,7 +142,6 @@ export async function carryAcross(launch: Launch, overview: boolean): Promise<vo
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${overview ? "overview" : "bare"}`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

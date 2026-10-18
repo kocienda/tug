@@ -170,7 +170,6 @@ describe.skipIf(!SHOULD_RUN)("at0596 — a click on a commit atom opens its card
       try {
         seedTugbankForLaunch(tugbankPath, { sourceTreePath: REPO });
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0596-commit-atom-opens-card",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,

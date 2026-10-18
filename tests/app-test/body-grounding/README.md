@@ -2,9 +2,7 @@
 
 One file per row of the bar in `briefs/body-view-grounding-brief.md` ([B02]).
 A row is green when its test passes **on the app's own path** and a reading on
-the real app, with the body switch on, agrees. The switch is the tugbank setting
-`dev.tugapp.deck` / `bodies`; the Layout card's Bodies row writes it, and a test
-launches with `TUG_BODY_VIEWS=1`.
+the real app agrees. Every card is a body; there is no switch.
 
 ## The path these tests take
 
@@ -66,7 +64,7 @@ split row by its pieces' glob.
 | `row-09-fold-*.test.ts` (fold, unfold) | Fold hides the body; the unfold shows it with no peek. | ✓ | n/a: a rail does not fold: `setPaneFolded` refuses one |
 | `row-10-workspace-*.test.ts` (session and kinds, home and away) | A workspace switch shows and places every arriving body and hides every departing one, with no frame showing a body in the wrong place. | ✓ | ✓ |
 | `row-11-lifecycle.test.ts` | Close, close all, reload and quit: no body outlives its card; every page saves and terminates under the deadline. A dirty Text body asks in its own page before its pane closes and before a Cards body's workspace delete, and Cancel keeps both. | ✓ | ✓ |
-| `row-12-composer-*.test.ts` (session-send, session-panel, kinds, no-switch) | Z2, the composer, paste of text and images, and the picker-to-body handoff. | ✓ | ✓ |
+| `row-12-composer-*.test.ts` (session-send, session-panel, kinds) | Z2, the composer, paste of text and images, and the picker-to-body handoff. | ✓ | ✓ |
 | `row-13-arc-tracking.test.ts` | An arc bound to a body's session reads in that body's Z2, on the shell's masthead and in the Arcs body, which follows the Session card focused before it and offers Bind to its session. The stores a body attaches are enumerated by `tugdeck/src/body/__tests__/body-stores.test.ts`. | ✓ | n/a: the Overview has none of it |
 | `row-14-beats-move-*.test.ts` (kinds and flow, out and back; stack) | A gesture that only moves body cards (the flow slide out and back, a cross-column stack move) carries each body with its chrome on the host: the lid stays lifted, the content box never shows the floor, the presented container tracks the placeholder, the render server advances it every tick, and it lands on the placeholder to the pixel. | ✓ | ✓ |
 | `row-15-skew-*.test.ts` (shipped, streaming) | The skew between a carried body and its chrome on composite frames, read by a stripe in the body's page against the title bar's edge: within two frames of travel at the shipped offset, at rest and with three bodies streaming. The reading at an offset of 0, whose median sets the shipped offset, is `readings/row-15-skew-offset-zero-reading.test.ts`. | ✓ | n/a: Session-only by construction |

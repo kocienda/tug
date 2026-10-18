@@ -146,7 +146,6 @@ describe.skipIf(!SHOULD_RUN)("at0632 — a jot click holds the card's scroll", (
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0632-jot-click-holds-the-scroll",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,

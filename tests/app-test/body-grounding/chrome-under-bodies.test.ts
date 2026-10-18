@@ -139,7 +139,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: a back card's chrome stays under a
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

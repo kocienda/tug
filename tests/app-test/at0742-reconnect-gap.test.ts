@@ -114,7 +114,6 @@ describe.skipIf(!SHOULD_RUN)("at0742 — a turn that runs on through a dropped s
       const stubDir = stubDirectory();
       const app: App = await launchTugApp({
         testName: TEST_NAME,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

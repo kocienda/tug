@@ -53,7 +53,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 24: the keyboard rides with the
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

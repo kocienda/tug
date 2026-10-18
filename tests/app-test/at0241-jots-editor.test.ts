@@ -79,7 +79,6 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           testName: "at0241-jots-editor",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
-          bodies: true,
         });
         try {
           const jots = kindBody(app, "jots");
@@ -185,7 +184,6 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           testName: "at0241-jots-space",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
-          bodies: true,
         });
         try {
           const jots = kindBody(app, "jots");
@@ -255,7 +253,6 @@ describe.skipIf(!SHOULD_RUN)("at0241 — Jots card editor round-trip", () => {
           testName: "at0241-new-jot",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
-          bodies: true,
         });
         try {
           const jots = kindBody(app, "jots");

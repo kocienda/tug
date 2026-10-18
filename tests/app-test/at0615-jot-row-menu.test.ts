@@ -148,7 +148,6 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0615-jot-row-menu",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
@@ -271,7 +270,6 @@ describe.skipIf(!SHOULD_RUN)("at0615 — the jot row's own menu", () => {
       try {
         seedTugbankForLaunch(tugbankPath);
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0615b-jot-row-menu-empty",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,

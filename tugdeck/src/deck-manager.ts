@@ -4756,6 +4756,19 @@ export class DeckManager implements IDeckManagerStore {
       ? this._revealTerms(updatedHost.id, newStacks)
       : {};
 
+    // An activation of the card that is already key, already on top and
+    // already shown changes nothing, so it notifies nothing and saves
+    // nothing. A body asks for activation on every press into it, since only
+    // the shell knows whether it is key; this keeps that ask free.
+    if (
+      newStacks === stacks &&
+      this.deckState.activePaneId === updatedHost.id &&
+      Object.keys(revealTerms).length === 0
+    ) {
+      this.putFocusedCardIdGuarded(newFR);
+      return;
+    }
+
     this.deckState = {
       ...this.deckState,
       panes: newStacks,

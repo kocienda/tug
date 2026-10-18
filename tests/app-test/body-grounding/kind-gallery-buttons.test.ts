@@ -62,7 +62,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: the maker kinds, by the
   test(
     "the gallery card mounts as a body, its sections are there, and its view toggle flips in the body",
     async () => {
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
       try {
         await app.seedDeckState({ state: kindDeck(cardKind("gallery-buttons"), GB), focusCardId: GB });
         const body = await standUpKind(app, cardKind("gallery-buttons"), GB);

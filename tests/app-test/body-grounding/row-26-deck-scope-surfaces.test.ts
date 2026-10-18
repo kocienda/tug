@@ -105,7 +105,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 26: the shell draws a body's de
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

@@ -132,7 +132,6 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           testName: "at0417-jot-annotation-links",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
-          bodies: true,
         });
         const jots = kindBody(app, "jots");
         const textCard = kindBody(app, "text");
@@ -255,7 +254,6 @@ describe.skipIf(!SHOULD_RUN)("at0417 — jot annotation links", () => {
           testName: "at0417-jot-relative-path",
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
-          bodies: true,
         });
         const jots = kindBody(app, "jots");
         const textCard = kindBody(app, "text");

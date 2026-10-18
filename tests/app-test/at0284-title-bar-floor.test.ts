@@ -111,7 +111,7 @@ describe.skipIf(!SHOULD_RUN)("at0284 — the title-bar floor", () => {
   test(
     "a free pane restored above the deck top is clamped onto it",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0284-title-bar-floor-free" });
+      const app = await launchTugApp({ testName: "at0284-title-bar-floor-free" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: freeDeckShape(), focusCardId: "A" });
@@ -142,7 +142,7 @@ describe.skipIf(!SHOULD_RUN)("at0284 — the title-bar floor", () => {
   test(
     "imposed panes place below the deck top whatever their stored y says",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0284-title-bar-floor-imposed" });
+      const app = await launchTugApp({ testName: "at0284-title-bar-floor-imposed" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: imposedDeckShape(), focusCardId: "A" });

@@ -116,7 +116,6 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         // ── Phase A: seed deck, scroll, quitGracefully. ──
         {
           const app = await launchTugApp({
-            bodies: true,
             testName: "at0014-cold-boot-scroll-A",
             // Foreground: the test's resign leg needs a really-active app.
             foreground: true,
@@ -195,7 +194,6 @@ describe.skipIf(!SHOULD_RUN)("m14: scroll cold-boot across full process restart"
         // ── Phase B: relaunch, re-seed bag from disk, assert live. ──
         {
           const app = await launchTugApp({
-            bodies: true,
             testName: "at0014-cold-boot-scroll-B",
             foreground: true,
             env: { TUGBANK_PATH: tugbankPath },

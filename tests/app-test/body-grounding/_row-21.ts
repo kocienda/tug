@@ -174,7 +174,7 @@ function blankFile(): string {
 export async function edgesOfKind(launch: Launch, kind: CardKind): Promise<void> {
   const card = `r21-${kind.componentId}`;
   const file = blankFile();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: launch.foreground, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: launch.foreground });
   try {
     await app.seedDeckState({
       state: {
@@ -239,7 +239,6 @@ export async function edgesOfSession(launch: Launch): Promise<void> {
   const app = await launchTugApp({
     testName: `${TEST_NAME}-session`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

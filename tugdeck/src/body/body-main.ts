@@ -789,7 +789,6 @@ async function bindBody(bind: BodyBind): Promise<void> {
   bridge.cardLifecycle.notifyCardDidFinishConstruction(cardId);
   installBodyPublisher(
     cardId,
-    () => bridge.getFirstResponderCardId() === cardId,
     (message) => sendBus(connection, "shell", message),
   );
 

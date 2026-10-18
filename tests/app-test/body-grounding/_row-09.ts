@@ -169,7 +169,7 @@ async function readLeg(app: App, card: string, leg: Leg, standing: Standing, kee
 /** Every other kind: a card of `kind` folded or unfolded by the chord it reads. */
 export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promise<void> {
   const card = `row09-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, foreground: launch.foreground, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${leg}-${kind.componentId}`, foreground: launch.foreground });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row09-seed"] }), focusCardId: card });
     await standUpKind(app, kind, card);
@@ -189,7 +189,6 @@ export async function foldSession(launch: Launch, leg: Leg): Promise<void> {
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${leg}`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {

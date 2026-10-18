@@ -181,7 +181,7 @@ describe.skipIf(!SHOULD_RUN)("at0269: markdown text style constructs", () => {
         seedTugbankForLaunch(tugbankPath);
 
         const app = await launchTugApp({
-          bodies: true, testName: "at0269-markdown-text-style-constructs",
+          testName: "at0269-markdown-text-style-constructs",
           env: { TUGBANK_PATH: tugbankPath },
           persistInTestMode: true,
           foreground: true,

@@ -59,7 +59,6 @@ describe.skipIf(!SHOULD_RUN)("at0356: Settings remembers the selected section", 
   test("opens on General with no stored value, and a selection survives close and reopen", async () => {
     const app = await launchTugApp({
       ...NO_AX,
-      bodies: true,
       testName: "at0356-settings-sections-persist",
     });
     try {

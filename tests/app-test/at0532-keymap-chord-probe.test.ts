@@ -120,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
   test(
     "a bound chord is reported and the list narrows to it — and nothing is rebound",
     async () => {
-      const app = await launchTugApp({ testName: "at0532-taken", bodies: true });
+      const app = await launchTugApp({ testName: "at0532-taken" });
       try {
         await openKeyboardCard(app);
 
@@ -197,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
       // is a COUNT rather than a lock — so nothing downstream would have
       // caught this. The pane holds one arming slot, and the exclusivity is
       // that slot rather than two flags that have to agree.
-      const app = await launchTugApp({ testName: "at0532-exclusive", bodies: true });
+      const app = await launchTugApp({ testName: "at0532-exclusive" });
       try {
         await openKeyboardCard(app);
         await kindBody(app, "keyboard").type('[data-testid="settings-keymap-filter"] input', "Zoom Out");
@@ -270,7 +270,7 @@ describe.skipIf(!SHOULD_RUN)("AT0532: the Keyboard pane's chord probe", () => {
   test(
     "an unclaimed chord reads free and leaves the list alone",
     async () => {
-      const app = await launchTugApp({ testName: "at0532-free", bodies: true });
+      const app = await launchTugApp({ testName: "at0532-free" });
       try {
         await openKeyboardCard(app);
         const allRows = await rowCount(app);

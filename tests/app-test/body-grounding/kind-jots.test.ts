@@ -67,7 +67,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding kind check: Jots", () => {
       const jotsPath = join(scratch, "jots.json");
       writeFileSync(jotsPath, `${JSON.stringify({ version: 1, jots: SEEDED }, null, 2)}\n`);
       const onDisk = (): JotsFile => JSON.parse(readFileSync(jotsPath, "utf8")) as JotsFile;
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, bodies: true, env: { TUG_JOTS_PATH: jotsPath } });
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, env: { TUG_JOTS_PATH: jotsPath } });
       try {
         await app.seedDeckState({ state: kindDeck(cardKind("jots"), JOTS), focusCardId: JOTS });
         const body = await standUpKind(app, cardKind("jots"), JOTS);

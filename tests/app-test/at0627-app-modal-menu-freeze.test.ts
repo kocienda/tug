@@ -171,7 +171,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "every card-count item goes dark while UpdateTug is open and lights again after Close",
       async () => {
-        const app = await launchTugApp({ testName: "at0627-app-modal-menu-freeze", bodies: true });
+        const app = await launchTugApp({ testName: "at0627-app-modal-menu-freeze" });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(
@@ -259,7 +259,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "a reveal under ConfigureTug raises nothing, and the same door works once setup closes",
       async () => {
-        const app = await launchTugApp({ testName: "at0627-two-modal-precedence", bodies: true });
+        const app = await launchTugApp({ testName: "at0627-two-modal-precedence" });
         try {
           await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
           await app.waitForCondition<boolean>(

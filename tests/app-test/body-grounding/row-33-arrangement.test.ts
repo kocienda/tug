@@ -187,7 +187,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
   test(
     "the Layout body reads the shell's arrangement, and its row press and window drag reach the shell's deck",
     async () => {
-      const app = await launchTugApp({ testName: "body-grounding-row-33-layout", foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: "body-grounding-row-33-layout", foreground: true });
       try {
         await app.seedDeckState({ state: layoutDeck("flow"), focusCardId: "A" });
         const body = await standUpKind(app, cardKind("layout"), LAYOUT);
@@ -256,7 +256,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 33: the arrangement cards", () 
     "the Cards body lists the shell's cards with their sessions, and its close, new workspace, go-there and delete reach the shell",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: "body-grounding-row-33-cards", foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: "body-grounding-row-33-cards", foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: cardsDeck(), focusCardId: A });
         await spawnStub(app, A, stubDir, 2, 1);

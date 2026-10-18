@@ -274,7 +274,7 @@ describe.skipIf(!SHOULD_RUN)("at0456 — column overflow", () => {
   test(
     "a third member trades the division for a strip built from the members, and leaving restores it",
     async () => {
-      const app = await launchTugApp({ testName: "at0456-column-overflow", bodies: true });
+      const app = await launchTugApp({ testName: "at0456-column-overflow" });
       try {
         await app.evalJS<null>(
           `(window.__tug.setTugbankValue("dev.tugapp.layout", "widthPx", { kind: "i64", value: ${RAIL_WIDTH} }), null)`,

@@ -261,7 +261,7 @@ describe.skipIf(!SHOULD_RUN)(
     test(
       "inline-accurate, atomic-widen, and cross-block selections via ⌘C",
       async () => {
-        const app = await launchTugApp({ bodies: true, testName: "at0188-transcript-copy-wiring", foreground: true });
+        const app = await launchTugApp({ testName: "at0188-transcript-copy-wiring", foreground: true });
         try {
           await app.seedDeckState({
             state: {

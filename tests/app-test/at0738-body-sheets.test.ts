@@ -47,7 +47,6 @@ describe.skipIf(!SHOULD_RUN)("at0738: a Session card's body", () => {
       const stubDir = stubDirectory();
       const app = await launchTugApp({
         testName: "at0738-body-sheets",
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       const SHEETS = "at0738-sheets";

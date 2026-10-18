@@ -104,7 +104,7 @@ describe.skipIf(!SHOULD_RUN)("at0741: every registered kind is a body", () => {
     "one card of every registered kind stands ready in a body, with none in the shell's document",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: TEST_NAME, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: TEST_NAME, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         const kinds = await app.evalJS<RegisteredKind[]>("window.tugdeck.diag.registeredKinds()");
         note(`registered kinds: ${kinds.length} (${kinds.filter((k) => k.hidden).length} hidden; ${kinds.filter((k) => k.bodyHandOff === "spawn").length} spawn-handed)`);

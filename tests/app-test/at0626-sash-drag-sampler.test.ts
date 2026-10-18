@@ -740,7 +740,6 @@ describe.skipIf(!SHOULD_RUN)(
       async () => {
         const jotsPath = seedJotsFile();
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0626-sash-drag-sampler",
           env: { TUG_JOTS_PATH: jotsPath },
         });

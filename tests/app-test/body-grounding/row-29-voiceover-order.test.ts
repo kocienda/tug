@@ -84,7 +84,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
         const textDir = mkdtempSync(join(tmpdir(), "tug-row29-text-"));
         const textFile = join(textDir, "notes.txt");
         writeFileSync(textFile, "one\ntwo\n");
-        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+        const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
         try {
           const base = deck() as { cards: unknown[]; panes: unknown[] };
           await app.seedDeckState({
@@ -127,7 +127,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 29: VoiceOver's order", () => {
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

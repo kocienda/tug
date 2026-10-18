@@ -285,7 +285,7 @@ async function arriveOpened(
 
 /** A card of `kind` opened the way it opens, read from the hand-off on. */
 export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<void> {
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch });
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     await pollFor(() => app.bodies(), (all) => all.some((b) => b.cardId === null && b.state === "connected"), BODY_READY_MS);
@@ -298,7 +298,7 @@ export async function arrivalOfKind(launch: Launch, kind: CardKind): Promise<voi
 
 /** Launch with the seed card and a spare waiting connected, and run `body`. */
 async function withSpare(launch: Launch, name: string, body: (app: App) => Promise<void>): Promise<void> {
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch });
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: SEED });
     // The spare is made a beat after the shell paints, and waits connected.

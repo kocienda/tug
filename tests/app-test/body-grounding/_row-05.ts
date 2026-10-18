@@ -147,7 +147,6 @@ async function withDeck(launch: Launch, name: string, legs: (at: Stood) => Promi
   const app = await launchTugApp({
     testName: `${TEST_NAME}-${name}`,
     foreground: launch.foreground,
-    bodies: true,
     env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
   });
   try {
@@ -380,7 +379,7 @@ export function textChords(launch: Launch): Promise<void> {
 export async function overviewChords(launch: Launch): Promise<void> {
   const card = "row05-overview";
   const kind = cardKind("overview");
-  const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: launch.foreground, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: launch.foreground });
   try {
     const now = Date.now();
     app.seedLedger({

@@ -303,7 +303,7 @@ describe.skipIf(!SHOULD_RUN)("AT0632: a step row holds its height", () => {
   test(
     "every wizard row is exactly as tall at every stage as it was on the opened panel",
     async () => {
-      const app = await launchTugApp({ testName: "at0632-step-row-holds-its-height", bodies: true });
+      const app = await launchTugApp({ testName: "at0632-step-row-holds-its-height" });
       try {
         await app.seedDeckState({ state: deckShape(), focusCardId: "A" });
         await app.waitForCondition<boolean>(

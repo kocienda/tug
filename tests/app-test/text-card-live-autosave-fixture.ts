@@ -280,7 +280,6 @@ export async function launchOnWatchedFixture(
   seedTugbankForLaunch(tugbankPath, { sourceTreePath: CHECKOUT });
   tugbankWrite(tugbankPath, AUTOMATIC_SAVE_MODE.domain, AUTOMATIC_SAVE_MODE.key, AUTOMATIC_SAVE_MODE.type, AUTOMATIC_SAVE_MODE.value);
   const app = await launchTugApp({
-    bodies: true,
     testName,
     env: { TUGBANK_PATH: tugbankPath },
   });

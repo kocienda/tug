@@ -68,7 +68,6 @@ async function withJots(
   try {
     seedTugbankForLaunch(tugbankPath);
     const app = await launchTugApp({
-      bodies: true,
       testName,
       env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
       persistInTestMode: true,

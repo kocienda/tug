@@ -84,7 +84,7 @@ export function kindLegs(kind: CardKind): { out: { label: string; js: string }; 
 /** Launch with a body of `kind` stood up and focused among five Session cards, and run `legs`. */
 export async function withKind(launch: Launch, kind: CardKind, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const card = `r14-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}-${kind.componentId}`, ...launch });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["r14-n0", "r14-n1", "r14-n2", "r14-n3", "r14-n4"] }), focusCardId: card });
     await standUpKind(app, kind, card);
@@ -115,7 +115,7 @@ function flowDeck(bodies: readonly string[]): Record<string, unknown> {
 /** Launch with the flow deck's two Session bodies bound, the first focused, and run `legs` on it. */
 export async function withFlow(launch: Launch, name: string, legs: (at: Stood) => Promise<void>): Promise<void> {
   const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${name}`, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: flowDeck(FLOW_BODIES), focusCardId: FLOW_BODIES[0] });
     for (const id of FLOW_BODIES) await spawnStub(app, id, stubDir, 2);

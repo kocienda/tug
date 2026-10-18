@@ -298,7 +298,7 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
   test(
     "session card: ⌘E summons the bar on the selected word, then re-seeds it in place",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0403-session" });
+      const app = await launchTugApp({ testName: "at0403-session" });
       try {
         await seedSession(app);
 
@@ -363,7 +363,7 @@ describe.skipIf(!SHOULD_RUN)("AT0403: use selection for find", () => {
   test(
     "text card: ⌘E searches the editor's selection, and re-seeds an open bar",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0403-text" });
+      const app = await launchTugApp({ testName: "at0403-text" });
       try {
         await mountTextCard(app);
 

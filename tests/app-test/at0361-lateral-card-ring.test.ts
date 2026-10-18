@@ -131,7 +131,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
   test(
     "⇧⌘] steps within a pane, crosses into the next, reaches the Layout card, and wraps",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0361-ring-forward" });
+      const app = await launchTugApp({ testName: "at0361-ring-forward" });
       try {
         await seed(app);
         await app.expectFocusedCard("A", { timeoutMs: 5_000 });
@@ -166,7 +166,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
   test(
     "⇧⌘[ is the same ring in reverse, Layout card first",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0361-ring-backward" });
+      const app = await launchTugApp({ testName: "at0361-ring-backward" });
       try {
         await seed(app);
         await app.expectFocusedCard("A", { timeoutMs: 5_000 });
@@ -205,7 +205,7 @@ describe.skipIf(!SHOULD_RUN)("at0361 — the lateral ring walks the whole deck",
       // computes the step, so a Layout card that is on the ring for the walk must
       // be on it for the gate too — a deck of one content card plus the
       // Layout card is exactly the shape that separates the two.
-      const app = await launchTugApp({ bodies: true, testName: "at0361-ring-gate" });
+      const app = await launchTugApp({ testName: "at0361-ring-gate" });
       try {
         await app.seedDeckState({
           state: {

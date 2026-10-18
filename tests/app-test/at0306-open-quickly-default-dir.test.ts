@@ -146,7 +146,6 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${dir}/nested/other.txt`, "unrelated\n");
 
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0306-open-quickly-default-dir",
         });
         try {
@@ -266,7 +265,6 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${other}/${OTHER_MARKER}`, "somewhere else\n");
 
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0306-open-quickly-chooser",
         });
         try {
@@ -390,7 +388,6 @@ describe.skipIf(!SHOULD_RUN)(
         mkdirSync(`${base}/c/proj`, { recursive: true });
 
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0306-open-quickly-places",
         });
         try {
@@ -470,7 +467,7 @@ describe.skipIf(!SHOULD_RUN)(
         mkdirSync(`${base}/other`);
         writeFileSync(`${base}/other/${OTHER_MARKER}`, "elsewhere\n");
 
-        const app = await launchTugApp({ testName: "at0306-open-quickly-keys", bodies: true });
+        const app = await launchTugApp({ testName: "at0306-open-quickly-keys" });
         try {
           await app.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(OVERLAY_ROOT)}) !== null`,
@@ -638,7 +635,6 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${base}/tug/${MARKER}`, "in the default\n");
 
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0306-open-quickly-settle",
         });
         try {
@@ -763,7 +759,6 @@ describe.skipIf(!SHOULD_RUN)(
         writeFileSync(`${base}/tug/${MARKER}`, "in the default\n");
 
         const app = await launchTugApp({
-          bodies: true,
           testName: "at0306-open-quickly-esc",
           // Foreground: the final leg is a real app resign, which only
           // happens to an app that is actually active (pid-mode default
@@ -848,7 +843,7 @@ describe.skipIf(!SHOULD_RUN)(
         mkdirSync(`${base}/after`);
         writeFileSync(`${base}/after/${OTHER_MARKER}`, "the new default\n");
 
-        const app = await launchTugApp({ testName: "at0306-open-quickly-live", bodies: true });
+        const app = await launchTugApp({ testName: "at0306-open-quickly-live" });
         // Null-safe: the wait polls while the dialog is still mounting, and a
         // read that throws there is an exception, not a false.
         const placeholder = `(function () {

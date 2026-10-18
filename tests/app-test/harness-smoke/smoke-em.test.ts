@@ -53,7 +53,7 @@ const PROMPT_INPUT_SELECTOR = '[data-slot="tug-text-editor"] .cm-content';
 
 describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
   test("engine-ready fires when a TugTextEditor-backed EM card mounts", async () => {
-    const app = await launchTugApp({ testName: "smoke-em-engine-ready", bodies: true });
+    const app = await launchTugApp({ testName: "smoke-em-engine-ready" });
     try {
       await app.enableDeckTrace(true);
 
@@ -120,7 +120,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
   });
 
   test("getEmCardState reflects current engine text after typing", async () => {
-    const app = await launchTugApp({ testName: "smoke-em-get-state", bodies: true });
+    const app = await launchTugApp({ testName: "smoke-em-get-state" });
     try {
       await app.enableDeckTrace(true);
       await app.seedDeckState({
@@ -192,7 +192,7 @@ describe.skipIf(!SHOULD_RUN)("EM-card observation surface", () => {
   });
 
   test("getEmCardState returns null for an FC card", async () => {
-    const app = await launchTugApp({ testName: "smoke-em-fc-returns-null", bodies: true });
+    const app = await launchTugApp({ testName: "smoke-em-fc-returns-null" });
     try {
       await app.seedDeckState({
         state: {

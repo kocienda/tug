@@ -226,7 +226,7 @@ describe.skipIf(!SHOULD_RUN)(
         fs.writeFileSync(targetDoc, "TARGET\n", "utf8");
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0415-asset-interop" });
+          const app = await launchTugApp({ testName: "at0415-asset-interop" });
           try {
             await app.seedDeckState({
               state: deckShape(),

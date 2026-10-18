@@ -415,9 +415,8 @@ returns a `BodyApp` that runs `evalJS`, `waitForCondition`,
 `getElementScreenBounds`, `screenshot` and the native input verbs in that
 card's page. Selectors like `cardHost(cardId)` are evaluated there.
 
-A launch makes bodies with `launchTugApp({ bodies: true })`, which sets
-`TUG_BODY_VIEWS=1`; without it every card mounts in the shell's document, as
-before bodies. Helpers that answer for a card wherever it is — in its body
+Every launch makes bodies: the host makes one for every card, and there is
+no switch. Helpers that answer for a card wherever it is — in its body
 when it has one, in the shell's document otherwise — are in
 [`_harness/card-reach.ts`](_harness/card-reach.ts): `cardPage(app, cardId)`,
 `keyboardIsInCard(app, cardId)` and `waitForKeyboardInCard`. The kinds the
@@ -645,7 +644,6 @@ tests/app-test/
     smoke-em-live.test.ts     # Opt-in (TUGCODE_LIVE=1) Anthropic round-trip.
     smoke-app-reload.test.ts  # appReload primitive.
     smoke-cold-boot.test.ts   # quitGracefully + tugbankRead two-process round-trip.
-    smoke-capture-phase-save.test.ts  # [A9] capture-phase save invariant.
     double-connect.test.ts    # Single-client transport guarantee.
     log-capture.test.ts       # Per-test log file capture.
     version-handshake.test.ts # EXPECTED_SURFACE_VERSION mismatch error.

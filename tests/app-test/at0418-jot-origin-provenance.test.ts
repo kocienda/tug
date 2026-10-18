@@ -138,7 +138,6 @@ describe.skipIf(!SHOULD_RUN)("at0418 — a jot keeps the project it was copied f
           env: { TUGBANK_PATH: tugbankPath, TUG_JOTS_PATH: jotsPath },
           persistInTestMode: true,
           foreground: true,
-          bodies: true,
         });
         const sessionA = app.body("A");
         const jots = kindBody(app, "jots");

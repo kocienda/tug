@@ -207,6 +207,8 @@ describe.skipIf(!SHOULD_RUN)(
           expect(addrs).toContain("#a8");
 
           // --- Phase 2: page in the older history (turns 1..5) ------------
+          const SCROLL_HEIGHT_JS = `document.querySelector('[data-card-id="A"] [data-tug-scroll-key="session-card-transcript"]').scrollHeight`;
+          const heightBefore = await app.body("A").evalJS<number>(SCROLL_HEIGHT_JS);
           await app.driveSession("A", { op: "loadPrevious", amount: "all" });
           await ingest(replayStarted());
           for (let n = 1; n <= 5; n++) {
@@ -216,8 +218,15 @@ describe.skipIf(!SHOULD_RUN)(
           }
           await ingest(replayComplete(5, 0, 8, false));
 
+          // The page-in has landed when the replay is done and the transcript
+          // has grown by the prepend. Turn 1's row is not a sign of it: the
+          // viewport stays at the bottom, and the transcript evicts rows far
+          // from it, so whether turn 1 is still mounted is a race.
           await app.body("A").waitForCondition<boolean>(
-            `JSON.parse(${ADDRS_JS}).some((a) => a === "#u1")`,
+            `(function () {
+              var host = document.querySelector('[data-card-id="A"] [data-testid="session-card-transcript"]');
+              return host !== null && !host.hasAttribute("data-replaying") && ${SCROLL_HEIGHT_JS} > ${heightBefore};
+            })()`,
             { timeoutMs: 8000 },
           );
 

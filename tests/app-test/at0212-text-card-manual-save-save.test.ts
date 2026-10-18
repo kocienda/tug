@@ -66,7 +66,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "edits stay off disk; menu gates + dynamic ⇧⌘S",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ bodies: true, testName: "at0212-gates" });
+      const app = await launchTugApp({ testName: "at0212-gates" });
       try {
         await seedTextCard(app, file);
         await waitForEditor(app.body("A"), "alpha");
@@ -109,7 +109,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "save survives a title-bar interaction (focus reclaim on cardDidMove)",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ bodies: true, testName: "at0212-reclaim" });
+      const app = await launchTugApp({ testName: "at0212-reclaim" });
       try {
         await seedTextCard(app, file);
         await waitForEditor(app.body("A"), "alpha");
@@ -160,7 +160,7 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
     "conflict: Save Anyway writes the buffer to the real file ([P12])",
     async () => {
       const { dir, file } = mkTextFixture("at0212-", ORIGINAL, { name: "manual.txt" });
-      const app = await launchTugApp({ bodies: true, testName: "at0212-conflict" });
+      const app = await launchTugApp({ testName: "at0212-conflict" });
       try {
         await seedTextCard(app, file);
         await waitForEditor(app.body("A"), "alpha");
@@ -199,7 +199,6 @@ describe.skipIf(!SHOULD_RUN)("at0212: Text card manual save", () => {
       // A body card reads its save mode from the tugbank the app opens, so
       // automatic is seeded there rather than through the shell's cache.
       const app = await launchTugApp({
-        bodies: true,
         testName: "at0212-automatic",
         env: { TUGBANK_PATH: mkSeededTugbank([AUTOMATIC_SAVE_MODE]) },
       });

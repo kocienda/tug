@@ -63,7 +63,7 @@ describe.skipIf(!SHOULD_RUN)("reading: the Overview's cost to the shell", () => 
     "the shell's element census and the flow slide's gaps with the Overview open and three bodies streaming",
     async () => {
       const stubDir = stubDirectory();
-      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+      const app = await launchTugApp({ testName: TEST_NAME, foreground: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
       try {
         await app.seedDeckState({ state: deck(), focusCardId: SESSIONS[0] });
         for (const id of SESSIONS) await spawnStub(app, id, stubDir, 40, 4);

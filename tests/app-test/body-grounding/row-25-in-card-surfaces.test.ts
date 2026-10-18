@@ -150,7 +150,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 25: in-card surfaces draw whole
     "overview: its row menu on a post and its composer's context menu stand inside its body and are painted there",
     async () => {
       const card = "r25-overview";
-      const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: true, bodies: true });
+      const app = await launchTugApp({ testName: `${TEST_NAME}-overview`, foreground: true });
       try {
         const now = Date.now();
         app.seedLedger({
@@ -190,7 +190,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 25: in-card surfaces draw whole
       const app = await launchTugApp({
         testName: TEST_NAME,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir },
       });
       try {

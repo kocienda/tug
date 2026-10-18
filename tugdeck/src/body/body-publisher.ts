@@ -44,8 +44,6 @@ export interface BodyPublisherSources {
   readGuarded(): boolean;
   /** Whether the card's close guard would ask, or null when it registered none. */
   readAsks(): boolean | null;
-  /** Whether the deck's first responder is this card. */
-  isFirstResponder(): boolean;
 }
 
 export class BodyPublisher {
@@ -84,9 +82,15 @@ export class BodyPublisher {
     }
   }
 
-  /** A pointer went down in the body: ask to be activated unless already the first responder. */
+  /**
+   * A pointer went down in the body: ask to be activated, every time. What
+   * the body last heard about being first responder can be a press behind,
+   * so it is not the judge: a second press that lands before the context
+   * the first one earned would otherwise go unasked, and the keyboard and
+   * the shell's key card would part. The shell knows, and an activation of
+   * the card already key costs it nothing.
+   */
   pointerDown(): void {
-    if (this.sources.isFirstResponder()) return;
     this.send({ kind: "card-advice", payload: { advice: "activate" } });
   }
 }
@@ -127,7 +131,6 @@ export function readBodyCardFacts(cardId: string): CardFacts {
  */
 export function installBodyPublisher(
   cardId: string,
-  isFirstResponder: () => boolean,
   send: (message: BusMessage) => void,
 ): () => void {
   const publisher = new BodyPublisher(
@@ -139,7 +142,6 @@ export function installBodyPublisher(
         const guard = getCardCloseGuard(cardId);
         return guard === null ? null : guard.needsDecision();
       },
-      isFirstResponder,
     },
     send,
   );

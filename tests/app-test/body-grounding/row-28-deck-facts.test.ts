@@ -122,7 +122,6 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 28: the deck facts a body follo
       const app = await launchTugApp({
         testName: kind.componentId === "session" ? TEST_NAME : `${TEST_NAME}-${kind.componentId}`,
         foreground: true,
-        bodies: true,
         env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir, TUGBANK_PATH: tugbankPath },
       });
       try {

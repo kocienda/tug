@@ -119,7 +119,6 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
         // ── Phase A: seed deck, anchor selection, quitGracefully. ──
         {
           const app = await launchTugApp({
-            bodies: true,
             testName: "at0010-cold-boot-selection-A",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,
@@ -277,7 +276,6 @@ describe.skipIf(!SHOULD_RUN)("m10: selection cold-boot across full process resta
         // ── Phase B: relaunch, re-seed bag, assert restore. ──
         {
           const app = await launchTugApp({
-            bodies: true,
             testName: "at0010-cold-boot-selection-B",
             env: { TUGBANK_PATH: tugbankPath },
             persistInTestMode: true,

@@ -424,7 +424,7 @@ async function dragLeg(app: App, card: string, handle: Rect, measure: FloorMeasu
 /** Launch with a body of `kind` stood up beside a Session card, and drag it by the surface its chrome offers. */
 export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
   const card = `row02-${kind.componentId}`;
-  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch, bodies: true });
+  const app = await launchTugApp({ testName: `${TEST_NAME}-${kind.componentId}`, ...launch });
   try {
     await app.seedDeckState({ state: kindDeck(kind, card, { sessions: ["row02-seed"] }), focusCardId: card });
     await standUpKind(app, kind, card);
@@ -441,7 +441,7 @@ export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
 /** Launch with one Session body card, its stub turn run out, and drag it by its grab handle. */
 export async function dragSession(launch: Launch): Promise<void> {
   const stubDir = stubDirectory();
-  const app = await launchTugApp({ testName: TEST_NAME, ...launch, bodies: true, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
+  const app = await launchTugApp({ testName: TEST_NAME, ...launch, env: { [STUB_TRANSCRIPT_DIR_ENV]: stubDir } });
   try {
     await app.seedDeckState({ state: oneCard, focusCardId: CARD });
     const tugSessionId = randomUUID();

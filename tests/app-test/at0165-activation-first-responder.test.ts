@@ -137,7 +137,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug B — closing a tab leaves the survivor first responder; Cmd-W closes it",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0165-bugB" });
+      const app = await launchTugApp({ testName: "at0165-bugB" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: twoCards("gallery-input"), focusCardId: "A" });
@@ -176,7 +176,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug A — a card-modal dialog stays Cmd-.-dismissable after a tab round-trip",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0165-bugA" });
+      const app = await launchTugApp({ testName: "at0165-bugA" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: twoCards("session"), focusCardId: "A" });
@@ -257,7 +257,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug C — a pane promoted to frontmost on close takes the first responder",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0165-bugC" });
+      const app = await launchTugApp({ testName: "at0165-bugC" });
       try {
         await app.enableDeckTrace(true);
         await app.seedDeckState({ state: twoPanes(), focusCardId: "A" });
@@ -301,7 +301,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
     async () => {
       // Foreground: Cmd-W routing through the responder chain needs a
       // real key window.
-      const app = await launchTugApp({ bodies: true, testName: "at0165-bugD", foreground: true });
+      const app = await launchTugApp({ testName: "at0165-bugD", foreground: true });
       try {
         await app.enableDeckTrace(true);
         const state = {
@@ -352,7 +352,7 @@ describe.skipIf(!SHOULD_RUN)("AT0165: activation restores the first responder", 
   test(
     "Bug E — when the first responder is the canvas root, Cmd-W still closes the active card",
     async () => {
-      const app = await launchTugApp({ bodies: true, testName: "at0165-bugE" });
+      const app = await launchTugApp({ testName: "at0165-bugE" });
       try {
         await app.enableDeckTrace(true);
         const state = {

@@ -127,7 +127,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0414-asset-trash-undo" });
+          const app = await launchTugApp({ testName: "at0414-asset-trash-undo" });
           try {
             await app.seedDeckState({
               state: deckShape(),
@@ -202,7 +202,7 @@ describe.skipIf(!SHOULD_RUN)(
         );
 
         try {
-          const app = await launchTugApp({ bodies: true, testName: "at0414-two-removals" });
+          const app = await launchTugApp({ testName: "at0414-two-removals" });
           try {
             await app.seedDeckState({
               state: deckShape(),
