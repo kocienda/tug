@@ -29,7 +29,10 @@
  *
  * 1. It carries `inert`.
  * 2. Its COMPUTED `pointer-events` is `none` — what a hit test reads.
- * 3. `document.activeElement` is not inside it.
+ * 3. The keyboard is not inside it: the deck does not name its pane active,
+ *    and no page focus in the shell is inside the frame. A card's keyboard is
+ *    in its own body, which the host reports, so after the departure no body
+ *    of the leaving card holds the host's first responder either.
  * 4. Exactly one `.tug-pane` in the document carries the pane's id.
  *
  * The census of {@link LIVE_SELECTORS} inside the departing frame is reported
@@ -50,6 +53,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { bindForTest } from "./real-transcript-fixture";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
@@ -90,7 +94,10 @@ interface Reading {
   answered: Record<string, number>;
   inert: boolean;
   pointerEvents: string;
-  /** Whether `document.activeElement` stood inside the departing frame. */
+  /**
+   * Whether the keyboard stood inside the departing frame: the shell's page
+   * focus inside it, or the deck still naming its pane the active one.
+   */
   focusInside: boolean;
   /** How many frames carried the departing pane's id when the reading was taken. */
   frames: number;
@@ -133,6 +140,7 @@ function deckShape() {
  * its whole departure is one beat. A poll after the fact would find nothing.
  */
 async function arm(app: App, paneId: string): Promise<void> {
+  // card-dom: shell — the departing frame is the pane's, in the shell; the card's own subtree is in its body.
   await app.evalJS<null>(
     `(function () {
       window.__at0583 = null;
@@ -149,7 +157,7 @@ async function arm(app: App, paneId: string): Promise<void> {
             answered: answered,
             inert: frame.hasAttribute("inert"),
             pointerEvents: getComputedStyle(frame).pointerEvents,
-            focusInside: frame.contains(document.activeElement),
+            focusInside: frame.contains(document.activeElement) || window.tugdeck.diag.getDeckState().activePaneId === ${JSON.stringify(paneId)},
             frames: document.querySelectorAll('.tug-pane[data-pane-id=${JSON.stringify(paneId)}]').length,
           };
         }
@@ -181,7 +189,8 @@ describe.skipIf(!SHOULD_RUN)("AT0583: the departing frame is inert", () => {
         await app.evalJS<null>(
           `(window.__tug.dispatchControlAction("show-card", { component: "session" }), null)`,
         );
-        await app.waitForCondition<boolean>(
+        // The picker is the card's own, in its body.
+        await kindBody(app, "session").waitForCondition<boolean>(
           `document.querySelector(".session-card-picker-form") !== null`,
           { timeoutMs: 8_000 },
         );
@@ -240,6 +249,8 @@ describe.skipIf(!SHOULD_RUN)("AT0583: the departing frame is inert", () => {
           "and the keyboard is not inside it",
         ).toBe(false);
         expect(read.frames, "and no second frame stands in for it").toBe(1);
+        const keyboard = (await app.bodies()).filter((b) => b.cardId === cardId && b.firstResponder);
+        expect(keyboard, "and no body of the leaving card holds the host's keyboard").toEqual([]);
       } finally {
         await app.close();
       }

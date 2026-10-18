@@ -79,10 +79,25 @@ function transcriptSelectors(dir: string): string[] {
 export function vocabulary(dir = APP_TEST_DIR): CensusVocabulary {
   return {
     kindRoots: CARD_KINDS.flatMap((k) => k.marks.map((root) => ({ componentId: k.componentId, root }))),
-    extraSelectors: transcriptSelectors(dir),
+    extraSelectors: [...transcriptSelectors(dir), ...CARD_SURFACE_SELECTORS],
     coversKinds: COVERS_KINDS,
   };
 }
+
+/**
+ * Surfaces a card raises inside its own page, whose selectors name no card:
+ * a pane-modal sheet portals into the body's own pane frame
+ * (`body-root.tsx`), and the session picker and the AI mixer are such
+ * sheets. A read of one in the shell finds nothing, so it is an entry like
+ * any card selector; an app-modal sheet the shell itself raises is read
+ * there on purpose and says so with `card-dom: shell`.
+ */
+const CARD_SURFACE_SELECTORS: readonly string[] = [
+  '[data-slot="tug-sheet"]',
+  "session-card-picker-form",
+  "ai-config-sheet",
+  "session-changes-view",
+];
 
 /**
  * A file whose cards name no kind of their own (a card opened by a chord, a

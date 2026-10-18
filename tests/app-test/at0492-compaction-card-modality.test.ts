@@ -107,17 +107,20 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.bindSession("A", { tugSessionId: SID });
           await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+          // The compaction cover is a sheet the card raises, so it lives in
+          // A's body; the pane's title bar and its controls are the shell's.
+          const body = app.body("A");
 
           // Open the run through the real submit path — the composer, not a
           // store poke, because the sheet's exclusivity is declared at the
           // `showSheet` call the command handler makes.
-          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
+          await body.nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/compact");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape"); // dismiss the completion popup
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Return", ["cmd"]);
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPACTION)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -127,9 +130,9 @@ describe.skipIf(!SHOULD_RUN)(
           // answer is the sheet's own refusal line, where the user is looking.
           await app.nativeKey("Escape");
           await new Promise((r) => setTimeout(r, 400));
-          expect(await app.evalJS<number>(sheetCount)).toBe(1);
+          expect(await body.evalJS<number>(sheetCount)).toBe(1);
           expect(
-            await app.evalJS<boolean>(
+            await body.evalJS<boolean>(
               `document.querySelector(${JSON.stringify(COMPACTION)}).hasAttribute("data-refused")`,
             ),
           ).toBe(true);
@@ -138,7 +141,7 @@ describe.skipIf(!SHOULD_RUN)(
           // exclusivity rests on: this host is single-slot, so a second sheet
           // would be a replacement rather than a layer.
           expect(
-            await app.evalJS<number>(
+            await body.evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(SHEET)}).length`,
             ),
           ).toBe(1);
@@ -169,11 +172,12 @@ describe.skipIf(!SHOULD_RUN)(
           await app.dispatchControlAction("close");
           await new Promise((r) => setTimeout(r, 600));
           expect(
+            // card-dom: shell — the card's one placeholder in the deck; its body holds two `data-card-id` nodes.
             await app.evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(CARD)}).length`,
             ),
           ).toBe(1);
-          expect(await app.evalJS<number>(sheetCount)).toBe(1);
+          expect(await body.evalJS<number>(sheetCount)).toBe(1);
 
           // (4) The FOLD — the one door the hold admits, and the reason the
           // hold is the run's rather than the cover's. Every door above is
@@ -199,7 +203,7 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.getPaneRecord("p1").folded === true`,
             { timeoutMs: 8000 },
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPACTION)}) === null`,
             { timeoutMs: 8000 },
           );
@@ -231,16 +235,16 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.getPaneRecord("p1").folded === false`,
             { timeoutMs: 8000 },
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPACTION)}) !== null`,
             { timeoutMs: 12000 },
           );
-          expect(await app.evalJS<number>(sheetCount), "one cover, not two").toBe(1);
+          expect(await body.evalJS<number>(sheetCount), "one cover, not two").toBe(1);
 
           // Cancel — the run's own door. It settles the store, which raises the
           // closing bulletin and clears, and the sheet dismisses with it.
-          await app.nativeClickAtElement(CANCEL);
-          await app.waitForCondition<boolean>(
+          await body.nativeClickAtElement(CANCEL);
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPACTION)}) === null`,
             { timeoutMs: 8000 },
           );
@@ -292,6 +296,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.bindSession("A", { tugSessionId: SID });
           await app.awaitEngineReady("A", { timeoutMs: 30_000 });
+          const body = app.body("A");
 
           // Exactly the frame tugcast announces the wheel's prompt with.
           await app.driveSession("A", {
@@ -306,11 +311,11 @@ describe.skipIf(!SHOULD_RUN)(
           });
 
           // The turn is the wheel's, and the run is the user's `/compact` run.
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(WHEEL_ROW)}) !== null`,
             { timeoutMs: 8000 },
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPACTION)}) !== null`,
             { timeoutMs: 8000 },
           );
@@ -326,11 +331,11 @@ describe.skipIf(!SHOULD_RUN)(
               `document.querySelector(${JSON.stringify(CLOSE_BUTTON)}).disabled`,
             ),
           ).toBe(true);
-          expect(await app.evalJS<number>(sheetCount)).toBe(1);
+          expect(await body.evalJS<number>(sheetCount)).toBe(1);
 
           // Cancel still belongs to the user, whoever sent the compaction.
-          await app.nativeClickAtElement(CANCEL);
-          await app.waitForCondition<boolean>(
+          await body.nativeClickAtElement(CANCEL);
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(COMPACTION)}) === null`,
             { timeoutMs: 8000 },
           );

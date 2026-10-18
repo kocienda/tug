@@ -188,10 +188,16 @@ export interface Sample {
   opacity: Record<string, string>;
   /** Every live frame's INLINE opacity — a hold, or `""`. */
   inlineOpacity: Record<string, string>;
-  /** Whether the picker's panel was in the document. */
-  picker: boolean;
-  /** How many session rows the picker's list showed on this frame. */
-  rows: number;
+  /**
+   * Per pane id, whether its card's body was on screen on this frame: the
+   * placeholder's lid lifted (`data-body-shown`), which the shell does only
+   * once the host has shown the body. The host shows a body only once it
+   * reports ready, and an unbound Session card is ready once its picker has
+   * mounted and gone quiet ([B16] of the bodies-migration brief). So a frame
+   * that is visible with its body not yet shown is a frame whose reader sees
+   * the bare pane surface where the picker belongs.
+   */
+  bodyShown: Record<string, boolean>;
   /**
    * The number the deck HELD for each member on this frame: its opening bid
    * while one stands, else its sheet reservation.
@@ -229,16 +235,17 @@ export interface Sample {
  * page the gesture is evaluated in: the shell for a deck action, the Session
  * card's body for a press on its picker (`cancelPicker`).
  *
- * `picker` and `rows` are read in the shell's document on each frame, but the
- * picker is in the arriving card's body, which does not exist when the
- * sampler is armed and keeps its own frame clock; those two fields are not
- * yet moved (see the bodies-migration report).
+ * The picker is in the arriving card's body, which does not exist when the
+ * sampler is armed and keeps its own frame clock, so it is not read here.
+ * What the shell reads on each of ITS frames is whether that body is on
+ * screen at all ({@link Sample.bodyShown}).
  */
 export async function census(
   app: App,
   gesture: string,
   gesturePage: App | BodyApp = app,
 ): Promise<Sample[]> {
+  // card-dom: shell
   await app.evalJS<null>(
     `(function () {
       window.__at0571 = [];
@@ -252,7 +259,7 @@ export async function census(
           heights: {},
           opacity: {},
           inlineOpacity: {},
-          picker: document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null,
+          bodyShown: {},
           ghosts: document.querySelectorAll(${JSON.stringify(DEPARTING)}).length,
         };
         var state = window.tugdeck.diag.getDeckState();
@@ -261,7 +268,6 @@ export async function census(
         sample.held = {};
         for (var key in claims) sample.held[key] = claims[key];
         for (var key in bids) sample.held[key] = bids[key];
-        sample.rows = document.querySelectorAll('[data-testid="session-card-picker-session-resume"]').length;
         var targets = document.querySelectorAll(${JSON.stringify(DEPARTING)});
         sample.departing = [];
         for (var g = 0; g < targets.length; g += 1) {
@@ -280,6 +286,7 @@ export async function census(
           sample.heights[id] = el.getBoundingClientRect().height;
           sample.opacity[id] = getComputedStyle(el).opacity;
           sample.inlineOpacity[id] = el.style.opacity;
+          sample.bodyShown[id] = el.querySelector("[data-body-placeholder][data-body-shown]") !== null;
         }
         window.__at0571.push(sample);
         if (performance.now() - t0 < ${CENSUS_MS}) requestAnimationFrame(tick);
@@ -453,6 +460,7 @@ export async function paneRects(
   app: App,
   paneIds: readonly string[],
 ): Promise<Record<string, Rect>> {
+  // card-dom: shell
   return app.evalJS<Record<string, Rect>>(
     `(function () {
       var out = {};

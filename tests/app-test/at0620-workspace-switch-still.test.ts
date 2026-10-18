@@ -182,6 +182,23 @@ const PANES_TWO = ["at0620-pc2", "at0620-pb0", "at0620-pb1", "at0620-pbt"] as co
 
 const sessionIdFor = (cardId: string): string => `at0620-session-${cardId}`;
 
+/** Every card each workspace holds: the Workspaces rail, its sessions, its text card. */
+const CARDS_OF: Readonly<Record<string, readonly string[]>> = {
+  [SPACE_ONE]: ["at0620-c1", ...SESSIONS_ONE, "at0620-t1"],
+  [SPACE_TWO]: ["at0620-c2", ...SESSIONS_TWO, "at0620-t2"],
+};
+
+/** Start the body sampler in each of `cardIds` whose body stands ready and has none yet. */
+async function startBodySamplers(app: App, cardIds: readonly string[], started: Set<string>): Promise<void> {
+  const held = await app.bodies();
+  for (const cardId of cardIds) {
+    if (started.has(cardId)) continue;
+    if (!held.some((b) => b.cardId === cardId && b.state === "ready")) continue;
+    await app.body(cardId).evalJS<null>(BODY_SAMPLER_START);
+    started.add(cardId);
+  }
+}
+
 /** `FeedId.CODE_OUTPUT` — the wire constant, mirrored from `protocol.ts`. */
 const FEED_CODE_OUTPUT = 0x40;
 
@@ -242,6 +259,8 @@ interface Summary {
 }
 
 interface Reading {
+  /** The shell sampler's start, wall clock: the origin of every `…Ms` below. */
+  t0: number;
   samples: number;
   rafTicks: number;
   /** Samples at which the canvas carried the switch epoch's mark. */
@@ -272,9 +291,18 @@ interface Reading {
    * the swap, since its id is not on the shown layer before then.
    */
   paneBoxes: Record<string, { first: string; last: string; changes: number }>;
+  /**
+   * The next three are read in the arriving workspace's card bodies, where a
+   * card's DOM is ({@link BODY_SAMPLER_START}), and reduced against the
+   * shell's epoch.
+   */
   scrollers: Summary;
   clamps: Summary;
   lineBoxes: Summary;
+  /** The arriving cards whose bodies were sampled from before the switch. */
+  bodiesSampled: string[];
+  /** Those whose bodies only stood after the swap, sampled from then on. */
+  bodiesLate: string[];
 }
 
 /**
@@ -308,41 +336,10 @@ const SAMPLER_START = `(function () {
     inlineZero: [],
     errors: [],
     panes: {},
-    scrollers: {},
-    clamps: {},
-    lineBoxes: {},
   };
   window.__at0620 = s;
 
   function ms() { return Date.now() - s.t0; }
-
-  /** A key stable for the length of one run: the nearest card or pane, then
-   *  tag + first class + sibling index the rest of the way down. */
-  function pathOf(el) {
-    var parts = [];
-    var node = el;
-    var guard = 0;
-    while (node && node.nodeType === 1 && guard < 14) {
-      if (node.getAttribute && node.getAttribute("data-card-id")) {
-        parts.unshift("card:" + node.getAttribute("data-card-id"));
-        break;
-      }
-      if (node.getAttribute && node.getAttribute("data-pane-id")) {
-        parts.unshift("pane:" + node.getAttribute("data-pane-id"));
-        break;
-      }
-      var cls = (typeof node.className === "string" && node.className !== "")
-        ? "." + node.className.split(/\\s+/)[0]
-        : "";
-      var idx = 0;
-      var sib = node;
-      while ((sib = sib.previousElementSibling) !== null) idx += 1;
-      parts.unshift(node.tagName.toLowerCase() + cls + ":" + idx);
-      node = node.parentElement;
-      guard += 1;
-    }
-    return parts.join(">");
-  }
 
   function track(bucket, key, value) {
     var rec = bucket[key];
@@ -406,32 +403,6 @@ const SAMPLER_START = `(function () {
         }
       }
 
-      var layer = document.querySelector(${JSON.stringify(SHOWN_LAYER)});
-      if (layer === null) return;
-
-      var scrollers = layer.querySelectorAll(${JSON.stringify(SCROLLER_CANDIDATES)});
-      for (var j = 0; j < scrollers.length; j++) {
-        var sc = scrollers[j];
-        if (sc.scrollHeight - sc.clientHeight <= 1) continue;
-        var key = pathOf(sc);
-        track(s.scrollers, key + "|scrollTop", String(Math.round(sc.scrollTop)));
-        track(s.scrollers, key + "|scrollHeight", String(sc.scrollHeight));
-      }
-
-      // Inline \`max-height\` is found by attribute substring rather than by a
-      // style read over every node: the sheet's two clamps and the composer's
-      // cap are all inline, and the selector costs one pass.
-      var clamped = layer.querySelectorAll('[style*="max-height"]');
-      track(s.clamps, "__count", String(clamped.length));
-      for (var k = 0; k < clamped.length; k++) {
-        track(s.clamps, pathOf(clamped[k]), clamped[k].style.maxHeight);
-      }
-
-      var editors = layer.querySelectorAll(".cm-editor");
-      for (var m = 0; m < editors.length; m++) {
-        track(s.lineBoxes, pathOf(editors[m]),
-          editors[m].style.getPropertyValue("--tugx-editor-line-box"));
-      }
     } catch (e) {
       if (s.errors.length < 4) s.errors.push(String(e && e.message ? e.message : e));
     }
@@ -467,6 +438,7 @@ const SAMPLER_READ = `(function () {
     return out;
   }
   return {
+    t0: s.t0,
     samples: s.samples,
     rafTicks: s.rafTicks,
     epochSeen: s.epochSeen,
@@ -490,11 +462,140 @@ const SAMPLER_READ = `(function () {
       }
       return out;
     })(),
-    scrollers: summarize(s.scrollers),
-    clamps: summarize(s.clamps),
-    lineBoxes: summarize(s.lineBoxes),
   };
 })()`;
+
+/**
+ * The card-side half of the sampler, one per card body: a card's DOM is in
+ * its own page, so its scrollers, its inline clamps and its composer's line
+ * box are read there. The same 8 ms interval and the same keys, with every
+ * change's wall-clock time kept, because whether a change landed after the
+ * epoch is the shell's to say: the epoch's mark is on the shell's canvas,
+ * and `Date.now()` is one clock across the pages.
+ */
+const BODY_SAMPLER_START = `(function () {
+  var s = { samples: 0, scrollers: {}, clamps: {}, lineBoxes: {}, errors: [] };
+  window.__at0620Body = s;
+
+  /** A key stable for the length of one run: the nearest card or pane, then
+   *  tag + first class + sibling index the rest of the way down. */
+  function pathOf(el) {
+    var parts = [];
+    var node = el;
+    var guard = 0;
+    while (node && node.nodeType === 1 && guard < 14) {
+      if (node.getAttribute && node.getAttribute("data-card-id")) {
+        parts.unshift("card:" + node.getAttribute("data-card-id"));
+        break;
+      }
+      if (node.getAttribute && node.getAttribute("data-pane-id")) {
+        parts.unshift("pane:" + node.getAttribute("data-pane-id"));
+        break;
+      }
+      var cls = (typeof node.className === "string" && node.className !== "")
+        ? "." + node.className.split(/\\s+/)[0]
+        : "";
+      var idx = 0;
+      var sib = node;
+      while ((sib = sib.previousElementSibling) !== null) idx += 1;
+      parts.unshift(node.tagName.toLowerCase() + cls + ":" + idx);
+      node = node.parentElement;
+      guard += 1;
+    }
+    return parts.join(">");
+  }
+
+  function track(bucket, key, value) {
+    var rec = bucket[key];
+    if (rec === undefined) {
+      bucket[key] = { first: value, last: value, changes: 0, at: [] };
+      return;
+    }
+    if (rec.last === value) return;
+    rec.changes += 1;
+    rec.at.push(Date.now());
+    rec.last = value;
+  }
+
+  s.timer = setInterval(function () {
+    try {
+      s.samples += 1;
+      var scrollers = document.querySelectorAll(${JSON.stringify(SCROLLER_CANDIDATES)});
+      for (var j = 0; j < scrollers.length; j++) {
+        var sc = scrollers[j];
+        if (sc.scrollHeight - sc.clientHeight <= 1) continue;
+        var key = pathOf(sc);
+        track(s.scrollers, key + "|scrollTop", String(Math.round(sc.scrollTop)));
+        track(s.scrollers, key + "|scrollHeight", String(sc.scrollHeight));
+      }
+
+      // Inline \`max-height\` is found by attribute substring rather than by a
+      // style read over every node: the sheet's two clamps and the composer's
+      // cap are all inline, and the selector costs one pass.
+      var clamped = document.querySelectorAll('[style*="max-height"]');
+      track(s.clamps, "__count", String(clamped.length));
+      for (var k = 0; k < clamped.length; k++) {
+        track(s.clamps, pathOf(clamped[k]), clamped[k].style.maxHeight);
+      }
+
+      var editors = document.querySelectorAll(".cm-editor");
+      for (var m = 0; m < editors.length; m++) {
+        track(s.lineBoxes, pathOf(editors[m]),
+          editors[m].style.getPropertyValue("--tugx-editor-line-box"));
+      }
+    } catch (e) {
+      if (s.errors.length < 4) s.errors.push(String(e && e.message ? e.message : e));
+    }
+  }, 8);
+  return null;
+})()`;
+
+const BODY_SAMPLER_READ = `(function () {
+  var s = window.__at0620Body;
+  if (s === undefined) return null;
+  clearInterval(s.timer);
+  return { samples: s.samples, scrollers: s.scrollers, clamps: s.clamps, lineBoxes: s.lineBoxes, errors: s.errors };
+})()`;
+
+/** One tracked value in a body, as {@link BODY_SAMPLER_READ} returns it. */
+interface BodyTrack {
+  first: string;
+  last: string;
+  changes: number;
+  /** The wall-clock time of each change. */
+  at: number[];
+}
+
+interface BodyReading {
+  samples: number;
+  scrollers: Record<string, BodyTrack>;
+  clamps: Record<string, BodyTrack>;
+  lineBoxes: Record<string, BodyTrack>;
+  errors: string[];
+}
+
+/**
+ * The arriving workspace's bodies' tracks, reduced as the shell's are: a
+ * change is after the epoch when it landed more than one sample past the
+ * last sample at which the shell's canvas carried the mark.
+ */
+function summarizeBodies(
+  bodies: ReadonlyArray<{ cardId: string; reading: BodyReading }>,
+  bucket: "scrollers" | "clamps" | "lineBoxes",
+  epochEndAt: number | null,
+): Summary {
+  const out: Summary = { keys: 0, moved: [], movedAfterEpoch: [] };
+  for (const { cardId, reading } of bodies) {
+    for (const [key, r] of Object.entries(reading[bucket])) {
+      const name = `${cardId}>${key}`;
+      out.keys += 1;
+      if (r.changes > 0) out.moved.push(`${name} [${r.first}] -> [${r.last}] x${r.changes}`);
+      const after = epochEndAt === null ? 0 : r.at.filter((t) => t > epochEndAt).length;
+      if (after > 0) out.movedAfterEpoch.push(`${name} x${after}`);
+    }
+  }
+  return out;
+}
 
 /** The trace records this arc reads back, serialized in-page. */
 const TRACE_KINDS = [
@@ -786,6 +887,20 @@ const streamScript = (cardIds: readonly string[]): string =>
 })()`;
 
 /**
+ * Stream into each card in its own body: a card's session store is in its
+ * page, so the shell's `driveSession` reaches none of them.
+ */
+async function streamInto(app: App, cardIds: readonly string[]): Promise<{ sent: number; errors: string[] }> {
+  const total = { sent: 0, errors: [] as string[] };
+  for (const cardId of cardIds) {
+    const one = await app.body(cardId).evalJS<{ sent: number; errors: string[] }>(streamScript([cardId]));
+    total.sent += one.sent;
+    total.errors.push(...one.errors);
+  }
+  return total;
+}
+
+/**
  * Set the mount root's width outright, and report what took on both boxes —
  * the root the manager measures, and the canvas background the picture is
  * drawn over, which follows it.
@@ -830,6 +945,10 @@ async function recordSwitch(
   const mark = await app.evalJS<number>(
     `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
   );
+  const arriving = CARDS_OF[toSpaceId];
+  const started = new Set<string>();
+  await startBodySamplers(app, arriving, started);
+  const bodiesSampled = [...started];
   await app.evalJS<null>(SAMPLER_START);
   await app.evalJS<null>(
     `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(toSpaceId)} }), null)`,
@@ -838,6 +957,12 @@ async function recordSwitch(
     `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(toSpaceId)}`,
     { timeoutMs: 15_000 },
   );
+  // The first switch to a workspace mounts it, so its bodies stand only now:
+  // each is sampled from the moment it does.
+  for (const deadline = Date.now() + 3_000; started.size < arriving.length && Date.now() < deadline; ) {
+    await startBodySamplers(app, arriving, started);
+    if (started.size < arriving.length) await Bun.sleep(16);
+  }
   // A beat that never lands leaves the attribute standing; waiting for it to
   // go is how that becomes visible rather than silently folded into the
   // 900ms below.
@@ -851,7 +976,22 @@ async function recordSwitch(
   }
   await settle(900);
 
-  const reading = await app.evalJS<Reading>(SAMPLER_READ);
+  const shell = await app.evalJS<Omit<Reading, "scrollers" | "clamps" | "lineBoxes" | "bodiesSampled" | "bodiesLate">>(SAMPLER_READ);
+  const bodies: { cardId: string; reading: BodyReading }[] = [];
+  for (const cardId of started) {
+    const read = await app.body(cardId).evalJS<BodyReading | null>(BODY_SAMPLER_READ);
+    if (read !== null) bodies.push({ cardId, reading: read });
+  }
+  const epochEndAt = shell.epochLastMs >= 0 ? shell.t0 + shell.epochLastMs + 16 : null;
+  const reading: Reading = {
+    ...shell,
+    errors: [...shell.errors, ...bodies.flatMap((b) => b.reading.errors.map((e) => `${b.cardId}: ${e}`))],
+    scrollers: summarizeBodies(bodies, "scrollers", epochEndAt),
+    clamps: summarizeBodies(bodies, "clamps", epochEndAt),
+    lineBoxes: summarizeBodies(bodies, "lineBoxes", epochEndAt),
+    bodiesSampled,
+    bodiesLate: [...started].filter((id) => !bodiesSampled.includes(id)),
+  };
   const trace = await app.evalJS<string>(traceRead(mark));
   note(`at0620 ${label} canvas: ${JSON.stringify(reading)}`);
   note(`at0620 ${label} trace: ${trace}`);
@@ -923,19 +1063,17 @@ describe.skipIf(!SHOULD_RUN)(
           await settle(600);
 
           // Workspace Two is hidden here: fill ITS cards, then cross to it.
-          const fillTwo = await app.evalJS<{ sent: number; errors: string[] }>(
-            streamScript(SESSIONS_TWO),
-          );
+          const fillTwo = await streamInto(app, SESSIONS_TWO);
           note(`at0620 streamed into the hidden Two: ${JSON.stringify(fillTwo)}`);
+          expect(fillTwo, "every turn streamed into the hidden Two").toEqual({ sent: HIDDEN_TURNS * SESSIONS_TWO.length, errors: [] });
           await settle(600);
           const streamTo = await recordSwitch(app, "streamed A->B", SPACE_TWO);
           await settle(600);
 
           // Now One is the hidden one. Same again, the other way.
-          const fillOne = await app.evalJS<{ sent: number; errors: string[] }>(
-            streamScript(SESSIONS_ONE),
-          );
+          const fillOne = await streamInto(app, SESSIONS_ONE);
           note(`at0620 streamed into the hidden One: ${JSON.stringify(fillOne)}`);
+          expect(fillOne, "every turn streamed into the hidden One").toEqual({ sent: HIDDEN_TURNS * SESSIONS_ONE.length, errors: [] });
           await settle(600);
           const streamBack = await recordSwitch(app, "streamed B->A", SPACE_ONE);
           await settle(600);

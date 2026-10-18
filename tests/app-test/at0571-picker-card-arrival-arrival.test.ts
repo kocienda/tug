@@ -48,7 +48,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
-import { kindBody } from "./_harness/card-reach";
+import { kindBody, waitForBodyReady } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 import { pickerPanelNaturalHeight } from "./picker-sessions-fixture";
@@ -183,16 +183,19 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         //    at all, the picker is already in the document, and it is there on
         //    every sample after ([P07]). A picker that waited for the beats
         //    would be absent on the first visible sample and would make the
-        //    arrival three motions again. ──
+        //    arrival three motions again. The picker is in the card's body,
+        //    so what the shell reads per frame is that body on screen: shown
+        //    only once it reported ready, which for an unbound card is its
+        //    picker mounted and quiet. ──
         const visible = samples.filter((s) => {
           const o = s.opacity[newcomer];
           return o !== undefined && Number.parseFloat(o) > 0;
         });
         const firstVisible = visible[0];
-        const visibleWithoutPicker = visible.filter((s) => !s.picker);
+        const visibleWithoutPicker = visible.filter((s) => s.bodyShown[newcomer] !== true);
         note(
           "picker",
-          `first visible at t=${(firstVisible?.t ?? -1).toFixed(0)}ms beat=${firstVisible?.beat || "none"} picker=${firstVisible?.picker ?? false}; ${visible.length} visible sample(s), ${visibleWithoutPicker.length} without the picker`,
+          `first visible at t=${(firstVisible?.t ?? -1).toFixed(0)}ms beat=${firstVisible?.beat || "none"} body shown=${firstVisible?.bodyShown[newcomer] ?? false}; ${visible.length} visible sample(s), ${visibleWithoutPicker.length} without the picker`,
         );
         expect(
           visible.length,
@@ -292,7 +295,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
           })`,
           { timeoutMs: 8_000 },
         );
-        const placed = await app.evalJS<{ paneId: string; slot: number | null }>(
+        const placed = await app.evalJS<{ paneId: string; cardId: string; slot: number | null }>(
           `(function () {
             var state = window.tugdeck.diag.getDeckState();
             var card = state.cards.filter(function (c) {
@@ -301,7 +304,7 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
             var pane = state.panes.filter(function (p) {
               return p.cardIds.indexOf(card.id) !== -1;
             })[0];
-            return { paneId: pane.id, slot: pane.slot === undefined ? null : pane.slot };
+            return { paneId: pane.id, cardId: card.id, slot: pane.slot === undefined ? null : pane.slot };
           })()`,
         );
         note("open slot", JSON.stringify(placed));
@@ -311,9 +314,11 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         ).toBe(1);
 
         // It still rides in on its picker: the arrival is the same one, only
-        // somewhere better.
-        await app.waitForCondition<boolean>(
-          `document.querySelector('.tug-pane[data-pane-id="${placed.paneId}"] ${PICKER_FORM}') !== null`,
+        // somewhere better. The picker is in the body of the card that pane
+        // holds.
+        const placedBody = await waitForBodyReady(app, placed.cardId);
+        await placedBody.waitForCondition<boolean>(
+          `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
           { timeoutMs: 8_000 },
         );
 

@@ -1382,9 +1382,10 @@ export class DeckManager implements IDeckManagerStore {
     // is written because persistence serializes from it and the Workspaces
     // card's read-only rows are drawn from it, and it is `parkedDeck`'s
     // stripped copy for the same reason `serialize` omits those fields — a
-    // bullseye posture, a strip offset, a sheet's floor claim, an arrival
-    // mark are all facts about what is on screen, and a record is not on
-    // screen. Stripping a copy costs the live deck nothing: `parkedDeck`
+    // bullseye posture and an arrival mark are facts about what is on screen,
+    // and a record is not on screen. A sheet's floor claim is kept: the
+    // layer stays mounted with its sheet up, and the return swaps this record
+    // back in. Stripping a copy costs the live deck nothing: `parkedDeck`
     // returns a new object and `this.deckState` is untouched, so every
     // transient mark the shown tree still needs is still on it.
     outgoing.focusedCardId = this.getFirstResponderCardId() ?? undefined;
@@ -5499,6 +5500,7 @@ export class DeckManager implements IDeckManagerStore {
    * bit nor spends the comparison.
    */
   setSheetReservation(memberId: string, height: number | null): void {
+    if (height === null && this._dropParkedClaim(memberId, "claim")) return;
     const bid = this.deckState.openingBids?.[memberId];
     const isFirstReport =
       bid !== undefined && height !== null && !openingBidReportedFor(memberId);
@@ -5590,6 +5592,7 @@ export class DeckManager implements IDeckManagerStore {
    * the path for a card that goes away before any measurement arrives.
    */
   setOpeningBid(memberId: string, height: number | null): void {
+    if (height === null && this._dropParkedClaim(memberId, "bid")) return;
     const next = openingBidsWith(
       this.deckState.openingBids,
       memberId,
@@ -5598,6 +5601,51 @@ export class DeckManager implements IDeckManagerStore {
     if (next === this.deckState.openingBids) return;
     this.deckState = { ...this.deckState, openingBids: next };
     this.notify("setOpeningBid");
+  }
+
+  /**
+   * Drop `memberId`'s claim — its sheet reservation and the bid the claim
+   * takes down with it, or its bid alone — from the PARKED workspace that
+   * holds it, when the member is not one of the active deck's.
+   *
+   * A parked workspace keeps its claims (`parkedDeck`): its layer stays
+   * mounted and laid out, and its sheets stay up, so the floor a sheet claimed
+   * is still the floor its card needs on the return. The one change a parked
+   * claim can take is its sheet going — a session binding in the background,
+   * a card closing — and that drop has to land on the record the return swaps
+   * in, or the card comes back under a floor nothing stands on. A report
+   * (a height rather than a drop) for a parked card is not taken here: the
+   * sheet re-reports on the shown transition if it changed.
+   *
+   * Returns false when the member is the active deck's, or no parked record
+   * names it, so the caller's own commit runs.
+   */
+  private _dropParkedClaim(memberId: string, what: "claim" | "bid"): boolean {
+    if (this.deckState.panes.some((p) => p.id === memberId)) return false;
+    for (const space of this.spacesStore.list) {
+      const deck = space.deck;
+      if (deck === null) continue;
+      const standing = { sheetReservations: deck.sheetReservations, openingBids: deck.openingBids };
+      const next =
+        what === "claim"
+          ? sheetClaimWith(standing, memberId, null)
+          : { ...standing, openingBids: openingBidsWith(deck.openingBids, memberId, null) };
+      if (next.sheetReservations === standing.sheetReservations && next.openingBids === standing.openingBids) {
+        continue;
+      }
+      const { sheetReservations: _reservations, openingBids: _bids, ...rest } = deck;
+      space.deck = {
+        ...rest,
+        ...(next.sheetReservations !== undefined ? { sheetReservations: next.sheetReservations } : {}),
+        ...(next.openingBids !== undefined ? { openingBids: next.openingBids } : {}),
+      };
+      if (next.openingBids !== standing.openingBids) clearOpeningBidReport(memberId);
+      // The canvas lays a mounted workspace's layer out from this record, so
+      // the cached snapshot holding it has to go.
+      this.spacesStore.notify();
+      return true;
+    }
+    return false;
   }
 
   /**

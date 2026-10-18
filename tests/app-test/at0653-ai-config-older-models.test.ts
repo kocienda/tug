@@ -88,7 +88,7 @@ function capabilities() {
 
 /** The selectors of the model rows the list currently renders, in order. */
 async function shownRows(app: App): Promise<string[]> {
-  return await app.evalJS<string[]>(
+  return await app.body("A").evalJS<string[]>(
     `Array.prototype.map.call(
       document.querySelectorAll(${JSON.stringify(`${MODEL_LIST} [data-model]`)}),
       function(el){ return el.getAttribute("data-model"); })`,
@@ -96,7 +96,7 @@ async function shownRows(app: App): Promise<string[]> {
 }
 
 async function toggleText(app: App): Promise<string | null> {
-  return await app.evalJS<string | null>(
+  return await app.body("A").evalJS<string | null>(
     `(function(){
       var el = document.querySelector(${JSON.stringify(OLDER_TOGGLE)});
       return el ? el.textContent.trim() : null;
@@ -135,8 +135,10 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
           { timeoutMs: 6000 },
         );
 
-        await app.body("A").click(CHIP);
-        await app.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
+        // The mixer sheet renders in card A's body page.
+        const body = app.body("A");
+        await body.click(CHIP);
+        await body.waitForCondition<boolean>(SHEET_OPEN, { timeoutMs: 4000 });
 
         // ---- 1. Collapsed: the front rank only ---------------------------
         expect(await shownRows(app), "collapsed, the list is the front rank").toEqual([
@@ -148,8 +150,8 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
         expect(await toggleText(app)).toBe("Show older models");
 
         // ---- 2. The toggle brings the older versions in -----------------
-        await app.nativeClickAtElement(OLDER_TOGGLE);
-        await app.waitForCondition<boolean>(rowPresent("claude-opus-5"), { timeoutMs: 4000 });
+        await body.nativeClickAtElement(OLDER_TOGGLE);
+        await body.waitForCondition<boolean>(rowPresent("claude-opus-5"), { timeoutMs: 4000 });
         expect(await shownRows(app), "expanded, every row in catalog order").toEqual([
           "default",
           "opus",
@@ -165,16 +167,16 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
         // Tab off the model list lands on the effort track, never on the
         // toggle: a push button holding the key view would take the sheet's
         // default treatment away from OK.
-        await app.nativeClickAtElement(MODEL_ROW("default"));
+        await body.nativeClickAtElement(MODEL_ROW("default"));
         await app.nativeKey("Tab");
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(EFFORT_THUMB)});
             return el !== null && el.hasAttribute("data-key-view-kbd");
           })()`,
           { timeoutMs: 4000 },
         );
-        const toggleState = await app.evalJS<{
+        const toggleState = await body.evalJS<{
           ring: boolean;
           keyView: boolean;
           okRing: boolean;
@@ -198,23 +200,23 @@ describe.skipIf(!SHOULD_RUN)("AT0653: the AI mixer folds older model versions", 
         expect(toggleState.gap, "the toggle stands clear of the list").toBeGreaterThanOrEqual(8);
 
         // ---- 4. An older pick survives the collapse ---------------------
-        await app.click(MODEL_ROW("claude-opus-5"));
-        await app.waitForCondition<boolean>(
+        await body.click(MODEL_ROW("claude-opus-5"));
+        await body.waitForCondition<boolean>(
           `(function(){
             var el = document.querySelector(${JSON.stringify(READOUT)});
             return el !== null && el.textContent.indexOf("Opus 5 ") === 0;
           })()`,
           { timeoutMs: 4000 },
         );
-        await app.nativeClickAtElement(OLDER_TOGGLE);
-        await app.waitForCondition<boolean>(rowAbsent("claude-opus-4-8"), { timeoutMs: 4000 });
+        await body.nativeClickAtElement(OLDER_TOGGLE);
+        await body.waitForCondition<boolean>(rowAbsent("claude-opus-4-8"), { timeoutMs: 4000 });
         expect(
           await shownRows(app),
           "collapsed, the picked older version keeps its row",
         ).toEqual(["default", "opus", "sonnet", "haiku", "claude-opus-5"]);
 
-        await app.click(CANCEL);
-        await app.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
+        await body.click(CANCEL);
+        await body.waitForCondition<boolean>(SHEET_CLOSED, { timeoutMs: 4000 });
       } catch (err) {
         const tail = app.tailLog(200);
         if (tail !== "") {

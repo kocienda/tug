@@ -1,15 +1,16 @@
 /**
  * floor-host.test.ts — the host's floor is the page's canvas, pixel for pixel.
  *
- * With bodies on, the canvas colour and the grid beneath the deck are drawn by
+ * The canvas colour and the grid beneath the deck are drawn by
  * the host (`DeckFloorView`, from the shell's `floorGrid`), and the page's own
- * canvas stands down once the host answers `floorShown`. With bodies off, the
- * page paints them itself from the same tokens. So the same crop of bare
- * canvas, read from the composite at View › Zoom 0.8, 1.0 and 1.25 with the
- * switch on and with it off, must agree: the canvas colour within the
- * composite tolerance the other rows use, and every grid line of the page's
- * within one device pixel of a line of the host's, none missing and none
- * extra.
+ * canvas stands down once the host answers `floorShown`. The page's paint is
+ * still there, from the same tokens: it stands down only under
+ * `html[data-body-host]` (`globals.css`). So at each of View › Zoom 0.8, 1.0
+ * and 1.25 the same crop of bare canvas is read twice from the composite —
+ * the host's floor, then the page's own with that attribute lifted, painted
+ * over it — and the two must agree: the canvas colour within the composite
+ * tolerance the other rows use, and every grid line of the page's within one
+ * device pixel of a line of the host's, none missing and none extra.
  *
  * The floor never stands over the splash: the host shows it only once the
  * window has begun revealing the shell, fading it in with the shell's own
@@ -102,16 +103,28 @@ async function bareCrop(app: App): Promise<{ x: number; y: number; width: number
   return { x: Math.floor(size.w * 0.55), y: Math.floor(size.h * 0.55), width: 240, height: 160 };
 }
 
-async function readAtZooms(onSwitch: boolean): Promise<Map<number, FloorReading>> {
-  const app = await launchTugApp({
-    testName: `${TEST_NAME}-${onSwitch ? "on" : "off"}`,
-    foreground: true,
-    bodies: onSwitch,
-  });
-  const readings = new Map<number, FloorReading>();
+/** The page's own canvas paint, lifted or put back by the attribute it stands down under. */
+async function pagePaints(app: App, paints: boolean): Promise<void> {
+  await app.evalJS<null>(
+    paints
+      ? `(document.documentElement.removeAttribute("data-body-host"), null)`
+      : `(document.documentElement.setAttribute("data-body-host", ""), null)`,
+  );
+  await Bun.sleep(400);
+  // Lifted, the page paints an opaque canvas over the host's floor — or the
+  // page reading is the host's floor read twice.
+  const background = await app.evalJS<string>(`getComputedStyle(document.body).backgroundColor`);
+  expect(background === "rgba(0, 0, 0, 0)" || background === "transparent", `the page's canvas ${paints ? "paints" : "stands down"} (${background})`).toBe(!paints);
+}
+
+/** The host's floor and the page's own canvas, read over the same crop at each zoom. */
+async function readAtZooms(): Promise<{ host: Map<number, FloorReading>; page: Map<number, FloorReading> }> {
+  const app = await launchTugApp({ testName: TEST_NAME, foreground: true });
+  const host = new Map<number, FloorReading>();
+  const page = new Map<number, FloorReading>();
   try {
     await app.seedDeckState({ state: emptyDeck() });
-    if (onSwitch) {
+    {
       const hosted = await pollFor(
         () => app.evalJS<boolean>(`document.documentElement.hasAttribute("data-body-host")`),
         (v) => v,
@@ -120,7 +133,7 @@ async function readAtZooms(onSwitch: boolean): Promise<Map<number, FloorReading>
       const diag = await app.evalJS<{ floorShown: { sinceRevealMs: number | null } | null; floorGrid: unknown } | null>(
         "window.tugdeck.diag.getBodyPlacement()",
       );
-      note(`switch on: floorShown ${JSON.stringify(diag?.floorShown)}; floorGrid ${JSON.stringify(diag?.floorGrid)}`);
+      note(`floorShown ${JSON.stringify(diag?.floorShown)}; floorGrid ${JSON.stringify(diag?.floorGrid)}`);
       expect(hosted, "the host answered floorShown and the page's canvas stood down").toBe(true);
       expect(await app.evalJS<number>(`document.querySelectorAll("[data-deck-canvas-floor]").length`), "the shell stands no floor of its own").toBe(0);
       const since = diag?.floorShown?.sinceRevealMs ?? null;
@@ -130,22 +143,24 @@ async function readAtZooms(onSwitch: boolean): Promise<Map<number, FloorReading>
     for (const zoom of ZOOMS) {
       const took = await app.setPageZoom(zoom);
       expect(took, `View › Zoom took ${zoom}`).toBeCloseTo(zoom, 3);
-      if (onSwitch) {
-        await pollFor(
-          () => app.evalJS<number | null>("window.tugdeck.diag.getBodyPlacement()?.floorGrid?.zoom ?? null"),
-          (z) => z !== null && Math.abs(z - zoom) < 1e-6,
-          5_000,
-        );
-      }
+      await pollFor(
+        () => app.evalJS<number | null>("window.tugdeck.diag.getBodyPlacement()?.floorGrid?.zoom ?? null"),
+        (z) => z !== null && Math.abs(z - zoom) < 1e-6,
+        5_000,
+      );
       await Bun.sleep(400);
-      const reading = await readFloor(app, crop);
-      note(`${onSwitch ? "on" : "off"} @ ${zoom}: canvas ${JSON.stringify(reading.canvas)}; ${reading.columns.length} columns ${JSON.stringify(reading.columns.slice(0, 6))}…; ${reading.rows.length} rows ${JSON.stringify(reading.rows.slice(0, 6))}…`);
-      readings.set(zoom, reading);
+      for (const [label, readings] of [["host", host], ["page", page]] as const) {
+        if (label === "page") await pagePaints(app, true);
+        const reading = await readFloor(app, crop);
+        if (label === "page") await pagePaints(app, false);
+        note(`${label} @ ${zoom}: canvas ${JSON.stringify(reading.canvas)}; ${reading.columns.length} columns ${JSON.stringify(reading.columns.slice(0, 6))}…; ${reading.rows.length} rows ${JSON.stringify(reading.rows.slice(0, 6))}…`);
+        readings.set(zoom, reading);
+      }
     }
   } finally {
     await app.close();
   }
-  return readings;
+  return { host, page };
 }
 
 /** Every line of `want` has a line of `got` within one device pixel, and the counts agree. */
@@ -162,8 +177,7 @@ describe.skipIf(!SHOULD_RUN)("body-grounding: the host's floor is the page's can
   test(
     "at zoom 0.8, 1.0 and 1.25 the host's canvas colour and grid match the page's to the device pixel",
     async () => {
-      const page = await readAtZooms(false);
-      const host = await readAtZooms(true);
+      const { host, page } = await readAtZooms();
       for (const zoom of ZOOMS) {
         const p = page.get(zoom)!;
         const h = host.get(zoom)!;

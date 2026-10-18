@@ -115,7 +115,7 @@ describe.skipIf(!SHOULD_RUN)(
           await seedCards(app, ["A"]);
           // An UNBOUND session card presents its picker — the state the
           // waiver speaks for.
-          await app.waitForCondition<boolean>(PICKER_OPEN, { timeoutMs: 8000 });
+          await app.body("A").waitForCondition<boolean>(PICKER_OPEN, { timeoutMs: 8000 });
 
           await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
 
@@ -123,7 +123,8 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 4000 },
           );
-          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
+          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
+          const popoverText = await app.evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "an unattached Session card should not raise a close confirm",
@@ -154,7 +155,8 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector('[data-pane-id="p1"]') === null`,
             { timeoutMs: 4000 },
           );
-          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
+          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
+          const popoverText = await app.evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "a session that was never sent a message has nothing to confirm over",
@@ -197,7 +199,8 @@ describe.skipIf(!SHOULD_RUN)(
           // Past the popover-flash window, so this reads a popover that holds.
           await pause(300);
 
-          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
+          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
+          const popoverText = await app.evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "an unsent draft must not be discarded silently",
@@ -220,12 +223,13 @@ describe.skipIf(!SHOULD_RUN)(
         const app = await launchTugApp({ testName: "at0522-d-multi-still-confirms" });
         try {
           await seedCards(app, ["A", "B"]);
-          await app.waitForCondition<boolean>(PICKER_OPEN, { timeoutMs: 8000 });
+          await app.body("A").waitForCondition<boolean>(PICKER_OPEN, { timeoutMs: 8000 });
 
           await app.nativeClickAtElement(paneCloseButtonSelector("p1"));
           await pause(300);
 
-          const popoverText = await app.body("A").evalJS<string | null>(popoverTextScript());
+          // card-dom: shell — the close confirm is the pane's, raised by the shell's title bar.
+          const popoverText = await app.evalJS<string | null>(popoverTextScript());
           expect(
             popoverText,
             "a multi-tab pane keeps its whole-pane confirm",

@@ -68,7 +68,7 @@ async function buildTurn(app: App, i: number): Promise<void> {
 /** Each listed message's side of the cut: kept / point (the rewind point) /
  *  discarded. */
 async function rowStates(app: App): Promise<string[]> {
-  return app.evalJS<string[]>(
+  return app.body("A").evalJS<string[]>(
     `Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
        .map((el) => el.getAttribute("data-rewind-state"))`,
   );
@@ -108,14 +108,15 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
         await app.nativeKey("Escape");
         await new Promise((r) => setTimeout(r, 200));
         await app.nativeKey("Return", ["cmd"]);
-        await app.waitForCondition<boolean>(
+        // The rewind sheet renders in card A's body page.
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
           { timeoutMs: 6000 },
         );
 
         // Every user message is listed, as typed — including the newest (no
         // synthetic `(current)` row).
-        const pickerUuids = await app.evalJS<string[]>(
+        const pickerUuids = await app.body("A").evalJS<string[]>(
           `Array.from(document.querySelectorAll(${JSON.stringify(PICKER_ROWS)}))
              .map((el) => el.getAttribute("data-prompt-uuid"))`,
         );
@@ -124,16 +125,16 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
 
         // The line opens at the end: nothing discarded, so Rewind is inert.
         expect(
-          await app.evalJS<boolean>(
+          await app.body("A").evalJS<boolean>(
             `document.querySelector(${JSON.stringify(REWIND_APPLY)}).disabled`,
           ),
         ).toBe(true);
-        expect(await app.evalJS<number>(`document.querySelectorAll(${JSON.stringify(CUT)}).length`)).toBe(1);
+        expect(await app.body("A").evalJS<number>(`document.querySelectorAll(${JSON.stringify(CUT)}).length`)).toBe(1);
 
         // Place the line below message 2 — message 3 falls into the discarded
         // set and Rewind enables (scope defaults to Conversation).
-        await app.nativeClickAtElement(`${SHEET} [data-prompt-uuid="uuid-2"]`);
-        await app.waitForCondition<boolean>(
+        await app.body("A").nativeClickAtElement(`${SHEET} [data-prompt-uuid="uuid-2"]`);
+        await app.body("A").waitForCondition<boolean>(
           `(function () {
              var b = document.querySelector(${JSON.stringify(REWIND_APPLY)});
              return b !== null && !b.disabled;
@@ -144,18 +145,18 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
 
         // Rewind → the sheet sends `session_rewind` (conversation by default);
         // simulate the backend ack so the local L26-safe truncation runs.
-        await app.nativeClickAtElement(REWIND_APPLY);
+        await app.body("A").nativeClickAtElement(REWIND_APPLY);
 
         // The press starts a run, it does not close the sheet: the picker
         // stays up over the cut it is applying, the actions row gives way to
         // the indeterminate bar, and the card is held until the ack — which
         // tugcode withholds until the respawned session has loaded.
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PROGRESS)}) !== null`,
           { timeoutMs: 4000 },
         );
         expect(
-          await app.evalJS<number>(
+          await app.body("A").evalJS<number>(
             `document.querySelectorAll(${JSON.stringify(REWIND_APPLY)}).length`,
           ),
         ).toBe(0);
@@ -177,7 +178,7 @@ describe.skipIf(!SHOULD_RUN)("AT0097: /rewind sheet — cut line + conversation 
           `document.querySelectorAll(${JSON.stringify(USER_ROWS)}).length === 2`,
           { timeoutMs: 6000 },
         );
-        await app.waitForCondition<boolean>(
+        await app.body("A").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(SHEET)}) === null`,
           { timeoutMs: 4000 },
         );

@@ -52,7 +52,7 @@ const plainDeck: DeckState = {
 };
 
 describe("parkedDeck", () => {
-  test("strips every posture a parked deck must not carry, and keeps its standing", () => {
+  test("strips every posture a parked deck must not carry, and keeps its standing and its sheets' claims", () => {
     const live: DeckState = {
       ...plainDeck,
       bullseyePaneId: "p1",
@@ -67,13 +67,18 @@ describe("parkedDeck", () => {
     const json = JSON.stringify(parked);
     for (const field of [
       "bullseyePaneId",
-      "sheetReservations",
-      "openingBids",
       "arriving",
     ]) {
       expect(field in parked).toBe(false);
       expect(json).not.toContain(field);
     }
+    // A sheet's floor claim and an opening bid are STANDING too, and used to
+    // be stripped: the parked layer stays mounted with its sheet up, and a
+    // claim stripped here made the return resize the pane after the switch
+    // had landed (`at0620`). A claim whose sheet goes while parked is dropped
+    // from the record by the manager (`parked-sheet-claim.test.ts`).
+    expect(parked.sheetReservations).toEqual({ p1: 220 });
+    expect(parked.openingBids).toEqual({ p1: 180 });
     // The strip offsets are STANDING, not posture: a parked layer is laid
     // out from this record ([B02] of workspace-switch-cheap), and a flow
     // strip parked at zero would slide to reveal its active card in the

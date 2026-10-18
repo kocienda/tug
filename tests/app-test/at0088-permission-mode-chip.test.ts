@@ -42,7 +42,8 @@ const CHIP = `${CARD} [data-slot="ai-chip"]`;
 // widest label. Read the active variant so `textContent` is the shown label
 // alone, not the wrapper's value+sizers concatenation.
 const CHIP_CONTENT = `${CHIP} [data-slot="ai-chip-value"]`;
-// The mixer sheet + its MODE row (rendered into the pane frame portal).
+// The mixer sheet + its MODE row (rendered into the pane frame portal, in
+// card A's body page).
 const SHEET = '[data-slot="tug-sheet"]';
 const MODE_ROW = `${SHEET} [data-testid="ai-config-mode"]`;
 const MODE_SEGMENT = (value: string): string =>
@@ -134,7 +135,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 4000 },
           );
           const afterCycle = await chipMode(app);
-          expect(afterCycle, "Shift+Tab must change the mode").not.toBe(initialMode);
+          expect(afterCycle, "⌃⌥⌘P must change the mode").not.toBe(initialMode);
           expect(KNOWN_MODE_LABELS).toContain(afterCycle!);
 
           // 2. The mixer's MODE row sets the mode explicitly. Click the chip to
@@ -142,12 +143,12 @@ describe.skipIf(!SHOULD_RUN)(
           //    selection only), and commit with OK — so the full segment →
           //    selectValue → computeAiConfigCommit → setMode path runs.
           await app.body("A").nativeClickAtElement(CHIP);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(AUTO_OPTION)}) !== null`,
             { timeoutMs: 4000 },
           );
           // The row offers every mode, and exactly the current one is active.
-          const sheetState = await app.evalJS<{ total: number; active: string[] }>(
+          const sheetState = await app.body("A").evalJS<{ total: number; active: string[] }>(
             `(function(){
               var segs = document.querySelectorAll(${JSON.stringify(`${MODE_ROW} [data-choice-value]`)});
               var active = [];
@@ -166,8 +167,8 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Choosing a segment moves the PENDING selection only — the chip must
           // not move until OK. This is the whole point of the transaction.
-          await app.nativeClickAtElement(AUTO_OPTION);
-          await app.waitForCondition<boolean>(
+          await app.body("A").nativeClickAtElement(AUTO_OPTION);
+          await app.body("A").waitForCondition<boolean>(
             `(function(){
               var s = document.querySelector(${JSON.stringify(AUTO_OPTION)});
               return s !== null && s.getAttribute('data-state') === 'active';
@@ -179,7 +180,7 @@ describe.skipIf(!SHOULD_RUN)(
             "the chip must not move before OK — the sheet is a transaction",
           ).toBe(afterCycle);
 
-          await app.nativeClickAtElement(SHEET_OK);
+          await app.body("A").nativeClickAtElement(SHEET_OK);
           await app.body("A").waitForCondition<boolean>(
             `${CHIP_MODE_EXPR} === "Auto"`,
             { timeoutMs: 4000 },

@@ -115,52 +115,56 @@ describe.skipIf(!SHOULD_RUN)("AT0443: the shades say when there is no git", () =
           { timeoutMs: 15_000 },
         );
         await app.bindSession("D", { projectDir: REPO });
-        await app.body("D").waitForCondition<boolean>(present(EDITOR), { timeoutMs: 15_000 });
-        await app.body("D").nativeClickAtElement(EDITOR);
+        // The shades are the session card's own surfaces, so they and the
+        // host-tools store they read live in D's body; the no-git reading is
+        // dispatched there, through the body's own action table.
+        const body = app.body("D");
+        await body.waitForCondition<boolean>(present(EDITOR), { timeoutMs: 15_000 });
+        await body.nativeClickAtElement(EDITOR);
         await settle(300);
 
         // ---- Changes: the ordinary reading, then the no-git one ----
         await app.nativeKey("c", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(present(CHANGES), { timeoutMs: 15_000 });
+        await body.waitForCondition<boolean>(present(CHANGES), { timeoutMs: 15_000 });
         // The machine running this HAS git, so the shade shows its ordinary
         // content and says nothing about git. That absence is what makes the
         // displacement below mean something.
         await settle(1500);
-        const before = await app.evalJS<string>(text(CHANGES));
+        const before = await body.evalJS<string>(text(CHANGES));
         note(`at0443 changes before: ${JSON.stringify(before.slice(0, 80))}`);
         expect(
-          await app.evalJS<boolean>(present(NO_GIT)),
+          await body.evalJS<boolean>(present(NO_GIT)),
           "a machine with git says nothing about git",
         ).toBe(false);
 
-        await app.evalJS<null>(
+        await body.evalJS<null>(
           `(window.__tug.dispatchControlAction("host_tools_result", ${JSON.stringify(
             NO_GIT_RESULT,
           )}), null)`,
         );
-        await app.waitForCondition<boolean>(present(NO_GIT), { timeoutMs: 8000 });
-        note(`at0443 changes notice: ${await app.evalJS<string>(text(NO_GIT))}`);
+        await body.waitForCondition<boolean>(present(NO_GIT), { timeoutMs: 8000 });
+        note(`at0443 changes notice: ${await body.evalJS<string>(text(NO_GIT))}`);
         expect(
-          await app.evalJS<boolean>(present(NON_REPO)),
+          await body.evalJS<boolean>(present(NON_REPO)),
           "a machine with no git is never offered a git init it cannot run",
         ).toBe(false);
         expect(
-          (await app.evalJS<string>(text(NO_GIT_CTA))).trim(),
+          (await body.evalJS<string>(text(NO_GIT_CTA))).trim(),
           "the shade carries the same offer the wizard's row does",
         ).toBe("Install");
 
         // ---- History: the same reading, on the other route ----
         await app.nativeKey("c", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(
+        await body.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(CHANGES)}) === null`,
           { timeoutMs: 8000 },
         );
         await app.nativeKey("h", ["ctrl", "cmd"]);
-        await app.waitForCondition<boolean>(present(HISTORY), { timeoutMs: 15_000 });
-        await app.waitForCondition<boolean>(present(NO_GIT), { timeoutMs: 8000 });
-        note(`at0443 history notice: ${await app.evalJS<string>(text(NO_GIT))}`);
+        await body.waitForCondition<boolean>(present(HISTORY), { timeoutMs: 15_000 });
+        await body.waitForCondition<boolean>(present(NO_GIT), { timeoutMs: 8000 });
+        note(`at0443 history notice: ${await body.evalJS<string>(text(NO_GIT))}`);
         expect(
-          await app.evalJS<boolean>(present(NON_REPO)),
+          await body.evalJS<boolean>(present(NON_REPO)),
           "the two shades read identically on the same machine",
         ).toBe(false);
       } catch (err) {

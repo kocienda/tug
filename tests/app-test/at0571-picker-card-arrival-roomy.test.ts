@@ -35,6 +35,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { launchTugApp, note } from "./_harness";
+import { kindBody } from "./_harness/card-reach";
 import { PIXEL_TOL } from "./_harness/tolerances";
 import { IMPOSITION_GAP_PX } from "../../tugdeck/src/lib/layout-imposer";
 import {
@@ -99,7 +100,8 @@ describe.skipIf(!SHOULD_RUN)("AT0571: the divided arrival", () => {
         ).toBeLessThanOrEqual(PIXEL_TOL);
 
         await app.evalJS<null>(`(${addSessionCard}, null)`);
-        await app.waitForCondition<boolean>(
+        // The picker is in the new Session card's body — the deck's only one.
+        await kindBody(app, "session").waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PICKER_FORM)}) !== null`,
           { timeoutMs: 15_000 },
         );

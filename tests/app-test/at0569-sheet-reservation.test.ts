@@ -294,6 +294,7 @@ function deckShape(shares: Record<string, number>) {
 
 /** Every named pane's live frame, in viewport coordinates. */
 async function rects(app: App, paneIds: string[]): Promise<Record<string, Rect>> {
+  // card-dom: shell
   return app.evalJS<Record<string, Rect>>(
     `(function () {
       var out = {};
@@ -357,6 +358,7 @@ async function panelMeasure(app: App): Promise<{
   if (own === null) return null;
   const frameSel = await paneOfCard(app, body.cardId);
   if (frameSel === null) return { ...own, bottomSlack: -1 };
+  // card-dom: shell
   const frame = await app.getElementScreenBounds(frameSel);
   const panel = await body.getElementScreenBounds(SHEET_PANEL);
   return { ...own, bottomSlack: frame.y + frame.height - (panel.y + panel.height) };

@@ -314,6 +314,7 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
         // exactly the drift a bare seed could not see.
         await openFixtureSession(app, seeded);
         await waitForTranscriptSettled(app);
+        // card-dom: shell
         await app.waitForCondition<boolean>(
           `document.querySelector(${JSON.stringify(PANE_A)}) !== null &&
            document.querySelector(${JSON.stringify(PANE_A)}).getAttribute("data-masthead-kind") === "session"`,
@@ -322,6 +323,7 @@ describe.skipIf(!SHOULD_RUN)("at0584 — Move to Workspace in the spine", () => 
 
         // A Text card beside it, through the verb rather than a re-seed: the
         // session pane must survive into the comparison.
+        // card-dom: shell
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("new-text-card"), null)`,
         );

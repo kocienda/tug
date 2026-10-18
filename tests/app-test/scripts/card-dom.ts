@@ -490,8 +490,9 @@ function receiverStart(src: string, dot: number): number {
 function bodyNames(src: string): Set<string> {
   const names = new Set<string>();
   for (const m of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;\n]+)?=\s*(?:await\s+)?[^;\n]*(?:\.body\(|\bbodyOfKind\(|\bkindBody\(|\bstandUpKind\(|\bcardPage\(|\bwaitForBodyReady\(|\bwaitForBodyPainted\()/g)) names.add(m[1]);
-  // `BodyApp`, or a page the caller chooses (`App | BodyApp`, either order).
-  for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*(?:BodyApp\b|App\s*\|\s*BodyApp\b)/g)) names.add(m[1]);
+  // `BodyApp`, or a page the caller chooses (`App | BodyApp`, either order),
+  // or the picker fixture's `PickerDriver`, which is the picker's body.
+  for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*:\s*(?:BodyApp\b|PickerDriver\b|App\s*\|\s*BodyApp\b)/g)) names.add(m[1]);
   return names;
 }
 
@@ -572,6 +573,9 @@ export function censusOfSource(
     // `x.body` is a helper's answer carrying the body beside the card's id;
     // `kindBody(app, "…")` is the body of the deck's card of a kind.
     if (receiver === "" || receiver.includes(".body(") || receiver.endsWith(".body") || receiver.includes("cardPage(") || receiver.includes("kindBody(") || receiver.includes("waitForBodyReady(") || receiver.includes("waitForBodyPainted(")) continue;
+    // `window.__tug.type(…)` inside a script string is the page's own call,
+    // made in whatever page evaluates the string; that evaluation is the entry.
+    if (receiver.startsWith("window.") || receiver.startsWith("document.")) continue;
     if (onBody.has(receiver) || onBody.has(receiver.replace(/\([^()]*\)$/, ""))) continue;
     // A call to a function the file binds whose own text makes a page
     // (`layoutPage(app)`, `await contentPage(app, id, …)`) is that page.

@@ -106,41 +106,43 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.bindSession("A", { projectDir });
           await app.awaitEngineReady("A");
+          // The editor sheet renders in card A's body page.
+          const body = app.body("A");
 
           // Paced keystrokes (one batch, ~40ms apart) so the OS doesn't drop
           // keys the way a fast nativeType can under load.
-          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
+          await body.nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/permissions");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Return", ["cmd"]);
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
             { timeoutMs: 6000 },
           );
 
           // Allow tab → expand the add accordion.
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `document.querySelector(${JSON.stringify(tabSel("allow"))}).click()`,
           );
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `document.querySelector(${JSON.stringify(`${SHEET} .tug-accordion-trigger`)}).click()`,
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(ADD_INPUT)}) !== null`,
             { timeoutMs: 4000 },
           );
 
           const addRule = async (entry: string): Promise<void> => {
-            await app.evalJS<void>(
+            await body.evalJS<void>(
               `window.__tug.type(${JSON.stringify(ADD_INPUT)}, ${JSON.stringify(entry)})`,
             );
-            await app.waitForCondition<boolean>(
+            await body.waitForCondition<boolean>(
               `(function(){var b=document.querySelector(${JSON.stringify(ADD_SUBMIT)});return b!==null && !b.disabled;})()`,
               { timeoutMs: 4000 },
             );
-            await app.evalJS<void>(
+            await body.evalJS<void>(
               `document.querySelector(${JSON.stringify(ADD_SUBMIT)}).click()`,
             );
           };
@@ -151,7 +153,7 @@ describe.skipIf(!SHOULD_RUN)(
 
           // 2. Select the "Project settings" radio (exact label — "Project
           //    settings (local)" is the Local option). Then add → settings.json.
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `(function(){
               var items = document.querySelectorAll(${JSON.stringify(`${SHEET} [data-slot="tug-radio-item"]`)});
               for (var i = 0; i < items.length; i++) {

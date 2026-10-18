@@ -122,18 +122,20 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.bindSession("A", { projectDir });
           await app.awaitEngineReady("A");
+          // The editor sheet renders in card A's body page.
+          const body = app.body("A");
 
           // Open the editor by typing `/permissions`. Settle between native
           // events (~200ms, at0045/at0048 idiom); the focus-stealing
           // press-and-hold popover is disabled at launch
           // (`-ApplePressAndHoldEnabled NO`). The real open path is at0090.
-          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
+          await body.nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/permissions");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Return", ["cmd"]);
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
             { timeoutMs: 6000 },
           );
@@ -159,10 +161,10 @@ describe.skipIf(!SHOULD_RUN)(
               tabId === "workspace"
                 ? `${SHEET} .tug-file-chooser-input`
                 : `${SHEET} .permission-rules-add-input`;
-            await app.evalJS<void>(
+            await body.evalJS<void>(
               `document.querySelector(${JSON.stringify(tabSel(tabId))}).click()`,
             );
-            await app.evalJS<void>(
+            await body.evalJS<void>(
               `(function(){
                 if (document.querySelector(${JSON.stringify(input)}) === null) {
                   var t = document.querySelector(${JSON.stringify(`${SHEET} .tug-accordion-trigger`)});
@@ -170,18 +172,18 @@ describe.skipIf(!SHOULD_RUN)(
                 }
               })()`,
             );
-            await app.waitForCondition<boolean>(
+            await body.waitForCondition<boolean>(
               `document.querySelector(${JSON.stringify(input)}) !== null`,
               { timeoutMs: 4000 },
             );
-            await app.evalJS<void>(
+            await body.evalJS<void>(
               `window.__tug.type(${JSON.stringify(input)}, ${JSON.stringify(entry)})`,
             );
-            await app.waitForCondition<boolean>(
+            await body.waitForCondition<boolean>(
               `(function(){var b=document.querySelector(${JSON.stringify(ADD_SUBMIT)});return b!==null && !b.disabled;})()`,
               { timeoutMs: 4000 },
             );
-            await app.evalJS<void>(
+            await body.evalJS<void>(
               `document.querySelector(${JSON.stringify(ADD_SUBMIT)}).click()`,
             );
             await waitForBucket(key, (e) => e.includes(entry), `add to ${tabId}`);

@@ -112,6 +112,9 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await app.bindSession("A", { projectDir });
           await app.awaitEngineReady("A");
+          // The editor sheet, its tabs and its confirm popover all render in
+          // card A's body page.
+          const body = app.body("A");
 
           // 1. Open the editor via the real submit path. Type `/permissions`,
           //    dismiss the completion popup (Escape leaves the raw text), then
@@ -121,14 +124,14 @@ describe.skipIf(!SHOULD_RUN)(
           // press-and-hold popover that used to steal mid-type focus is disabled
           // at launch (`-ApplePressAndHoldEnabled NO`), so a single nativeType
           // lands cleanly.
-          await app.body("A").nativeClickAtElement(PROMPT_INPUT);
+          await body.nativeClickAtElement(PROMPT_INPUT);
           await app.nativeType("/permissions");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Escape");
           await new Promise((r) => setTimeout(r, 200));
           await app.nativeKey("Return", ["cmd"]);
 
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(SHEET)}) !== null`,
             { timeoutMs: 6000 },
           );
@@ -139,14 +142,14 @@ describe.skipIf(!SHOULD_RUN)(
           // controller must NOT suppress its mousedown focus the way it does
           // for pane chrome.
           const SEARCH = `${SHEET} .permission-rules-search`;
-          await app.nativeClickAtElement(SEARCH);
-          await app.waitForCondition<boolean>(
+          await body.nativeClickAtElement(SEARCH);
+          await body.waitForCondition<boolean>(
             `document.activeElement === document.querySelector(${JSON.stringify(SEARCH)})`,
             { timeoutMs: 4000 },
           );
 
           // 2. The editor shows the five terminal tabs in order.
-          const tabLabels = await app.evalJS<string[]>(
+          const tabLabels = await body.evalJS<string[]>(
             `Array.from(document.querySelectorAll(${JSON.stringify(TAB_TITLES)})).map(function(t){return t.textContent.trim();})`,
           );
           expect(tabLabels, "the five terminal tabs render in order").toEqual([
@@ -159,30 +162,30 @@ describe.skipIf(!SHOULD_RUN)(
 
           // Default tab is Allow.
           expect(
-            await app.evalJS<string | null>(
+            await body.evalJS<string | null>(
               `(function(){var el=document.querySelector(${JSON.stringify(`${SHEET} .tug-tab[data-active="true"] .tug-tab-title`)});return el?el.textContent.trim():null;})()`,
             ),
           ).toBe("Allow");
 
           // Switching to Deny updates the description copy (DOM click fires the
           // tab's onClick → selectTab through the chain, deterministically).
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `document.querySelector(${JSON.stringify(tabSel("deny"))}).click()`,
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `(function(){var el=document.querySelector(${JSON.stringify(DESCRIPTION)});return el!==null && el.textContent.indexOf("reject")!==-1;})()`,
             { timeoutMs: 4000 },
           );
 
           // 3. Add a rule on the Allow tab and assert it lands on disk. The
           //    add form lives in a collapsed accordion — expand it first.
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `document.querySelector(${JSON.stringify(tabSel("allow"))}).click()`,
           );
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `document.querySelector(${JSON.stringify(`${SHEET} .tug-accordion-trigger`)}).click()`,
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(ADD_INPUT)}) !== null`,
             { timeoutMs: 4000 },
           );
@@ -194,7 +197,7 @@ describe.skipIf(!SHOULD_RUN)(
           // generically by at0120). Without this authoring the section holds no
           // focusables and there is no way to reach the form by keyboard.
           expect(
-            await app.evalJS<number>(
+            await body.evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(`${SHEET} .permission-rules-add [data-tug-focusable]`)}).length`,
             ),
             "the add-rule form's controls are authored as focusables (section is descendable)",
@@ -207,14 +210,14 @@ describe.skipIf(!SHOULD_RUN)(
           // no focus dependency, unlike a posted CGEvent). The Add button
           // enabling is the proof the draft state captured the text; the rule
           // is then submitted by clicking Add.
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `window.__tug.type(${JSON.stringify(ADD_INPUT)}, ${JSON.stringify(MARKER)})`,
           );
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `(function(){var b=document.querySelector(${JSON.stringify(ADD_SUBMIT)});return b!==null && !b.disabled;})()`,
             { timeoutMs: 4000 },
           );
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `document.querySelector(${JSON.stringify(ADD_SUBMIT)}).click()`,
           );
 
@@ -224,14 +227,14 @@ describe.skipIf(!SHOULD_RUN)(
           );
 
           // The new rule appears as a row in the list.
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll(${JSON.stringify(`${SHEET} .permission-rule-matcher`)})).some(function(el){return el.textContent.trim() === ${JSON.stringify(MARKER)};})`,
             { timeoutMs: 4000 },
           );
 
           // 4. Remove the rule: the trash button (the row's only button) opens
           //    a danger confirm popover; confirming removes the rule from disk.
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `(function(){
               var rows = document.querySelectorAll(${JSON.stringify(`${SHEET} .tug-list-row`)});
               for (var i = 0; i < rows.length; i++) {
@@ -247,11 +250,11 @@ describe.skipIf(!SHOULD_RUN)(
           );
           // Removal requires a deliberate confirm — click the popover's danger
           // "Delete" button (the trash button itself carries no text label).
-          await app.waitForCondition<boolean>(
+          await body.waitForCondition<boolean>(
             `Array.from(document.querySelectorAll('button')).some(function(b){return b.textContent.trim() === 'Delete';})`,
             { timeoutMs: 4000 },
           );
-          await app.evalJS<void>(
+          await body.evalJS<void>(
             `(function(){
               var btn = Array.from(document.querySelectorAll('button')).find(function(b){return b.textContent.trim() === 'Delete';});
               if (!btn) throw new Error('confirm Delete button not found');

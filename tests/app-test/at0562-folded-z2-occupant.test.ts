@@ -141,7 +141,6 @@ const READ_ROW = `(function(){
   var row = document.querySelector(${JSON.stringify(ROW)});
   var occ = document.querySelector(${JSON.stringify(OCCUPANT)});
   var cells = Array.from(document.querySelectorAll(${JSON.stringify(CELL)}));
-  var frame = document.querySelector('.tug-pane[data-pane-id="p1"]');
   var strip = document.querySelector(${JSON.stringify(
     `${CARD} [data-slot="session-card-status-bar"]`,
   )});
@@ -197,9 +196,22 @@ const READ_ROW = `(function(){
       : strip.getBoundingClientRect().height,
     titleSize: title === null ? null : getComputedStyle(title).fontSize,
     sheets: document.querySelectorAll(${JSON.stringify(SHEET)}).length,
-    folded: frame.getAttribute("data-folded") === "true",
   };
 })()`;
+
+/**
+ * {@link READ_ROW} in A's body — the row, its cells and the card's sheets are
+ * the card's DOM — beside the fold flag, which is the pane frame's
+ * `data-folded` and so the shell's.
+ */
+async function readRow(app: App): Promise<RowReading> {
+  const row = await app.body("A").evalJS<Omit<RowReading, "folded">>(READ_ROW);
+  // card-dom: shell — the fold flag is the pane frame's, drawn by the shell.
+  const folded = await app.evalJS<boolean>(
+    `document.querySelector('.tug-pane[data-pane-id="p1"]').getAttribute("data-folded") === "true"`,
+  );
+  return { ...row, folded };
+}
 
 // Kept local: every file's `seed` builds its own deck and waits on its own
 // readiness, so the name is shared and the function is not.
@@ -261,7 +273,9 @@ async function armHandoffRecorder(app: App, stopWhen: string): Promise<void> {
       var rowSel = ${JSON.stringify(ROW)};
       var sheetSel = ${JSON.stringify(SHEET)};
       var occ0 = document.querySelector(occSel);
-      var frame = document.querySelector('.tug-pane[data-pane-id="p1"]');
+      // The body's own frame, which carries the shell's fold crossing as a
+      // mirror (applyCrossingMirror): the recorder runs in A's page.
+      var frame = document.querySelector(".body-pane-frame");
       var rec = {
         identityKept: true,
         cellFramesInCrossing: 0,
@@ -308,10 +322,11 @@ async function armHandoffRecorder(app: App, stopWhen: string): Promise<void> {
 }
 
 async function readHandoffRecord(app: App): Promise<HandoffRecord> {
-  await app.waitForCondition<boolean>(`window.__at0562rec.done === true`, {
+  // The recorder was armed in A's body, so its record is that page's.
+  await app.body("A").waitForCondition<boolean>(`window.__at0562rec.done === true`, {
     timeoutMs: 15000,
   });
-  return app.evalJS<HandoffRecord>(`window.__at0562rec`);
+  return app.body("A").evalJS<HandoffRecord>(`window.__at0562rec`);
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -333,7 +348,7 @@ describe.skipIf(!SHOULD_RUN)(
           );
           await new Promise((r) => setTimeout(r, 1200));
 
-          const before = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const before = await readRow(app);
           note("at0562 folded, idle", before);
           expect(before.occupant).toBeNull();
           expect(before.cellsShown).toBe(before.cellsMounted);
@@ -344,7 +359,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(OCCUPANT)}) !== null`,
             { timeoutMs: 8000 },
           );
-          const running = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const running = await readRow(app);
           note("at0562 folded, compacting", running);
 
           expect(running.occupant).toBe("compaction");
@@ -421,9 +436,10 @@ describe.skipIf(!SHOULD_RUN)(
           // ignoring the gesture.
           await app.dispatchControlAction("close");
           await new Promise((r) => setTimeout(r, 400));
-          const refused = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const refused = await readRow(app);
           note("at0562 folded, refused", refused);
           expect(
+            // card-dom: shell — the card's one placeholder in the deck; its body holds two `data-card-id` nodes.
             await app.evalJS<number>(
               `document.querySelectorAll(${JSON.stringify(CARD)}).length`,
             ),
@@ -467,7 +483,7 @@ describe.skipIf(!SHOULD_RUN)(
             })()`,
             { timeoutMs: 8000 },
           );
-          const restored = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const restored = await readRow(app);
           note("at0562 folded, refusal over", restored);
           expect(restored.text, "the run's own reading is back").toContain(
             "Compacting",
@@ -507,7 +523,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(OCCUPANT)}) === null`,
             { timeoutMs: 12000 },
           );
-          const after = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const after = await readRow(app);
           note("at0562 folded, settled", after);
           expect(after.occupant).toBeNull();
           expect(after.cellsShown, "the cells come back").toBe(
@@ -528,11 +544,11 @@ describe.skipIf(!SHOULD_RUN)(
         try {
           await seed(app);
           await sendWheelCompact(app);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-slot="compaction-progress"]') !== null`,
             { timeoutMs: 8000 },
           );
-          const open = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const open = await readRow(app);
           note("at0562 open, compacting", open);
           expect(open.sheets).toBe(1);
           // The run's row face is MOUNTED behind the cover ([B05]) — in the
@@ -588,7 +604,7 @@ describe.skipIf(!SHOULD_RUN)(
             foldRec.overlapFrames,
             "and the two faces overlap for a beat",
           ).toBeGreaterThan(0);
-          const held = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const held = await readRow(app);
           note("at0562 fold under a live cover", held);
           expect(held.folded, "the hold admits the fold").toBe(true);
           expect(
@@ -692,11 +708,11 @@ describe.skipIf(!SHOULD_RUN)(
           ).toBeGreaterThan(0);
           // And the cover is the run's face again, over an open card whose
           // instruments are back.
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelectorAll(${JSON.stringify(SHEET)}).length === 1`,
             { timeoutMs: 8000 },
           );
-          const reopened = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const reopened = await readRow(app);
           note("at0562 unfolded under the run", reopened);
           expect(reopened.folded).toBe(false);
           expect(reopened.occupant).toBe("compaction");
@@ -716,6 +732,11 @@ describe.skipIf(!SHOULD_RUN)(
           // card would run the recorder to its cap and prove nothing, which
           // is why the cap is asserted against below.
           await app.evalJS<null>(
+            `(document.documentElement.style.setProperty("--tug-motion", "0"), null)`,
+          );
+          // The row's face is decided in A's body, which reads its own page's
+          // motion flag, so it is turned off there too.
+          await app.body("A").evalJS<null>(
             `(document.documentElement.style.setProperty("--tug-motion", "0"), null)`,
           );
           await app.evalJS<null>(`(window.__tug.setFirstResponder("A"), null)`);
@@ -797,7 +818,7 @@ describe.skipIf(!SHOULD_RUN)(
             { timeoutMs: 8000 },
           );
 
-          const notice = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const notice = await readRow(app);
           note("at0562 folded, permission pending", notice);
           expect(notice.occupant).toBe("permission");
           expect(notice.text).toContain("Permission");
@@ -820,7 +841,7 @@ describe.skipIf(!SHOULD_RUN)(
             `window.__tug.getPaneRecord("p1").folded === false`,
             { timeoutMs: 8000 },
           );
-          const opened = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const opened = await readRow(app);
           note("at0562 unfolded by the notice", opened);
           expect(opened.occupant, "the row is the instruments' again").toBeNull();
           expect(opened.cellsShown).toBe(opened.cellsMounted);
@@ -841,7 +862,7 @@ describe.skipIf(!SHOULD_RUN)(
             `document.querySelector(${JSON.stringify(OCCUPANT)}) !== null`,
             { timeoutMs: 8000 },
           );
-          const again = await app.body("A").evalJS<RowReading>(READ_ROW);
+          const again = await readRow(app);
           note("at0562 refolded, still pending", again);
           expect(again.occupant).toBe("permission");
         } finally {

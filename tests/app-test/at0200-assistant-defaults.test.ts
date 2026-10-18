@@ -61,7 +61,9 @@ const SETTINGS = '[data-testid="settings-session-card"]';
 const SETTINGS_AI = `${SETTINGS} [data-slot="ai-config-editor"]`;
 // Sheets portal into their host PANE's frame and linger through the exit
 // animation — scope every sheet read/click to the pane that owns it so a
-// closing sheet in another pane can never swallow a click.
+// closing sheet in another pane can never swallow a click. The frame is the
+// card's own body page's (`.body-pane-frame[data-pane-id]`), so these are
+// read in card A's body.
 const CARD_A_SHEET = '[data-pane-id="p1"] [data-slot="tug-sheet"]';
 
 /** The model channel is an option list; each row carries its own selector. */
@@ -342,12 +344,12 @@ describe.skipIf(!SHOULD_RUN)(
           // ---- Isolation: change card A's model via its own Z4B mixer.
           //      The deck default and card B must not move.
           await app.body("A").click(`[data-card-id="A"] [data-slot="ai-chip"]`);
-          await app.waitForCondition<boolean>(
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(`${CARD_A_SHEET} ${MODEL_SEGMENT("haiku")}`)}) !== null`,
             { timeoutMs: 4000 },
           );
-          await app.click(`${CARD_A_SHEET} ${MODEL_SEGMENT("haiku")}`);
-          await app.click(`${CARD_A_SHEET} [data-slot="ai-config-ok"]`);
+          await app.body("A").click(`${CARD_A_SHEET} ${MODEL_SEGMENT("haiku")}`);
+          await app.body("A").click(`${CARD_A_SHEET} [data-slot="ai-config-ok"]`);
           await waitForModel(app.body("A"), cardAiValue("A"), "Haiku");
 
           expect(
@@ -410,18 +412,19 @@ describe.skipIf(!SHOULD_RUN)(
           await app.bindSession("A");
           await app.awaitEngineReady("A");
 
-          // ---- The bulletin presents, naming the missing selector.
-          await app.waitForCondition<boolean>(
+          // ---- The bulletin presents, naming the missing selector. It is
+          //      pane-modal — it rides card A's sheet host, in A's body.
+          await app.body("A").waitForCondition<boolean>(
             `document.querySelector('[data-testid="alert-confirm"]') !== null`,
             { timeoutMs: 8000 },
           );
-          const message = await textAt(app, ".tug-alert-message");
+          const message = await textAt(app.body("A"), ".tug-alert-message");
           expect(message, "the bulletin names the missing selector").toContain(
             "fable-9",
           );
 
           // ---- Confirm ("Review Defaults") opens the Settings card.
-          await app.click('[data-testid="alert-confirm"]');
+          await app.body("A").click('[data-testid="alert-confirm"]');
           await openSessionCardSection(app);
 
           // ---- The card was reset to the `default` selector: once its
@@ -480,7 +483,7 @@ describe.skipIf(!SHOULD_RUN)(
           await waitForModel(app.body("A"), cardAiValue("A"), "Fable 5");
 
           // ---- And nothing was raised — a respelling is not a breakage.
-          const alertPresent = await app.evalJS<boolean>(
+          const alertPresent = await app.body("A").evalJS<boolean>(
             `document.querySelector('[data-testid="alert-confirm"]') !== null`,
           );
           expect(alertPresent, "a respelled selector must not raise the bulletin").toBe(

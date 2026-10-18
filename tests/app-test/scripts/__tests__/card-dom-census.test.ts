@@ -44,6 +44,14 @@ describe("an entry", () => {
     expect(census(`${SEED}${helper}const page = await seeded(app);\nawait page.evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toEqual([]);
   });
 
+  test("is not a call on a parameter typed as the picker's driver, which is its body", () => {
+    expect(census(`${SEED}async function point(app: PickerDriver) {\n  await app.evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n}\n`)).toEqual([]);
+  });
+
+  test("is not a page's own call inside a script string a body evaluates", () => {
+    expect(census(`${SEED}await app.body("a").evalJS(\`window.__tug.type(\${JSON.stringify(cardHost("a"))}, "x")\`);\n`)).toEqual([]);
+  });
+
   test("is a call on an arrow that finds no body", () => {
     expect(census(`${SEED}const page = (app: App) => app;\nawait page(app).evalJS(\`document.querySelector(\${JSON.stringify(cardHost("a"))}) !== null\`);\n`)).toHaveLength(1);
   });
