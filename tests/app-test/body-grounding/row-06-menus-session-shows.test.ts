@@ -4,9 +4,11 @@
  *
  * A piece of row 6 ([B02] row 6). With a body Session card holding the
  * keyboard: Undo and Redo validated against the body's chain over its find
- * bar's input, and performed into it; Fold Card hiding and showing the
- * body; Zoom In changing its placed width; Focus Card Right and Left moving
- * the keyboard between two bodies; and Close over a draft raising the
+ * bar's input, and performed into it; Fold Card folding and unfolding the
+ * card with its body shown throughout, since a Session body draws the card's
+ * own folded form (the bodies migration's [B23]); Zoom In changing its
+ * placed width; Focus Card Right and Left moving the keyboard between two
+ * bodies; and Close over a draft raising the
  * shell's own popover, which Escape dismisses with the keyboard handed
  * back, and whose Close button closes the card and hands the keyboard on.
  * A Session card holding nothing closes without asking, which is the rule,
@@ -24,7 +26,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { note, type App } from "../_harness";
-import { SETTLE_MS, bodyOf, closeButtonOfPopover, composerText, focusBody, pollFor, popoverPresent, responders } from "./_bodies";
+import { SETTLE_MS, bodyOf, closeButtonOfPopover, composerText, focusBody, foldedOf, pollFor, popoverPresent, responders } from "./_bodies";
 import { sessionUnderTest } from "./_kinds";
 import { A, B, SHOULD_RUN, TEST_TIMEOUT_MS, withSessions } from "./_row-06";
 
@@ -77,13 +79,16 @@ describe.skipIf(!SHOULD_RUN)("body-grounding row 6: what a Session body shows", 
         await app.nativeKey("Escape");
         await pollFor(() => a.evalJS<boolean>(findBarShown), (v) => !v, SETTLE_MS);
 
-        // ---- Fold Card hides the body; again shows it ----
+        // ---- Fold Card folds the card and again unfolds it; the body stays shown,
+        // drawing the card's own folded form ([B23] of the bodies migration) ----
         await focusBody(app, A, { composer: false });
         const fold = await app.performMenuItem("view.foldCard");
         expect(fold.found && fold.performed, "View › Fold Card performs").toBe(true);
-        expect((await pollFor(() => bodyOf(app, A), (x) => x?.visible === false, SETTLE_MS))?.visible, "the host hides A's folded body").toBe(false);
+        expect(await pollFor(() => foldedOf(app, A), (f) => f, SETTLE_MS), "A folds").toBe(true);
+        expect((await bodyOf(app, A))?.visible, "the host keeps A's folded body shown").toBe(true);
         const unfold = await app.performMenuItem("view.foldCard");
         expect(unfold.found && unfold.performed, "View › Fold Card performs again").toBe(true);
+        expect(await pollFor(() => foldedOf(app, A), (f) => !f, SETTLE_MS), "A unfolds").toBe(false);
         expect((await pollFor(() => bodyOf(app, A), (x) => x?.visible === true, SETTLE_MS))?.visible, "the host shows it again").toBe(true);
 
         // ---- Zoom In changes the body's placed width; Actual Size restores it ----

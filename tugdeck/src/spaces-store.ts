@@ -50,6 +50,12 @@ export class SpacesStore extends Subscribable {
   private mounted: Set<string> = new Set();
 
   /**
+   * The parked workspaces mounted ahead of a first visit ({@link warmParked}).
+   * Each leaves on its first activation, when it joins {@link mounted}.
+   */
+  private warm: Set<string> = new Set();
+
+  /**
    * The last {@link SpacesSnapshot} handed out, rebuilt only when the list
    * changes. `useSyncExternalStore` compares by identity and would loop
    * forever on a snapshot minted per read, so this cache is the contract
@@ -70,15 +76,14 @@ export class SpacesStore extends Subscribable {
    */
   getSnapshot = (): SpacesSnapshot => {
     if (this.snapshotCache === null) {
-      const mountedSpaceIds = this.records
-        .filter((s) => this.mounted.has(s.id))
-        .map((s) => s.id);
+      const held = (id: string): boolean => this.mounted.has(id) || this.warm.has(id);
+      const mountedSpaceIds = this.records.filter((s) => held(s.id)).map((s) => s.id);
       const mountedDecks = new Map<string, DeckState>();
       for (const space of this.records) {
         // The active space's deck is the live one and is not cached here —
         // see {@link SpacesSnapshot}.
         if (space.deck === null) continue;
-        if (!this.mounted.has(space.id)) continue;
+        if (!held(space.id)) continue;
         mountedDecks.set(space.id, space.deck);
       }
       this.snapshotCache = {
@@ -89,6 +94,7 @@ export class SpacesStore extends Subscribable {
         })),
         activeSpaceId: this.activeId,
         mountedSpaceIds,
+        warmSpaceIds: this.records.filter((s) => this.warm.has(s.id)).map((s) => s.id),
         mountedDecks,
       };
     }
@@ -189,6 +195,7 @@ export class SpacesStore extends Subscribable {
     this.records = records;
     this.activeId = activeSpaceId;
     this.mounted = new Set([activeSpaceId]);
+    this.warm = new Set();
     this.notify();
   }
 
@@ -200,7 +207,24 @@ export class SpacesStore extends Subscribable {
   activate(spaceId: string): void {
     this.activeId = spaceId;
     this.mounted.add(spaceId);
+    this.warm.delete(spaceId);
     this.notify();
+  }
+
+  /**
+   * Mount every parked workspace not yet mounted, ahead of its first visit
+   * ({@link SpacesSnapshot.warmSpaceIds}). Notifies only when one joined, so
+   * a caller may ask as often as it likes. Returns whether any did.
+   */
+  warmParked(): boolean {
+    let joined = false;
+    for (const space of this.records) {
+      if (this.mounted.has(space.id) || this.warm.has(space.id)) continue;
+      this.warm.add(space.id);
+      joined = true;
+    }
+    if (joined) this.notify();
+    return joined;
   }
 
   /** Insert `record` at `index` (default: the end). */
@@ -215,6 +239,7 @@ export class SpacesStore extends Subscribable {
     if (index === -1) return;
     this.records.splice(index, 1);
     this.mounted.delete(spaceId);
+    this.warm.delete(spaceId);
     this.notify();
   }
 

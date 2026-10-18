@@ -88,6 +88,7 @@ const NO_SPACES: SpacesSnapshot = {
   spaces: [],
   activeSpaceId: "",
   mountedSpaceIds: [],
+  warmSpaceIds: [],
   mountedDecks: new Map(),
 };
 
@@ -182,14 +183,22 @@ export class BodyDeckBridge implements IDeckManagerStore {
     if (arrangementMoved) {
       for (const listener of [...this.spacesListeners]) listener();
     }
-    const wasKey = prev.firstResponderCardId === this.cardId;
-    const isKey = next.firstResponderCardId === this.cardId;
+    // A warm workspace's card its first visit will make key is key here
+    // while it stands parked (`parkedKey`): an unbound Session card raises
+    // its picker, so the visit finds it presented and claimed. The visit
+    // names it first responder, which it already was here, so it is not
+    // activated a second time. Its bag's focus waits for that: focus taken
+    // in a parked page asks the shell to activate a card nobody can see.
+    const wasFirst = prev.firstResponderCardId === this.cardId;
+    const isFirst = next.firstResponderCardId === this.cardId;
+    const wasKey = wasFirst || prev.parkedKey === true;
+    const isKey = isFirst || next.parkedKey === true;
     if (isKey && !wasKey) {
       this.cardLifecycle.notifyCardDidActivate(this.cardId);
-      applyBagFocus(this.cardId, this);
     } else if (wasKey && !isKey) {
       this.cardLifecycle.notifyCardDidDeactivate(this.cardId);
     }
+    if (isFirst && !wasFirst) applyBagFocus(this.cardId, this);
     if (this.layerShown || prev.layerShown !== next.layerShown) {
       this.setLayerShown(next.layerShown);
     }
@@ -228,6 +237,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
       spaces: spaces.spaces,
       activeSpaceId: spaces.activeSpaceId,
       mountedSpaceIds: spaces.mountedSpaceIds,
+      warmSpaceIds: [],
       mountedDecks: new Map(
         spaces.mountedSpaceIds
           .filter((id) => id !== spaces.activeSpaceId && spaces.decks[id] !== undefined)
@@ -310,14 +320,18 @@ export class BodyDeckBridge implements IDeckManagerStore {
   batchGesture = <T,>(fn: () => T): T => fn();
   getVersion = (): number => this.version;
   getFirstResponderCardId = (): string | null => this.context.firstResponderCardId;
+  /** The card is a warm workspace's that its first visit will make key ({@link applyContext}). */
+  isParkedKey = (cardId: string): boolean => cardId === this.cardId && this.context.parkedKey === true;
   /**
    * `CardLifecycleStore`: the card is this deck's focused card exactly when
-   * it is the whole deck's first responder. An activation observer's
-   * initial sync reads this, so a card that is not the key card must not
-   * be told it was activated by subscribing.
+   * it is the whole deck's first responder, or the key card its warm
+   * workspace's first visit will make it (`parkedKey`). An activation
+   * observer's initial sync reads this, so a card that is not the key card
+   * must not be told it was activated by subscribing — and a parked key card
+   * whose picker subscribes after its context came is.
    */
   getFocusedCardId = (): string | null =>
-    this.context.firstResponderCardId === this.cardId ? this.cardId : null;
+    this.context.firstResponderCardId === this.cardId || this.context.parkedKey === true ? this.cardId : null;
   /**
    * The card a following card follows: the last key card that is not it,
    * which only the shell's focus manager knows, so the shell says it in the

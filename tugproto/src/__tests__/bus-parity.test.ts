@@ -226,6 +226,12 @@ const DELIVERED: BusDelivered[] = [
       railSide: "right",
     },
   },
+  {
+    from: SHELL,
+    to: { card: "c3" },
+    kind: "card-context",
+    payload: { folded: false, arriving: false, firstResponderCardId: "c1", layerShown: false, spaceId: "space-2", parkedKey: true },
+  },
 ];
 
 describe("bus envelope parity", () => {

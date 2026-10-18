@@ -285,6 +285,15 @@ export interface CardContext {
    */
   railSide?: "left" | "right";
   /**
+   * Present, and true, on a parked workspace's card that the workspace's
+   * arrival will make key: its parked deck's first responder. A body treats
+   * it as key for activation — an unbound Session card raises its picker
+   * there, so a first visit finds it presented and claimed — without the
+   * shell naming it first responder, which stays the shown workspace's.
+   * Absent for every other card.
+   */
+  parkedKey?: true;
+  /**
    * The crossing the card's pane stands under — a fold, a settle's height
    * tween, a sash drag — for the body to hold its card root through, as the
    * shell holds an in-document card's. Absent when none stands. Opaque to the

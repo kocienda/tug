@@ -465,21 +465,44 @@ function twoSpaceBlob(): Record<string, unknown> {
 }
 
 /**
- * Dispatch the switch and read the mark in the SAME eval, synchronously.
+ * Dispatch the switch and read the mark in the swap's own task.
  *
  * This is the authoritative "the mark stood" reading, and the sampler's
  * `markSeen` is corroboration rather than the proof. `DeckManager` writes the
  * mark inside the swap batch and before its `notify`, so the attribute is on the
- * container by the time `dispatch` returns whatever React does next — and the
+ * container when the swap's task ends, whatever React does next — and the
  * epoch can be shorter than one 16ms sample, which it was on this fixture (28ms
  * and 44ms, so one to three samples). A claim that load-bearing should not
  * depend on a timer winning a race with a settle.
+ *
+ * The swap is not the dispatch's task on bodies. `activate-space` routes to
+ * the first responder, and with a body card holding the key the shell hands
+ * it to that body, whose chain hands it back over the bus, so the swap
+ * commits a round trip after `dispatch` returns. The mark is read where the
+ * swap writes it instead: a `MutationObserver` armed before the dispatch
+ * reads it in the microtask behind the first write that finds the workspace
+ * switched — still ahead of any React effect, which hears the switch only
+ * after a painted frame. A sweep in the swap's own task would read zero here
+ * as it did synchronously.
  */
-const activateAndReadMark = (spaceId: string): string =>
+const activateAndWatchMark = (spaceId: string): string =>
   `(function () {
+     window.__at0640MarkAtSwap = null;
+     var watch = new MutationObserver(function () {
+       if (window.tugdeck.diag.getSpaces().activeSpaceId !== ${JSON.stringify(spaceId)}) return;
+       window.__at0640MarkAtSwap = document.querySelectorAll(${JSON.stringify(SWITCHING_MARK)}).length;
+       watch.disconnect();
+     });
+     watch.observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["data-space-switching"] });
      window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(spaceId)} });
-     return document.querySelectorAll(${JSON.stringify(SWITCHING_MARK)}).length;
+     return null;
    })()`;
+
+async function activateAndReadMark(app: App, spaceId: string): Promise<number> {
+  await app.evalJS<null>(activateAndWatchMark(spaceId));
+  await app.waitForCondition<boolean>(`window.__at0640MarkAtSwap !== null`, { timeoutMs: 15_000 });
+  return app.evalJS<number>(`window.__at0640MarkAtSwap`);
+}
 
 /**
  * One switch, sampled from before the gesture to well past the epoch's bound.
@@ -500,7 +523,7 @@ async function recordCut(
     `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
   );
   await app.evalJS<null>(SAMPLER_START);
-  const markAtSwap = await app.evalJS<number>(activateAndReadMark(toSpaceId));
+  const markAtSwap = await activateAndReadMark(app, toSpaceId);
   await app.waitForCondition<boolean>(
     `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(toSpaceId)}`,
     { timeoutMs: 15_000 },
@@ -674,13 +697,9 @@ describe.skipIf(!SHOULD_RUN)(
             `(window.__deckTrace.enable(true), window.__deckTrace.mark())`,
           );
           await app.evalJS<null>(SAMPLER_START);
-          const firstMark = await app.evalJS<number>(
-            activateAndReadMark(SPACE_TWO),
-          );
+          const firstMark = await activateAndReadMark(app, SPACE_TWO);
           await settle(80);
-          const secondMark = await app.evalJS<number>(
-            activateAndReadMark(SPACE_ONE),
-          );
+          const secondMark = await activateAndReadMark(app, SPACE_ONE);
           await app.waitForCondition<boolean>(
             `window.tugdeck.diag.getSpaces().activeSpaceId === ${JSON.stringify(SPACE_ONE)}`,
             { timeoutMs: 15_000 },

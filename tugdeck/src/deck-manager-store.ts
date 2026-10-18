@@ -323,6 +323,14 @@ export interface IDeckManagerStore {
   setSheetReservation: (memberId: string, height: number | null) => void;
 
   /**
+   * The same claim for a member of the PARKED workspace `spaceId`, written on
+   * its parked record: a warm workspace's picker reports while nobody has
+   * shown it. Only the shell's manager holds parked workspaces; a body's
+   * one-card deck has none, and leaves this out.
+   */
+  setParkedSheetReservation?: (spaceId: string, memberId: string, height: number | null) => void;
+
+  /**
    * Write `memberId`'s opening bid, or drop it with a `null` height.
    * Keyed exactly as {@link IDeckManagerStore.setSheetReservation} above is.
    *
@@ -763,6 +771,21 @@ export interface IDeckManagerStore {
    * lets a surface draw a workspace nobody is looking at.
    */
   getSpaceDeck: (spaceId: string) => DeckState | null;
+
+  /**
+   * Mount every parked workspace ahead of its first visit
+   * (`SpacesSnapshot.warmSpaceIds`). Only the shell's manager mounts
+   * workspaces; a body's one-card deck leaves this out.
+   */
+  warmParkedSpaces?: () => void;
+
+  /**
+   * Whether `cardId` is a warm workspace's card that its first visit will
+   * make key (the context's `parkedKey`), and so is presented to as the key
+   * card while it stands parked. Only a body's deck answers: the shell's
+   * key card is its first responder.
+   */
+  isParkedKey?: (cardId: string) => boolean;
 
   /**
    * Render that space's deck, parking the one on screen ([P04]). A no-op on

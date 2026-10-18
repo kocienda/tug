@@ -96,9 +96,18 @@ export interface SpacesSnapshot {
   activeSpaceId: string;
   /**
    * The workspaces React is holding mounted — the active one and every one
-   * the user has visited this run ([P01]). In the list's order.
+   * the user has visited this run ([P01]), and every one warmed ahead of a
+   * first visit ({@link warmSpaceIds}). In the list's order.
    */
   mountedSpaceIds: readonly string[];
+  /**
+   * The mounted workspaces nobody has shown this run: each parked layer the
+   * deck mounted once the shown workspace's bodies had painted, so a first
+   * visit finds its cards standing. Its mount kinds and unbound Session cards
+   * have bodies; a bound Session card waits for the visit to restore. A
+   * workspace leaves this list when it is first shown. In the list's order.
+   */
+  warmSpaceIds: readonly string[];
   /**
    * The parked deck of every mounted workspace EXCEPT the active one, whose
    * deck is the live one. A mounted id with no entry here is the active one.

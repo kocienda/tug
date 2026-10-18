@@ -60,6 +60,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { launchTugApp, note, type App } from "./_harness";
+import { waitForBodyReady } from "./_harness/card-reach";
 import {
   mkTempTugbank,
   rmTempTugbank,
@@ -130,13 +131,12 @@ const THREE_PANE_BLOB = {
   ],
 };
 
-/** How many sheet panels stand inside the named pane's frame. */
-const sheetsIn = (app: App, paneId: string): Promise<number> =>
-  app.evalJS<number>(
-    `document.querySelectorAll(` +
-      `'.tug-pane[data-pane-id="${paneId}"] .tug-sheet-content'` +
-      `).length`,
-  );
+/**
+ * How many sheet panels stand in the named card. On bodies the picker is in
+ * the card's own page, the only card that page holds.
+ */
+const sheetsIn = (app: App, cardId: string): Promise<number> =>
+  app.body(cardId).evalJS<number>(`document.querySelectorAll(".tug-sheet-content").length`);
 
 /** The card the deck calls first responder, by its own derivation. */
 const firstResponder = (app: App): Promise<string | null> =>
@@ -170,6 +170,9 @@ async function launch(): Promise<{ app: App; tugbankPath: string }> {
       `window.tugdeck.diag.getDeckState().panes.length === 3`,
     { timeoutMs: 30_000 },
   );
+  // Each Session card's picker is in its own body, read there.
+  await waitForBodyReady(app, "X");
+  await waitForBodyReady(app, "Y");
   await wait(AFTER_GESTURE_MS);
   return { app, tugbankPath };
 }
@@ -183,8 +186,8 @@ describe.skipIf(!SHOULD_RUN)(
         const { app, tugbankPath } = await launch();
         try {
           const restingFr = await firstResponder(app);
-          const sheetsXBefore = await sheetsIn(app, "p-x");
-          const sheetsYBefore = await sheetsIn(app, "p-y");
+          const sheetsXBefore = await sheetsIn(app, "X");
+          const sheetsYBefore = await sheetsIn(app, "Y");
           note(
             `at0650 at rest: first responder ${restingFr}, sheets ` +
               `p-x ${sheetsXBefore} / p-y ${sheetsYBefore}`,
@@ -207,8 +210,8 @@ describe.skipIf(!SHOULD_RUN)(
           await wait(AFTER_GESTURE_MS);
 
           const frAfter = await firstResponder(app);
-          const sheetsX = await sheetsIn(app, "p-x");
-          const sheetsY = await sheetsIn(app, "p-y");
+          const sheetsX = await sheetsIn(app, "X");
+          const sheetsY = await sheetsIn(app, "Y");
           note(
             `at0650 after X-then-Y: first responder ${frAfter}, sheets ` +
               `p-x ${sheetsX} / p-y ${sheetsY}`,

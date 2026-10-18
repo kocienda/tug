@@ -1365,7 +1365,9 @@ function SessionProjectPicker({ cardId }: SessionProjectPickerProps) {
         // ran. Re-reading first responder at the door is what makes the
         // deferral invisible: a present the stack would have made is still
         // made, and one the stack would have made WRONG is not made at all.
-        if (getDeckStore()?.getFirstResponderCardId() !== cardId) return;
+        // A warm workspace's key card is presented to while parked, as key.
+        const deck = getDeckStore();
+        if (deck?.getFirstResponderCardId() !== cardId && deck?.isParkedKey?.(cardId) !== true) return;
         presentSheet();
       });
     });

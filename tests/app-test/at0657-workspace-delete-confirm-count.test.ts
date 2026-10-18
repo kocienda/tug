@@ -37,19 +37,37 @@ import {
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";
+import type { App, BodyApp } from "./_harness";
 
 const SHOULD_RUN = process.env.TUGAPP_APP_TEST === "1";
 const TEST_TIMEOUT_MS = 180_000;
 
 const HOME = "count-home";
 
-const SHOWN = "[data-space-layer][data-space-shown] ";
-const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
-const NEW_BUTTON = `${SHOWN}[data-testid="cards-new-space"]`;
-const RENAME_INPUT = `${SHOWN}[data-testid="cards-space-rename"]`;
+/**
+ * Read in a Workspaces card's own page: on bodies each is a body holding its
+ * card alone, so no layer scope is in it. The `+` puts the user in a fresh
+ * workspace, whose own Workspaces card — the visible one — raises the rename,
+ * the menu verb's confirm and the header it hangs under; C1 parks with HOME.
+ */
+const HEADER = `[data-testid="cards-space-header"]`;
+const NEW_BUTTON = `[data-testid="cards-new-space"]`;
+const RENAME_INPUT = `[data-testid="cards-space-rename"]`;
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_MESSAGE = '[data-slot="tug-confirm-message"]';
 const CONFIRM_CANCEL = '[data-slot="tug-confirm-cancel"]';
+
+/** The fresh workspace's Workspaces card: the visible one, once its body is ready. */
+async function freshCardsBody(app: App): Promise<BodyApp> {
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    const bodies = await app.bodies();
+    const fresh = bodies.find((b) => b.componentId === "cards" && b.state === "ready" && b.visible && b.cardId !== "C1");
+    if (fresh?.cardId != null) return app.body(fresh.cardId);
+    if (Date.now() >= deadline) throw new Error(`no fresh Workspaces body stood (the host holds ${bodies.map((b) => `${b.cardId}:${b.componentId}:${b.state}`).join(", ")})`);
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+}
 
 /** One workspace: a Workspaces rail beside one Text card. */
 const BLOB = {
@@ -122,12 +140,13 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- A fresh workspace, through the real `+`.
           await app.body("C1").nativeClickAtElement(NEW_BUTTON);
-          await app.body("C1").waitForCondition<boolean>(
+          const shown = await freshCardsBody(app);
+          await shown.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) !== null`,
             { timeoutMs: 15_000 },
           );
           await app.nativeKey("Escape");
-          await app.body("C1").waitForCondition<boolean>(
+          await shown.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(RENAME_INPUT)}) === null`,
             { timeoutMs: 8_000 },
           );
@@ -151,13 +170,13 @@ describe.skipIf(!SHOULD_RUN)(
 
           // ---- Ask to delete it — the menu's verb, on the active workspace.
           await app.dispatchControlAction("delete-space");
-          await app.waitForCondition<boolean>(
+          await shown.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
             { timeoutMs: 15_000 },
           );
           await new Promise<void>((r) => setTimeout(r, 400));
 
-          const facts = await app.body("C1").evalJS<{
+          const facts = await shown.evalJS<{
             message: string;
             tally: string | null;
             headerBottom: number;
@@ -165,7 +184,7 @@ describe.skipIf(!SHOULD_RUN)(
           }>(
             `(function () {
                var header = document.querySelector(
-                 ${JSON.stringify(`${SHOWN}.cards-space-header[data-cards-space-id="`)} + ${JSON.stringify(created)} + '"]'
+                 ${JSON.stringify(`.cards-space-header[data-cards-space-id="`)} + ${JSON.stringify(created)} + '"]'
                );
                var cell = header.closest(".tug-list-view-cell") || header;
                var tally = header.querySelector('[data-testid="cards-space-count"]');
@@ -192,8 +211,8 @@ describe.skipIf(!SHOULD_RUN)(
             "the confirm hangs below the header it asks about",
           ).toBeGreaterThanOrEqual(facts.headerBottom - 2);
 
-          await app.nativeClickAtElement(CONFIRM_CANCEL);
-          await app.waitForCondition<boolean>(
+          await shown.nativeClickAtElement(CONFIRM_CANCEL);
+          await shown.waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) === null`,
             { timeoutMs: 8_000 },
           );

@@ -38,12 +38,11 @@ const TEST_TIMEOUT_MS = 180_000;
 
 const SPACE = "relaunch-one";
 
-/** Every visited workspace stays mounted; only the shown layer counts. */
-const SHOWN = "[data-space-layer][data-space-shown] ";
-const HEADER = `${SHOWN}.cards-space-header[data-cards-space-id="${SPACE}"]`;
+/** Read in C1's own page, a body holding C1 alone: no layer scope is in it. */
+const HEADER = `.cards-space-header[data-cards-space-id="${SPACE}"]`;
 const FOLD = `${HEADER} [data-slot="cards-space-fold"]`;
 /** The rows under the header — the header carries the run key too. */
-const RUN_UNDER = `${SHOWN}.cards-list [data-cards-space-run="${SPACE}"]:not([data-testid="cards-space-header"])`;
+const RUN_UNDER = `.cards-list [data-cards-space-run="${SPACE}"]:not([data-testid="cards-space-header"])`;
 
 function oneSpaceBlob() {
   return {

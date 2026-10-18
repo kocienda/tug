@@ -31,6 +31,7 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import { launchTugApp, note } from "./_harness";
+import type { App } from "./_harness";
 import { mkTextFixture } from "./_harness/fixtures";
 import {
   EDITOR_SCROLLER_SELECTOR,
@@ -42,6 +43,17 @@ import {
   seedTextCard,
   waitForEditorShowing,
 } from "./text-card-disk-sync-fixture";
+
+/** Whether the host shows `cardId`'s body, once it says `wanted` or 8 s pass. */
+async function hostShows(app: App, cardId: string, wanted: boolean): Promise<boolean | null> {
+  const deadline = Date.now() + 8_000;
+  for (;;) {
+    const body = (await app.bodies()).find((b) => b.cardId === cardId);
+    const visible = body === undefined ? null : body.visible;
+    if (visible === wanted || Date.now() >= deadline) return visible;
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+}
 
 describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   // -------------------------------------------------------------------------
@@ -64,6 +76,13 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
   //
   // Otherwise the shape is scenario 6's exactly, so the two differ only in
   // which ancestor is hidden, which is the comparison worth having.
+  //
+  // On bodies the card is its own page, and the hiding is the host's: a
+  // workspace off screen hides its cards' bodies, which WebKit throttles as
+  // any hidden page, and a body's document has no layer of its own to wear
+  // it. So "the card's layer is hidden and it is not being rendered" is read
+  // off the host — its body is not shown — and the return off the host and
+  // the page together.
   test(
     "an external write to a card in a hidden workspace is current and in place",
     async () => {
@@ -114,34 +133,11 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("new-space"), null)`,
         );
-        // With the card's own layer confirmed hidden — the premise is an
-        // ANCESTOR the canvas is hiding, so a shape that left the card's host
-        // visible would prove nothing. The wait used also to clear a crossfade
-        // beat; the switch is a cut now, so there is no beat to clear.
-        await app.body("A").waitForCondition<boolean>(
-          `(function(){
-            var host = document.querySelector('[data-card-host][data-card-id="A"]');
-            if (host === null) return false;
-            var layer = host.closest('.tug-space-layer');
-            return layer !== null && !layer.hasAttribute('data-space-shown')
-              && getComputedStyle(host).display !== "none";
-          })()`,
-          { timeoutMs: 8000 },
-        );
-        // A hidden layer KEEPS its layout now ([B02] of `workspace-switch-cheap`)
-        // — the scroller has a real height — so the premise is stated as what
-        // it always meant: the card is not being rendered. `checkVisibility()`
-        // is false under `visibility: hidden` and `content-visibility: hidden`
-        // alike, and was false under `display: none` too.
-        const hiddenRendered = await app.body("A").evalJS<boolean | null>(
-          `(function(){
-            var s = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
-            if (s === null) return null;
-            return s.checkVisibility ? s.checkVisibility() : s.getBoundingClientRect().height > 0;
-          })()`,
-        );
+        // With the card's workspace confirmed hidden: a shape that left the
+        // card shown would prove nothing. On bodies that is the host not
+        // showing its body, which is also what "not being rendered" means.
         expect(
-          hiddenRendered,
+          await hostShows(app, "A", false),
           "a card in a hidden workspace is not being rendered",
         ).toBe(false);
 
@@ -159,12 +155,9 @@ describe.skipIf(!SHOULD_RUN)("at0602: Text card disk sync", () => {
         await app.evalJS<null>(
           `(window.tugdeck.lab.dispatch("activate-space", { spaceId: ${JSON.stringify(home)} }), null)`,
         );
+        expect(await hostShows(app, "A", true), "back in its workspace, the card's body is shown").toBe(true);
         await app.body("A").waitForCondition<boolean>(
           `(function(){
-            var host = document.querySelector('[data-card-host][data-card-id="A"]');
-            if (host === null) return false;
-            var layer = host.closest('.tug-space-layer');
-            if (layer === null || !layer.hasAttribute('data-space-shown')) return false;
             var s = document.querySelector('${EDITOR_SCROLLER_SELECTOR}');
             return s !== null && s.getBoundingClientRect().height > 100;
           })()`,

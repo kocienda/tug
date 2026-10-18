@@ -112,6 +112,7 @@ import {
   setBodyReloader,
 } from "./body-handoff";
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
+import { spaceBindingsLedgerStore } from "./space-bindings-ledger-store";
 import { openingBidForCard } from "./opening-bid";
 import { pageZoomStore } from "./page-zoom-store";
 import { bodyChordCaptureStore } from "./body-chord-capture-store";
@@ -200,19 +201,41 @@ function withoutBag(intent: BodyIntent | null): BodyIntent | null {
   return rest as BodyIntent;
 }
 
+/**
+ * The deck `cardId` stands in: the live one, or its parked workspace's
+ * record. A warm workspace's card has its body while parked, and its facts
+ * are its own deck's.
+ */
+export function ownDeckOf(deck: IDeckManagerStore, cardId: string): DeckState {
+  const spaceId = deck.spaceOf(cardId);
+  return spaceId === null ? deck.getSnapshot() : (deck.getSpaceDeck(spaceId) ?? deck.getSnapshot());
+}
+
+/** The card `state` would make key: its active pane's active card, as `getFirstResponderCardId` reads the live deck. */
+function keyCardOf(state: DeckState): string | null {
+  return state.panes.find((p) => p.id === state.activePaneId)?.activeCardId ?? null;
+}
+
 /** The `card-context` the shell owes `cardId`'s body now. */
 export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardContext {
-  const state = deck.getSnapshot();
   const spaceId = deck.spaceOf(cardId);
-  const activeSpaceId = deck.getSpacesSnapshot().activeSpaceId;
+  const spaces = deck.getSpacesSnapshot();
+  const layerShown = spaceId === null || spaceId === spaces.activeSpaceId;
+  const state = layerShown ? deck.getSnapshot() : ownDeckOf(deck, cardId);
   const railSide = pinnedRailSideOf(state, cardId);
+  // The card a warm workspace's first visit will make key is key in its
+  // body while it stands parked ([B24] of the bodies migration). Only a
+  // workspace nobody has shown: a visited one's key card was deactivated
+  // when it parked, and is activated again by its return.
+  const parkedKey = !layerShown && spaceId !== null && spaces.warmSpaceIds.includes(spaceId) && keyCardOf(state) === cardId;
   return {
     folded: cardFoldedOf(state, cardId),
     arriving: cardArrivingOf(state, cardId),
     firstResponderCardId: deck.getFirstResponderCardId(),
-    layerShown: spaceId === null || spaceId === activeSpaceId,
+    layerShown,
     spaceId,
     ...(railSide !== null ? { railSide } : {}),
+    ...(parkedKey ? { parkedKey: true as const } : {}),
   };
 }
 
@@ -386,7 +409,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   /** The registration of the kind `cardId` is, if the deck holds it. */
   const registrationOf = (cardId: string) => {
-    const card = deck.getSnapshot().cards.find((c) => c.id === cardId);
+    const card = ownDeckOf(deck, cardId).cards.find((c) => c.id === cardId);
     return card === undefined ? undefined : getRegistration(card.componentId);
   };
   const kindOf = (cardId: string): string | undefined => registrationOf(cardId)?.componentId;
@@ -540,7 +563,9 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         liveCardIdentity,
         bodyFactsStore.activityOf,
       );
-      arrangement.spaceVerb = cardsSpaceVerbRequest.getSnapshot();
+      // A workspace verb is the visible Workspaces card's to answer: a parked
+      // one that took it would open a field nobody can see.
+      arrangement.spaceVerb = cardContextFor(deck, cardId).layerShown ? cardsSpaceVerbRequest.getSnapshot() : null;
       extras.arrangement = arrangement;
     }
     if (registration?.bodyFollows === true) {
@@ -613,14 +638,31 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // there. That scan runs a microtask after whatever called it, so a
   // workspace switch's restore (`restoreSpaceSessions`, called right after
   // its commit) has registered what it decided first.
+  //
+  // A warm workspace's cards ([B24] of the bodies migration) are handed off
+  // while it stands parked: its mount kinds, and each Session card the
+  // bindings cache, once loaded, names no session for — a card the ledger
+  // binds to nothing, which shows its picker wherever it is. A bound one
+  // waits for the visit, whose restore spawns its session, so warming a
+  // workspace starts none.
   const unboundSessionCard = (cardId: string, componentId: string): boolean =>
     isBodyKind(componentId) &&
     cardSessionBindingStore.getBinding(cardId) === undefined &&
     restorePassGate.getSnapshot() &&
     !restorePassCards.has(cardId) &&
     !sessionRestoreRegistry.has(cardId);
+  const knownUnbound = (cardId: string): boolean =>
+    spaceBindingsLedgerStore.loaded() && spaceBindingsLedgerStore.get(cardId) === undefined;
+  /** The warm workspaces' parked decks. */
+  const warmDecks = (): DeckState[] => {
+    const spaces = deck.getSpacesSnapshot();
+    return spaces.warmSpaceIds.flatMap((id) => {
+      const parked = spaces.mountedDecks.get(id);
+      return parked === undefined ? [] : [parked];
+    });
+  };
   const handOffMountKinds = (): void => {
-    for (const card of deck.getSnapshot().cards) {
+    for (const card of [deck.getSnapshot(), ...warmDecks()].flatMap((d) => d.cards)) {
       if (bodyCardsStore.has(card.id) || !isMountBodyKind(card.componentId)) continue;
       // The card's state goes with it (`handOffToBody`): the shell holds a
       // just-added card's seed in memory, ahead of any write the body could
@@ -631,6 +673,11 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const handOffUnboundSessions = (): void => {
     for (const card of deck.getSnapshot().cards) {
       if (bodyCardsStore.has(card.id) || !unboundSessionCard(card.id, card.componentId)) continue;
+      handOffToBody(card.id, () => ({ kind: "restore" }));
+    }
+    for (const card of warmDecks().flatMap((d) => d.cards)) {
+      if (bodyCardsStore.has(card.id) || isMountBodyKind(card.componentId)) continue;
+      if (!unboundSessionCard(card.id, card.componentId) || !knownUnbound(card.id)) continue;
       handOffToBody(card.id, () => ({ kind: "restore" }));
     }
   };
@@ -653,12 +700,48 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     restorePassCards.subscribe(queueSessionScan),
     sessionRestoreRegistry.subscribe(queueSessionScan),
     cardSessionBindingStore.subscribe(queueSessionScan),
+    spaceBindingsLedgerStore.subscribe(queueSessionScan),
+    // A workspace warmed, or shown for the first time: its cards are handed
+    // off as the shown workspace's are.
+    deck.subscribeSpaces(() => {
+      handOffMountKinds();
+      queueSessionScan();
+    }),
     () => {
       installed = false;
     },
   );
   handOffMountKinds();
   queueSessionScan();
+
+  // ---- Warming the parked workspaces ----
+
+  // Once the restore pass has settled and every card of the shown
+  // workspace that has a body has painted it, every parked workspace is
+  // mounted, so its cards are handed off above ([B24] of the bodies
+  // migration): a first visit finds them standing, an unbound Session
+  // card's picker presented and claimed. Asked again on every change that
+  // could make it true — a seed replaces the workspaces — and a no-op once
+  // every workspace is mounted.
+  const shownBodiesPainted = (): boolean => {
+    if (!restorePassGate.getSnapshot()) return false;
+    return deck.getSnapshot().cards.every((card) => {
+      if (!isBodyKind(card.componentId)) return true;
+      const state = bodyCardsStore.stateOf(card.id);
+      return state === "painted" || state === "failed";
+    });
+  };
+  let warmQueued = false;
+  const queueWarm = (): void => {
+    if (warmQueued || deck.warmParkedSpaces === undefined) return;
+    warmQueued = true;
+    queueMicrotask(() => {
+      warmQueued = false;
+      if (installed && shownBodiesPainted()) deck.warmParkedSpaces?.();
+    });
+  };
+  releases.push(bodyCardsStore.subscribe(queueWarm), restorePassGate.subscribe(queueWarm), deck.subscribeSpaces(queueWarm));
+  queueWarm();
 
   // ---- Intents decided for a card already in its body ----
 
@@ -833,12 +916,15 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   if (deck.subscribeSync !== undefined) releases.push(deck.subscribeSync(() => resendExtras(), "body-arrangement"));
   // A workspace verb the menu asked the Cards card to answer lands in this
   // page's slot, which a Cards body never reads: it goes to every Cards body
-  // on its arrangement, and leaves the slot once one has been sent it. With
-  // no Cards body heard yet — the verb also reveals the card — it waits for
-  // the first one.
+  // in the workspace on screen, on its arrangement, and leaves the slot once
+  // one has been sent it. With none heard there yet — the verb also reveals
+  // the card, and New stands a fresh workspace whose card has not spoken —
+  // it waits for the first one. A parked workspace's card is never sent it.
   const relaySpaceVerb = (): void => {
     if (cardsSpaceVerbRequest.getSnapshot() === null) return;
-    const cardsBodies = [...heard].filter((id) => registrationOf(id)?.componentId === CARDS_CARD_ID);
+    const cardsBodies = [...heard].filter(
+      (id) => registrationOf(id)?.componentId === CARDS_CARD_ID && cardContextFor(deck, id).layerShown,
+    );
     if (cardsBodies.length === 0) return;
     for (const cardId of cardsBodies) sendContext(cardId, false);
     cardsSpaceVerbRequest.clear();
@@ -911,22 +997,35 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         bodyFactsStore.applyAdvice(cardId, advice);
         return;
       case "sheet-reservation": {
-        const standing = sheetReservationMemberIdOf(deck.getSnapshot(), cardId);
+        // A warm workspace's picker reports while parked: its claim goes on
+        // the parked record the first visit swaps in ([B24] of the bodies
+        // migration), so the arrival is laid out at the floor it needs.
+        const spaceId = deck.spaceOf(cardId);
+        const parked = spaceId !== null && spaceId !== deck.getSpacesSnapshot().activeSpaceId ? spaceId : null;
+        const claim = (memberId: string, height: number | null): void => {
+          if (parked !== null && deck.setParkedSheetReservation !== undefined) deck.setParkedSheetReservation(parked, memberId, height);
+          else deck.setSheetReservation(memberId, height);
+        };
+        const standing = sheetReservationMemberIdOf(ownDeckOf(deck, cardId), cardId);
         if (advice.heightPx === null) {
           const claimed = standing ?? reservedUnder.get(cardId);
           reservedUnder.delete(cardId);
-          if (claimed !== undefined) deck.setSheetReservation(claimed, null);
+          if (claimed !== undefined) claim(claimed, null);
           return;
         }
         if (standing === null) return;
         reservedUnder.set(cardId, standing);
-        deck.setSheetReservation(standing, advice.heightPx);
+        claim(standing, advice.heightPx);
         return;
       }
       case "opening-bid":
         openingBidForCard(cardId, advice.heightPx);
         return;
       case "activate":
+        // A parked body cannot be pressed: an activation from one — a warm
+        // workspace's card taking focus in its own page — is not the user's,
+        // and would name a key card the deck does not show.
+        if (!cardContextFor(deck, cardId).layerShown) return;
         deck.activateCard(cardId);
         return;
       case "painted":

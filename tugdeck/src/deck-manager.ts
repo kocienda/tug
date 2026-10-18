@@ -61,6 +61,7 @@ import {
   moveCardBetweenDecks,
   nextSpaceName,
   parkedDeck,
+  type SpaceRecord,
   type SpacesSnapshot,
   type SpacesState,
 } from "./spaces";
@@ -1274,6 +1275,16 @@ export class DeckManager implements IDeckManagerStore {
    */
   public spaceOf = (cardId: string): string | null =>
     this.spacesStore.spaceOf(cardId, this.getPicture());
+
+  /**
+   * Mount every parked workspace ahead of its first visit
+   * ({@link SpacesSnapshot.warmSpaceIds}): the body shell asks once the
+   * shown workspace's bodies have painted, so a first visit finds its cards
+   * standing. Idempotent; notifies only when a workspace joined.
+   */
+  public warmParkedSpaces = (): void => {
+    this.spacesStore.warmParked();
+  };
 
   /**
    * The deck of any space, active or parked. The active space answers with the
@@ -5614,8 +5625,8 @@ export class DeckManager implements IDeckManagerStore {
    * claim can take is its sheet going — a session binding in the background,
    * a card closing — and that drop has to land on the record the return swaps
    * in, or the card comes back under a floor nothing stands on. A report
-   * (a height rather than a drop) for a parked card is not taken here: the
-   * sheet re-reports on the shown transition if it changed.
+   * (a height rather than a drop) for a parked card is
+   * {@link setParkedSheetReservation}'s, which knows the card's workspace.
    *
    * Returns false when the member is the active deck's, or no parked record
    * names it, so the caller's own commit runs.
@@ -5630,22 +5641,54 @@ export class DeckManager implements IDeckManagerStore {
         what === "claim"
           ? sheetClaimWith(standing, memberId, null)
           : { ...standing, openingBids: openingBidsWith(deck.openingBids, memberId, null) };
-      if (next.sheetReservations === standing.sheetReservations && next.openingBids === standing.openingBids) {
-        continue;
-      }
-      const { sheetReservations: _reservations, openingBids: _bids, ...rest } = deck;
-      space.deck = {
-        ...rest,
-        ...(next.sheetReservations !== undefined ? { sheetReservations: next.sheetReservations } : {}),
-        ...(next.openingBids !== undefined ? { openingBids: next.openingBids } : {}),
-      };
-      if (next.openingBids !== standing.openingBids) clearOpeningBidReport(memberId);
-      // The canvas lays a mounted workspace's layer out from this record, so
-      // the cached snapshot holding it has to go.
-      this.spacesStore.notify();
-      return true;
+      if (this._writeParkedClaims(space, memberId, next)) return true;
     }
     return false;
+  }
+
+  /**
+   * Claim `height` for `memberId` in the PARKED workspace `spaceId`, or drop
+   * the claim with `null` — the report of a sheet standing on a parked card,
+   * which a warm workspace's unbound Session card makes before anybody has
+   * shown it ([B24] of the bodies migration). Its picker presents while
+   * parked and its claim lands on the record a first visit swaps in, so the
+   * arrival is laid out at the floor the picker needs and nothing resizes
+   * after the switch. The supersede rule is {@link sheetClaimWith}'s, as for
+   * the active deck; a parked member has no reveal, so no report of its is a
+   * first report held to a bid. A no-op on the active workspace, whose claims
+   * are {@link setSheetReservation}'s.
+   */
+  setParkedSheetReservation(spaceId: string, memberId: string, height: number | null): void {
+    const space = this.spacesStore.find(spaceId);
+    const deck = space?.deck;
+    if (space === undefined || deck === null || deck === undefined) return;
+    const next = sheetClaimWith({ sheetReservations: deck.sheetReservations, openingBids: deck.openingBids }, memberId, height);
+    this._writeParkedClaims(space, memberId, next);
+  }
+
+  /**
+   * Write `next` as `space`'s parked claims when they differ from what its
+   * record holds; whether they did.
+   */
+  private _writeParkedClaims(
+    space: SpaceRecord,
+    memberId: string,
+    next: Pick<DeckState, "sheetReservations" | "openingBids">,
+  ): boolean {
+    const deck = space.deck;
+    if (deck === null) return false;
+    if (next.sheetReservations === deck.sheetReservations && next.openingBids === deck.openingBids) return false;
+    const { sheetReservations: _reservations, openingBids: _bids, ...rest } = deck;
+    space.deck = {
+      ...rest,
+      ...(next.sheetReservations !== undefined ? { sheetReservations: next.sheetReservations } : {}),
+      ...(next.openingBids !== undefined ? { openingBids: next.openingBids } : {}),
+    };
+    if (next.openingBids !== deck.openingBids) clearOpeningBidReport(memberId);
+    // The canvas lays a mounted workspace's layer out from this record, so
+    // the cached snapshot holding it has to go.
+    this.spacesStore.notify();
+    return true;
   }
 
   /**

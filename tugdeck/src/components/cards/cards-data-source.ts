@@ -1319,6 +1319,7 @@ const EMPTY_SPACES: SpacesSnapshot = {
   spaces: [],
   activeSpaceId: "",
   mountedSpaceIds: [],
+  warmSpaceIds: [],
   mountedDecks: new Map(),
 };
 

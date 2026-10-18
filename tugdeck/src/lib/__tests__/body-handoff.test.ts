@@ -6,7 +6,8 @@
  * registered is handed nowhere; a card that already
  * is a body card is sent the intent its
  * funnel has just decided, once; and the reconnect pass's fire for a body
- * card asks the host for nothing and sends its body nothing.
+ * card asks the host for nothing and sends its body nothing. A parked
+ * workspace's card is handed off from its own workspace's deck.
  * The intent a card was handed is kept while it is a body card, a card whose
  * body failed is asked for again with the intent the shell gives it, and a
  * bound card's arrival waits on its body's ready, or its failure.
@@ -79,15 +80,21 @@ registerCard({
 /** The state the shell holds per card; empty unless a test seeds it. */
 const cardStates = new Map<string, Record<string, unknown>>();
 
+const live = {
+  cards: [
+    { id: "s1", componentId: "handoff-spawn" },
+    { id: "s2", componentId: "handoff-spawn" },
+    { id: "g1", componentId: "git" },
+    { id: "m1", componentId: "handoff-mount" },
+  ],
+};
+/** A parked workspace's deck, holding one card the live deck does not. */
+const parked = { cards: [{ id: "pm1", componentId: "handoff-mount" }] };
+
 const deck = {
-  getSnapshot: () => ({
-    cards: [
-      { id: "s1", componentId: "handoff-spawn" },
-      { id: "s2", componentId: "handoff-spawn" },
-      { id: "g1", componentId: "git" },
-      { id: "m1", componentId: "handoff-mount" },
-    ],
-  }),
+  getSnapshot: () => live,
+  spaceOf: (cardId: string) => (parked.cards.some((c) => c.id === cardId) ? "parked" : "live"),
+  getSpaceDeck: (spaceId: string) => (spaceId === "parked" ? parked : live),
   getCardState: (cardId: string) => cardStates.get(cardId),
 } as unknown as IDeckManagerStore;
 
@@ -167,6 +174,13 @@ describe("with the capability", () => {
       { name: "bodyCreate", body: { cardId: "m1", componentId: "handoff-mount", intent: { kind: "mount" } } },
     ]);
     expect(bodyIntentOf("m1")).toEqual({ kind: "mount" });
+  });
+
+  test("a parked workspace's card is handed off from its own deck", () => {
+    expect(handOffToBody("pm1", () => ({ kind: "mount" }))).toBe(true);
+    expect(posted).toEqual([
+      { name: "bodyCreate", body: { cardId: "pm1", componentId: "handoff-mount", intent: { kind: "mount" } } },
+    ]);
   });
 
   test("a card's first hand-off carries the state the shell holds for it, whatever its intent", () => {

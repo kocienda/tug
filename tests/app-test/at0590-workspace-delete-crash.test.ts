@@ -95,22 +95,18 @@ const AWAY = "at0590-away";
 const LAST = "at0590-last";
 
 /**
- * "On screen", said out loud.
- *
- * Every visited workspace stays MOUNTED, so the document holds one Workspaces
- * card per visited workspace — all but one inside a wrapper with no
- * `data-space-shown` and no boxes. The portaled selectors (menus, confirms)
- * deliberately carry no scope: an overlay is mounted at the canvas's overlay
- * root, outside every layer.
+ * The Workspaces card's own page. On bodies each Workspaces card is a body,
+ * so CA's page holds CA and nothing of another workspace's card: its reads
+ * need no layer scope, and the shell's `[data-space-layer]` wrappers are not
+ * in it. The card's menus and its delete confirm are portaled in that page
+ * too, and are read there.
  */
-const SHOWN = "[data-space-layer][data-space-shown] ";
-
-const HEADER = `${SHOWN}[data-testid="cards-space-header"]`;
+const HEADER = `[data-testid="cards-space-header"]`;
 const VERBS_BUTTON = '[data-testid="cards-space-verbs-button"]';
 const DELETE_ITEM = '[data-item-action="delete-space"]';
 const CONFIRM = '[data-slot="tug-confirm-popover"]';
 const CONFIRM_OK = '[data-slot="tug-confirm-confirm"]';
-const FILTER_INPUT = `${SHOWN}.cards-card [data-testid="cards-filter"] input`;
+const FILTER_INPUT = `.cards-card [data-testid="cards-filter"] input`;
 /**
  * The term has to name a row the projection actually labels. A SESSION row is
  * labelled `<project>/<callsign>` rather than by its card title, so the two
@@ -122,14 +118,14 @@ const FILTER_INPUT = `${SHOWN}.cards-card [data-testid="cards-filter"] input`;
 const FILTER_TERM = "Zeta";
 
 const headerFor = (id: string): string =>
-  `${SHOWN}.cards-space-header[data-cards-space-id="${id}"]`;
+  `.cards-space-header[data-cards-space-id="${id}"]`;
 
 /**
  * Every row the list is holding, headers subtracted. A filter narrows the
  * ROWS and leaves every workspace's header standing — so the header count is
  * the wrong probe for "the projection got shorter" and this is the right one.
  */
-const ROWS = `${SHOWN}.cards-list [data-cards-space-run]:not([data-testid="cards-space-header"])`;
+const ROWS = `.cards-list [data-cards-space-run]:not([data-testid="cards-space-header"])`;
 
 const settle = (ms = 450): Promise<void> =>
   new Promise<void>((r) => setTimeout(r, ms));
@@ -252,6 +248,10 @@ function threeSpaceBlob(): Record<string, unknown> {
 /**
  * Arm every channel the crash could arrive on, into one array.
  *
+ * In the shell, which is where the delete runs on bodies: the confirm is a
+ * shell surface, the splice and the boundary are the shell's, and CA's own
+ * page goes away with the workspace it is deleting.
+ *
  * The two the plan named are the two that cannot see it. A render error is
  * caught by `ErrorBoundary.getDerivedStateFromError` (`error-boundary.tsx`,
  * wrapping the whole tree above `DeckCanvas`), so React never rethrows it:
@@ -263,7 +263,7 @@ function threeSpaceBlob(): Record<string, unknown> {
  * kept because a throw somewhere OTHER than a render still takes them.
  */
 async function armRecorder(app: App): Promise<void> {
-  await app.body("CA").evalJS<boolean>(
+  await app.evalJS<boolean>(
     `(function () {
        window.__at0590 = [];
        var push = function (kind, message, stack) {
@@ -334,7 +334,7 @@ async function armRecorder(app: App): Promise<void> {
  * emptied again before the gesture.
  */
 async function proveRecorder(app: App): Promise<string[]> {
-  await app.body("CA").evalJS<boolean>(
+  await app.evalJS<boolean>(
     `(function () {
        console.error("[ErrorBoundary]", new Error("at0590 instrument check"));
        var el = document.createElement("div");
@@ -351,7 +351,7 @@ async function proveRecorder(app: App): Promise<string[]> {
   // The banner channel is a MutationObserver, so its record is delivered on a
   // later task than the append. Read across that boundary, not inside it.
   await settle(200);
-  return app.body("CA").evalJS<string[]>(
+  return app.evalJS<string[]>(
     `(function () {
        var el = document.getElementById("at0590-instrument-check");
        if (el !== null) el.remove();
@@ -387,11 +387,11 @@ function typeFilter(app: App, text: string): Promise<null> {
 /** Open the `···` menu on a workspace's header and press Delete. */
 async function pressDelete(app: App, spaceId: string): Promise<void> {
   await app.body("CA").nativeClickAtElement(`${headerFor(spaceId)} ${VERBS_BUTTON}`);
-  await app.waitForCondition<boolean>(
+  await app.body("CA").waitForCondition<boolean>(
     `document.querySelector(${JSON.stringify(DELETE_ITEM)}) !== null`,
     { timeoutMs: 8_000 },
   );
-  await app.nativeClickAtElement(DELETE_ITEM);
+  await app.body("CA").nativeClickAtElement(DELETE_ITEM);
 }
 
 describe.skipIf(!SHOULD_RUN)(
@@ -425,7 +425,7 @@ describe.skipIf(!SHOULD_RUN)(
           const before = await app.evalJS<SpacesProbe>(
             `window.tugdeck.diag.getSpaces()`,
           );
-          const mounted = await app.body("CA").evalJS<string[]>(MOUNTED_LAYERS);
+          const mounted = await app.evalJS<string[]>(MOUNTED_LAYERS);
           note(`at0590 mounted before: ${JSON.stringify(mounted)}`);
           expect(
             before.activeSpaceId,
@@ -469,11 +469,11 @@ describe.skipIf(!SHOULD_RUN)(
             "the recorder sees a console-reported Error and a banner — proven before it is trusted",
           ).toEqual(["banner", "console"]);
           await pressDelete(app, AWAY);
-          await app.waitForCondition<boolean>(
+          await app.body("CA").waitForCondition<boolean>(
             `document.querySelector(${JSON.stringify(CONFIRM)}) !== null`,
             { timeoutMs: 8_000 },
           );
-          await app.nativeClickAtElement(CONFIRM_OK);
+          await app.body("CA").nativeClickAtElement(CONFIRM_OK);
           // Either outcome ends the wait: the splice lands, or the boundary
           // catches. Waiting only on the splice would turn the very failure
           // this file exists to catch into a bare 20-second timeout carrying

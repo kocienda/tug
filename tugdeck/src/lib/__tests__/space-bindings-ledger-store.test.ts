@@ -73,6 +73,13 @@ describe("spaceBindingsLedgerStore", () => {
     expect(spaceBindingsLedgerStore.get("nobody")).toBeUndefined();
   });
 
+  test("is loaded only once a frame has landed, an empty one included", () => {
+    spaceBindingsLedgerStore.installOnce();
+    expect(spaceBindingsLedgerStore.loaded()).toBe(false);
+    publishListCardBindingsOk({ bindings: [] });
+    expect(spaceBindingsLedgerStore.loaded()).toBe(true);
+  });
+
   test("a malformed row is dropped rather than cached", () => {
     spaceBindingsLedgerStore.installOnce();
     publishListCardBindingsOk({

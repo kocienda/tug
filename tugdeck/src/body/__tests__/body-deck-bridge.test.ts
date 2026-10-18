@@ -6,7 +6,8 @@
  * and says so with its inert answer. A card that reads the whole deck reads
  * the shell's arrangement from its context instead — panes, band, workspaces
  * — is told when it moves, and sends the deck calls it makes to the shell;
- * a following card reads the card it follows.
+ * a following card reads the card it follows. A warm workspace's key card is
+ * key while it stands parked, and its first visit does not activate it again.
  *
  * @covers tugdeck/src/body/body-deck-bridge.ts
  */
@@ -138,6 +139,44 @@ describe("activation", () => {
     b.applyContext(context({ firstResponderCardId: "another" }));
 
     expect(events).toEqual(["activate", "deactivate"]);
+  });
+
+  test("a warm workspace's key card activates while parked, and its first visit does not activate it again", () => {
+    const b = bridge();
+    const events: string[] = [];
+    b.observeCardDidActivate(CARD, () => events.push("activate"));
+    b.observeCardDidDeactivate(CARD, () => events.push("deactivate"));
+
+    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two", parkedKey: true }));
+    expect(b.isParkedKey(CARD)).toBe(true);
+    expect(b.getFirstResponderCardId()).toBe("shown");
+    b.applyContext(context({ firstResponderCardId: CARD, spaceId: "two" }));
+    expect(b.isParkedKey(CARD)).toBe(false);
+    b.applyContext(context({ firstResponderCardId: "another", spaceId: "two" }));
+
+    expect(events).toEqual(["activate", "deactivate"]);
+  });
+
+  test("a parked key card's bag focus waits for its first visit to name it first responder", () => {
+    const b = bridge();
+    let peeked = 0;
+    const peek = b.peekCardHostRoot;
+    b.peekCardHostRoot = (cardId: string) => {
+      peeked += 1;
+      return peek(cardId);
+    };
+    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two", parkedKey: true }));
+    expect(peeked).toBe(0);
+    b.applyContext(context({ firstResponderCardId: CARD, spaceId: "two" }));
+    expect(peeked).toBeGreaterThan(0);
+  });
+
+  test("a picker that subscribes after its parked key context came is told it is active", () => {
+    const b = bridge();
+    b.applyContext(context({ firstResponderCardId: "shown", layerShown: false, spaceId: "two", parkedKey: true }));
+    const events: string[] = [];
+    b.observeCardDidActivate(CARD, () => events.push("activate"));
+    expect(events).toEqual(["activate"]);
   });
 });
 

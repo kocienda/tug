@@ -178,6 +178,7 @@ import { useOptionalResponder } from "./use-responder";
 import { useFocusable } from "./use-focusable";
 import { useCardId } from "./use-card-state-preservation";
 import { getDeckStore } from "@/lib/deck-store-registry";
+import { useSpaceLayerShown } from "@/components/chrome/space-layer";
 import { TUG_ACTIONS, type TugAction } from "./action-vocabulary";
 import type { ActionHandler, ActionHandlerResult } from "./responder-chain";
 import { useTextSurfaceContextMenu } from "./use-text-surface-context-menu";
@@ -901,6 +902,19 @@ export const TugTextCardEditor = React.forwardRef<
   const pendingHiddenTextRef = useRef<string | null>(null);
 
   /**
+   * Whether this card's workspace is the one on screen. A hidden workspace's
+   * card keeps its layout — a parked layer is laid out, and a body's page is
+   * hidden by the host whole — so a box to measure is not enough: a reload
+   * dispatched into a page nobody is showing came forward one row off. The
+   * reload waits for the workspace as it waits for a box.
+   */
+  const layerShown = useSpaceLayerShown();
+  const layerShownRef = useRef(layerShown);
+  useLayoutEffect(() => {
+    layerShownRef.current = layerShown;
+  }, [layerShown]);
+
+  /**
    * Does this view have a layout box to measure?
    *
    * A stacked card that is not the active one is mounted and alive but carries
@@ -1016,7 +1030,7 @@ export const TugTextCardEditor = React.forwardRef<
       // compute where to put the reader. Dispatching anyway is what loses the
       // place: with no layout there is no anchor, pixel `scrollTop` is held
       // instead of the text, and the card comes forward one row off.
-      if (!viewHasLayout(live)) {
+      if (!viewHasLayout(live) || !layerShownRef.current) {
         pendingHiddenTextRef.current = target;
         return;
       }
@@ -1058,7 +1072,7 @@ export const TugTextCardEditor = React.forwardRef<
     const observer = new ResizeObserver(() => {
       if (pendingHiddenTextRef.current === null) return;
       if (viewRef.current !== live) return;
-      if (!viewHasLayout(live)) return;
+      if (!viewHasLayout(live) || !layerShownRef.current) return;
       const pending = pendingHiddenTextRef.current;
       pendingHiddenTextRef.current = null;
       dispatchReplacement(live, pending);
@@ -1068,6 +1082,17 @@ export const TugTextCardEditor = React.forwardRef<
       observer.disconnect();
     };
   }, [view, dispatchReplacement, viewHasLayout]);
+
+  // And when the card's workspace comes back on screen: its box never went,
+  // so the observer above has nothing to report.
+  useEffect(() => {
+    const live = view;
+    if (live === null || !layerShown) return;
+    const pending = pendingHiddenTextRef.current;
+    if (pending === null || !viewHasLayout(live)) return;
+    pendingHiddenTextRef.current = null;
+    dispatchReplacement(live, pending);
+  }, [view, layerShown, dispatchReplacement, viewHasLayout]);
 
   // ---- Mount the EditorView ----
 

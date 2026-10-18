@@ -45,6 +45,7 @@
 
 import type { BodyIntent } from "../body/body-intent";
 import { getRegistration } from "../card-registry";
+import type { DeckState } from "../layout-tree";
 import { bodyCardsStore } from "./body-cards-store";
 import { bodyFactsStore } from "./body-facts-store";
 import { getDeckStore } from "./deck-store-registry";
@@ -127,6 +128,18 @@ export function setBodyIntentForwarder(send: ((cardId: string, intent: BodyInten
   forwarder = send;
 }
 
+/**
+ * `cardId`'s card, read from its own workspace's deck: a warm workspace's
+ * card has its body while parked, and is asked for again there.
+ */
+function cardInItsSpace(cardId: string): DeckState["cards"][number] | undefined {
+  const deck = getDeckStore();
+  if (deck === null) return undefined;
+  const spaceId = deck.spaceOf(cardId);
+  const own = spaceId === null ? deck.getSnapshot() : (deck.getSpaceDeck(spaceId) ?? deck.getSnapshot());
+  return own.cards.find((c) => c.id === cardId);
+}
+
 /** Post `body` to the host's `name` handler; nothing without a host. */
 export function postToHost(name: string, body: unknown): void {
   const handlers = (
@@ -143,7 +156,7 @@ export function postToHost(name: string, body: unknown): void {
  * which acts on `intent`. Nothing when the deck no longer holds the card.
  */
 export function askForBodyAgain(cardId: string, intent: BodyIntent): void {
-  const card = getDeckStore()?.getSnapshot().cards.find((c) => c.id === cardId);
+  const card = cardInItsSpace(cardId);
   if (card === undefined || !bodyCardsStore.has(cardId)) return;
   intents.set(cardId, intent);
   bodyCardsStore.setState(cardId, "creating");
@@ -184,7 +197,7 @@ export function handOffToBody(cardId: string, intent: () => BodyIntent): boolean
   }
   const deck = getDeckStore();
   if (deck === null) return false;
-  const card = deck.getSnapshot().cards.find((c) => c.id === cardId);
+  const card = cardInItsSpace(cardId);
   if (card === undefined || !isBodyKind(card.componentId)) return false;
   bodyCardsStore.mark(cardId);
   // The card's first body: it takes the state the shell holds for it.

@@ -1,6 +1,8 @@
 /**
  * A parked workspace keeps its sheets' floor claims, and a claim whose sheet
- * goes while its workspace is parked is dropped from the parked record.
+ * goes while its workspace is parked is dropped from the parked record. A
+ * sheet that reports while its workspace is parked — a warm workspace's
+ * picker — claims on the parked record.
  *
  * A parked layer stays mounted with its sheets up, so the claim is still the
  * floor its card needs when the workspace comes back. Stripped at the park,
@@ -48,5 +50,22 @@ describe("a parked workspace's sheet claims", () => {
     expect(parked !== null && "sheetReservations" in parked).toBe(false);
     manager.activateSpace(one);
     expect(manager.getSnapshot().sheetReservations).toBeUndefined();
+  });
+
+  test("take a report made while parked, and come back with it", () => {
+    manager.setParkedSheetReservation(one, "pane-1", 420);
+    expect(manager.getSpaceDeck(one)?.sheetReservations).toEqual({ "pane-1": 420 });
+    manager.activateSpace(one);
+    expect(manager.getSnapshot().sheetReservations).toEqual({ "pane-1": 420 });
+  });
+
+  test("a parked report leaves the shown workspace alone, and is a no-op on it", () => {
+    const shown = manager.getSpacesSnapshot().activeSpaceId;
+    const before = manager.getSnapshot().sheetReservations;
+    manager.setParkedSheetReservation(shown, "pane-1", 420);
+    expect(manager.getSnapshot().sheetReservations).toBe(before);
+    manager.setParkedSheetReservation(one, "pane-1", null);
+    const parked = manager.getSpaceDeck(one);
+    expect(parked !== null && "sheetReservations" in parked).toBe(false);
   });
 });

@@ -180,7 +180,7 @@ async function sampleSteps(app: App, ms = 300): Promise<Step[]> {
   return true;
 })()`);
   await new Promise((r) => setTimeout(r, ms + 200));
-  return app.evalJS<Step[]>(`(window.__textFindSamples || []).filter(Boolean)`);
+  return app.body("A").evalJS<Step[]>(`(window.__textFindSamples || []).filter(Boolean)`);
 }
 
 /**
@@ -250,7 +250,7 @@ async function mountCard(app: App): Promise<void> {
 
 async function openBar(app: App): Promise<void> {
   await app.body("A").focusElement(EDITOR);
-  await app.evalJS<boolean>(
+  await app.body("A").evalJS<boolean>(
     `(function(){
       var t = document.activeElement || document;
       return t.dispatchEvent(new KeyboardEvent("keydown", {
@@ -275,7 +275,7 @@ async function openBar(app: App): Promise<void> {
 
 /** Enter in the query field advances; Shift-Enter retreats. */
 async function stepForward(app: App): Promise<void> {
-  await app.evalJS<boolean>(
+  await app.body("A").evalJS<boolean>(
     `(function(){
       var t = document.activeElement || document;
       return t.dispatchEvent(new KeyboardEvent("keydown", {

@@ -362,6 +362,12 @@
         "appInfo": { "name": "Tug", "version": "0.8.0" },
         "railSide": "right"
       }
+    },
+    {
+      "from": { "pageId": "shell-1", "role": "shell", "cardId": null },
+      "to": { "card": "c3" },
+      "kind": "card-context",
+      "payload": { "folded": false, "arriving": false, "firstResponderCardId": "c1", "layerShown": false, "spaceId": "space-2", "parkedKey": true }
     }
   ]
 }

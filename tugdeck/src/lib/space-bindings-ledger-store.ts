@@ -28,6 +28,9 @@ import { subscribeToListCardBindingsOk } from "./session-ledger-events";
 class SpaceBindingsLedgerStore extends Subscribable {
   private rows: ReadonlyMap<string, CardBinding> = new Map();
 
+  /** Whether a frame has landed, so a card with no row is one the ledger does not bind. */
+  private hasLoaded = false;
+
   private installed = false;
 
   /**
@@ -42,6 +45,14 @@ class SpaceBindingsLedgerStore extends Subscribable {
 
   /** The newest ledger row for `cardId`, or `undefined` when there is none. */
   get = (cardId: string): CardBinding | undefined => this.rows.get(cardId);
+
+  /**
+   * Whether the ledger has answered at all. Before its first frame a card
+   * with no row is merely unasked about; after it, it is a card the ledger
+   * binds to nothing — which is what lets a warm workspace's unbound Session
+   * card have its body before anybody shows it.
+   */
+  loaded = (): boolean => this.hasLoaded;
 
   /**
    * Subscribe to `list_card_bindings_ok` exactly once. Called from
@@ -64,6 +75,7 @@ class SpaceBindingsLedgerStore extends Subscribable {
         next.set(binding.card_id, binding);
       }
       this.rows = next;
+      this.hasLoaded = true;
       this.notify();
     });
   };
@@ -76,6 +88,7 @@ class SpaceBindingsLedgerStore extends Subscribable {
     this.uninstall?.();
     this.uninstall = null;
     this.rows = new Map();
+    this.hasLoaded = false;
     this.installed = false;
     this.clearListeners();
   };

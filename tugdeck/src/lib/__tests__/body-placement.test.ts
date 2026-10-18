@@ -2,15 +2,21 @@
  * A body shows only when it is ready and its card is shown — the active card
  * of its pane, not folded (unless its kind draws its own folded form), not
  * arriving, in the shown workspace — and the
- * placer tells the host only what changed.
+ * placer tells the host only what changed. A body a plan is carrying in is
+ * not hidden for arriving while its settle runs, and a body measured in a
+ * collapsed frame has no insets to land at.
  *
  * @covers tugdeck/src/lib/body-placement.ts
  */
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import type { IDeckManagerStore } from "../../deck-manager-store";
+import { bodyCardsStore } from "../body-cards-store";
 import {
   bodyHoles,
   bodyVisible,
   gripRects,
+  hiddenSince,
+  insetsWithin,
   inReadingOrder,
   mirrorInsets,
   paneClipPath,
@@ -189,6 +195,60 @@ describe("a pane behind bodies", () => {
     expect(paneClipPath([{ x: 400, y: 50, width: 400, height: 300 }])).toBe(
       'path(evenodd, "M-100000 -100000H100000V100000H-100000ZM400 50H800V350H400Z")',
     );
+  });
+});
+
+describe("hiddenSince", () => {
+  afterEach(() => bodyCardsStore._reset());
+
+  /** A deck of one pane, `p1`, holding `rail`, arriving unless `arriving` is false, folded when `folded`. */
+  function deckOf(facts: { arriving: boolean; folded?: boolean }): IDeckManagerStore {
+    const state = {
+      panes: [{ id: "p1", cardIds: ["rail"], activeCardId: "rail", folded: facts.folded === true }],
+      cards: [{ id: "rail", componentId: "layout" }],
+      arriving: { p1: facts.arriving },
+    };
+    return {
+      getSnapshot: () => state,
+      spaceOf: () => null,
+      getSpacesSnapshot: () => ({ activeSpaceId: null }),
+    } as unknown as IDeckManagerStore;
+  }
+
+  const posted: PlaceBodies = {
+    radius: 6,
+    bodies: [{ cardId: "rail", x: 0, y: 34, width: 420, height: 1016, grips: [], visible: true, z: 1 }],
+  };
+
+  test("an arriving body is hidden unless a plan is carrying it in", () => {
+    bodyCardsStore.mark("rail");
+    bodyCardsStore.setState("rail", "painted");
+    const deck = deckOf({ arriving: true });
+    expect(hiddenSince(deck, posted)?.bodies[0].visible).toBe(false);
+    expect(hiddenSince(deck, posted, new Set(["rail"]))).toBeNull();
+  });
+
+  test("a body carried in is still hidden by a fact that would hide it anyway", () => {
+    bodyCardsStore.mark("rail");
+    bodyCardsStore.setState("rail", "painted");
+    const deck = deckOf({ arriving: true, folded: true });
+    expect(hiddenSince(deck, posted, new Set(["rail"]))?.bodies[0].visible).toBe(false);
+  });
+});
+
+describe("insetsWithin", () => {
+  test("a body with room in a pane with room has its insets", () => {
+    expect(insetsWithin({ x: 0, y: 33, width: 420, height: 1018 }, { x: 0, y: 33, width: 419, height: 1018 })).toEqual({
+      top: 0,
+      left: 0,
+      right: 1,
+      bottom: 0,
+    });
+  });
+
+  test("a body in a collapsed rail, or a collapsed body, has none", () => {
+    expect(insetsWithin({ x: 0, y: 33, width: 1, height: 1018 }, { x: 1, y: 34, width: 0, height: 1016 })).toBeNull();
+    expect(insetsWithin({ x: 0, y: 33, width: 420, height: 1018 }, { x: 1, y: 34, width: 0, height: 1016 })).toBeNull();
   });
 });
 

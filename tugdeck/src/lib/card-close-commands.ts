@@ -109,12 +109,13 @@ export function closeCard(cardId: string, spaceId: string): void {
   const elsewhere = store !== null && store.getSpacesSnapshot().activeSpaceId !== spaceId;
 
   // The card is STANDING — in the workspace on screen, or in one left mounted
-  // behind it. Its close guard is registered either way, so a close with
-  // nothing to ask just happens, wherever the card is. Only a close that puts
-  // a QUESTION on screen has to go to the workspace holding it first — a sheet
-  // over a hidden layer is a sheet nobody can answer.
+  // behind it, a visited workspace or a warm one. On screen the close just
+  // happens, or asks there. Behind, it goes to the card's workspace first:
+  // the pane's close removes the card from the deck on screen, and a hidden
+  // layer's pane is not in it, so a close sent there did nothing at all —
+  // and a sheet over a hidden layer is a sheet nobody can answer.
   if (chain.hasResponder(cardId)) {
-    if (elsewhere && askedBeforeClosing(cardId)) store?.activateSpace(spaceId);
+    if (elsewhere) store?.activateSpace(spaceId);
     send();
     return;
   }
@@ -212,8 +213,11 @@ export async function deleteSpace(spaceId: string): Promise<void> {
     // Whether the workspace's cards are ALREADY standing: a visited workspace
     // stays mounted while the canvas hides it, so its guards are registered
     // and there is nothing to wait for. Read before the activation, which is
-    // what would otherwise make every workspace look mounted.
-    const wasMounted = store.getSpacesSnapshot().mountedSpaceIds.includes(spaceId);
+    // what would otherwise make every workspace look mounted. A warm one is
+    // mounted but unvisited: its bound Session cards restore at the visit,
+    // so it is waited on as a first stand-up is.
+    const spaces = store.getSpacesSnapshot();
+    const wasMounted = spaces.mountedSpaceIds.includes(spaceId) && !spaces.warmSpaceIds.includes(spaceId);
     if (arriving) store.activateSpace(spaceId);
     const cardIds = (store.getSpaceDeck(spaceId)?.cards ?? []).map((card) => card.id);
     // `activateSpace` commits the deck synchronously, but a card mounts on the

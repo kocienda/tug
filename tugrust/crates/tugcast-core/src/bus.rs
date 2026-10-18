@@ -327,6 +327,9 @@ pub struct CardContext {
     /// The deck edge a pinned rail card stands on; absent for any other card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rail_side: Option<RailSide>,
+    /// True on a parked workspace's card that its arrival will make key; absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parked_key: Option<bool>,
     /// The crossing the card's pane stands under, for the body to hold its
     /// card root through; opaque here, absent when none stands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -508,6 +511,13 @@ mod tests {
                 arrangement: Some(_),
                 followed: Some(_),
                 app_info: Some(_),
+                ..
+            })
+        )));
+        assert!(has(&|e| matches!(
+            &e.message,
+            BusMessage::CardContext(CardContext {
+                parked_key: Some(true),
                 ..
             })
         )));

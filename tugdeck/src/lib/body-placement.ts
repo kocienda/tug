@@ -537,12 +537,21 @@ export function measurePlacements(deck: IDeckManagerStore, root: ParentNode, exa
  * `placement` with every body whose facts no longer show it marked hidden,
  * at the rect it had — or null when nothing changed. The commit-time half of
  * placement: what a settle may not measure, it may still hide.
+ *
+ * A body a plan is carrying in (`carriedIn`) is shown by its plan, not by
+ * the deck's `arriving`, which stands until the settle lands: only a fact
+ * that would hide it anyway — its pane closed, folded, parked — hides it.
  */
-export function hiddenSince(deck: IDeckManagerStore, placement: PlaceBodies): PlaceBodies | null {
+export function hiddenSince(
+  deck: IDeckManagerStore,
+  placement: PlaceBodies,
+  carriedIn: ReadonlySet<string> = new Set(),
+): PlaceBodies | null {
   let changed = false;
   const bodies = placement.bodies.map((b) => {
     if (!b.visible) return b;
-    const facts = bodyCardsStore.has(b.cardId) ? shownFactsOf(deck, b.cardId) : null;
+    const read = bodyCardsStore.has(b.cardId) ? shownFactsOf(deck, b.cardId) : null;
+    const facts = read !== null && carriedIn.has(b.cardId) ? { ...read, arriving: false } : read;
     if (facts !== null && bodyVisible(facts)) return b;
     changed = true;
     return { ...b, visible: false };
@@ -584,7 +593,13 @@ export class BodyPlacer {
   /** The last beat plan's id; each plan takes the next. */
   private planSerial = 0;
   /** The bodies a posted plan is carrying, until the host says it landed or was cancelled. */
-  private readonly inFlight = new Map<string, { planId: number; landing: Rect }>();
+  private readonly inFlight = new Map<string, { planId: number; landing: Rect; arrives: boolean }>();
+  /**
+   * Each body's insets in its pane as the last measurement that gave both
+   * room read them, with the rail edge the pane stood on: what a body
+   * arriving out of a collapsed frame lands at.
+   */
+  private readonly restInsets = new Map<string, { insets: Insets; railSide: string | null }>();
   /** What the last {@link runPlan} decided, and what the host has said of it since. */
   private lastPlan: BeatPlanReport | null = null;
   /** How many times {@link runPlan} has run, so a reader can tell its last report is new. */
@@ -658,6 +673,7 @@ export class BodyPlacer {
     this.exactRects.clear();
     const placement = measurePlacements(this.deck, container, this.exactRects);
     this.paneBoxes = this.readPaneBoxes(container);
+    this.noteRestInsets();
     this.poster.offer(placement);
     // A measurement is the whole truth: a body it shows is no longer one a
     // pending hide may take back after the paint, and `shown` may lift its lid.
@@ -666,6 +682,18 @@ export class BodyPlacer {
     this.lidHidden(placement, container);
     this.observePlaceholders(container);
   };
+
+  /** Keep each measured body's insets where it and its pane both have room ({@link restInsets}). No layout: the rects are this measurement's. */
+  private noteRestInsets(): void {
+    for (const cardId of this.restInsets.keys()) if (!bodyCardsStore.has(cardId)) this.restInsets.delete(cardId);
+    for (const [pane, box] of this.paneBoxes) {
+      for (const cardId of bodiesIn(pane)) {
+        const rect = this.exactRects.get(cardId);
+        const insets = rect === undefined ? null : insetsWithin(box, rect);
+        if (insets !== null) this.restInsets.set(cardId, { insets, railSide: box.railSide ?? null });
+      }
+    }
+  }
 
   /**
    * Hide, now, every body the last placement showed whose facts no longer
@@ -679,7 +707,8 @@ export class BodyPlacer {
     const last = this.poster.lastPosted;
     const container = this.container;
     if (last === null || container === null) return;
-    const next = hiddenSince(this.deck, last);
+    const carriedIn = new Set([...this.inFlight].filter(([, f]) => f.arrives).map(([cardId]) => cardId));
+    const next = hiddenSince(this.deck, last, carriedIn);
     if (next === null) return;
     this.hideNow(next, container);
   }
@@ -838,18 +867,20 @@ export class BodyPlacer {
       // A rail's border is on its inner edge, so a rail carried to the other
       // edge lands with its content box mirrored inside its frame. The
       // attribute is the commit's, read with no layout ([D211]).
-      const mirrored = railSideFlipped(box.railSide ?? null, f.frame.getAttribute("data-rail-side"));
+      const side = f.frame.getAttribute("data-rail-side");
       for (const cardId of cardIds) {
         const b = this.exactRects.get(cardId) ?? last.bodies.find((p) => p.cardId === cardId);
         if (b === undefined) continue;
-        const measured = {
-          top: b.y - box.y,
-          left: b.x - box.x,
-          right: box.x + box.width - (b.x + b.width),
-          bottom: box.y + box.height - (b.y + b.height),
-        };
+        // A body measured in a collapsed frame — a hidden rail, zero wide —
+        // says nothing of where it sits in the frame at rest: it lands at the
+        // insets it last had with room.
+        const now = insetsWithin(box, b);
+        const rest = now === null ? this.restInsets.get(cardId) : undefined;
+        const measured = now ?? rest?.insets;
+        if (measured === undefined) continue;
         insets.set(cardId, measured);
-        if (mirrored) landingInsets.set(cardId, mirrorInsets(measured));
+        const measuredSide = now !== null ? (box.railSide ?? null) : (rest?.railSide ?? null);
+        if (railSideFlipped(measuredSide, side)) landingInsets.set(cardId, mirrorInsets(measured));
       }
     });
     const out = planBodyBeats({
@@ -885,7 +916,7 @@ export class BodyPlacer {
       }
       const landings = new Map(out.plan.map((b) => [b.cardId, b.landing]));
       const arrived = new Set(out.plan.filter((b) => b.arrives === true).map((b) => b.cardId));
-      for (const b of out.plan) this.inFlight.set(b.cardId, { planId, landing: b.landing });
+      for (const b of out.plan) this.inFlight.set(b.cardId, { planId, landing: b.landing, arrives: b.arrives === true });
       // A carried arrival is shown by the host with its tracks, so it is
       // posted visible from here, and its lid comes off now, with no fade:
       // the frame it rides in on is what the reader sees arrive.
@@ -1304,6 +1335,17 @@ export function railSideFlipped(measured: string | null, now: string | null): bo
 /** `insets` mirrored left for right: a rail's content box once it stands on the other edge. */
 export function mirrorInsets(insets: Insets): Insets {
   return { top: insets.top, bottom: insets.bottom, left: insets.right, right: insets.left };
+}
+
+/** `body`'s insets inside `box`, or null when either has no area to measure them in. */
+export function insetsWithin(box: Rect, body: Rect): Insets | null {
+  if (box.width < 1 || box.height < 1 || body.width < 1 || body.height < 1) return null;
+  return {
+    top: body.y - box.y,
+    left: body.x - box.x,
+    right: box.x + box.width - (body.x + body.width),
+    bottom: box.y + box.height - (body.y + body.height),
+  };
 }
 
 /** The body cards whose placeholder stands in `frame`. Reads no layout. */
