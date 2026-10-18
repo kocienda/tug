@@ -27,9 +27,12 @@ set -uo pipefail
 
 BUNDLE_ID="${1:-}"
 INSTANCE_ID="${2:-}"
-# Longer than the app's own 12 s termination-pipeline deadline, so a
-# quit that is merely slow is waited out rather than reported as stuck.
-TIMEOUT="${3:-20}"
+# The app may not take up the quit event at once — on 2026-10-18 it sat
+# ~20 s before AppKit logged "Handling Quit AppleEvent", and the app then
+# exited 0.6 s later, just after a 20 s wait here had given up. So the
+# wait covers a late pickup plus the app's own 12 s termination-pipeline
+# deadline, and says it is waiting rather than going quiet.
+TIMEOUT="${3:-90}"
 
 if [ -z "$BUNDLE_ID" ] || [ -z "$INSTANCE_ID" ]; then
     echo "usage: $0 <bundle-id> <instance-id> [timeout-seconds]" >&2
@@ -60,8 +63,14 @@ QUIT_ERROR="$(osascript \
     -e "end if" 2>&1 >/dev/null)" || true
 
 # 2. Poll until no process for this bundle remains.
-deadline=$(( $(date +%s) + TIMEOUT ))
+started=$(date +%s)
+deadline=$(( started + TIMEOUT ))
+next_note=$(( started + 5 ))
 while [ "$(date +%s)" -lt "$deadline" ] && running; do
+    if [ "$(date +%s)" -ge "$next_note" ]; then
+        echo "    waiting for $INSTANCE_ID to quit ($(( $(date +%s) - started ))s)"
+        next_note=$(( next_note + 5 ))
+    fi
     sleep 0.1
 done
 
