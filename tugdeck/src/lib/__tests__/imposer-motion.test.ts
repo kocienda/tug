@@ -168,7 +168,7 @@ describe("timing is relative to the crossing's nominal", () => {
     expect(motionDurationMs("grow", NOMINAL)).toBeCloseTo(NOMINAL * 0.6, 5);
     expect(motionDurationMs("landing", NOMINAL)).toBeCloseTo(NOMINAL * 0.85, 5);
     expect(motionDurationMs("divide-join", NOMINAL)).toBeCloseTo(
-      NOMINAL * 0.6,
+      NOMINAL * 0.3,
       5,
     );
   });

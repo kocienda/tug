@@ -466,7 +466,7 @@ The cluster has exactly one ellipsis, the horizontal `⋯`, and it means *more o
 | `crossing` | a settled arrangement change — the settle | transform + width/height, one curve | 1.0 | 1.0× | from an interrupted tween, else 0 |
 | `landing` | a dropped card entering its zone; a refusal's return home | transform | 0.9 | 0.85× | the pointer's release velocity, clamped |
 | `reveal` | a strip sliding to show an activated member | the offset property, via the riding frames' crossing | 1.0 | 1.0× | 0 |
-| `divide-join` | a member arriving in or leaving a place | opacity (a plain ease; a fade has no position); the survivor moves on `crossing` | — | 0.6× | — |
+| `divide-join` | a member arriving in or leaving a place | opacity (a plain ease; a fade has no position); the survivor moves on `crossing` | — | 0.3× | — |
 
 Two animations in the imposer's files are deliberately outside the family, and both for the same reason — they are not a card being placed. The refusal flash (`flashCardPane`) is a blocked gesture answering back, and a departing frame is a Pane leaving where it stood, with nowhere to travel to.
 

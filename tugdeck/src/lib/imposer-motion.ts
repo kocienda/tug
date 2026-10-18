@@ -15,7 +15,7 @@
  * | `grow`        | the settle's last beat — frames that get larger do, in place   | 1.0 | 0.6× |
  * | `landing`     | a dropped card entering its zone; a refusal's return home  | 0.9 | 0.85×   |
  * | `reveal`      | a strip sliding to show an activated member                | 1.0 | 1.0×    |
- * | `divide-join` | a member arriving in / leaving a divided place (a fade)    | —   | 0.6×    |
+ * | `divide-join` | a member arriving in / leaving a divided place (a fade)    | —   | 0.3×    |
  *
  * ζ is the damping ratio: 1.0 is critically damped and does not overshoot;
  * below 1.0 the spring passes its target once, proportionally. Only the
@@ -89,7 +89,7 @@ const RECIPES: Record<MotionRecipe, RecipeSpec> = {
   grow: { zeta: 1.0, timeScale: 0.6 },
   landing: { zeta: 0.9, timeScale: 0.85 },
   reveal: { zeta: 1.0, timeScale: 1.0 },
-  "divide-join": { zeta: null, timeScale: 0.6 },
+  "divide-join": { zeta: null, timeScale: 0.3 },
 };
 
 /**
