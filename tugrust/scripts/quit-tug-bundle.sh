@@ -36,50 +36,37 @@ if [ -z "$BUNDLE_ID" ] || [ -z "$INSTANCE_ID" ]; then
     exit 2
 fi
 
+# `lsappinfo find` prints the app's ASN when a process holds the bundle
+# id and nothing when none does. (`lsappinfo info -only pid` is no test:
+# it prints a `pid = N` line for an unresolved name too, and never the
+# `"pid"=` shape this once grepped for, so the app always read as gone.)
 running() {
-    lsappinfo info -only pid "$BUNDLE_ID" 2>/dev/null | grep -q '"pid"='
+    [ -n "$(lsappinfo find "bundleid=$BUNDLE_ID" 2>/dev/null)" ]
 }
 
-# 1. Ask the GUI app to quit. AppleScript's `quit` sends a graceful
-#    NSApp shutdown via Apple Events; the app's
-#    `applicationShouldTerminate` runs and the bundle exits when
-#    teardown completes. Only when the app is running: an Apple Event
-#    to an app that isn't would launch it. The error is kept, not
-#    discarded — it is the only account of a quit that never arrived
-#    (most often -1743, the terminal lacking Automation permission
-#    for Tug in System Settings › Privacy & Security › Automation).
-QUIT_ERROR=""
-if running; then
-    QUIT_ERROR="$(osascript -e "tell application id \"$BUNDLE_ID\" to quit" 2>&1 >/dev/null)" || true
-fi
+# 1. Ask the GUI app to quit with the Apple Event. AppleScript's `quit`
+#    runs the app's `applicationShouldTerminate` — the deck's termination
+#    pipeline, then tugcast's teardown — and the bundle exits when that
+#    completes. The quit is always this event, never a signal: a signal
+#    skips the pipeline and loses whatever the deck had not saved.
+#    AppleScript's own `is running` guards it, so a quit to an app that
+#    is not running launches nothing. The error is kept, not discarded —
+#    it is the only account of a quit that never arrived (most often
+#    -1743, the terminal lacking Automation permission for Tug in System
+#    Settings › Privacy & Security › Automation).
+QUIT_ERROR="$(osascript \
+    -e "if application id \"$BUNDLE_ID\" is running then" \
+    -e "tell application id \"$BUNDLE_ID\" to quit" \
+    -e "end if" 2>&1 >/dev/null)" || true
 
-# 2. Poll until no process for this bundle remains. `lsappinfo find`
-#    is reliable per bundle id where `pgrep -f` is not.
+# 2. Poll until no process for this bundle remains.
 deadline=$(( $(date +%s) + TIMEOUT ))
 while [ "$(date +%s)" -lt "$deadline" ] && running; do
     sleep 0.1
 done
 
-# 3. Belt-and-suspenders: if a registry entry still exists for this
-#    instance ID, send a direct SIGTERM via tugtool. Either tugcast
-#    is the straggler (GUI died before reaching ProcessManager.stop),
-#    or `tugtool host instance stop` is a no-op (no registry entry).
-#    `app-release` builds tugtool only in release, so take whichever
-#    build the checkout has.
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-TUGTOOL=""
-for candidate in "$REPO_ROOT/tugrust/target/debug/tugtool" "$REPO_ROOT/tugrust/target/release/tugtool"; do
-    if [ -x "$candidate" ]; then
-        TUGTOOL="$candidate"
-        break
-    fi
-done
-if [ -n "$TUGTOOL" ]; then
-    "$TUGTOOL" host instance stop "$INSTANCE_ID" --timeout 5 >/dev/null 2>&1 || true
-fi
-
 if running; then
-    echo "error: $INSTANCE_ID ($BUNDLE_ID) is still running after ${TIMEOUT}s; quit it and run the recipe again." >&2
+    echo "error: $INSTANCE_ID ($BUNDLE_ID) is still running ${TIMEOUT}s after the quit event; quit it and run the recipe again." >&2
     if [ -n "$QUIT_ERROR" ]; then
         echo "       osascript: $QUIT_ERROR" >&2
     else
@@ -87,3 +74,18 @@ if running; then
     fi
     exit 1
 fi
+
+# 3. The app is gone. If a registry entry still names this instance,
+#    its tugcast outlived the GUI (the GUI died before reaching
+#    ProcessManager.stop); `tugtool host instance stop` reaps it, and is
+#    a no-op with no entry. Only ever after the GUI has exited: it
+#    signals the host app too, and the host app's quit is the event.
+#    `app-release` builds tugtool only in release, so take whichever
+#    build the checkout has.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for candidate in "$REPO_ROOT/tugrust/target/debug/tugtool" "$REPO_ROOT/tugrust/target/release/tugtool"; do
+    if [ -x "$candidate" ]; then
+        "$candidate" host instance stop "$INSTANCE_ID" --timeout 5 >/dev/null 2>&1 || true
+        break
+    fi
+done
