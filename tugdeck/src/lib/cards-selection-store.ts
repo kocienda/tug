@@ -22,6 +22,11 @@
  *   is not selected means the user has moved on; the set becomes that card.
  *   Building a multi-selection never fronts anything, so it never trips this.
  *
+ * The Cards list builds the set and moves its cursor in the Cards card's own
+ * page, while the deck's verbs read them in the shell. So the shell owns
+ * both, as the `layout.selection` store, and a Cards body proposes each
+ * change ({@link shareLayoutSelection}).
+ *
  * @module lib/cards-selection-store
  */
 
@@ -30,6 +35,8 @@ import { isSidebarCard } from "@/card-registry";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "@/lib/scale-timing";
+import { layoutSelection } from "@/bus/declarations/arrangement";
+import { pageBus, type PageBus } from "@/bus/page-bus";
 
 /** The selected card ids in pick order, plus the anchor ⇧-extension ranges from. */
 export interface LensSelectionSnapshot {
@@ -102,9 +109,8 @@ export class CardsSelectionStore extends Subscribable {
   }
 
   /**
-   * Take `next` whole — the other page's copy of the selection, which the
-   * shell and the Cards card's body each hold one of
-   * (`lib/cards-selection-mirror.ts`). An equal snapshot notifies nobody.
+   * Take `next` whole — the selection as the other page said it
+   * ({@link shareLayoutSelection}). An equal snapshot notifies nobody.
    */
   replace(next: LensSelectionSnapshot): void {
     this.publish(next.ids.length === 0 && next.anchorId === null ? EMPTY : next);
@@ -219,6 +225,100 @@ export function subscribeLayoutCursorCard(listener: () => void): () => void {
 /** The card the Cards list's cursor is on, or `null`. */
 export function getLayoutCursorCard(): string | null {
   return cursorCardId;
+}
+
+/** A page's layout cursor: the module's own, or a test's. */
+export interface LayoutCursor {
+  get(): string | null;
+  set(cardId: string | null): void;
+  subscribe(listener: () => void): () => void;
+}
+
+/** This page's layout cursor. */
+export const layoutCursor: LayoutCursor = {
+  get: getLayoutCursorCard,
+  set: setLayoutCursorCard,
+  subscribe: subscribeLayoutCursorCard,
+};
+
+/**
+ * Keep this page's selection and cursor one with `layout.selection`, which
+ * the shell owns. Called once per page: by the shell, and by a Cards card's
+ * body. Returns the release.
+ *
+ * - **In the shell** the store is set from the selection and the cursor on
+ *   every change, so a prune, a collapse on activation, the deck root's
+ *   Escape and a test's write reach the Cards list. A Cards body's proposal
+ *   is applied here, and is the one way the shell's cursor moves: a Cards
+ *   body letting go of a cursor another holds (a parked one unmounting)
+ *   leaves the standing one alone, and the cursor goes with the page that
+ *   held it.
+ * - **In a Cards body** every change the list makes is proposed — the
+ *   selection, or the cursor, whichever moved — and the replica's word is
+ *   taken without being said back. The replica shows a proposal at once and
+ *   holds it until the shell acknowledges it, so a write the shell has not
+ *   heard yet is never overwritten by the shell's older one. The cursor is
+ *   the list's to publish, so the body never takes the shell's.
+ */
+export function shareLayoutSelection(
+  bus: PageBus = pageBus(),
+  selection: CardsSelectionStore = cardsSelectionStore,
+  cursor: LayoutCursor = layoutCursor,
+): () => void {
+  const store = layoutSelection.on(bus);
+  const releases: Array<() => void> = [];
+  if (bus.page.role === "shell") {
+    const publish = (): void => {
+      const { ids, anchorId } = selection.getSnapshot();
+      store.set({ ids: [...ids], anchorId, cursor: cursor.get() });
+    };
+    /** The Cards card whose list cursor the shell's cursor is, if one is. */
+    let cursorFrom: string | null = null;
+    releases.push(
+      selection.subscribe(publish),
+      cursor.subscribe(publish),
+      store.onProposal((patch, from) => {
+        if (patch.ids !== undefined || patch.anchorId !== undefined) {
+          const now = selection.getSnapshot();
+          selection.replace({ ids: patch.ids ?? now.ids, anchorId: patch.anchorId !== undefined ? patch.anchorId : now.anchorId });
+        }
+        if (patch.cursor === undefined) return;
+        if (patch.cursor === null && cursorFrom !== null && cursorFrom !== from.cardId) return;
+        cursorFrom = patch.cursor === null ? null : from.cardId;
+        cursor.set(patch.cursor);
+      }),
+      bus.onCardGone((cardId) => {
+        if (cursorFrom !== cardId) return;
+        cursorFrom = null;
+        cursor.set(null);
+      }),
+    );
+    publish();
+  } else {
+    let applying = false;
+    const take = (): void => {
+      const { ids, anchorId } = store.getSnapshot();
+      applying = true;
+      try {
+        selection.replace({ ids, anchorId });
+      } finally {
+        applying = false;
+      }
+    };
+    releases.push(
+      store.subscribe(take),
+      selection.subscribe(() => {
+        if (applying) return;
+        const { ids, anchorId } = selection.getSnapshot();
+        store.propose({ ids: [...ids], anchorId });
+      }),
+      cursor.subscribe(() => store.propose({ cursor: cursor.get() })),
+    );
+    if (store.arrived()) take();
+  }
+  return () => {
+    for (const release of releases.splice(0)) release();
+  };
 }
 
 /**

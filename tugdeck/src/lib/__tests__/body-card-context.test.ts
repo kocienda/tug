@@ -1,5 +1,5 @@
 /**
- * The `card-context` the shell sends a body reads the card's own deck: a
+ * The `card.context` the shell publishes for a body reads the card's own deck: a
  * parked card's fold is its parked record's, and the card a warm workspace's
  * first visit will make key is told so (`parkedKey`) — only in a workspace
  * nobody has shown, so a visited workspace's key card is deactivated when it
@@ -11,7 +11,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { IDeckManagerStore } from "../../deck-manager-store";
 import type { DeckState, TugPaneState } from "../../layout-tree";
-import { cardContextFor } from "../body-shell";
+import { cardContextFor, crossingForBody } from "../body-shell";
+import type { CrossingMirror } from "../fold-crossing";
 
 function pane(id: string, cardId: string, folded = false): TugPaneState {
   return {
@@ -80,5 +81,30 @@ describe("cardContextFor", () => {
 
   test("a parked card's fold is its own deck's", () => {
     expect(cardContextFor(shell({ folded: ["n"] }), "n").folded).toBe(true);
+  });
+});
+
+describe("crossingForBody", () => {
+  const still = (stamp: number, settled: boolean, held: string): CrossingMirror => ({
+    still: stamp,
+    settled,
+    width: false,
+    heightFree: false,
+    fold: null,
+    held: { "--tugx-still-held-height": held },
+  });
+
+  test("a still crossing is sent once it has settled, not while it holds the First size", () => {
+    expect(crossingForBody(still(5, false, "509px"), null)).toBeNull();
+    const settled = still(7, true, "950px");
+    expect(crossingForBody(settled, null)).toBe(settled);
+    // A retarget re-arms: until it settles, the body keeps what it was sent.
+    expect(crossingForBody(still(9, false, "950px"), settled)).toBe(settled);
+  });
+
+  test("a fold and the crossing's end go at once", () => {
+    const fold: CrossingMirror = { ...still(5, false, "509px"), fold: 3 };
+    expect(crossingForBody(fold, null)).toBe(fold);
+    expect(crossingForBody(null, still(7, true, "950px"))).toBeNull();
   });
 });

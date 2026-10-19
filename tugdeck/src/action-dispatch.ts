@@ -34,8 +34,7 @@ import { isSlotWindowSize, writeSlotWindow } from "@/lib/slot-window-pref";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isCommandId } from "@/components/tugways/command-registry";
 import { advanceKeyViewFocus, getFocusManager, BASE_FOCUS_MODE } from "@/components/tugways/focus-manager";
-import { forwardCycleFocus } from "@/lib/cycle-focus-forwarder";
-import { dispatchCommand, forwardToKeyCard, sendToCardContent } from "./command-dispatch";
+import { dispatchCommand, sendToCardContent } from "./command-dispatch";
 import { closeCard, closePane, deleteSpace } from "./lib/card-close-commands";
 import { requestSettingsReveal } from "./lib/settings-reveal";
 import { SETTINGS_SECTION_IDS, type SettingsSectionId } from "./lib/settings-sections-pref";
@@ -76,7 +75,7 @@ import {
   cardSessionBindingStore,
 } from "./lib/card-session-binding-store";
 import { arcPressStore } from "./lib/arc-press-store";
-import { askForwarderFor } from "./lib/ask-forwarder";
+import { bodyCardsStore } from "./lib/body-cards-store";
 import { sessionNameStore } from "./lib/session-name-store";
 import {
   identityKeyForSession,
@@ -126,7 +125,7 @@ import { publishListDigestLinesOk } from "./lib/digest-store";
 import { publishListOverviewPostsOk } from "./lib/overview-store";
 import { cardServicesStore } from "./lib/card-services-store";
 import { mark as perfMark, marksEnabled } from "@/lib/perf-marks";
-import { pendingAskStore } from "./lib/pending-ask-store";
+import { pendingAskStore, showAskInBody } from "./lib/pending-ask-store";
 import { registerSessionControlActions } from "./lib/session-control-actions";
 import {
   publishListSessionsOk,
@@ -295,10 +294,11 @@ export const RUN_CARD_COMMAND = "run-card-command";
  * key-card-scoped — byte-identical to typing the command.
  *
  * Every page that holds a card registers it — the shell from
- * {@link initActionDispatch}, a body from its own boot — because the shell
- * hands the arguments form to the key card's body, whose chain is where that
- * card's surface map stands; the shell's chain has no card content for a body
- * card, and sending it there ran nothing.
+ * {@link initActionDispatch}, a body from its own boot. Its command row is
+ * the key card's (`owner: "key-card"`), so while the key card is a body card
+ * the shell hands the whole command to the card's body, whose chain is where
+ * that card's surface map stands; the shell's chain has no card content for a
+ * body card, and sending it there ran nothing.
  */
 export function registerRunCardCommand(): void {
   // Spelled out: `command-routing-drift.test.ts` reads the registrations here.
@@ -319,8 +319,6 @@ export function registerRunCardCommand(): void {
         return;
       }
     }
-    // The key card's body runs it in its own chain, when the key card is one.
-    if (forwardToKeyCard(RUN_CARD_COMMAND, { name, args })) return;
     // An unknown name still reaches the card, whose surface-map lookup is
     // defensive — a no-op rather than a dead menu item.
     const chain = getResponderChainManager();
@@ -391,13 +389,12 @@ export function registerEvalAction(connection: TugConnection): void {
  * a page holds no handler for is handed to the shell, whose key card for a
  * body is only its placeholder, so the shell would toggle its own cycle and
  * the card in the body would never cycle. In the shell, a key card that is a
- * body is handed the toggle (`lib/cycle-focus-forwarder.ts`).
+ * body is handed the toggle by the command's own row (`owner: "key-card"`).
  */
 export function cycleFocusMode(): void {
   const focusManager = getFocusManager();
   if (focusManager === null) return;
   if (focusManager.currentFocusMode() === BASE_FOCUS_MODE) {
-    if (forwardCycleFocus()) return;
     const chain = getResponderChainManager();
     const result = chain?.sendToKeyCardForContinuation({
       action: TUG_ACTIONS.CYCLE_FOCUS_MODE,
@@ -1656,13 +1653,15 @@ export function initActionDispatch(
           };
         }
         // A Session card that is a body holds its store in its own page, so
-        // the question is shown there and stays this store's to answer.
-        const binding = cardId === null ? undefined : cardSessionBindingStore.getBinding(cardId);
-        const forwarder = cardId === null ? null : askForwarderFor(cardId);
-        if (cardId === null || binding === undefined || forwarder === null) return null;
+        // the question is shown there and stays this store's to answer. A
+        // card whose body failed shows nothing, so the question finds no
+        // card and its caller hears the fallback at once.
+        if (cardId === null || !bodyCardsStore.has(cardId) || bodyCardsStore.stateOf(cardId) === "failed") return null;
+        const binding = cardSessionBindingStore.getBinding(cardId);
+        if (binding === undefined) return null;
         return {
           tugSessionId: binding.tugSessionId,
-          setPendingAsk: (ask) => forwarder.show(cardId, ask),
+          setPendingAsk: (ask) => showAskInBody(cardId, ask),
         };
       },
       // A body card's session goes when its binding does, which this page's

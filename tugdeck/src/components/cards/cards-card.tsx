@@ -1351,6 +1351,12 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     cardsSelectionStore.subscribe,
     cardsSelectionStore.getSnapshot,
   );
+  // The data source is one instance its hook mutates in place, so the rows it
+  // holds are named by its version: a list whose rows arrive after its first
+  // render — a Cards body, whose arrangement comes from the shell after its
+  // page says hello — would otherwise keep the map it built over no rows, and
+  // publish no cursor for any row until the selection happened to move.
+  const rowsVersion = dataSource.getVersion();
   const { selectedRowIds, cardIdByRowId, visibleCardOrder } = useMemo(() => {
     const selected = new Set(selection.ids);
     const rowIds = new Set<string>();
@@ -1390,7 +1396,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       cardIdByRowId: byRowId,
       visibleCardOrder: order,
     };
-  }, [dataSource, selection]);
+  }, [dataSource, rowsVersion, selection]);
 
   // A group header maps to no card, so every intent answers `false` for one and
   // the primitive puts the gesture back on the activate path — which for a
@@ -1438,6 +1444,8 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
     [selectedRowIds, cardIdByRowId, visibleCardOrder],
   );
 
+  /** The row the list last said its cursor stands on. */
+  const cursorRowRef = useRef<string | null>(null);
   // Publish where the keyboard is standing, so a slot or width chord typed with
   // the caret on a row and nothing selected acts on THAT row
   // (`resolveLayoutSelection`'s second rung). The list hands back `null` the
@@ -1445,12 +1453,20 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
   // published answer is only ever a card the user is actually pointed at.
   const publishCursor = useCallback(
     (rowId: string | null): void => {
+      cursorRowRef.current = rowId;
       setLayoutCursorCard(
         rowId === null ? null : (cardIdByRowId.get(rowId) ?? null),
       );
     },
     [cardIdByRowId],
   );
+  // The list reports its cursor only when the cursor moves, and the map under
+  // it can move on its own — rows arriving, a card closing — so the published
+  // card follows the map too.
+  useLayoutEffect(() => {
+    const rowId = cursorRowRef.current;
+    if (rowId !== null) setLayoutCursorCard(cardIdByRowId.get(rowId) ?? null);
+  }, [cardIdByRowId]);
   // The card can unmount with the keyboard still in it (a rail close), and a
   // cursor nobody can see must not go on answering for one.
   useLayoutEffect(() => () => setLayoutCursorCard(null), []);

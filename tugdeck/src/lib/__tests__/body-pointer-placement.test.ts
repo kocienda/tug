@@ -12,7 +12,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
-import { bodyPointerPlacementCard, setBodyGestureCard } from "../../gesture-interpreter";
+import { bodyPointerPlacementCard } from "../../gesture-interpreter";
+import { _resetPageForTest, installPage } from "../../bus/page";
+
+/** This page is `cardId`'s body, or the shell with null. */
+function pageIs(cardId: string | null): void {
+  _resetPageForTest();
+  if (cardId !== null) installPage({ role: "body", cardId, componentId: null });
+}
 
 const dom = new JSDOM(
   `<!doctype html><body><div data-card-id="C">
@@ -36,7 +43,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  setBodyGestureCard(null);
+  pageIs(null);
   // Restored by assignment: deleting a global slows every later file.
   for (const name of GLOBALS) scope[name] = saved[name];
 });
@@ -50,20 +57,20 @@ const press = (id: string, over: Partial<{ button: number; metaKey: boolean }> =
 
 describe("bodyPointerPlacementCard", () => {
   test("a page that is no body places nothing", () => {
-    setBodyGestureCard(null);
+    pageIs(null);
     expect(bodyPointerPlacementCard(press("field"), "C")).toBe(null);
   });
 
   test("on the key card, the press places what it landed on", () => {
     // A field already holding DOM focus fires no focusin on a click, so this
     // is what moves the key view back onto it (at0582).
-    setBodyGestureCard("C");
+    pageIs("C");
     expect(bodyPointerPlacementCard(press("field"), "C")).toBe("C");
     expect(bodyPointerPlacementCard(press("row"), "C")).toBe("C");
   });
 
   test("on a card about to activate, only a text-entry target drills down", () => {
-    setBodyGestureCard("C");
+    pageIs("C");
     expect(bodyPointerPlacementCard(press("field"), "other")).toBe("C");
     expect(bodyPointerPlacementCard(press("row"), "other")).toBe(null);
     expect(bodyPointerPlacementCard(press("field", { button: 2 }), "other")).toBe(null);
@@ -71,7 +78,7 @@ describe("bodyPointerPlacementCard", () => {
   });
 
   test("a focus-refusing control places nothing", () => {
-    setBodyGestureCard("C");
+    pageIs("C");
     expect(bodyPointerPlacementCard(press("refuser"), "C")).toBe(null);
   });
 });

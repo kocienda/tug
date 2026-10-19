@@ -156,6 +156,7 @@ import {
   forwardOverviewDraft,
   isEmptyDraft,
   overviewDraftHolder,
+  takeShellOverviewDraft,
   type OverviewComposerDraftState,
 } from "@/components/overview/overview-composer-draft";
 import { sharedPromptHistoryStore } from "@/lib/prompt-history-store";
@@ -2090,7 +2091,12 @@ function OverviewComposer({
   // is hidden. Every change of the words goes to it, and the pictures with
   // them whenever they have moved since the last; nothing goes before the
   // held draft is taken up, for the reason `draftSeededRef` gives.
+  //
+  // A let-go goes only once this page has said words: the shell's draft may
+  // reach a body after its mount, and an empty field before then is not the
+  // user discarding it.
   const bytesMovedRef = useRef(true);
+  const saidWordsRef = useRef(false);
   forwardDraftRef.current = () => {
     if (!draftSeededRef.current) return;
     const draft = editorRef.current?.captureState() ?? null;
@@ -2098,11 +2104,14 @@ function OverviewComposer({
     // still owe the next draft that has something in it.
     if (isEmptyDraft(draft)) {
       bytesMovedRef.current = true;
+      if (!saidWordsRef.current) return;
+      saidWordsRef.current = false;
       forwardOverviewDraft(null);
       return;
     }
     const moved = bytesMovedRef.current;
     bytesMovedRef.current = false;
+    saidWordsRef.current = true;
     forwardOverviewDraft(draft, moved ? bytesStore.snapshot() : undefined);
   };
   useEffect(
@@ -2174,11 +2183,31 @@ function OverviewComposer({
   // it works: `restoreEditState` refuses a view whose `contentDOM` is not
   // connected yet, and during the mount commit — where a layout effect runs —
   // it is not. After the paint it is, so the restore takes.
+  //
+  // In a body the page is the card's, so the draft a hidden rail left is the
+  // shell's (`overview.draft`), and its snapshot may reach this page after the
+  // mount. It is taken when it comes, unless the field has words of its own
+  // by then: a relaunch's bag, or the user's typing.
   useEffect(() => {
     const held = overviewDraftHolder.get();
     draftSeededRef.current = true;
-    if (held === null) return;
-    editorRef.current?.restoreState(held);
+    if (held !== null) {
+      editorRef.current?.restoreState(held);
+      return;
+    }
+    return takeShellOverviewDraft((shellHeld) => {
+      if (overviewDraftHolder.get() !== null) return;
+      const editor = editorRef.current;
+      if (editor === null || !isEmptyDraft(editor.captureState())) return;
+      const restored = coerceOverviewDraftPayload(shellHeld);
+      if (restored.attachmentBytes !== undefined) {
+        bytesStore.restore(restored.attachmentBytes);
+        rehydrateDraftAttachments(restored.attachmentBytes, bytesStore);
+      }
+      if (restored.draft === null) return;
+      overviewDraftHolder.set(restored.draft);
+      editor.restoreState(restored.draft);
+    });
   }, []);
 
   const submit = (): void => {

@@ -30,6 +30,12 @@
  * registry — arrives through {@link PendingAskContext}. Nothing is imported as a
  * singleton, so every path above is reachable from a unit test.
  *
+ * A Session card that is a body holds its session store in its own page, so
+ * the shell's store shows the question there ({@link showAskInBody}, the
+ * `session.ask` request) and keeps the question its own to answer. The body
+ * parks it on its session and serves the request until its dialog is
+ * answered ({@link PendingAskStore.relay}).
+ *
  * **Laws:** [L02] — the store exposes `subscribe` + `getSnapshot`, and publishes
  * a new snapshot on every change; the dialog reads it through
  * `useSyncExternalStore`, never through component state.
@@ -38,6 +44,7 @@
  */
 
 import type { ControlAction } from "@tugproto/control";
+import { SESSION_ASK_EXIT, sessionAsk } from "../bus/declarations/verbs";
 import { Subscribable } from "./subscribable";
 import type { PendingAsk, PendingAskOption } from "./code-session-store/types";
 
@@ -132,8 +139,8 @@ class PendingAskStore extends Subscribable {
 
   private _servicesUnsub: (() => void) | null = null;
 
-  /** Where this page sends an answer to a question it does not hold; see {@link forwardResponses}. */
-  private _responder: ((requestId: string, choice: string) => void) | null = null;
+  /** The questions the shell showed in this page's card, each with the request it waits on. */
+  private readonly _relayed = new Map<string, (choice: string) => void>();
 
   /** Wire the store to the app. Called once from `initActionDispatch`. */
   init = (context: PendingAskContext): (() => void) => {
@@ -155,16 +162,14 @@ class PendingAskStore extends Subscribable {
   };
 
   /**
-   * Hand this page's answers to the page that holds the questions. A body
-   * page holds none: the shell keeps every question and shows it in the
-   * card's body (`lib/ask-forwarder.ts`), so a press in the body's dialog is
-   * sent back to the shell, which answers the caller. Returns the uninstall
-   * ([L27]).
+   * A question the shell holds, shown in this page's card: the dialog's
+   * answer to `requestId` goes to `answer`, which replies to the shell's
+   * `session.ask`. Returns the release ([L27]).
    */
-  forwardResponses = (fn: (requestId: string, choice: string) => void): (() => void) => {
-    this._responder = fn;
+  relay = (requestId: string, answer: (choice: string) => void): (() => void) => {
+    this._relayed.set(requestId, answer);
     return () => {
-      if (this._responder === fn) this._responder = null;
+      if (this._relayed.get(requestId) === answer) this._relayed.delete(requestId);
     };
   };
 
@@ -274,14 +279,14 @@ class PendingAskStore extends Subscribable {
    * page does not hold it: either it was already answered on its way out (a
    * reap during a transient services miss can answer the wire while the
    * session's own `pendingAsk` survives), or this is a body page, which sent
-   * the answer to the shell ({@link forwardResponses}). Either way the caller
+   * the answer to the shell ({@link relay}). Either way the caller
    * still holds the session and must clear the parked question itself, or the
    * dialog stands until something else takes it down.
    */
   respond = (requestId: string, choice: string): boolean => {
     const live = this._live.get(requestId);
     if (live === undefined) {
-      this._responder?.(requestId, choice);
+      this._relayed.get(requestId)?.(choice);
       return false;
     }
     this._commit((next) => next.delete(requestId));
@@ -304,6 +309,16 @@ class PendingAskStore extends Subscribable {
     this._commit((next) => next.delete(requestId));
     this._context?.sessionFor(live.tugSessionId)?.setPendingAsk(null);
     this.notify();
+  };
+
+  /**
+   * A question nobody got to answer: its card could not show it. The caller
+   * hears the fallback captured when it arrived, and the question is gone.
+   */
+  answerUnseen = (requestId: string): void => {
+    const live = this._live.get(requestId);
+    if (live === undefined) return;
+    this.respond(requestId, live.fallback);
   };
 
   /**
@@ -347,3 +362,32 @@ class PendingAskStore extends Subscribable {
 }
 
 export const pendingAskStore = new PendingAskStore();
+
+/** The `session.ask` standing in each body card, by its card. */
+const askedInBodies = new Map<string, string>();
+
+/**
+ * Show `ask` in body card `cardId`'s dialog, or take the one it shows down
+ * (`null`), for a question this page's store holds.
+ *
+ * The question waits on the person at the card's dialog, so it has no
+ * deadline of its own; it stands across a reload of the card's page and is
+ * shown again in the new one. The choice answers the caller. A card that
+ * could not show it — its page refused, or went for good — answers with the
+ * fallback, as a question with no card does.
+ */
+export function showAskInBody(cardId: string, ask: PendingAsk | null): void {
+  const standing = askedInBodies.get(cardId);
+  if (standing !== undefined) {
+    askedInBodies.delete(cardId);
+    sessionAsk.withdraw(standing);
+  }
+  if (ask === null) return;
+  const pending = sessionAsk.ask(ask, { card: cardId, horizon: { person: SESSION_ASK_EXIT } });
+  askedInBodies.set(cardId, pending.requestId);
+  void pending.then((result) => {
+    if (askedInBodies.get(cardId) === pending.requestId) askedInBodies.delete(cardId);
+    if (result.ok) pendingAskStore.respond(ask.requestId, result.value.choice);
+    else if (result.reason !== "withdrawn") pendingAskStore.answerUnseen(ask.requestId);
+  });
+}

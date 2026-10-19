@@ -1,33 +1,57 @@
 /**
  * A body speaks only when what it says changes: identical facts go once, a
  * phase change goes, a keystroke that leaves `waive` where it was sends
- * nothing, a card with no close guard says nothing of one while a guarded
- * card says when its guard would ask, a card says when a modal run takes
- * and lets go its hold, and a pointer asks for activation on every press.
+ * nothing, a card with no close guard says none while a guarded card says
+ * when its guard would ask, a card says when a modal run takes and lets go
+ * its hold, and a pointer asks for activation on every press. Each is the
+ * exchange the shell sees, on the test bus.
  *
  * @covers tugdeck/src/body/body-publisher.ts
  */
-import { describe, expect, test } from "bun:test";
-import type { BusMessage, CardFacts } from "@tugproto/bus";
+import { afterEach, describe, expect, test } from "bun:test";
+import { cardFacts, cardHolds, type CardFactsValue } from "../../bus/declarations/card";
+import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { BodyPublisher } from "../body-publisher";
+import { cardActivate } from "../../bus/declarations/verbs";
 
 interface State {
-  facts: CardFacts;
+  facts: CardFactsValue;
   waive: boolean;
   guarded: boolean;
   asks: boolean | null;
   hold: { reason: string; admitsFold: boolean } | null;
 }
 
-function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher } {
+let bus: TestBus;
+afterEach(() => bus?.dispose());
+
+async function setup(): Promise<{
+  state: State;
+  shell: TestPage;
+  publisher: BodyPublisher;
+  activations: () => number;
+  sent: (key: string) => unknown[];
+}> {
+  bus = createTestBus();
+  const shell = bus.shell();
+  const body = bus.body("c1", "session");
+  await bus.flush();
   const state: State = {
-    facts: { title: "tug/odd-kiln", masthead: null, activity: "idle", telemetry: { canInterrupt: 0, compacted: 0 } },
+    facts: {
+      title: "tug/odd-kiln",
+      masthead: null,
+      activity: "idle",
+      identity: null,
+      titleBar: null,
+      canInterrupt: false,
+      compacted: false,
+    },
     waive: true,
     guarded: true,
     asks: null,
     hold: null,
   };
-  const sent: BusMessage[] = [];
+  let activated = 0;
   const publisher = new BodyPublisher(
     {
       readFacts: () => state.facts,
@@ -35,90 +59,104 @@ function setup(): { state: State; sent: BusMessage[]; publisher: BodyPublisher }
       readGuarded: () => state.guarded,
       readAsks: () => state.asks,
       readHold: () => state.hold,
+      readCaptureArmed: () => false,
+      readRestoreHold: () => null,
+      readContent: () => null,
+      readKbfPaint: () => null,
     },
-    (message) => sent.push(message),
+    body.bus,
   );
-  return { state, sent, publisher };
+  cardActivate.on(shell.bus).handle(() => {
+    activated += 1;
+  });
+  const sent = (key: string): unknown[] =>
+    bus
+      .frames()
+      .filter((f) => f.envelope.kind === "state" && (f.envelope as { key?: string }).key === key)
+      .map((f) => (f.envelope as { payload?: unknown }).payload);
+  return { state, shell, publisher, activations: () => activated, sent };
 }
 
 describe("publish on change", () => {
-  test("identical facts send once", () => {
-    const { state, sent, publisher } = setup();
+  test("identical facts send once", async () => {
+    const { state, publisher, sent } = await setup();
     publisher.publish();
-    state.facts = { ...state.facts, telemetry: { ...state.facts.telemetry } };
+    state.facts = { ...state.facts };
     publisher.publish();
-    expect(sent.filter((m) => m.kind === "card-facts")).toHaveLength(1);
-    expect(sent).toHaveLength(3);
+    await bus.flush();
+    expect(sent("card.facts")).toHaveLength(1);
+    expect(sent("card.holds")).toHaveLength(1);
   });
 
-  test("a phase change sends the facts again", () => {
-    const { state, sent, publisher } = setup();
+  test("a phase change sends the facts again", async () => {
+    const { state, shell, publisher, sent } = await setup();
     publisher.publish();
     state.facts = { ...state.facts, activity: "streaming" };
     publisher.publish();
-    const facts = sent.filter((m) => m.kind === "card-facts");
-    expect(facts.map((m) => (m.payload as CardFacts).activity)).toEqual(["idle", "streaming"]);
+    await bus.flush();
+    expect(sent("card.facts").map((f) => (f as CardFactsValue).activity)).toEqual(["idle", "streaming"]);
+    expect(cardFacts.on(shell.bus).getFor("c1")?.activity).toBe("streaming");
   });
 
-  test("a waive that does not flip sends nothing; one that flips sends its advice", () => {
-    const { state, sent, publisher } = setup();
+  test("a waive that does not flip sends nothing; one that flips sends the holds", async () => {
+    const { state, shell, publisher, sent } = await setup();
     publisher.publish();
-    const before = sent.length;
     publisher.publish();
-    expect(sent.length).toBe(before);
+    await bus.flush();
+    expect(sent("card.holds")).toHaveLength(1);
     state.waive = false;
     publisher.publish();
-    expect(sent.slice(before)).toEqual([
-      { kind: "card-advice", payload: { advice: "close-advice", waive: false } },
-    ]);
+    await bus.flush();
+    expect(sent("card.holds")).toHaveLength(2);
+    expect(cardHolds.on(shell.bus).getFor("c1").waive).toBe(false);
   });
 
-  test("a card with no close guard says nothing of one; a guarded card says when its guard would ask", () => {
-    const { state, sent, publisher } = setup();
+  test("a card with no close guard says none; a guarded card says when its guard would ask", async () => {
+    const { state, shell, publisher, sent } = await setup();
     publisher.publish();
-    const guardAdvice = (): BusMessage[] =>
-      sent.filter((m) => m.kind === "card-advice" && m.payload.advice === "close-guard");
-    expect(guardAdvice()).toEqual([]);
+    await bus.flush();
+    expect(cardHolds.on(shell.bus).getFor("c1").closeGuardAsks).toBe(null);
     state.asks = false;
     publisher.publish();
     state.asks = true;
     publisher.publish();
     publisher.publish();
-    expect(guardAdvice()).toEqual([
-      { kind: "card-advice", payload: { advice: "close-guard", asks: false } },
-      { kind: "card-advice", payload: { advice: "close-guard", asks: true } },
+    await bus.flush();
+    expect(sent("card.holds").map((h) => (h as { closeGuardAsks: boolean | null }).closeGuardAsks)).toEqual([
+      null,
+      false,
+      true,
     ]);
   });
 });
 
 describe("modal hold", () => {
-  test("no hold says nothing; a hold and its release each go once", () => {
-    const { state, sent, publisher } = setup();
-    const holdAdvice = (): BusMessage[] =>
-      sent.filter((m) => m.kind === "card-advice" && m.payload.advice === "modal-hold");
+  test("no hold says none; a hold and its release each go once", async () => {
+    const { state, shell, publisher, sent } = await setup();
     publisher.publish();
-    expect(holdAdvice()).toEqual([]);
     state.hold = { reason: "Compacting.", admitsFold: true };
     publisher.publish();
     publisher.publish();
+    await bus.flush();
+    expect(cardHolds.on(shell.bus).getFor("c1").modalHold).toEqual({ reason: "Compacting.", admitsFold: true });
     state.hold = null;
     publisher.publish();
     publisher.publish();
-    expect(holdAdvice()).toEqual([
-      { kind: "card-advice", payload: { advice: "modal-hold", reason: "Compacting.", admitsFold: true } },
-      { kind: "card-advice", payload: { advice: "modal-hold", reason: null } },
+    await bus.flush();
+    expect(sent("card.holds").map((h) => (h as { modalHold: unknown }).modalHold)).toEqual([
+      null,
+      { reason: "Compacting.", admitsFold: true },
+      null,
     ]);
   });
 });
 
 describe("activation", () => {
-  test("a pointer asks to activate on every press: only the shell knows whether the card is already key", () => {
-    const { sent, publisher } = setup();
+  test("a pointer asks to activate on every press: only the shell knows whether the card is already key", async () => {
+    const { publisher, activations } = await setup();
     publisher.pointerDown();
     publisher.pointerDown();
-    expect(sent).toEqual([
-      { kind: "card-advice", payload: { advice: "activate" } },
-      { kind: "card-advice", payload: { advice: "activate" } },
-    ]);
+    await bus.flush();
+    expect(activations()).toBe(2);
   });
 });

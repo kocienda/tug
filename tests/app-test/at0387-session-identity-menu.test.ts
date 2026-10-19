@@ -309,6 +309,11 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
           `document.querySelector(${JSON.stringify(OVERVIEW)}) !== null`,
           { timeoutMs: 10_000 },
         );
+        // The ledger's pushes reach every page on its own connection, and the
+        // chip resolves its session in the Overview's: the synthetic push
+        // goes there too, or the session is known there only through the
+        // card that holds it, and is lost with that card.
+        expect(await kindBody(app, "overview").evalJS<boolean>(publishSession())).toBe(true);
         expect(
           await kindBody(app, "overview").evalJS<boolean>(
             `window.__tug.publishOverviewPost(${JSON.stringify(
@@ -406,18 +411,19 @@ describe.skipIf(!SHOULD_RUN)("at0387 — the session row's own menu", () => {
         // that spawn lands afterwards is the restore tests' subject, not this
         // one's: an app-test ledger row has no JSONL behind it, so the card is
         // rightly on its way to the picker.
-        // The card hosts in the panes are the shell's placeholders; card S
-        // is closed by now, so there is no body of its to ask.
-        // card-dom: shell — counts the deck's card-host placeholders
+        // Every card is a body, so what stands in each pane here is its body's
+        // placeholder; card S is closed by now, so there is no body of its to
+        // ask.
+        // card-dom: shell — counts the deck's body placeholders
         const overviewCards = await app.evalJS<number>(
-          `document.querySelectorAll('.tug-pane [data-card-host]').length`,
+          `document.querySelectorAll('.tug-pane [data-body-placeholder]').length`,
         );
         await kindBody(app, "overview").nativeClickAtElement(
           `${MENU} [data-item-action="resume-session"]`,
         );
         // card-dom: shell — the new card's placeholder is the deck's
         await app.waitForCondition<boolean>(
-          `document.querySelectorAll('.tug-pane [data-card-host]').length > ${overviewCards}`,
+          `document.querySelectorAll('.tug-pane [data-body-placeholder]').length > ${overviewCards}`,
           { timeoutMs: 15_000 },
         );
         note(

@@ -1,14 +1,13 @@
 /**
- * The arrangement the shell sends a body that lists or moves the whole deck:
- * plain JSON that survives the bus unchanged, every workspace's deck but the
- * live one, the binding and title of every card it holds and of no other,
- * and — as the body sees it — the shell's deck with only the body's own pane
- * re-keyed to the body's pane id. The deck calls a body may make are exactly
- * the seven moves, and never a workspace delete.
+ * The arrangement the shell projects for its bodies: plain JSON that survives
+ * the bus unchanged, every workspace's deck but the live one, the binding,
+ * title and identity of every card it holds and of no other, and — as the
+ * body sees it — the shell's deck with only the body's own pane re-keyed to
+ * the body's pane id.
  *
- * The arrangement also carries the session phase each card's body reported,
- * for the cards it holds and no other, so a body that lists every card can
- * draw a live dot for a session it has no store for.
+ * It also carries the session phase each card's body reported, for the cards
+ * it holds and no other, so a body can draw a live dot for a session it has
+ * no store for.
  *
  * @covers tugdeck/src/lib/body-arrangement.ts
  */
@@ -16,11 +15,12 @@ import { describe, expect, test } from "bun:test";
 import type { DeckState, TugPaneState } from "../../layout-tree";
 import type { CardSessionBinding } from "../card-session-binding-store";
 import {
-  BODY_DECK_CALLS,
   arrangementSnapshot,
-  isBodyDeckCall,
   projectActivities,
-  projectArrangement,
+  projectArrangementCardFacts,
+  projectArrangementDeck,
+  projectArrangementSpaces,
+  projectBindings,
   type ArrangementDeck,
 } from "../body-arrangement";
 
@@ -78,26 +78,26 @@ const deck: ArrangementDeck = {
   getRailRunHeight: () => 880,
 };
 
-const projected = () =>
-  projectArrangement(
-    deck,
-    (id) => (id === "a" || id === "elsewhere" ? BINDING : undefined),
-    (id) => (id === "b" ? { title: "tug/odd-kiln", masthead: null } : id === "elsewhere" ? { title: "x", masthead: null } : null),
-    (id) => (id === "b" ? { title: "notes.md", path: "/p/notes.md", unsaved: true } : id === "elsewhere" ? { title: "y" } : null),
-    activityOf,
-  );
-
 const activityOf = (id: string): string | null =>
   id === "a" ? "streaming" : id === "b" ? "idle" : id === "elsewhere" ? "tool_work" : null;
 
-describe("projectArrangement", () => {
-  test("round-trips through JSON unchanged", () => {
-    const arrangement = projected();
-    expect(JSON.parse(JSON.stringify(arrangement))).toEqual(arrangement);
+const cardFacts = () =>
+  projectArrangementCardFacts(
+    deck,
+    (id) => (id === "b" ? { title: "tug/odd-kiln", masthead: null } : id === "elsewhere" ? { title: "x", masthead: null } : null),
+    (id) => (id === "b" ? { title: "notes.md", path: "/p/notes.md", unsaved: true } : id === "elsewhere" ? { title: "y" } : null),
+  );
+
+describe("the arrangement projections", () => {
+  test("round-trip through JSON unchanged", () => {
+    for (const projected of [projectArrangementDeck(deck), projectArrangementSpaces(deck), cardFacts()]) {
+      expect(JSON.parse(JSON.stringify(projected))).toEqual(projected);
+    }
   });
 
-  test("carries every workspace's deck but the live one, and the per-workspace counts", () => {
-    const { spaces, deck: live, bandWidth, columnRunHeight, railRunHeight } = projected();
+  test("carry every workspace's deck but the live one, and the per-workspace counts", () => {
+    const { deck: live, bandWidth, columnRunHeight, railRunHeight } = projectArrangementDeck(deck);
+    const spaces = projectArrangementSpaces(deck);
     expect(live).toBe(LIVE);
     expect(Object.keys(spaces.decks)).toEqual(["s2"]);
     expect(spaces.spaces).toEqual([{ id: "s1", name: "Main", theme: "ironclad" }, { id: "s2", name: "Side" }]);
@@ -106,30 +106,26 @@ describe("projectArrangement", () => {
     expect([bandWidth, columnRunHeight, railRunHeight]).toEqual([1600, 900, 880]);
   });
 
-  test("carries the binding, title and live identity of every card it holds, across workspaces, and of no other", () => {
-    const { bindings, titles, identities } = projected();
+  test("carry the binding, title and live identity of every card it holds, across workspaces, and of no other", () => {
+    const bindings = projectBindings(deck, (id) => (id === "a" || id === "elsewhere" ? BINDING : undefined));
+    const { titles, identities } = cardFacts();
     expect(Object.keys(bindings)).toEqual(["a"]);
     expect(titles).toEqual({ b: { title: "tug/odd-kiln", masthead: null } });
     expect(identities).toEqual({ b: { title: "notes.md", path: "/p/notes.md", unsaved: true } });
   });
 
-  test("carries the reported phase of every card it holds that has one, across workspaces, and of no other", () => {
-    const { activities } = projected();
-    expect(activities).toEqual({ a: "streaming", b: "idle" });
-    // The same projection the shell fingerprints to resend only on a phase change.
-    expect(projectActivities(deck, activityOf)).toEqual(activities);
-    expect(JSON.stringify(projectActivities(deck, activityOf))).toBe(JSON.stringify(projectActivities(deck, activityOf)));
+  test("carry the reported phase of every card it holds that has one, across workspaces, and of no other", () => {
+    expect(projectActivities(deck, activityOf)).toEqual({ a: "streaming", b: "idle" });
   });
 
   test("a card whose body has not reported is absent, never idle by assumption", () => {
     expect(projectActivities(deck, () => null)).toEqual({});
-    expect(Object.keys(projectArrangement(deck, () => undefined, () => null, () => null, () => null).activities)).toEqual([]);
   });
 });
 
 describe("arrangementSnapshot", () => {
   test("re-keys only the card's own pane, and the marks that name it", () => {
-    const seen = arrangementSnapshot(projected(), "cards", "body-pane-cards");
+    const seen = arrangementSnapshot(LIVE, "cards", "body-pane-cards");
     expect(seen.panes.map((p) => p.id)).toEqual(["body-pane-cards", "p-a"]);
     expect(seen.activePaneId).toBe("body-pane-cards");
     expect(seen.arriving).toEqual({ "body-pane-cards": true });
@@ -138,25 +134,6 @@ describe("arrangementSnapshot", () => {
   });
 
   test("a card the deck does not hold sees the deck as it is", () => {
-    expect(arrangementSnapshot(projected(), "nowhere", "body-pane-nowhere")).toBe(LIVE);
-  });
-});
-
-describe("the deck calls a body may make", () => {
-  test("are exactly the eight moves, and never a workspace delete", () => {
-    expect([...BODY_DECK_CALLS].sort() as string[]).toEqual(
-      [
-        "activateCard",
-        "activateSpace",
-        "chooseSpaceTheme",
-        "moveCardToSpace",
-        "previewFlowOffset",
-        "renameSpace",
-        "reorderSpaces",
-        "setFlowOffset",
-      ].sort(),
-    );
-    expect(isBodyDeckCall("deleteSpace")).toBe(false);
-    expect(isBodyDeckCall("setFlowOffset")).toBe(true);
+    expect(arrangementSnapshot(LIVE, "nowhere", "body-pane-nowhere")).toBe(LIVE);
   });
 });

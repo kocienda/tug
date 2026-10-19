@@ -1,8 +1,10 @@
 /**
  * A rail card drawn in its own body has its content in that page: the
  * shell's pane holds only the body's placeholder, so *Resize Sidebars to Fit*
- * reads the card's natural from what its body published — the content's
- * height and what its scroller shows — and adds the pane's chrome above it.
+ * reads the card's natural from what its body published (`card.content`) —
+ * the content's height and what its scroller shows — and adds the pane's
+ * chrome above it. The body is a page of the test bus, and the shell's is
+ * this page's bus.
  *
  * jsdom lays nothing out, so the boxes are stated on the elements.
  *
@@ -12,8 +14,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
-import { CONTENT_TELEMETRY, contentTelemetry, railNaturalOf } from "../rail-fit";
-import { bodyFactsStore } from "../body-facts-store";
+import { cardContent } from "../../bus/declarations/card";
+import { createTestBus, type TestBus } from "../../bus/test-bus";
+import { railNaturalOf, readPageContent } from "../rail-fit";
 
 const dom = new JSDOM("<!doctype html><body></body>");
 const doc = dom.window.document;
@@ -35,9 +38,10 @@ afterAll(() => {
   for (const name of GLOBALS) scope[name] = saved[name];
 });
 
+let bus: TestBus;
 afterEach(() => {
   doc.body.innerHTML = "";
-  bodyFactsStore.drop("J");
+  bus?.dispose();
 });
 
 function sized(el: Element, height: number): void {
@@ -54,14 +58,13 @@ function bodyPane(paneHeight: number): void {
 }
 
 describe("railNaturalOf, for a card in its own body", () => {
-  test("is the body's content plus the pane's chrome above what the body shows", () => {
+  test("is the body's content plus the pane's chrome above what the body shows", async () => {
     bodyPane(400);
-    bodyFactsStore.applyFacts("J", {
-      title: "Jots",
-      masthead: null,
-      activity: null,
-      telemetry: { [CONTENT_TELEMETRY.content]: 220, [CONTENT_TELEMETRY.shown]: 370 },
-    });
+    bus = createTestBus();
+    bus.install(bus.shell());
+    const body = bus.body("J", "jots");
+    cardContent.on(body.bus).set({ content: 220, shown: 370 });
+    await bus.flush();
     // 400 − 370 = 30 of chrome over the body's scroller.
     expect(railNaturalOf("jots", 1000)).toBe(250);
   });
@@ -72,19 +75,16 @@ describe("railNaturalOf, for a card in its own body", () => {
   });
 });
 
-describe("contentTelemetry, in a body's page", () => {
+describe("readPageContent, in a body's page", () => {
   test("publishes the content's height and its scroller's shown height", () => {
     doc.body.innerHTML =
       `<div class="scroller" style="overflow-y: auto"><div data-card-content></div></div>`;
     sized(doc.querySelector("[data-card-content]")!, 220);
     Object.defineProperty(doc.querySelector(".scroller")!, "clientHeight", { value: 370 });
-    expect(contentTelemetry()).toEqual({
-      [CONTENT_TELEMETRY.content]: 220,
-      [CONTENT_TELEMETRY.shown]: 370,
-    });
+    expect(readPageContent()).toEqual({ content: 220, shown: 370 });
   });
 
   test("publishes nothing from a page with no card content", () => {
-    expect(contentTelemetry()).toEqual({});
+    expect(readPageContent()).toBeNull();
   });
 });

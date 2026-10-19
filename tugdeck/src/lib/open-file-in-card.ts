@@ -48,6 +48,8 @@ import { isViewableFile } from "./file-kinds";
 import { noteRecentDocument } from "./recent-documents";
 import { flashCardPane } from "./flash-pane-border";
 import { cardIdentityElsewhere } from "./card-identity";
+import { textRevealLine } from "../bus/declarations/verbs";
+import { page } from "../bus/page";
 
 /**
  * A card of `componentId` bound to `path` whose content is mounted in another
@@ -59,24 +61,6 @@ function bodyCardByPath(store: IDeckManagerStore, componentId: string, path: str
     if (card.componentId === componentId && cardIdentityElsewhere.get(card.id)?.path === path) return card.id;
   }
   return null;
-}
-
-/** Reveals a line in a body Text card, in the body's own page. */
-export type BodyLineRevealer = (
-  cardId: string,
-  line: number,
-  endLine?: number,
-  columns?: readonly [number, number],
-) => void;
-
-let bodyLineRevealer: BodyLineRevealer | null = null;
-
-/** Install the revealer for a body Text card's lines. Returns the uninstall. */
-export function setBodyLineRevealer(revealer: BodyLineRevealer): () => void {
-  bodyLineRevealer = revealer;
-  return () => {
-    if (bodyLineRevealer === revealer) bodyLineRevealer = null;
-  };
 }
 
 /**
@@ -156,7 +140,17 @@ export function openFileInCard(
     });
     if (line !== undefined) {
       if (local !== null) local.entry.revealLine(line, endLine, columns);
-      else bodyLineRevealer?.(existingId, line, endLine, columns);
+      // A body Text card's editor is in its own page, which reveals the line.
+      else if (page.isShell) {
+        textRevealLine.dispatch(
+          {
+            line,
+            ...(endLine !== undefined ? { endLine } : {}),
+            ...(columns !== undefined ? { columns: [columns[0], columns[1]] as [number, number] } : {}),
+          },
+          { card: existingId },
+        );
+      }
     }
     flashCardPane(store, existingId);
     return;

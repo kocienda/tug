@@ -3,88 +3,116 @@
  * reports.
  *
  * A body Session card's session store is in its own page, so the shell's
- * services store has none for it. Its body puts the card's restore in its
- * `card-facts` telemetry (`restoreHoldTelemetry`, `body-publisher.ts`) while
+ * services store has none for it. Its body sets the card's restore in its
+ * `card.restoreHold` (`readRestoreHold`, `body-publisher.ts`) while
  * `deriveRestoreGateHold` holds it — the replay window and the reveal behind
- * it — and nothing once it lets go, including when the card's own silence
- * deadline errors it. The shell's gate folds those reports: open while any
+ * it — and null once it lets go, including when the card's own silence
+ * deadline errors it. The shell's gate folds those replicas: open while any
  * body card says it is restoring, with its turns summed; closed when it
- * stops saying so, when its page is terminated (`endRestoreHold`), and for a
- * card that is not a body card.
+ * stops saying so, when its page is terminated (the store clears on
+ * detach), and for a card that is not a body card. Each body is a page of
+ * the test bus, and the shell's is this page's bus.
  *
  * @covers tugdeck/src/lib/restore-gate-store.ts
  * @covers tugdeck/src/lib/body-facts-store.ts
  * @covers tugdeck/src/body/body-publisher.ts
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import type { CardFacts } from "@tugproto/bus";
+import { cardFacts, cardRestoreHold, type CardFactsValue } from "../../bus/declarations/card";
+import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import { restoreGateStore } from "../restore-gate-store";
 import { bodyCardsStore } from "../body-cards-store";
 import { bodyFactsStore } from "../body-facts-store";
-import { restoreHoldTelemetry } from "../../body/body-publisher";
+import { readRestoreHold } from "../../body/body-publisher";
 import type { CodeSessionSnapshot } from "../code-session-store";
 
-function facts(telemetry: Record<string, number> = {}): CardFacts {
-  return {
-    title: "Session",
-    masthead: null,
-    activity: "idle",
-    telemetry: { canInterrupt: 0, compacted: 0, ...telemetry },
-  };
-}
+const FACTS: CardFactsValue = {
+  title: "Session",
+  masthead: null,
+  activity: "idle",
+  identity: null,
+  titleBar: null,
+  canInterrupt: false,
+  compacted: false,
+};
 
-const HOLD = { restoreHold: 1, restoreTurnsLoaded: 3, restoreTurnsTarget: 10 };
+const HOLD = { turnsLoaded: 3, turnsTarget: 10 };
 
+let bus: TestBus;
 afterEach(() => {
-  bodyFactsStore._reset();
+  bus?.dispose();
   bodyCardsStore._reset();
 });
 
+/** The shell, installed as this page's bus, and a body page for each card. */
+async function pages(...cards: string[]): Promise<Record<string, TestPage>> {
+  bus = createTestBus();
+  bus.install(bus.shell());
+  const out: Record<string, TestPage> = {};
+  for (const cardId of cards) out[cardId] = bus.body(cardId, "session");
+  await bus.flush();
+  return out;
+}
+
 describe("the shell's gate over body cards", () => {
-  test("opens for a body card its body says is restoring, and sums the turns", () => {
+  test("opens for a body card its body says is restoring, and sums the turns", async () => {
+    const { a, b } = await pages("a", "b");
     bodyCardsStore.mark("a");
     bodyCardsStore.mark("b");
     expect(restoreGateStore.getSnapshot().open).toBe(false);
 
-    bodyFactsStore.applyFacts("a", facts(HOLD));
+    cardRestoreHold.on(a.bus).set(HOLD);
+    await bus.flush();
     expect(restoreGateStore.getSnapshot()).toEqual({ open: true, cards: 1, turnsLoaded: 3, turnsTarget: 10 });
 
-    bodyFactsStore.applyFacts("b", facts({ restoreHold: 1, restoreTurnsLoaded: 1, restoreTurnsTarget: 5 }));
+    cardRestoreHold.on(b.bus).set({ turnsLoaded: 1, turnsTarget: 5 });
+    await bus.flush();
     expect(restoreGateStore.getSnapshot()).toEqual({ open: true, cards: 2, turnsLoaded: 4, turnsTarget: 15 });
 
-    bodyFactsStore.applyFacts("a", facts());
-    bodyFactsStore.applyFacts("b", facts());
+    cardRestoreHold.on(a.bus).set(null);
+    cardRestoreHold.on(b.bus).set(null);
+    await bus.flush();
     expect(restoreGateStore.getSnapshot().open).toBe(false);
   });
 
-  test("notifies its readers when a body's report moves it", () => {
+  test("notifies its readers when a body's report moves it", async () => {
+    const { a } = await pages("a");
     bodyCardsStore.mark("a");
     let notified = 0;
     const release = restoreGateStore.subscribe(() => {
       notified += 1;
     });
-    bodyFactsStore.applyFacts("a", facts(HOLD));
-    bodyFactsStore.applyFacts("a", facts());
+    cardRestoreHold.on(a.bus).set(HOLD);
+    await bus.flush();
+    cardRestoreHold.on(a.bus).set(null);
+    await bus.flush();
     release();
     expect(notified).toBe(2);
   });
 
-  test("the hold goes with the page: a termination ends it, the card's other facts stand", () => {
+  test("the hold goes with the page: a termination ends it, the card's other facts stand", async () => {
+    const { a } = await pages("a");
     bodyCardsStore.mark("a");
-    bodyFactsStore.applyFacts("a", facts({ ...HOLD, canInterrupt: 1 }));
+    cardFacts.on(a.bus).set({ ...FACTS, canInterrupt: true });
+    cardRestoreHold.on(a.bus).set(HOLD);
+    await bus.flush();
     expect(restoreGateStore.getSnapshot().open).toBe(true);
 
-    bodyFactsStore.endRestoreHold("a");
+    bus.detach("a");
+    await bus.flush();
     expect(restoreGateStore.getSnapshot().open).toBe(false);
     expect(bodyFactsStore.canInterrupt("a")).toBe(true);
   });
 
-  test("a card that is no body card is not held, and a destroyed one lets go", () => {
-    bodyFactsStore.applyFacts("stray", facts(HOLD));
+  test("a card that is no body card is not held, and a destroyed one lets go", async () => {
+    const { a, stray } = await pages("a", "stray");
+    cardRestoreHold.on(stray.bus).set(HOLD);
+    await bus.flush();
     expect(restoreGateStore.getSnapshot().open).toBe(false);
 
     bodyCardsStore.mark("a");
-    bodyFactsStore.applyFacts("a", facts(HOLD));
+    cardRestoreHold.on(a.bus).set(HOLD);
+    await bus.flush();
     expect(restoreGateStore.getSnapshot().open).toBe(true);
     bodyCardsStore.drop("a");
     expect(restoreGateStore.getSnapshot().open).toBe(false);
@@ -106,22 +134,16 @@ describe("what a body reports", () => {
     }) as unknown as CodeSessionSnapshot;
 
   test("the replay window and the reveal behind it hold, with the turns", () => {
-    expect(restoreHoldTelemetry(snapshot({ phase: "replaying" }))).toEqual({
-      restoreHold: 1,
-      restoreTurnsLoaded: 2,
-      restoreTurnsTarget: 10,
-    });
-    expect(restoreHoldTelemetry(snapshot({ replayPreflightActive: true })).restoreHold).toBe(1);
-    expect(restoreHoldTelemetry(snapshot({ replayEverCompleted: true })).restoreHold).toBe(1);
+    expect(readRestoreHold(snapshot({ phase: "replaying" }))).toEqual({ turnsLoaded: 2, turnsTarget: 10 });
+    expect(readRestoreHold(snapshot({ replayPreflightActive: true }))).not.toBeNull();
+    expect(readRestoreHold(snapshot({ replayEverCompleted: true }))).not.toBeNull();
   });
 
   test("nothing outside a restore, after the reveal settles, or once the card errors (the silence deadline)", () => {
-    expect(restoreHoldTelemetry(null)).toEqual({});
-    expect(restoreHoldTelemetry(snapshot({}))).toEqual({});
-    expect(restoreHoldTelemetry(snapshot({ replayEverCompleted: true, coldRevealSettled: true }))).toEqual({});
-    expect(
-      restoreHoldTelemetry(snapshot({ phase: "replaying", lastError: { cause: "replay_stalled" } as never })),
-    ).toEqual({});
-    expect(restoreHoldTelemetry(snapshot({ phase: "replaying", sessionMode: "new" }))).toEqual({});
+    expect(readRestoreHold(null)).toBeNull();
+    expect(readRestoreHold(snapshot({}))).toBeNull();
+    expect(readRestoreHold(snapshot({ replayEverCompleted: true, coldRevealSettled: true }))).toBeNull();
+    expect(readRestoreHold(snapshot({ phase: "replaying", lastError: { cause: "replay_stalled" } as never }))).toBeNull();
+    expect(readRestoreHold(snapshot({ phase: "replaying", sessionMode: "new" }))).toBeNull();
   });
 });

@@ -171,31 +171,19 @@ export function readCardContent(root: ParentNode, whole: number): CardContentRea
 }
 
 /**
- * The telemetry keys a body publishes its card's content reading under
- * (`card-facts`), and that {@link bodyContentOf} reads back in the shell.
- */
-export const CONTENT_TELEMETRY = { content: "contentHeight", shown: "contentShown" } as const;
-
-/**
- * This page's card content reading as telemetry — what a body publishes so
- * the shell's {@link railNaturalOf} can read a card it does not hold — or
- * nothing when the page holds no card content. The whole of a body's page is
+ * This page's card content reading — what a body publishes (`card.content`)
+ * so the shell's {@link railNaturalOf} can read a card it does not hold — or
+ * null when the page holds no card content. The whole of a body's page is
  * its card's content box.
  */
-export function contentTelemetry(): Record<string, number> {
-  if (typeof document === "undefined") return {};
-  const reading = readCardContent(document, layoutPxOf(window.innerHeight));
-  if (reading === null) return {};
-  return { [CONTENT_TELEMETRY.content]: reading.content, [CONTENT_TELEMETRY.shown]: reading.shown };
+export function readPageContent(): CardContentReading | null {
+  if (typeof document === "undefined") return null;
+  return readCardContent(document, layoutPxOf(window.innerHeight));
 }
 
-/** What `cardId`'s body last published of its content, or null. */
+/** What `cardId`'s body last published of its content (`card.content`), or null. */
 function bodyContentOf(cardId: string): CardContentReading | null {
-  const telemetry = bodyFactsStore.get(cardId).facts?.telemetry;
-  const content = telemetry?.[CONTENT_TELEMETRY.content];
-  const shown = telemetry?.[CONTENT_TELEMETRY.shown];
-  if (typeof content !== "number" || typeof shown !== "number") return null;
-  return { content, shown };
+  return bodyFactsStore.contentOf(cardId);
 }
 
 /**

@@ -14,7 +14,6 @@
 
 import type { ResponderChainManager } from "./components/tugways/responder-chain";
 import { COMMANDS_BY_ID } from "@/components/tugways/command-registry";
-import { TUG_ACTIONS } from "@/lib/action-vocabulary";
 
 /** Handler function for an action */
 export type ActionHandler = (payload: Record<string, unknown>) => void;
@@ -91,76 +90,10 @@ export function getRegistryHandler(action: string): ActionHandler | undefined {
 }
 
 /**
- * The deck actions a card may ask of the shell by name, though no command
- * names them. Each is a verb over a sampled target — a menu's session, a
- * right-clicked command line — whose work needs the deck and the connection,
- * which only the shell's `initActionDispatch` holds; a body registers none
- * of them, and the shell runs only these for a body.
- */
-export const SHELL_ACTIONS_FOR_CARDS: ReadonlySet<string> = new Set<string>([
-  TUG_ACTIONS.RESUME_SESSION,
-  TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
-  // The Overview composer's draft, held app-scoped in the shell across the
-  // rail hidden and shown (`HOLD_OVERVIEW_DRAFT`, `overview-composer-draft.ts`;
-  // spelled here because that module imports this one).
-  "hold-overview-draft",
-]);
-
-/**
- * Takes a {@link SHELL_ACTIONS_FOR_CARDS} action this page has no handler
- * for, and says whether it took it. A body installs one that hands the
- * action to the shell; the shell, which registers them, installs none.
- */
-export type ShellActionForwarder = (action: string, payload: Record<string, unknown>) => boolean;
-
-let shellActionForwarder: ShellActionForwarder | null = null;
-
-/** Install the forwarder for shell actions. Returns the uninstall. */
-export function setShellActionForwarder(forwarder: ShellActionForwarder): () => void {
-  shellActionForwarder = forwarder;
-  return () => {
-    if (shellActionForwarder === forwarder) shellActionForwarder = null;
-  };
-}
-
-/**
- * Run one of the {@link SHELL_ACTIONS_FOR_CARDS} from whichever page the
- * card stands in, and say whether anything took it: this page's handler
- * where it has one (the shell), else the forwarder (a body, to the shell).
- * Calling the page's own registry handler from a body was a silent no-op.
- */
-export function dispatchShellAction(action: string, payload: Record<string, unknown>): boolean {
-  const handler = handlers.get(action);
-  if (handler !== undefined) {
-    handler(payload);
-    return true;
-  }
-  if (!SHELL_ACTIONS_FOR_CARDS.has(action) || shellActionForwarder === null) {
-    console.warn(`dispatchShellAction: ${action} has no handler in this page`, payload);
-    return false;
-  }
-  return shellActionForwarder(action, payload);
-}
-
-/**
- * The shell's side of {@link dispatchShellAction}: run `id` when it is one
- * of the {@link SHELL_ACTIONS_FOR_CARDS} a body handed over, and say whether
- * it was one. Anything else a body hands over is a command, for the funnel.
- */
-export function runShellActionForCard(id: string, payload: Record<string, unknown> | undefined): boolean {
-  if (!SHELL_ACTIONS_FOR_CARDS.has(id)) return false;
-  const handler = handlers.get(id);
-  if (handler === undefined) console.warn(`runShellActionForCard: ${id} has no handler in the shell`, payload);
-  else handler(payload ?? {});
-  return true;
-}
-
-/**
  * Clear the handler map and the manager slot. Called by `action-dispatch`'s
  * `_resetForTest`; internal/test-only.
  */
 export function _resetActionRegistryForTest(): void {
   handlers.clear();
   responderChainManagerRef = null;
-  shellActionForwarder = null;
 }

@@ -6,7 +6,8 @@
  *
  * @covers tugdeck/src/lib/session-control-actions.ts
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { _resetPageForTest, installPage } from "../../bus/page";
 import { _resetActionRegistryForTest, getRegistryHandler } from "../../action-registry";
 import {
   SESSION_CONTROL_ACTIONS,
@@ -48,8 +49,10 @@ describe("the shell's registration", () => {
 });
 
 describe("a body's card filter", () => {
+  // The filter's card is its page's.
+  beforeAll(() => installPage({ role: "body", cardId: "c1", componentId: "session" }));
+  afterAll(() => _resetPageForTest());
   const filter = bodyCardFilter(() => ({
-    cardId: "c1",
     sessionIds: ["s1"],
     lineId: "line-1",
   }));
@@ -82,7 +85,9 @@ describe("a listing body's card filter", () => {
   // The Cards card lists every card's session, a parked workspace's too, and
   // holds no session of its own. A cut bindings list would replace its page's
   // whole bindings cache with one row.
-  const filter = bodyCardFilter(() => ({ cardId: "cards", sessionIds: [], lineId: null }), { lists: true });
+  beforeAll(() => installPage({ role: "body", cardId: "cards", componentId: "cards" }));
+  afterAll(() => _resetPageForTest());
+  const filter = bodyCardFilter(() => ({ sessionIds: [], lineId: null }), { lists: true });
 
   test("is shown every session's row push", () => {
     const other = { session_id: "s2", fields: { line_id: "line-2" } };

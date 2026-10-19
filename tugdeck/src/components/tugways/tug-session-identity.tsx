@@ -101,7 +101,6 @@ import { TugTooltip } from "@/components/tugways/tug-tooltip";
 import { useSessionIdentityMenu } from "@/components/tugways/session-identity-menu";
 import { atomIdentityAttrs } from "@/lib/atom-identity-attrs";
 import { useCardIdForSession } from "@/lib/card-session-binding-store";
-import { dispatchShellAction } from "@/action-registry";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { isSessionResumable } from "@/lib/session-resume";
 import { arcReviewPaints, arcReviewTooltip } from "@/lib/arc-review";
@@ -694,10 +693,9 @@ export function TugSessionCitation({
     ? () => dispatchCommand("focus-session-card", { cardId })
     : resumable && resumeTarget !== null
       ? () => {
-          // A shell action, for the menu's reason: this verb is an action
-          // over a sampled target with no command-registry row of its own,
-          // and the deck work lives in the shell's `action-dispatch.ts`.
-          dispatchShellAction(TUG_ACTIONS.RESUME_SESSION, resumeTarget);
+          // The shell's command, for the menu's reason: the deck work lives
+          // in the shell's `action-dispatch.ts`.
+          dispatchCommand(TUG_ACTIONS.RESUME_SESSION, resumeTarget);
         }
       : undefined;
   return (

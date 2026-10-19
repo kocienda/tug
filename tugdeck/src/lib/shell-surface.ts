@@ -17,11 +17,11 @@
  * published once per frame. The shell draws it into the canvas overlay root,
  * so the pointer claim takes it like any surface the shell raises, patches
  * the drawn tree in place on each update so a scroller keeps its position,
- * and sends a press inside it back as `surface-activate` with the pressed
+ * and sends a press inside it back as `surface.activate` with the pressed
  * node's child-index path; the body clicks the same node in its own tree.
  * A pointerdown or Escape the shell sees outside the drawn panel dismisses it
- * (`surface-dismissed`), as one the body sees outside its hidden panel does
- * there.
+ * (`surface.dismissed`), as one the body sees outside its hidden panel does
+ * there. The body publishes the surface as its card's `card.surface`.
  *
  * Laws: [L06] (the drawn surface is DOM the shell writes, never React
  * state), [L22] (the mirror observes the rendered DOM directly), [L27]
@@ -30,12 +30,15 @@
  * @module lib/shell-surface
  */
 
-import type { ShellSurface } from "@tugproto/bus";
+import type { ShellSurface } from "../bus/declarations/card";
 import { isCancelChordEvent } from "../components/tugways/keymap-registry";
 import { applyAvailableHeight } from "../components/tugways/tug-placard";
 import * as canvasOverlayRegistry from "./canvas-overlay-registry";
 import { layoutPxOf, layoutRectOf } from "./page-zoom-store";
 import { paneCanvasOf } from "./pane-frame-selectors";
+import { cardSurface } from "../bus/declarations/card";
+import { surfaceActivate, surfaceDismissed } from "../bus/declarations/verbs";
+import { page } from "../bus/page";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -131,19 +134,23 @@ export interface ShellSurfaceHost {
   show(content: HTMLElement, meta: () => ShellSurfaceMeta, dismissed: () => void): () => void;
 }
 
-let installedHost: ShellSurfaceHost | null = null;
+let bodyMirror: SurfaceMirror | null = null;
 
-/** Install the page's surface host — a body's, which draws through the shell. Returns the uninstall. */
-export function setShellSurfaceHost(host: ShellSurfaceHost): () => void {
-  installedHost = host;
-  return () => {
-    if (installedHost === host) installedHost = null;
-  };
-}
-
-/** The page's surface host, or null where surfaces draw in place (the shell). */
+/**
+ * The page's surface host: in a body, the mirror that draws through the shell
+ * — made on first ask, publishing as the card's `card.surface` and answering
+ * the shell's `surface.*` back — and null in the shell, where surfaces draw in
+ * place.
+ */
 export function getShellSurfaceHost(): ShellSurfaceHost | null {
-  return installedHost;
+  if (!page.isBody || page.cardId === null) return null;
+  if (bodyMirror === null) {
+    const mirror = createSurfaceMirror((surface) => cardSurface.set(surface));
+    surfaceActivate.handle(({ path }) => mirror.activate(path));
+    surfaceDismissed.handle(() => mirror.dismiss());
+    bodyMirror = mirror;
+  }
+  return bodyMirror;
 }
 
 /** The body's surface host, and the two things the shell can say back to it. */

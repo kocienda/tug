@@ -74,16 +74,17 @@ An input that answers a page reaches its service as a `ClientFrame` carrying the
 
 **A session is held by its card's seating, not by a socket.** A page may write `CODE_INPUT` for a session it spawned, or for one its card seats: the session's ledger entry names that card, or a deck's `deck_seatings` report pairs the card with it (`card_seats_session` in `tugrust/crates/tugcast/src/feeds/agent_supervisor/mod.rs`, over `feeds/deck_seatings.rs`). A body page whose card seats the session takes the claim over from whichever page holds it, so a reloaded body is not refused by its own previous socket. Any other second writer is still `input_claimed`, and a page whose card does not seat the session is `session_not_owned` (`authorize_and_claim_input` in `router.rs`). The orphan sweep (`reap_orphan_bridges`) spares a session the seating board seats, and one whose card has a live page or a page that departed less than `BRIDGE_ORPHAN_SETTLE` (60 s) ago, because a body reload is a reconnect and not an orphan.
 
-**Pages talk to each other over the deck bus.** `DECK_BUS` (0xD0) carries one JSON envelope per frame in both directions. A shell or body page sends a target and a message, and tugcast delivers it on the page lane with `from` stamped from the sender's registered identity, so a `from` the page wrote is ignored (`route_bus` in `router.rs`). A tool's bus frame is `bus_refused`, one outside the vocabulary is `bus_malformed`, and a target no live page answers is `bus_undeliverable`, each a CONTROL error to the sender. Bus frames are exempt from the feed filter, as CONTROL is, because addressing already scopes them. The vocabulary is closed:
+**Pages talk to each other over the deck bus.** `DECK_BUS` (0xD0) carries one JSON envelope per frame in both directions. A shell or body page sends a target and a kind, and tugcast delivers it on the page lane with `from` stamped from the sender's registered identity, so a `from` the page wrote is ignored (`route_bus` in `router.rs`). A tool's bus frame is `bus_refused`, one with no target or a kind the envelope does not name is `bus_malformed`, and a target no live page answers is `bus_undeliverable`, each a CONTROL error to the sender. Bus frames are exempt from the feed filter, as CONTROL is, because addressing already scopes them. The envelope's kinds are closed; every field beside `to` and `kind` passes through verbatim:
 
-| `kind` | Documented direction | `payload` |
+| `kind` | What it is | Fields beside `payload` |
 |---|---|---|
-| `card-facts` | body → shell | `title`, `mastheadLine`, `activity`, `telemetry` |
-| `card-command` | shell → body | `command` (`find`, `focus-prompt`, `interrupt`, `turn-previous`, `turn-next`, `chord`), with `query` or `chord` |
-| `card-advice` | body → shell | tagged by `advice`: `fold-guard`, `close-advice`, `sheet-reservation`, `opening-bid` |
-| `deck-facts` | shell → bodies | `theme`, `zoom`, `keyboardAccess`, `modifierLatch`, `appActive` |
+| `hello` | a page announcing itself, or answering another's announcement | — |
+| `state` | a shared store's snapshot | `key`, `card`, `version`, `ack` |
+| `action` | a routed action, or a proposal to a store's owner | `key`, `card`, `proposal` |
+| `request` | a request that wants a reply, or its withdrawal | `key`, `requestId`, `withdraw` |
+| `reply` | the reply to a request | `key`, `requestId` |
 
-The router does not enforce a kind's direction. The Rust half is `tugrust/crates/tugcast-core/src/bus.rs` and the TypeScript half is `tugproto/src/bus.ts`, held to one fixture, `tugproto/src/__tests__/fixtures/bus-parity.json`, so a field added on one side only fails a parity test.
+The router does not enforce a direction and reads no payload. Each store, action and request is declared once, in TypeScript, beside the codec that validates its payload (`tugdeck/src/bus/declarations/`), and the receiving page refuses a malformed one where it can be seen ([D215], [shell-and-bodies.md](shell-and-bodies.md)). The Rust half of the envelope is `tugrust/crates/tugcast-core/src/bus.rs` and the TypeScript half is `tugproto/src/bus.ts`, held to one fixture, `tugproto/src/__tests__/fixtures/bus-parity.json`.
 
 ## The render feed {#render-feed}
 

@@ -18,7 +18,7 @@ import { describe, expect, test } from "bun:test";
 
 import { advanceKeyViewFocus, BASE_FOCUS_MODE, FocusManager } from "../focus-manager";
 import type { FocusableInput } from "../focus-manager";
-import { setFocusWalkEdge } from "@/lib/focus-walk-edge";
+import { installKeyCardRoute } from "@/bus/command-route";
 
 function register(manager: FocusManager, inputs: FocusableInput[]): void {
   for (const input of inputs) {
@@ -363,13 +363,17 @@ describe("FocusManager walk edge", () => {
     expect(new FocusManager().focusWalkEnd("first")).toBeNull();
   });
 
-  test("advanceKeyViewFocus offers the step past the edge to the page's walk edge", () => {
+  test("advanceKeyViewFocus offers the step past the edge to the shell's key-card route", () => {
     const m = threeStops();
     m.setKeyView("c");
     const offered: number[] = [];
-    const uninstall = setFocusWalkEdge((direction) => {
-      offered.push(direction);
-      return true;
+    const uninstall = installKeyCardRoute({
+      target: () => null,
+      sent: () => {},
+      walkEdge: (direction) => {
+        offered.push(direction);
+        return true;
+      },
     });
     try {
       expect(advanceKeyViewFocus(m, 1)).toBe(true);

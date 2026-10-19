@@ -31,9 +31,9 @@ import {
   handOffToBody,
   isBodyKind,
   isMountBodyKind,
-  setBodyIntentForwarder,
-  setFirstBodyBagSeed,
 } from "../body-handoff";
+import { createTestBus, type TestBus } from "../../bus/test-bus";
+import { sessionIntent } from "../../bus/declarations/verbs";
 import { registerDeckStore } from "../deck-store-registry";
 import { registerCard } from "../../card-registry";
 import {
@@ -46,6 +46,19 @@ import {
   stashOpeningCommand,
 } from "../session-restore";
 import { publishListCardBindingsOk } from "../session-ledger-events";
+
+let bus: TestBus | null = null;
+
+/** A shell on the test bus, and the intents `cardId`'s body is sent (`session.intent`). */
+async function bodyHearing(cardId: string): Promise<Array<{ cardId: string; intent: unknown }>> {
+  bus = createTestBus();
+  bus.install(bus.shell());
+  const page = bus.body(cardId, "handoff-spawn");
+  const heard: Array<{ cardId: string; intent: unknown }> = [];
+  sessionIntent.on(page.bus).handle((intent) => heard.push({ cardId, intent }));
+  await bus.flush();
+  return heard;
+}
 
 let controlActions: string[];
 let posted: Array<{ name: string; body: unknown }>;
@@ -119,6 +132,8 @@ afterEach(() => {
   for (const id of ["s1", "s2", "g1", "m1"]) sessionRestoreRegistry._clear(id);
   g.webkit = priorWebkit;
   registerDeckStore(null);
+  bus?.dispose();
+  bus = null;
   _setHostCapabilitiesForTest({ bodyViews: false });
   _resetHandOffForTest();
 });
@@ -193,22 +208,6 @@ describe("with the capability", () => {
     expect(sent.bag).toEqual(bag);
   });
 
-  test("a card the shell holds no state for takes its kind's seed, and held state wins over it", () => {
-    const seeded = { content: { draft: { text: "held by the shell" } } };
-    const release = setFirstBodyBagSeed("handoff-mount", () => seeded);
-    try {
-      handOffToBody("m1", () => ({ kind: "mount" }));
-      expect((posted[0]?.body as { intent: BodyIntent }).intent).toEqual({ kind: "mount", bag: seeded });
-
-      const own = { content: { draft: { text: "its own" } } };
-      cardStates.set("pm1", own);
-      handOffToBody("pm1", () => ({ kind: "mount" }));
-      expect((posted[1]?.body as { intent: BodyIntent }).intent.bag).toEqual(own);
-    } finally {
-      release();
-    }
-  });
-
   test("a fresh spawn carries its stashed opening command into the intent", () => {
     stashOpeningCommand("s1", { name: "arc", args: "go" });
     fireFreshSpawn("s1", "tug-1", "/p", connection, "launch");
@@ -250,12 +249,12 @@ describe("with the capability", () => {
     expect(posted).toEqual([]);
   });
 
-  test("a card already a body card is sent the intent its funnel just decided, once", () => {
-    const forwarded: Array<{ cardId: string; intent: BodyIntent }> = [];
-    setBodyIntentForwarder((cardId, intent) => forwarded.push({ cardId, intent }));
+  test("a card already a body card is sent the intent its funnel just decided, once", async () => {
+    const forwarded = await bodyHearing("s1");
     fireRestore("s1", "tug-1", "/p", connection, "launch");
     posted = [];
     fireNewSpawn("s1", "tug-2", "/p", connection, "restore-open", { lineId: "line-2", tag: "odd-kiln" });
+    await bus?.flush();
     const intent: BodyIntent = {
       kind: "new",
       tugSessionId: "tug-2",
@@ -271,15 +270,15 @@ describe("with the capability", () => {
     expect(bodyIntentOf("s1")).toEqual(intent);
   });
 
-  test("the reconnect pass's fire for a body card posts nothing and sends its body nothing", () => {
-    const forwarded: Array<{ cardId: string; intent: BodyIntent }> = [];
-    setBodyIntentForwarder((cardId, intent) => forwarded.push({ cardId, intent }));
+  test("the reconnect pass's fire for a body card posts nothing and sends its body nothing", async () => {
+    const forwarded = await bodyHearing("s1");
     fireRestore("s1", "tug-1", "/p", connection, "launch");
     posted = [];
     restoreSessions(deck, connection, { reason: "server-restart", reassert: true, cardIds: new Set(["s1"]) });
     publishListCardBindingsOk({
       bindings: [{ card_id: "s1", session_id: "tug-1", project_dir: "/p", turn_count: 2, state: "live" }],
     });
+    await bus?.flush();
     expect(posted).toEqual([]);
     expect(forwarded).toEqual([]);
     expect(controlActions).toEqual(["list_card_bindings"]);

@@ -12,10 +12,14 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { ResponderChainManager, setUnhandledTargetHook } from "@/components/tugways/responder-chain";
+import { ResponderChainManager } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { COMMANDS_BY_ID } from "@/components/tugways/command-registry";
-import { dispatchCommand, observeCommands, sendToCardContent, setCardContentForwarder, setUnhandledCommandFallback } from "../command-dispatch";
+import { dispatchCommand, observeCommands, sendToCardContent } from "../command-dispatch";
+import { _resetPageForTest, installPage } from "../bus/page";
+import { createTestBus, type TestBus } from "../bus/test-bus";
+import { cardContentAction } from "../bus/declarations/verbs";
+import { bodyCardsStore } from "../lib/body-cards-store";
 import {
   _resetForTest,
   dispatchAction,
@@ -23,9 +27,34 @@ import {
   registerResponderChainManager,
 } from "../action-dispatch";
 
+let pageBusUnderTest: TestBus | null = null;
+
 afterEach(() => {
+  pageBusUnderTest?.dispose();
+  pageBusUnderTest = null;
+  _resetPageForTest();
   _resetForTest();
 });
+
+/** This page as card `A`'s body, beside a shell; what it sends the shell as `command.shell`. */
+async function asBody(): Promise<{ sent: () => Promise<unknown[]> }> {
+  const bus = createTestBus();
+  pageBusUnderTest = bus;
+  bus.shell();
+  const body = bus.body("A", "session");
+  installPage({ role: "body", cardId: "A", componentId: "session" });
+  bus.install(body);
+  await bus.flush();
+  return {
+    sent: async () => {
+      await bus.flush();
+      return bus
+        .frames()
+        .filter((f) => f.envelope.kind === "action" && (f.envelope as { key?: string }).key === "command.shell")
+        .map((f) => (f.envelope as { payload?: unknown }).payload);
+    },
+  };
+}
 
 function chainWith(node: Parameters<ResponderChainManager["register"]>[0]): ResponderChainManager {
   const chain = new ResponderChainManager();
@@ -189,56 +218,55 @@ describe("a card-content action", () => {
     expect(sendToCardContent("c1", TUG_ACTIONS.REVEAL_CHANGES)).toBe(false);
   });
 
-  test("goes to the forwarder when it takes the card, and never to this chain", () => {
+  test("a body card's goes to its body as `card.contentAction`, and never to this chain", async () => {
     let ran = 0;
     chainWith({ id: "c1-card-content", parentId: null, actions: { [TUG_ACTIONS.REVEAL_CHANGES]: () => { ran += 1; } } });
-    const sent: string[] = [];
-    const release = setCardContentForwarder((cardId, action) => {
-      sent.push(`${cardId}:${action}`);
-      return true;
-    });
+    const bus = createTestBus();
     try {
+      const shell = bus.shell();
+      bus.install(shell);
+      const body = bus.body("c1", "text");
+      const received: string[] = [];
+      cardContentAction.on(body.bus).handle(({ action }) => received.push(action));
+      bodyCardsStore.mark("c1");
       expect(sendToCardContent("c1", TUG_ACTIONS.REVEAL_CHANGES)).toBe(true);
+      await bus.flush();
+      expect(received).toEqual([TUG_ACTIONS.REVEAL_CHANGES]);
+      expect(ran).toBe(0);
     } finally {
-      release();
+      bodyCardsStore._reset();
+      bus.dispose();
     }
-    expect(sent).toEqual([`c1:${TUG_ACTIONS.REVEAL_CHANGES}`]);
-    expect(ran).toBe(0);
   });
 });
 
 describe("a targeted dispatch that walks off the root", () => {
-  test("goes to the unhandled-target hook, which can take it", () => {
+  test("in a body, a command row goes to the shell, which takes it", async () => {
+    const { sent } = await asBody();
     const chain = chainWith({ id: "control-parent", parentId: null, actions: {} });
-    const seen: string[] = [];
-    const release = setUnhandledTargetHook((event) => {
-      seen.push(event.action);
-      return true;
-    });
-    try {
-      expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(true);
-    } finally {
-      release();
-    }
-    expect(seen).toEqual([TUG_ACTIONS.NEW_SPACE]);
+    expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(true);
+    expect(await sent()).toEqual([{ id: TUG_ACTIONS.NEW_SPACE }]);
+  });
+
+  test("in a body, a dialog's Cancel stays in the page", async () => {
+    const { sent } = await asBody();
+    const chain = chainWith({ id: "control-parent", parentId: null, actions: {} });
+    expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.CANCEL_DIALOG, phase: "discrete" })).toBe(false);
+    expect(await sent()).toEqual([]);
+  });
+
+  test("in the shell, it is unhandled", () => {
+    const chain = chainWith({ id: "control-parent", parentId: null, actions: {} });
     expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(false);
   });
 
-  test("never reaches the hook when the chain answers it", () => {
+  test("never leaves the body when the chain answers it", async () => {
+    const { sent } = await asBody();
     let ran = 0;
     const chain = chainWith({ id: "control-parent", parentId: null, actions: { [TUG_ACTIONS.NEW_SPACE]: () => { ran += 1; } } });
-    let hooked = 0;
-    const release = setUnhandledTargetHook(() => {
-      hooked += 1;
-      return true;
-    });
-    try {
-      expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(true);
-    } finally {
-      release();
-    }
+    expect(chain.sendToTarget("control-parent", { action: TUG_ACTIONS.NEW_SPACE, phase: "discrete" })).toBe(true);
     expect(ran).toBe(1);
-    expect(hooked).toBe(0);
+    expect(await sent()).toEqual([]);
   });
 });
 
@@ -257,21 +285,24 @@ describe("the funnel's edges", () => {
   // A body that has just taken its card has no chain yet: a command the
   // shell forwarded in that window goes back to the shell, which answers
   // it, rather than being dropped with nobody asked.
-  test("a page whose chain has not mounted hands a chain command to its fallback", () => {
-    const handed: string[] = [];
-    const uninstall = setUnhandledCommandFallback((entry) => {
-      handed.push(entry.id);
-      return true;
-    });
-    try {
-      expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" })).toBe(true);
-      expect(handed).toEqual([TUG_ACTIONS.ACTIVATE_SPACE]);
-      // A local dispatch is the fallback's own answer, and never goes back.
-      expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" }, { local: true })).toBe(false);
-      expect(handed).toEqual([TUG_ACTIONS.ACTIVATE_SPACE]);
-    } finally {
-      uninstall();
-    }
+  test("a body whose chain has not mounted hands a chain command to the shell", async () => {
+    const { sent } = await asBody();
+    expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" })).toBe(true);
+    expect(await sent()).toEqual([{ id: TUG_ACTIONS.ACTIVATE_SPACE, payload: { spaceId: "s1" } }]);
+    // A local dispatch is the shell's own answer, and never goes back.
+    expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" }, { local: true })).toBe(false);
+    expect(await sent()).toHaveLength(1);
+  });
+
+  test("a body declines Undo, and sends Cancel to the shell without claiming it", async () => {
+    const { sent } = await asBody();
+    expect(dispatchCommand(TUG_ACTIONS.UNDO)).toBe(false);
+    expect(dispatchCommand(TUG_ACTIONS.CANCEL_DIALOG)).toBe(false);
+    expect(await sent()).toEqual([{ id: TUG_ACTIONS.CANCEL_DIALOG }]);
+  });
+
+  test("the shell hands nothing on", () => {
+    expect(dispatchCommand(TUG_ACTIONS.ACTIVATE_SPACE, { spaceId: "s1" })).toBe(false);
   });
 
   test("observers see every dispatch, handled or not", () => {

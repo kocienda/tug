@@ -13,11 +13,13 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import type { BusDelivered, BusOutbound } from "@tugproto/bus";
+import type { BusEnvelopeOut } from "@tugproto/bus";
 import { FeedId } from "@/protocol";
 import { TugConnection, type PageRole } from "@/connection";
 import { ConnectionLifecycle } from "@/lib/connection-lifecycle";
-import { onBus, sendBus } from "@/lib/deck-bus";
+import { createPageBus, type PageBus } from "@/bus/page-bus";
+import { connectionTransport } from "@/bus/transport";
+import { cardContext, cardFacts } from "@/bus/declarations/card";
 import { BUILD_TIMEOUT_MS, PageClient, startRealTugcast, type RealTugcast } from "../testing/real-tugcast";
 
 /** `CLOSE_BAD_HANDSHAKE` in `tugcast-core/src/protocol.rs`. */
@@ -394,40 +396,79 @@ describe("bus", () => {
     const bus = (p: PageClient) => jsonOn(p, FeedId.DECK_BUS);
     const refusals = (p: PageClient) =>
       jsonOn(p, FeedId.CONTROL).filter((j) => typeof j.detail === "string" && j.detail.startsWith("bus_"));
-    const send = (p: PageClient, message: BusOutbound) => p.sendJson(FeedId.DECK_BUS, message);
+    const send = (p: PageClient, message: BusEnvelopeOut) => p.sendJson(FeedId.DECK_BUS, message);
 
     send(b1, {
       to: "shell",
-      kind: "card-facts",
+      kind: "state",
+      key: "card.facts",
+      card: "c1",
+      version: 1,
       payload: { title: "Dev", masthead: null, activity: "idle", telemetry: {} },
     });
-    const facts = await shell.waitFor(() => bus(shell).find((j) => j.kind === "card-facts"), "the shell's card-facts");
+    const facts = await shell.waitFor(() => bus(shell).find((j) => j.key === "card.facts"), "the shell's card.facts");
     expect(facts.from).toEqual({ pageId: "body-bus-1", role: "body", cardId: "c1" });
 
-    send(shell, { to: { card: "c2" }, kind: "card-command", payload: { command: "focus-prompt" } });
-    await b2.waitFor(() => bus(b2).find((j) => j.kind === "card-command"), "b2's card-command");
+    send(shell, { to: { card: "c2" }, kind: "action", key: "command", payload: { id: "focus-prompt" } });
+    await b2.waitFor(() => bus(b2).find((j) => j.kind === "action"), "b2's command");
 
     send(shell, {
       to: "body",
-      kind: "deck-facts",
+      kind: "state",
+      key: "deck.facts",
+      version: 1,
       payload: { theme: "ironclad", zoom: 1, keyboardAccess: false, modifierLatch: [], focusRingModality: "keyboard", appActive: true },
     });
     await Promise.all(
-      [b1, b2].map((p) => p.waitFor(() => bus(p).find((j) => j.kind === "deck-facts"), "the bodies' deck-facts")),
+      [b1, b2].map((p) => p.waitFor(() => bus(p).find((j) => j.key === "deck.facts"), "the bodies' deck.facts")),
     );
 
     await laneBarrier(...all);
     expect(bus(tool)).toEqual([]);
-    expect(bus(shell).filter((j) => j.kind === "card-command")).toEqual([]);
-    expect(bus(b1).filter((j) => j.kind === "card-command")).toEqual([]);
+    expect(bus(shell).filter((j) => j.kind === "action")).toEqual([]);
+    expect(bus(b1).filter((j) => j.kind === "action")).toEqual([]);
 
-    send(tool, { to: "shell", kind: "card-advice", payload: { advice: "fold-guard", guarded: true } });
+    send(tool, { to: "shell", kind: "action", key: "card.close", payload: {} });
     await socketBarrier(tool);
     expect(refusals(tool).map((j) => j.detail)).toEqual(["bus_refused"]);
 
-    send(b1, { to: { card: "nobody" }, kind: "card-command", payload: { command: "interrupt" } });
+    send(b1, { to: { card: "nobody" }, kind: "action", key: "command", payload: { id: "interrupt" } });
     await socketBarrier(b1);
     expect(refusals(b1)).toEqual([{ type: "error", detail: "bus_undeliverable", to: { card: "nobody" } }]);
+  });
+
+  test("an envelope arrives verbatim, a field no declaration names included, beside the payload and in it", async () => {
+    const shell = page({ role: "shell", page_id: "shell-env" });
+    const b1 = page({ role: "body", page_id: "body-env-1", card_id: "c1" });
+    await Promise.all([shell, b1].map((p) => p.connect()));
+    await Promise.all([shell, b1].map(socketBarrier));
+    const bus = (p: PageClient) => jsonOn(p, FeedId.DECK_BUS);
+
+    const state = {
+      to: { card: "c1" },
+      kind: "state",
+      key: "card.context",
+      card: "c1",
+      version: 3,
+      ack: { "body-env-1": 1 },
+      payload: { folded: false, spaceId: "s1" },
+      futureField: { x: 1 },
+    };
+    shell.sendJson(FeedId.DECK_BUS, { ...state, from: { pageId: "forged", role: "body", cardId: "c9" } });
+    const gotState = await b1.waitFor(() => bus(b1).find((j) => j.kind === "state"), "b1's state envelope");
+    expect(gotState).toEqual({ ...state, from: { pageId: "shell-env", role: "shell", cardId: null } });
+
+    const facts = {
+      to: "shell",
+      kind: "state",
+      key: "card.facts",
+      card: "c1",
+      version: 1,
+      payload: { title: "Dev", masthead: null, activity: null, telemetry: {}, binding: { tugSessionId: "s1" } },
+    };
+    b1.sendJson(FeedId.DECK_BUS, facts);
+    const gotFacts = await shell.waitFor(() => bus(shell).find((j) => j.key === "card.facts"), "the shell's card.facts");
+    expect(gotFacts).toEqual({ ...facts, from: { pageId: "body-env-1", role: "body", cardId: "c1" } });
   });
 
   test("a spare body binds to its card once, and is then addressed as that card", async () => {
@@ -448,12 +489,15 @@ describe("bus", () => {
     await spare.waitFor(() => controls(spare, "tug-test-ping").some((p) => p.n === 7), "the bound spare's ping");
     shell.sendJson(FeedId.DECK_BUS, {
       to: { card: "c-bound" },
-      kind: "card-context",
+      kind: "state",
+      key: "card.context",
+      card: "c-bound",
+      version: 1,
       payload: { folded: false, arriving: true, firstResponderCardId: "c-bound", layerShown: true, spaceId: null },
-    } satisfies BusOutbound);
+    } satisfies BusEnvelopeOut);
     const context = await spare.waitFor(
-      () => jsonOn(spare, FeedId.DECK_BUS).find((j) => j.kind === "card-context"),
-      "the bound spare's card-context",
+      () => jsonOn(spare, FeedId.DECK_BUS).find((j) => j.key === "card.context"),
+      "the bound spare's card.context",
     );
     expect(context.from).toEqual({ pageId: "shell-bind", role: "shell", cardId: null });
     await laneBarrier(shell, spare);
@@ -470,15 +514,20 @@ describe("bus", () => {
 });
 
 describe("pages on the deck's own connection", () => {
-  /** A `TugConnection` speaking for `page`, open on the real tugcast. */
-  async function deckPage(page: PageRole): Promise<TugConnection> {
+  /** A `TugConnection` speaking for `page`, open on the real tugcast, with the page bus the deck stands on it. */
+  async function deckPage(page: PageRole, componentId: string | null = null): Promise<{ connection: TugConnection; bus: PageBus }> {
     const connection = new TugConnection(tugcast.wsUrl, { page });
     const lifecycle = new ConnectionLifecycle();
     connection.setLifecycle(lifecycle);
     const opened = new Promise<void>((resolve) => lifecycle.observeConnectionDidOpen(() => resolve()));
+    const bus = createPageBus(connectionTransport(connection, lifecycle), {
+      role: page.role === "shell" ? "shell" : "body",
+      cardId: page.role === "body" ? page.cardId : null,
+      componentId,
+    });
     connection.connect();
     await opened;
-    return connection;
+    return { connection, bus };
   }
 
   /** Resolve with the first value `read` returns that is not undefined. */
@@ -492,30 +541,42 @@ describe("pages on the deck's own connection", () => {
     }
   }
 
-  test("a shell and a body exchange facts and context, and the body hears only its session", async () => {
-    const shell = await deckPage({ role: "shell" });
-    const body = await deckPage({ role: "body", cardId: "c-deck" });
+  test("a shell and a body attach, the body reads its card's context store, and hears only its session", async () => {
+    const { connection: shell, bus: shellBus } = await deckPage({ role: "shell" });
+    const { connection: body, bus: bodyBus } = await deckPage({ role: "body", cardId: "c-deck" }, "session");
     try {
-      const facts: BusDelivered[] = [];
-      const contexts: BusDelivered[] = [];
-      onBus(shell, "card-facts", (m) => facts.push(m));
-      onBus(body, "card-context", (m) => contexts.push(m));
-
-      sendBus(body, "shell", {
-        kind: "card-facts",
-        payload: { title: "deck/odd-kiln", masthead: null, activity: "idle", telemetry: { canInterrupt: 0, compacted: 0 } },
+      // Set before the body says hello: held for it, and sent as its snapshot when it does.
+      cardContext.on(shellBus).setFor("c-deck", {
+        folded: false,
+        arriving: true,
+        firstResponderCardId: "c-deck",
+        layerShown: false,
+        spaceId: null,
       });
-      sendBus(shell, { card: "c-deck" }, {
-        kind: "card-context",
-        payload: { folded: false, arriving: true, firstResponderCardId: "c-deck", layerShown: false, spaceId: null },
-      });
+      bodyBus.announce();
+      await until(() => (shellBus.isAttached({ card: "c-deck" }) ? true : undefined), "the shell attaching the body");
+      await until(() => (bodyBus.isAttached("shell") ? true : undefined), "the body attaching the shell");
+      const context = await until(
+        () => (cardContext.on(bodyBus).arrived() ? cardContext.on(bodyBus).getSnapshot() : undefined),
+        "the body's card.context",
+      );
+      expect(context).toMatchObject({ arriving: true, firstResponderCardId: "c-deck" });
+      // A fold moves the one card's context, and the replica follows.
+      cardContext.on(shellBus).setFor("c-deck", { ...context, folded: true });
+      await until(() => (cardContext.on(bodyBus).getSnapshot().folded ? true : undefined), "the fold");
 
-      const fact = await until(() => facts[0], "the shell's card-facts");
-      expect(fact.from).toMatchObject({ role: "body", cardId: "c-deck" });
-      expect(fact.payload).toMatchObject({ title: "deck/odd-kiln", activity: "idle" });
-      const context = await until(() => contexts[0], "the body's card-context");
-      expect(context.from).toMatchObject({ role: "shell", cardId: null });
-      expect(context.payload).toMatchObject({ arriving: true, firstResponderCardId: "c-deck" });
+      // The body's own store reaches the shell, as that card's value.
+      cardFacts.on(bodyBus).set({
+        title: "deck/odd-kiln",
+        masthead: null,
+        activity: "idle",
+        identity: null,
+        titleBar: null,
+        canInterrupt: false,
+        compacted: false,
+      });
+      const fact = await until(() => cardFacts.on(shellBus).getFor("c-deck") ?? undefined, "the shell's card.facts");
+      expect(fact).toMatchObject({ title: "deck/odd-kiln", activity: "idle" });
 
       // The body narrows to its card's session; the router reports the set.
       body.setSessions(["s-deck"]);
@@ -529,6 +590,8 @@ describe("pages on the deck's own connection", () => {
       const reply = await until(() => stats[0], "the body's feed_stats");
       expect(reply.sessions).toEqual(["s-deck"]);
     } finally {
+      shellBus.dispose();
+      bodyBus.dispose();
       shell.dispose();
       body.dispose();
     }

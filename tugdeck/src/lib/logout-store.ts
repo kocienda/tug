@@ -9,12 +9,14 @@
  * nonce (not a boolean) so repeated requests each fire and there is no state to
  * "consume"/reset.
  *
- * A card's body mounts no `TugLogout`, so a body installs a forwarder that
- * hands its request to the shell, whose orchestrator runs it.
+ * A card's body mounts no `TugLogout`, so a request made in a body is the
+ * shell's `app.logout`, whose orchestrator runs it.
  *
  * @module lib/logout-store
  */
 
+import { appLogout } from "../bus/declarations/verbs";
+import { page } from "../bus/page";
 import { Subscribable } from "./subscribable";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 
@@ -32,20 +34,10 @@ class LogoutStore extends Subscribable {
 
 const logoutStore = new LogoutStore();
 
-let forwarder: (() => void) | null = null;
-
-/** Hand this page's logout requests elsewhere (a body, to the shell). Returns the uninstall. */
-export function setLogoutForwarder(forward: () => void): () => void {
-  forwarder = forward;
-  return () => {
-    if (forwarder === forward) forwarder = null;
-  };
-}
-
 /** Request a logout (from the File menu or the `/logout` slash command). */
 export function requestLogout(): void {
-  if (forwarder !== null) {
-    forwarder();
+  if (page.isBody) {
+    appLogout.dispatch({});
     return;
   }
   logoutStore.request();

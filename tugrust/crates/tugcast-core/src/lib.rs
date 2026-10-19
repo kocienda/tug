@@ -6,7 +6,7 @@
 //!
 //! ## Modules
 //!
-//! - [`bus`] - The deck bus vocabulary carried between pages
+//! - [`bus`] - The deck bus envelope routed between pages
 //! - [`control`] - The CONTROL request action vocabulary
 //! - [`protocol`] - Binary frame protocol and FeedId definitions
 //! - [`feed`] - Feed traits for stream and snapshot feeds
@@ -22,10 +22,7 @@ pub mod pages;
 pub mod protocol;
 pub mod types;
 
-pub use bus::{
-    BusChord, BusDelivered, BusFrom, BusMessage, BusOutbound, BusRole, BusTarget, CardAdvice,
-    CardCommand, CardCommandKind, CardContext, CardFacts, DeckFacts,
-};
+pub use bus::{BusDelivered, BusFrom, BusKind, BusOutbound, BusRole, BusTarget};
 pub use control::{ControlAction, DECK_ONLY_ACTIONS, RUST_ONLY_ACTIONS, UnknownControlAction};
 pub use feed::{DEFAULT_BROADCAST_CAPACITY, SnapshotFeed, StreamFeed, spawn_snapshot_feed};
 pub use lag::{LagPolicy, ReplayBuffer};

@@ -3,32 +3,26 @@
  *
  * Hiding the rail destroys the Overview card and showing it mints a fresh
  * one ([F07]); under per-card web views the card's page goes with it, and so
- * does the page's own holder. The shell holds the draft instead: a body's
- * composer forwards it (`forwardOverviewDraft`, over the `dispatch` door to
- * the shell's `hold-overview-draft` handler), the words replacing the last
- * and the pictures standing until they move, and the next Overview card's
- * first body is handed it as its bag (`overviewDraftSeedBag`, through the
- * hand-off's kind seed). An empty draft lets it go, and a card the deck holds
- * state for — a relaunch's — keeps its own.
+ * does the page's own holder. The shell holds the draft instead
+ * (`overview.draft`): a body's composer proposes it (`forwardOverviewDraft`),
+ * the words replacing the last and the pictures standing until they move, and
+ * the next Overview body's composer takes it from the replica
+ * (`takeShellOverviewDraft`), whenever the shell's snapshot reaches it. An
+ * empty draft lets it go.
  *
  * @covers tugdeck/src/components/overview/overview-composer-draft.ts
- * @covers tugdeck/src/lib/body-handoff.ts
+ * @covers tugdeck/src/bus/declarations/relays.ts
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { IDeckManagerStore } from "../../../deck-manager-store";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { TugTextEditingState } from "../../../lib/tug-text-types";
-import { registerCard } from "../../../card-registry";
-import { registerDeckStore } from "../../../lib/deck-store-registry";
-import { bodyCardsStore } from "../../../lib/body-cards-store";
-import { _resetHandOffForTest, _setHostCapabilitiesForTest, handOffToBody } from "../../../lib/body-handoff";
-import { SHELL_ACTIONS_FOR_CARDS, runShellActionForCard } from "../../../action-registry";
 import { OVERVIEW_CARD_ID } from "../../../lib/overview-card-id";
+import { createTestBus, type TestBus } from "../../../bus/test-bus";
+import { overviewDraft } from "../../../bus/declarations/relays";
 import {
-  HOLD_OVERVIEW_DRAFT,
-  _resetOverviewDraftShellHolderForTest,
   forwardOverviewDraft,
-  installOverviewDraftShellHolder,
-  overviewDraftSeedBag,
+  holdOverviewDraftInShell,
+  takeShellOverviewDraft,
+  type OverviewComposerDraftState,
 } from "../overview-composer-draft";
 
 function draft(text: string, atoms: TugTextEditingState["atoms"] = []): TugTextEditingState {
@@ -38,96 +32,81 @@ function draft(text: string, atoms: TugTextEditingState["atoms"] = []): TugTextE
 const IMAGE_ATOM = { position: 0, type: "image", label: "image-1", value: "image-1", id: "atom-1" };
 const BYTES = { "atom-1": { content: "iVBORw0KGgo=", mediaType: "image/png" } };
 
-let uninstall: () => void = () => {};
+let bus: TestBus;
+afterEach(() => bus?.dispose());
 
-beforeEach(() => {
-  _resetOverviewDraftShellHolderForTest();
-  uninstall = installOverviewDraftShellHolder();
-});
-
-afterEach(() => {
-  uninstall();
-});
+async function pages() {
+  bus = createTestBus();
+  const shell = bus.shell();
+  holdOverviewDraftInShell(shell.bus);
+  const overview = bus.body("ov-1", OVERVIEW_CARD_ID);
+  await bus.flush();
+  const held = (): OverviewComposerDraftState | null => overviewDraft.on(shell.bus).getSnapshot();
+  return { shell, overview, held };
+}
 
 describe("the shell's hold on the Overview draft", () => {
-  test("is one of the actions a body may ask of the shell", () => {
-    expect(SHELL_ACTIONS_FOR_CARDS.has(HOLD_OVERVIEW_DRAFT)).toBe(true);
+  test("holds what a body forwards: the words replace the last, the pictures stand until they move", async () => {
+    const { overview, held } = await pages();
+    expect(held()).toBeNull();
+    forwardOverviewDraft(draft("half a question ", [IMAGE_ATOM as never]), BYTES, overview.bus);
+    await bus.flush();
+    expect(held()).toEqual({ draft: draft("half a question ", [IMAGE_ATOM as never]), attachmentBytes: BYTES });
+
+    forwardOverviewDraft(draft("half a question about ", [IMAGE_ATOM as never]), undefined, overview.bus);
+    await bus.flush();
+    expect(held()).toEqual({ draft: draft("half a question about ", [IMAGE_ATOM as never]), attachmentBytes: BYTES });
   });
 
-  test("holds what a body forwards: the words replace the last, the pictures stand until they move", () => {
-    expect(overviewDraftSeedBag()).toBeUndefined();
-    // As the body's forward arrives in the shell, over the `dispatch` door.
-    runShellActionForCard(HOLD_OVERVIEW_DRAFT, {
-      draft: draft("half a question ", [IMAGE_ATOM as never]),
-      attachmentBytes: BYTES,
-    });
-    expect(overviewDraftSeedBag()).toEqual({
-      content: { draft: draft("half a question ", [IMAGE_ATOM as never]), attachmentBytes: BYTES },
-    });
-
-    runShellActionForCard(HOLD_OVERVIEW_DRAFT, { draft: draft("half a question about ", [IMAGE_ATOM as never]) });
-    expect(overviewDraftSeedBag()).toEqual({
-      content: { draft: draft("half a question about ", [IMAGE_ATOM as never]), attachmentBytes: BYTES },
-    });
+  test("an empty draft, or no draft, lets it go", async () => {
+    const { overview, held } = await pages();
+    forwardOverviewDraft(draft("words"), undefined, overview.bus);
+    await bus.flush();
+    expect(held()).not.toBeNull();
+    forwardOverviewDraft(draft(""), undefined, overview.bus);
+    await bus.flush();
+    expect(held()).toBeNull();
+    forwardOverviewDraft(draft("again"), undefined, overview.bus);
+    forwardOverviewDraft(null, undefined, overview.bus);
+    await bus.flush();
+    expect(held()).toBeNull();
   });
 
-  test("an empty draft, or no draft, lets it go", () => {
-    forwardOverviewDraft(draft("words"));
-    expect(overviewDraftSeedBag()).toBeDefined();
-    forwardOverviewDraft(draft(""));
-    expect(overviewDraftSeedBag()).toBeUndefined();
-    forwardOverviewDraft(draft("again"));
-    forwardOverviewDraft(null);
-    expect(overviewDraftSeedBag()).toBeUndefined();
+  test("survives the Overview card's destruction and seeds the next Overview body", async () => {
+    const { overview } = await pages();
+    forwardOverviewDraft(draft("half a question about ", [IMAGE_ATOM as never]), BYTES, overview.bus);
+    await bus.flush();
+    // The rail is hidden: the card and its page go.
+    bus.leave(overview);
+    bus.detach("ov-1");
+    await bus.flush();
+
+    // Shown again, under a fresh card id. Its composer asks before the
+    // shell's snapshot has reached the page, and is handed it when it does.
+    const next = bus.body("ov-2", OVERVIEW_CARD_ID);
+    const taken: OverviewComposerDraftState[] = [];
+    takeShellOverviewDraft((held) => taken.push(held), next.bus);
+    expect(taken).toEqual([]);
+    await bus.flush();
+    expect(taken).toEqual([{ draft: draft("half a question about ", [IMAGE_ATOM as never]), attachmentBytes: BYTES }]);
+
+    // Taken once: a later change of the shell's draft is not handed again.
+    forwardOverviewDraft(draft("more"), undefined, next.bus);
+    await bus.flush();
+    expect(taken).toHaveLength(1);
   });
 
-  describe("the next Overview card's first body", () => {
-    const cardStates = new Map<string, Record<string, unknown>>();
-    const deck = {
-      getSnapshot: () => ({ cards: [{ id: "ov-2", componentId: OVERVIEW_CARD_ID }, { id: "ov-3", componentId: OVERVIEW_CARD_ID }] }),
-      spaceOf: () => null,
-      getSpaceDeck: () => undefined,
-      getCardState: (cardId: string) => cardStates.get(cardId),
-    } as unknown as IDeckManagerStore;
-    const posted: Array<{ intent: { bag?: unknown } }> = [];
-    const g = globalThis as { webkit?: unknown };
-    let priorWebkit: unknown;
-
-    beforeEach(() => {
-      registerCard({
-        componentId: OVERVIEW_CARD_ID,
-        contentFactory: () => null,
-        defaultMeta: { title: "Overview", closable: true },
-      });
-      posted.length = 0;
-      priorWebkit = g.webkit;
-      g.webkit = {
-        messageHandlers: { bodyCreate: { postMessage: (body: { intent: { bag?: unknown } }) => posted.push(body) } },
-      };
-      registerDeckStore(deck);
-      _resetHandOffForTest();
-      _setHostCapabilitiesForTest({ bodyViews: true });
-    });
-
-    afterEach(() => {
-      cardStates.clear();
-      g.webkit = priorWebkit;
-      registerDeckStore(null);
-      _setHostCapabilitiesForTest({ bodyViews: false });
-      bodyCardsStore._reset();
-    });
-
-    test("is handed the held draft as its bag; a card with state of its own keeps it", () => {
-      forwardOverviewDraft(draft("half a question about ", [IMAGE_ATOM as never]), BYTES);
-      handOffToBody("ov-2", () => ({ kind: "mount" }));
-      expect(posted[0]?.intent.bag).toEqual({
-        content: { draft: draft("half a question about ", [IMAGE_ATOM as never]), attachmentBytes: BYTES },
-      });
-
-      const relaunched = { content: { draft: draft("from the relaunch") } };
-      cardStates.set("ov-3", relaunched);
-      handOffToBody("ov-3", () => ({ kind: "mount" }));
-      expect(posted[1]?.intent.bag).toEqual(relaunched);
-    });
+  test("a card that is not the Overview is not sent it, and a page that is not a body takes nothing", async () => {
+    const { shell, overview } = await pages();
+    forwardOverviewDraft(draft("words"), undefined, overview.bus);
+    const session = bus.body("s1", "session");
+    await bus.flush();
+    expect(overviewDraft.on(session.bus).arrived()).toBe(false);
+    const taken: unknown[] = [];
+    takeShellOverviewDraft((held) => taken.push(held), shell.bus);
+    forwardOverviewDraft(draft("from the shell"), undefined, shell.bus);
+    await bus.flush();
+    expect(taken).toEqual([]);
+    expect(overviewDraft.on(shell.bus).getSnapshot()?.draft).toEqual(draft("words"));
   });
 });

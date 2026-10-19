@@ -1,16 +1,20 @@
 /**
- * What each body card last told the shell about itself.
+ * What each body card says about itself, as the shell reads it.
  *
- * A body publishes its card's facts (`card-facts`: title, masthead, session
- * phase, telemetry) and the advice the shell pulls synchronously at gesture
- * time (`card-advice`: close advice, fold guard) only when they change, so
- * the shell answers from the last message it heard. The shell's readers of a
- * card's session — the phase dot, the masthead's telemetry, the live-turns
- * count, the close advisor and the fold guard — read here for a body card
- * because no session store exists for one in the shell.
+ * A body sets its card's own stores (`bus/declarations/card.ts`): its facts
+ * (`card.facts`: title, masthead, session phase, whether it is mid-turn or
+ * compacted), the holds the shell pulls synchronously at gesture time
+ * (`card.holds`: close advice, fold guard), its cold restore, its content
+ * reading and its keyboard-focus paint. The shell's readers of a card's session — the phase
+ * dot, the masthead's compaction, the live-turns count, the restore gate,
+ * the close advisor and the fold guard — read the replicas here for a body
+ * card because no session store exists for one in the shell.
  *
- * An identical message keeps the stored object and notifies nobody, so a
- * reader's snapshot is reference-stable across repeats.
+ * This is a reader over those replicas, on this page's bus. It notifies
+ * whenever any of them changes, and a replica keeps its object until its
+ * value changes, so a reader's snapshot is reference-stable across repeats.
+ * A body page's own card is its own to read, so on any page but the shell
+ * — and on a page with no bus — it reads as if no card had said anything.
  *
  * Laws: [L02] read through `useSyncExternalStore`; [L22] advisors read the
  * store directly.
@@ -18,136 +22,102 @@
  * @module lib/body-facts-store
  */
 
-import type { CardAdvice, CardFacts } from "@tugproto/bus";
+import { bindEveryPageBus, installedPageBus, type PageBus } from "../bus/page-bus";
+import {
+  cardContent,
+  cardFacts,
+  cardHolds,
+  cardKbfPaint,
+  cardRestoreHold,
+  NO_CARD_HOLDS,
+  type CardFactsValue,
+  type CardHoldsValue,
+} from "../bus/declarations/card";
 import { Subscribable } from "./subscribable";
 
-/** One body card's last facts and advice. Absent advice is "said nothing yet". */
+/** One body card's facts and holds. `facts` is null before its first. */
 export interface BodyFacts {
-  readonly facts: CardFacts | null;
-  readonly waive: boolean | null;
-  readonly guarded: boolean | null;
+  readonly facts: CardFactsValue | null;
+  readonly holds: CardHoldsValue;
 }
 
-const NOTHING: BodyFacts = Object.freeze({ facts: null, waive: null, guarded: null });
+const NOTHING: BodyFacts = Object.freeze({ facts: null, holds: NO_CARD_HOLDS });
 
-function sameRecord(a: Record<string, unknown> | null, b: Record<string, unknown> | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function sameFacts(a: CardFacts | null, b: CardFacts): boolean {
-  if (a === null) return false;
-  return (
-    a.title === b.title &&
-    a.activity === b.activity &&
-    sameRecord(a.masthead, b.masthead) &&
-    sameRecord(a.telemetry, b.telemetry) &&
-    sameRecord(a.identity ?? null, b.identity ?? null) &&
-    JSON.stringify(a.titleBar ?? null) === JSON.stringify(b.titleBar ?? null)
-  );
+function shellPageBus(): PageBus | null {
+  const bus = installedPageBus();
+  return bus?.page.role === "shell" ? bus : null;
 }
 
 export class BodyFactsStore extends Subscribable {
-  private readonly entries = new Map<string, BodyFacts>();
+  private readonly composed = new Map<string, BodyFacts>();
 
-  /** Take a `card-facts`. Returns whether anything changed. */
-  applyFacts(cardId: string, facts: CardFacts): boolean {
-    const prev = this.entries.get(cardId) ?? NOTHING;
-    if (sameFacts(prev.facts, facts)) return false;
-    this.entries.set(cardId, Object.freeze({ ...prev, facts }));
-    this.notify();
-    return true;
-  }
-
-  /**
-   * Take the `card-advice` the shell answers from later — close advice and
-   * the fold guard. Returns whether anything changed; any other advice is an
-   * act rather than a fact, and is not held.
-   */
-  applyAdvice(cardId: string, advice: CardAdvice): boolean {
-    const prev = this.entries.get(cardId) ?? NOTHING;
-    let next: BodyFacts;
-    if (advice.advice === "close-advice") {
-      if (prev.waive === advice.waive) return false;
-      next = { ...prev, waive: advice.waive };
-    } else if (advice.advice === "fold-guard") {
-      if (prev.guarded === advice.guarded) return false;
-      next = { ...prev, guarded: advice.guarded };
-    } else {
-      return false;
-    }
-    this.entries.set(cardId, Object.freeze(next));
-    this.notify();
-    return true;
-  }
-
-  /**
-   * The page that said the card was restoring is gone (a termination): the
-   * hold goes with it, and the reloaded page says again if it restores.
-   * The card's other facts stand until the new page replaces them.
-   */
-  endRestoreHold(cardId: string): void {
-    const prev = this.entries.get(cardId);
-    const telemetry = prev?.facts?.telemetry;
-    if (prev === undefined || prev.facts === null || telemetry?.restoreHold === undefined) return;
-    const { restoreHold: _hold, restoreTurnsLoaded: _loaded, restoreTurnsTarget: _target, ...rest } = telemetry;
-    this.entries.set(cardId, Object.freeze({ ...prev, facts: { ...prev.facts, telemetry: rest } }));
-    this.notify();
-  }
-
-  /** Forget a card. */
-  drop(cardId: string): void {
-    if (!this.entries.delete(cardId)) return;
-    this.notify();
+  /** `bus` names the page bus to read; the default is this page's, when it is the shell. */
+  constructor(private readonly bus: () => PageBus | null = shellPageBus) {
+    super();
+    bindEveryPageBus((bound) => {
+      const changed = (): void => {
+        if (this.bus() === bound) this.notify();
+      };
+      for (const store of [cardFacts, cardHolds, cardRestoreHold, cardKbfPaint]) store.on(bound).subscribe(changed);
+    });
   }
 
   /** Everything the card has said. Stable by identity until it says something new. */
-  get = (cardId: string): BodyFacts => this.entries.get(cardId) ?? NOTHING;
+  get = (cardId: string): BodyFacts => {
+    const bus = this.bus();
+    if (bus === null) return NOTHING;
+    const facts = cardFacts.on(bus).getFor(cardId);
+    const holds = cardHolds.on(bus).getFor(cardId);
+    const prev = this.composed.get(cardId);
+    if (prev !== undefined && prev.facts === facts && prev.holds === holds) return prev;
+    if (facts === null && holds === NO_CARD_HOLDS) {
+      this.composed.delete(cardId);
+      return NOTHING;
+    }
+    const next = Object.freeze({ facts, holds });
+    this.composed.set(cardId, next);
+    return next;
+  };
 
-  /** The card's facts, or null before its first `card-facts`. */
-  factsOf = (cardId: string): CardFacts | null => this.get(cardId).facts;
+  /** The card's facts, or null before its first. */
+  factsOf = (cardId: string): CardFactsValue | null => this.get(cardId).facts;
 
   /** The session phase key the body computed, or null when it has no session. */
   activityOf = (cardId: string): string | null => this.get(cardId).facts?.activity ?? null;
 
   /** Whether the card's session is mid-turn. */
-  canInterrupt = (cardId: string): boolean => this.get(cardId).facts?.telemetry.canInterrupt === 1;
+  canInterrupt = (cardId: string): boolean => this.get(cardId).facts?.canInterrupt === true;
 
   /** Whether the card's session has been compacted. */
-  compacted = (cardId: string): boolean => this.get(cardId).facts?.telemetry.compacted === 1;
+  compacted = (cardId: string): boolean => this.get(cardId).facts?.compacted === true;
 
   /**
-   * The card's cold restore as its body last said (`restoreHold` in its
-   * telemetry, `body-publisher.ts`): the turns loaded and asked for while
-   * the restore gate holds it, or null when it holds nothing.
+   * The card's cold restore as its body last said (`card.restoreHold`): the
+   * turns loaded and asked for while the restore gate holds it, or null when
+   * it holds nothing.
    */
   restoreHoldOf = (cardId: string): { turnsLoaded: number; turnsTarget: number } | null => {
-    const telemetry = this.get(cardId).facts?.telemetry;
-    if (telemetry?.restoreHold !== 1) return null;
-    return { turnsLoaded: telemetry.restoreTurnsLoaded ?? 0, turnsTarget: telemetry.restoreTurnsTarget ?? 0 };
+    const bus = this.bus();
+    return bus === null ? null : cardRestoreHold.on(bus).getFor(cardId);
   };
 
-  /**
-   * Whether the card's page paints keyboard-focus mode, as its body last said
-   * (`kbfPaint` in its telemetry, `body-publisher.ts`), or null before it has.
-   */
+  /** Whether the card's page paints keyboard-focus mode, as its body last said, or null before it has. */
   kbfPaintOf = (cardId: string): boolean | null => {
-    const paint = this.get(cardId).facts?.telemetry.kbfPaint;
-    return paint === undefined ? null : paint === 1;
+    const bus = this.bus();
+    return bus === null ? null : cardKbfPaint.on(bus).getFor(cardId);
+  };
+
+  /** What the card's body last read of its content — a rail card's — or null. */
+  contentOf = (cardId: string): { content: number; shown: number } | null => {
+    const bus = this.bus();
+    return bus === null ? null : cardContent.on(bus).getFor(cardId);
   };
 
   /** The close advice: waive the confirm. False until the body says otherwise. */
-  waives = (cardId: string): boolean => this.get(cardId).waive === true;
+  waives = (cardId: string): boolean => this.get(cardId).holds.waive;
 
   /** The fold guard: true (the fold may proceed) until the body says otherwise. */
-  guarded = (cardId: string): boolean => this.get(cardId).guarded !== false;
-
-  /** For tests. */
-  _reset(): void {
-    this.entries.clear();
-    this.notify();
-  }
+  guarded = (cardId: string): boolean => this.get(cardId).holds.guarded;
 }
 
 export const bodyFactsStore = new BodyFactsStore();

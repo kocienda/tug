@@ -8,7 +8,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { ShellSurface } from "@tugproto/bus";
+import type { ShellSurface } from "../../bus/declarations/card";
 import { createSurfaceMirror, nodeAt, patchChildren, pathOf } from "../shell-surface";
 
 const dom = new JSDOM("<!doctype html><body></body>");

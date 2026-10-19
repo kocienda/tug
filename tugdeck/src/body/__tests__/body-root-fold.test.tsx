@@ -5,7 +5,7 @@
  * frame's `data-folded` to land `data-card-fold="settled"` and `inert` on the
  * card host. In the shell the pane writes it (`tug-pane.tsx`); a body's frame
  * is the body root's `.body-pane-frame`, which writes it from the shell's
- * `card-context` (`body-root.tsx`). With motion off the fold lands at once;
+ * `card.context` store (`body-root.tsx`). With motion off the fold lands at once;
  * with it on, the fold waits for the crossing the shell relays to end, which
  * `applyCrossingMirror` announces on the same frame. The unfold takes both
  * off, and hands the first responder's keyboard back to the card's content
@@ -18,7 +18,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import React from "react";
-import type { CardContext } from "@tugproto/bus";
+import type { CardContextValue } from "../../bus/declarations/card";
 import { installJsdom, settle } from "../../__tests__/jsdom-deck";
 
 const substrate = installJsdom();
@@ -32,7 +32,7 @@ let unmount: () => void = () => {};
 let applyCrossingMirror: typeof import("../../lib/fold-crossing").applyCrossingMirror;
 let getFocusManager: typeof import("../../components/tugways/focus-manager").getFocusManager;
 
-function context(over: Partial<CardContext> = {}): CardContext {
+function context(over: Partial<CardContextValue> = {}): CardContextValue {
   return {
     folded: false,
     arriving: false,
@@ -72,7 +72,6 @@ beforeAll(async () => {
   bridge = new BodyDeckBridge({
     cardId: CARD,
     componentId: COMPONENT,
-    advise: () => {},
     putCardState: () => Promise.resolve(true),
   });
   const root = createRoot(container);

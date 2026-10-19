@@ -1843,6 +1843,18 @@ export function useSettleEngine({
         beatUp.anims.every((anim) => anim.raw.playState === "finished")
       ) {
         beatUp.land();
+        // Under the forwards fill a finished effect still holds its end pose,
+        // and TugAnimator's own finish — which commits that pose inline —
+        // would run after this arm's Last pass had written the next settle's
+        // holds, and write the old end over them. So once the landing has
+        // taken the holds off, and the committed place is the end pose, the
+        // arm drops each effect itself, committing nothing.
+        for (const anim of beatUp.anims) {
+          anim.finished.catch(() => {
+            /* intentional no-op: the cancel below rejects it */
+          });
+          anim.raw.cancel();
+        }
       }
       // The frames this arm carries, in DOM order, each beside the settle it
       // interrupted — collected by a pass that HOLDS and MEASURES, and a
@@ -2351,7 +2363,9 @@ export function useSettleEngine({
             pose: { "transform-origin": "0 0" },
           })),
           durationMs: curve.durationMs,
-          fill: "backwards",
+          // Both ways, for `settleOpts.fill`'s reasons: the inverse at the
+          // start, and the end pose across the hop to the landing.
+          fill: "both",
           composite: "replace",
           slotCancelMode: "hold-at-current",
           easing: "linear",
@@ -2960,12 +2974,17 @@ export function useSettleEngine({
       // it shown. A gap counter cannot see that: the frames arrived on time,
       // they simply arrived carrying the wrong pose.
       //
-      // This does not break [D6], which forbids a RETAINED effect after the
-      // tween. A backwards fill applies only in the BEFORE phase; in the after
-      // phase it applies nothing, exactly as `none` does. So what TugAnimator
-      // commits at an effect's end is unchanged, and so is every hand-back
-      // that reads it.
-      fill: "backwards",
+      // **And its end pose by the effect, until the effect is gone.** The
+      // frame's inline hold is its START pose, and it stands until the beat
+      // lands, a promise hop after the tween's time is up. Under a fill that
+      // applies nothing in the after phase, the sample that falls in that hop
+      // shows the hold: the frame steps back to where it began for one frame
+      // and then on to where it ended, a full travel's hop at the end of the
+      // slide (`at0597` sampled it). Filling forwards too keeps the effect's
+      // last keyframe on screen across the hop, and TugAnimator's finish
+      // commits that value inline and cancels the effect, so nothing is
+      // retained past it and [D6] stands.
+      fill: "both",
       composite: "replace",
       // Cancelled by the arm above, which reads progress and velocity off the
       // curve before it does — holding where the eye is, never snapping to an
@@ -3951,10 +3970,12 @@ export function useSettleEngine({
         // settle's central promise ([P08]: at any instant exactly one kind of
         // thing is moving), and `at0566` read the loss of it as a 2.8px drift
         // between a frame and the transcript inside it during the move. So a
-        // delayed beat fills `none` and its opening pose is held the way it
-        // always was, by the inline hold the beat writes as its start pose
-        // (`heldPose`) when it is planned.
-        const beatFill: FillMode = delayMs > 0 ? "none" : settleOpts.fill;
+        // delayed beat does not fill backwards, and its opening pose is held
+        // the way it always was, by the inline hold the beat writes as its
+        // start pose (`heldPose`) when it is planned. It fills forwards, which
+        // applies nothing during the delay and holds its end pose across the
+        // hop to its landing, for `settleOpts.fill`'s reason.
+        const beatFill: FillMode = delayMs > 0 ? "forwards" : settleOpts.fill;
         const launches = present(kind);
         // The outer two are not planned beats, so they are launched from what
         // the passes above collected rather than from `present`.
@@ -4206,14 +4227,12 @@ export function useSettleEngine({
           launchedBeats.push([c, beat]);
         }
         // The hold this beat replaced comes off when the beat LANDS, not at
-        // the settle's completion. TugAnimator commits an effect's value at
-        // its end, and under `fill: backwards` — as under `fill: none`, which
-        // is the point — that value is the underlying inline style, the
-        // opening pose, so a frame left wearing it would snap back to its hold
-        // for the length of the next beat. A backwards fill applies only
-        // BEFORE the active phase and nothing after it, so the commit reads
-        // the same underlying value either way and none of the reasoning below
-        // has to be re-derived for the fill mode.
+        // the settle's completion. The beat fills forwards, so TugAnimator's
+        // finish commits the beat's end pose over the hold and cancels the
+        // effect; but a beat the arm lands early, before that finish, still
+        // has the hold underneath, and a frame left wearing it would snap
+        // back to it for the length of the next beat. Either way the landing
+        // is what takes the hold off.
         //
         // How it comes off differs by property, and that is the whole of the
         // care here. A TRANSFORM is the imposer's own and nothing underlies

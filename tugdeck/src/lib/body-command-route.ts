@@ -2,12 +2,24 @@
  * Whether a menu command belongs to the key body rather than the shell.
  *
  * Every menu item reaches the shell as a tell. A command whose registry
- * routing aims it at the key card (`first-responder`, `key-card`) means the
- * card the user is in — and when that card is a body, its responders live in
- * the body's document, not here. So the shell forwards it, unless a surface
- * of its own (a deck popover, the Overview, a shell sheet) holds the chain
- * ahead of the card: then the command is that surface's, as it always was.
- * `registry`, `target` and `native` commands never move.
+ * routing aims it at the key card (`first-responder`, `key-card`), or whose
+ * row names the key card its owner, means the card the user is in — and when
+ * that card is a body, its responders live in the body's document, not here.
+ * So the shell forwards it, unless a surface of its own (a deck popover, the
+ * Overview, a shell sheet) holds the chain ahead of the card: then the
+ * command is that surface's, as it always was.
+ * `target` and `native` commands never move, and nor does a `registry` one
+ * whose row names no owner.
+ *
+ * A `first-responder` command walks from the shell's first responder, so one
+ * the shell's chain holds above the card — the deck itself, with no caret in
+ * any card — never reaches the card and stays here, as it did in one
+ * document. A `key-card` command starts at the key card whatever the chain
+ * holds, and goes.
+ *
+ * The keyboard walk's own two steps stay in the shell while the shell holds a
+ * stop of the card's — its chrome's: the shell steps through those, and runs
+ * off their end into the body.
  *
  * Pure: the shell's dispatcher supplies the facts and acts on the answer.
  *
@@ -34,26 +46,38 @@ const DECK_VERBS: ReadonlySet<string> = new Set([
   TUG_ACTIONS.DELETE_SPACE,
 ]);
 
+/** The walk's steps, which are the shell's while it holds a stop of the card's. */
+const WALK_VERBS: ReadonlySet<string> = new Set([TUG_ACTIONS.NEXT_KEYBOARD_FOCUS, TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS]);
+
 export interface BodyCommandFacts {
   /** The command's id. */
   id?: string;
   /** The command's registry routing. */
   routing: CommandEntry["routing"];
+  /** The row's explicit owner, if it names one. */
+  owner?: CommandEntry["owner"];
   /** The deck's first-responder card, or null. */
   firstResponderCardId: string | null;
   /** Whether a card is a body card whose body can take a command now. */
   isBodyCard: (cardId: string) => boolean;
   /** Whether a shell-owned responder holds the chain ahead of the card. */
   shellResponderAhead: boolean;
+  /** Whether the shell's first responder stands above the card's pane (`shellResponderAboveCard`). */
+  shellResponderAbove?: boolean;
+  /** Whether the shell holds a stop of the card's own walk (its chrome's). */
+  shellHoldsStop?: (cardId: string) => boolean;
 }
 
 /** The body card to forward the command to, or null to dispatch it in the shell. */
 export function bodyCommandRoute(facts: BodyCommandFacts): string | null {
-  if (facts.routing !== "first-responder" && facts.routing !== "key-card") return null;
+  const keyCards = facts.owner === "key-card" || facts.routing === "first-responder" || facts.routing === "key-card";
+  if (!keyCards) return null;
   if (facts.id !== undefined && DECK_VERBS.has(facts.id)) return null;
   const cardId = facts.firstResponderCardId;
   if (cardId === null || !facts.isBodyCard(cardId)) return null;
   if (facts.shellResponderAhead) return null;
+  if (facts.routing === "first-responder" && facts.owner === undefined && facts.shellResponderAbove === true) return null;
+  if (facts.id !== undefined && WALK_VERBS.has(facts.id) && facts.shellHoldsStop?.(cardId) === true) return null;
   return cardId;
 }
 
@@ -118,4 +142,23 @@ export function shellSurfaceAhead(facts: {
   if (responder === null || paneId === null) return false;
   if (responder === paneId || responder === cardId) return false;
   return !facts.isWithin(paneId, responder);
+}
+
+/**
+ * Whether the shell's first responder stands above the card's pane — the
+ * deck, with nothing in the card holding the chain — so a walk from it never
+ * passes through the card. The card's own node, its pane and anything within
+ * the pane are the card's; no responder, or no pane, is not above.
+ */
+export function shellResponderAboveCard(facts: {
+  responder: string | null;
+  paneId: string | null;
+  cardId: string | null;
+  /** Whether `id`'s chain ancestry passes through `ancestorId`. */
+  isWithin: (id: string, ancestorId: string) => boolean;
+}): boolean {
+  const { responder, paneId, cardId } = facts;
+  if (responder === null || paneId === null) return false;
+  if (responder === paneId || responder === cardId) return false;
+  return facts.isWithin(paneId, responder);
 }

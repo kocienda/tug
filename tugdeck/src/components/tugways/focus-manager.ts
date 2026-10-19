@@ -60,8 +60,8 @@ import { mark as perfMark } from "@/lib/perf-marks";
 import { isFocusDestination } from "@/deck-store-selectors";
 import type { DeckState } from "@/layout-tree";
 import { TrackedMark } from "./focus-marks";
-import { keyboardYielded, noteKeyboardYield } from "@/lib/keyboard-yield";
-import { yieldedKbfPaint } from "@/lib/yielded-kbf-paint";
+import { keyboardYielded, keyboardYieldedTo, noteKeyboardYield } from "@/lib/keyboard-yield";
+import { bodyFactsStore } from "@/lib/body-facts-store";
 import { takeFocusWalkEdge } from "@/lib/focus-walk-edge";
 
 /**
@@ -4226,7 +4226,8 @@ export class FocusManager extends Subscribable {
     // parked by nobody. The page holding the keyboard says whether its caret
     // is live, and that is the paint answer here too.
     if (keyboardYielded()) {
-      const theirs = yieldedKbfPaint();
+      const body = keyboardYieldedTo();
+      const theirs = body === null ? null : bodyFactsStore.kbfPaintOf(body);
       if (theirs !== null) return theirs;
     }
     const ctx = this.activeContext();

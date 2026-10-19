@@ -278,6 +278,7 @@ pub trait ChildSpawner: Send + Sync + 'static {
     /// re-creates a session claude never wrote to disk instead of resuming
     /// it. A segment killed before its first message has no conversation
     /// file, and `--resume` of it is "No conversation found".
+    #[allow(clippy::too_many_arguments)]
     fn spawn_child(
         &self,
         project_dir: &Path,

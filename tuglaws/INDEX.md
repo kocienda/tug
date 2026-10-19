@@ -33,6 +33,7 @@
 - [slash-commands.md](slash-commands.md) — How Claude Code slash commands flow through Tug end-to-end: the three-tier model (`supported-local` / `pass-through` / `hidden`), catalog sources, the decision procedure for mapping a command, the mechanical recipes, output flow-back, and the probe-and-fixture discipline. Read before touching slash-command support.
 - [session-card-unsupported-slash-commands.md](session-card-unsupported-slash-commands.md) — Why some of Claude Code's slash commands are hidden from the session card's `/` popup. The maintained mirror of `HIDDEN_SLASH_COMMANDS` in `slash-supported.ts`; the discoverable answer to "why isn't `/vim` here?". Doctrine lives in `slash-commands.md`.
 - [turn-metric.md](turn-metric.md) — The one canonical definition of a "turn": tugcode `totalTurns` is the authority, every other counter reconciles to it. The turn rule (S01), the `#t…m…` transcript address (S02), the four-way equality invariant, and the rewind carve-out.
+- [shell-and-bodies.md](shell-and-bodies.md) — The long form of [L37] and [L38]: the three channels between host, shell and bodies; the three primitives that alone cross `DECK_BUS` (shared store, routed action, request); owner by lifetime and write-back by `propose`; the shell as hub; snapshot-on-attach and the hold; request horizons; what a test may assume about documents; how to add a store or verb.
 
 ## Changes & commits
 

@@ -93,7 +93,9 @@ import { CARDS_CARD_ID } from "@/lib/cards-card-id";
 import type { IDeckManagerStore } from "@/deck-manager-store";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
 import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
-import { captureJot } from "@/lib/jot-capture";
+import { isBodyKind } from "@/lib/body-handoff";
+import { getJotsStore } from "@/lib/jots-store";
+import { jotsNewJot } from "@/bus/declarations/verbs";
 import {
   bullseyePaneIdOf,
   columnDrawsSplit,
@@ -2955,7 +2957,7 @@ export function DeckCanvas(_props: DeckCanvasProps) {
       // ⌘J — capture in one gesture: reveal the Jots rail if it is hidden,
       // then open a fresh jot's editor, in the card's own page. The reveal
       // takes the same show-then-activate transfer an activation uses, with
-      // keyboard modality so the landing is visibly ringed; `captureJot` runs
+      // keyboard modality so the landing is visibly ringed; the capture runs
       // after the transfer so the row it opens mounts into a card that already
       // holds focus, and the editor's own descend claim lands the caret ([L03]
       // registration order).
@@ -2970,7 +2972,11 @@ export function DeckCanvas(_props: DeckCanvasProps) {
           deferCommit: mayDeferCommit(store, incomingCardId),
           modality: "keyboard",
         });
-        captureJot(incomingCardId);
+        // The open row is the jots store's, and each page has its own: a
+        // Jots card in a body opens its editor from its body's store, which
+        // is sent the capture (and holds it until that page says hello).
+        if (isBodyKind(JOTS_CARD_ID)) jotsNewJot.dispatch({}, { card: incomingCardId });
+        else getJotsStore().createJot(null);
       },
       /**
        * show-component-gallery — find or create the gallery card ([D05], [D07]).

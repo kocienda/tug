@@ -9,7 +9,7 @@
  * the changes feed makes a card's join offer stand (`joinOfferStands`).
  *
  * One leg of the walk IS checkable here: a card this page holds no services
- * for answers from the phase reported for it — a body's `card-facts` in the
+ * for answers from the phase reported for it — a body's `card.facts` in the
  * shell, the shell's arrangement mirrored into `cardActivityElsewhere` in a
  * body page — and reads idle only when neither has one ([B06]).
  */
@@ -34,8 +34,9 @@ import {
   type SessionPhaseSource,
 } from "../use-session-phase";
 import { cardSessionBindingStore } from "@/lib/card-session-binding-store";
-import { bodyFactsStore } from "@/lib/body-facts-store";
 import { cardActivityElsewhere } from "@/lib/card-activity-elsewhere";
+import { cardFacts } from "@/bus/declarations/card";
+import { createTestBus, type TestBus } from "@/bus/test-bus";
 
 function snapshot(over: Partial<SessionPhaseSource> = {}): SessionPhaseSource {
   return {
@@ -61,24 +62,34 @@ describe("sessionPhaseFromSnapshot — an unanswered stop reads from a list", ()
   });
 });
 
+let bus: TestBus | null = null;
 afterEach(() => {
   cardActivityElsewhere._reset();
-  bodyFactsStore._reset();
+  bus?.dispose();
+  bus = null;
   cardSessionBindingStore.clearAll();
 });
 
 describe("unknown liveness reads idle, never danger", () => {
-  test("a card with no services answers from what was reported for it, and idle when nothing was", () => {
+  test("a card with no services answers from what was reported for it, and idle when nothing was", async () => {
+    bus = createTestBus();
+    bus.install(bus.shell());
+    const body = bus.body("c-mirrored", "session");
+    await bus.flush();
     expect(reportedPhaseOf("c-unreported")).toBe("idle");
     cardActivityElsewhere.set("c-mirrored", "tool_work");
     expect(reportedPhaseOf("c-mirrored")).toBe("tool_work");
     // What the card's own body told this page outranks what another page relayed.
-    bodyFactsStore.applyFacts("c-mirrored", {
+    cardFacts.on(body.bus).set({
       title: "",
       masthead: null,
       activity: "streaming",
-      telemetry: { canInterrupt: 1, compacted: 0 },
+      identity: null,
+      titleBar: null,
+      canInterrupt: true,
+      compacted: false,
     });
+    await bus.flush();
     expect(reportedPhaseOf("c-mirrored")).toBe("streaming");
   });
 

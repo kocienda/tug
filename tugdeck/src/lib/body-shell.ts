@@ -7,54 +7,78 @@
  *
  * - The host's `onBodyState` moves a card through `bodyCardsStore`; a body
  *   that failed leaves the card to the shell for the rest of the run.
- * - The body's `card-facts` set the card's title and masthead and feed
- *   `bodyFactsStore`; its `card-advice` answers the shell's close advisor and
- *   fold guard, claims sheet reservations and opening bids on the member the
- *   card stands as, activates the card, adds a sibling to its pane, and
- *   closes it.
- * - The shell sends `deck-facts` to every body on change, and each card's
- *   `card-context` when its fold, arrival, first responder or layer changes,
- *   answering a card's first `card-facts` with both.
+ * - The body owns its card's stores (`card.facts`, `card.holds`,
+ *   `card.reservations`, `card.surface`, `card.painted`, …), which the shell
+ *   reads as replicas: the facts set the card's title, masthead, identity
+ *   and title-bar items, and feed `bodyFactsStore`; the holds answer the
+ *   shell's close advisor and fold guard; the reservations claim sheet
+ *   reservations and opening bids on the member the card stands as. The
+ *   ones a page holds only while it stands clear when the card is detached,
+ *   so what the gone page held goes with it. A body activates its card,
+ *   adds a sibling to its pane, and closes it (`card.activate`,
+ *   `card.addSibling`, `card.close`); a command its own chain did not
+ *   answer, and a logout, are the shell's (`command.shell`, `app.logout`).
+ * - The shell asks a body two questions that wait on a person in the card:
+ *   whether a guarded close goes ahead (`card.closeDecision`), and a question
+ *   from outside the turn stream, shown in a Session card's dialog
+ *   (`session.ask`, from `pendingAskStore`).
+ * - The shell owns the deck's facts (`deck.facts`, `deck.menu`,
+ *   `deck.frontmostProject`) and each card's context and crossing
+ *   (`card.context`, `card.crossing`) as shared stores (`bus/declarations/`),
+ *   set on every change; a body that says hello is sent every one it reads
+ *   before anything held for it. Every card's binding and reported phase go
+ *   to every body the same way (`deck.cardBindings`, `deck.cardActivities`).
  * - `bodyFocus` goes to the host on every first-responder change, so the
  *   keyboard follows the deck's first responder into a body and out again.
  * - A body card's Tab walk may be split: its own stops in the body, its
  *   chrome's here (none a Session card has: it authors its own folded form,
- *   so it wears no Unfold glyph). A body's walk that runs off an end posts
- *   `focus-exit`; the shell lands its own first or last stop of the card,
- *   or with none sends `focus-enter` back at the end the walk came in by.
+ *   so it wears no Unfold glyph). A body's walk that runs off an end says
+ *   `focus.exit`; the shell lands its own first or last stop of the card,
+ *   or with none sends `focus.enter` back at the end the walk came in by.
  *   The shell's walk running off an end goes into the body the same way,
  *   and a step of it while the shell holds none of the card's stops is the
  *   body's. While the shell holds a stop of the card's, it holds the keyboard.
  * - A destroyed card's body is destroyed with it, unsaved: its bag is about
  *   to be swept.
  * - A surface a body card raises past its content box — the Z2 placard —
- *   arrives as `surface` advice and is drawn here, over the deck, where the
+ *   arrives as `card.surface` and is drawn here, over the deck, where the
  *   in-document card would have drawn it (`shell-surface.ts`); a press in it
- *   or its dismissal goes back as a `card-command`. A body's `logout` advice
- *   is the app's logout, which only the shell mounts.
- * - A menu command bound for the key card goes to the key body when the key
- *   card is one and no shell surface holds the chain ahead of it.
+ *   or its dismissal goes back as `surface.activate` / `surface.dismissed`.
+ * - A command whose owner is the key card goes to the key body when the key
+ *   card is one and no shell surface holds the chain ahead of it: the shell's
+ *   key-card route (`bus/command-route.ts`), which also takes the shell's
+ *   Tab walk off the end of its own stops into the body. A chain action for
+ *   a body card's content, a line revealed in its Text card, ⌘J's capture,
+ *   a session decided for it after the hand-off, Escape's shrink of the
+ *   Cards table and a refusal of its modal hold are each the routed action
+ *   that names them (`bus/declarations/verbs.ts`), sent from where the shell
+ *   decides them and held by the bus for a body not yet attached.
  * - A card that lists or moves the whole deck (`bodyDeck: "arrangement"`)
- *   gets the shell's arrangement in its `card-context`, resent when the
- *   deck, the workspaces, or any card's binding or title moves; the deck
- *   calls it makes come back as `deck-call` advice, run only for a method
- *   in `BODY_DECK_CALLS`. A card that follows another (`bodyFollows`) gets
- *   the followed card — the last key card that is not it — and its binding.
+ *   reads the shell's arrangement (`arrangement.deck`, `arrangement.spaces`,
+ *   `arrangement.cardFacts`), set when the deck, the workspaces, or any
+ *   card's title or identity moves; the deck calls it makes are the `deck.*`
+ *   actions, which run here. The Cards card reads the bindings cache
+ *   (`cards.ledgerBindings`) and holds the layout selection with the shell
+ *   (`layout.selection`); a workspace verb the menu asked it to answer goes
+ *   to the shown workspace's Cards card as `cards.spaceVerb`. A card that
+ *   follows another (`bodyFollows`) reads the followed card — the last key
+ *   card that is not it — from `card.followed`.
  *   A devtools body following a body card has that card's session
- *   inspection relayed to it: the shell asks the followed body to publish
- *   (`inspect`), forwards each `inspection` advice as an `inspection`
- *   command, and stops it when no devtools body follows the card. The
- *   devtools body is also sent this page's dev log (`dev-log`), the About
- *   body the app identity the host sent this page (`appInfo` in its
- *   context), and the Settings body any section reveal parked here.
- * - A body card whose close guard would ask says so (`close-guard`); the
+ *   inspection relayed to it: the shell says the followed card is inspected
+ *   (`card.inspected`), so its body publishes `card.inspection`, sets each
+ *   following devtools card's `devtools.inspection` from it, and says the
+ *   card is not inspected once no devtools body follows it. The
+ *   devtools body is also sent this page's dev log (`devtools.logEntries`), the About
+ *   body the app identity the host sent this page (`app.info`), and the
+ *   Settings body any section reveal parked here (`settings.reveal`).
+ * - A body card whose close guard would ask says so (`card.holds`); the
  *   shell then holds a close guard for it that fronts the card and asks the
- *   body's own guard (`close-decision`), so a close here, or a walk over a
+ *   body's own guard (`card.closeDecision`), so a close here, or a walk over a
  *   workspace, waits on the sheet the body raises in the card it concerns.
- * - A body card held by a modal run says so (`modal-hold`); the shell holds
+ * - A body card held by a modal run says so (`card.holds`); the shell holds
  *   the card in its own `cardModalHoldStore` for as long as the body says,
  *   so the title bar's cluster, ⌘W and the tab × refuse here, and a refusal
- *   asks the body to speak it (`refuse-hold`). The hold goes with the page.
+ *   asks the body to speak it (`card.refuseHold`). The hold goes with the page.
  *
  * Laws: [L02] (the stores are read through `useSyncExternalStore`), [L22]
  * (advisors read the store directly), [L27] (every registration released),
@@ -64,18 +88,15 @@
  * @module lib/body-shell
  */
 
-import type { BusMasthead, CardAdvice, CardContext, CardFacts, DeckFacts } from "@tugproto/bus";
+import type { ShellSurface } from "../bus/declarations/card";
 import type { TugConnection } from "../connection";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { DeckState } from "../layout-tree";
-import { getResponderChainManager, runShellActionForCard } from "../action-registry";
-import { dispatchCommand, setCardContentForwarder, setKeyCardForwarder } from "../command-dispatch";
+import { getResponderChainManager } from "../action-registry";
+import { answerBodyCommands, dispatchCommand } from "../command-dispatch";
 import { enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
-import { setFocusWalkEdge } from "./focus-walk-edge";
-import { setCycleFocusForwarder } from "./cycle-focus-forwarder";
 import { setKeyboardYield } from "./keyboard-yield";
-import { setYieldedKbfPaintSource, yieldedKbfPaint } from "./yielded-kbf-paint";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { keyboardAccessStore } from "../keyboard-access-store";
@@ -84,25 +105,61 @@ import { heldModifiers, subscribeModifierLatch } from "../components/tugways/mod
 import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore } from "./body-cards-store";
-import { bodyCommandRoute, keyboardBodyFor, shellSurfaceAhead } from "./body-command-route";
+import { bodyCommandRoute, keyboardBodyFor, shellResponderAboveCard, shellSurfaceAhead } from "./body-command-route";
 import { shellKeyboardHeld, subscribeShellKeyboardHold } from "./shell-keyboard-hold";
 import { bodyFactsStore } from "./body-facts-store";
 import { bodyBeatsCancelled, bodyBeatsLanded, bodyShown, floorShown } from "./body-placement";
 import { registerCardCloseAdvice } from "./card-close-advice";
 import { registerCardFoldGuard } from "./card-fold";
-import { cardSessionBindingStore } from "./card-session-binding-store";
-import { BodySessionHolds } from "./body-binding-mirror";
-import { cardTitleStore, type CardMastheadPayload } from "./card-title-store";
+import { cardSessionBindingStore, shareCardBinding } from "./card-session-binding-store";
+import { cardTitleStore } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
 import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
-import { CARDS_SHRINK_COMMAND, setCardsShrinkForwarder } from "@/components/cards/cards-escape";
 import { requestLogout } from "./logout-store";
 import { ShellSurfaceDrawer } from "./shell-surface";
-import { onBus, sendBus } from "./deck-bus";
+import { askCloseDecision, withdrawCloseDecision } from "./close-decision";
+import { pageBus } from "../bus/page-bus";
+import { installKeyCardRoute } from "../bus/command-route";
+import {
+  appLogout,
+  cardActivate,
+  cardAddSibling,
+  cardClose,
+  cardRefuseHold,
+  commandForCard,
+  devtoolsLogEntries,
+  focusEnter,
+  focusExit,
+  settingsReveal,
+  surfaceActivate,
+  surfaceDismissed,
+} from "../bus/declarations/verbs";
+import {
+  cardContext,
+  cardCrossing,
+  cardFacts,
+  cardHolds,
+  cardInspected,
+  cardInspection,
+  cardPainted,
+  cardReservations,
+  cardSurface,
+  devtoolsInspection,
+  type CardContextValue,
+  type CardFactsValue,
+  type CardHoldsValue,
+  type CardReservationsValue,
+} from "../bus/declarations/card";
+import type { SharedStore } from "../bus/shared-store";
+import {
+  deckFacts,
+  deckFrontmostProject,
+  deckMenu,
+  type DeckFactsValue,
+  type DeckMenuValue,
+} from "../bus/declarations/deck";
+import type { CrossingMirror } from "./fold-crossing";
 import type { BodyIntent } from "../body/body-intent";
-import type { PendingAsk } from "./code-session-store/types";
-import { setAskForwarder } from "./ask-forwarder";
-import { pendingAskStore } from "./pending-ask-store";
 import {
   askForBodyAgain,
   bodyIntentOf,
@@ -112,7 +169,6 @@ import {
   isBodyKind,
   isMountBodyKind,
   postToHost,
-  setBodyIntentForwarder,
   setBodyReloader,
 } from "./body-handoff";
 import { restorePassCards, restorePassGate, sessionRestoreRegistry } from "./session-restore";
@@ -125,29 +181,50 @@ import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 import { getRegistration, isSidebarCard, type CardIdentityFacts } from "../card-registry";
 import { cardIdentityElsewhere, liveCardIdentity } from "./card-identity";
 import { paneTitleBarItemsStore, type PaneTitleBarItem } from "./pane-title-bar-items-store";
-import { setBodyLineRevealer } from "./open-file-in-card";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
-import { isBodyDeckCall, projectActivities, projectArrangement } from "./body-arrangement";
-import { createShellMiniatureRelay } from "./miniature-relay";
+import {
+  projectActivities,
+  projectArrangementCardFacts,
+  projectArrangementDeck,
+  projectArrangementSpaces,
+  projectBindings,
+} from "./body-arrangement";
+import {
+  appInfo,
+  arrangementCardFacts,
+  arrangementDeck,
+  arrangementSpaces,
+  cardFollowed,
+  cardsLedgerBindings,
+  cardsSpaceVerb,
+  deckActivateCard,
+  deckActivateSpace,
+  deckCardActivities,
+  deckCardBindings,
+  deckChooseSpaceTheme,
+  deckMoveCardToSpace,
+  deckPreviewFlowOffset,
+  deckRenameSpace,
+  deckReorderSpaces,
+  deckSetFlowOffset,
+} from "../bus/declarations/arrangement";
+import { answerMiniature } from "./miniature-bus";
 import { getDropZoneHost } from "./drop-zone-host-registry";
 import { flashCardPane } from "./flash-pane-border";
-import { cardsSelectionStore, setLayoutCursorCard } from "./cards-selection-store";
-import { applySelectionCall, isSelectionCall } from "./cards-selection-mirror";
+import { shareLayoutSelection } from "./cards-selection-store";
 import { registerCardCloseGuard } from "./card-close-guard";
 import { cardModalHoldStore } from "./card-modal-hold-store";
 import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
-import { setJotCaptureForwarder } from "./jot-capture";
 import { frontmostProjectBinding } from "./frontmost-project";
 import { motionBreaker } from "./motion-guard/breaker";
-import { installOverviewDraftShellHolder } from "../components/overview/overview-composer-draft";
+import { holdOverviewDraftInShell } from "../components/overview/overview-composer-draft";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
 import type { TugDevLogEntry } from "./tug-dev-log-store/types";
 
 /** The kinds the shell relays something of its own to, by their component ids. */
 const DEVTOOLS_KIND = "devtools";
 const SETTINGS_KIND = "settings";
-const ABOUT_KIND = "about";
 
 /**
  * A log entry as the relay carries it: its id left to the receiving page,
@@ -190,15 +267,6 @@ function paneOf(state: DeckState, cardId: string): string | null {
 }
 
 /**
- * How long the shell waits on a body's close decision when the body last
- * said its guard would not ask: an answer that needs nobody is immediate, so
- * a body silent this long is not answering, and the close is cancelled and
- * logged rather than left pending. A guard that asks waits on its person,
- * and ends with the answer or the body going away.
- */
-const BODY_CLOSE_ANSWER_MS = 2000;
-
-/**
  * How many times the shell asks the host again for a card's body after it
  * fails, before the card stands as a placard with a Reload.
  */
@@ -226,8 +294,29 @@ function keyCardOf(state: DeckState): string | null {
   return state.panes.find((p) => p.id === state.activePaneId)?.activeCardId ?? null;
 }
 
-/** The `card-context` the shell owes `cardId`'s body now. */
-export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardContext {
+/**
+ * The crossing a body is sent, given the one its pane frame wears and the one
+ * the body was last sent.
+ *
+ * A still crossing before its Last pass holds the interior at the FIRST size.
+ * In-document that hold is never painted against a resized frame; a body's
+ * page, though, is resized by the host on its own clock, and the set-up hold
+ * arriving after that resize paints one frame of the interior at its old size
+ * inside the new box (`at0566` sampled it). A body has no use for it — until
+ * the plan runs, its box is the First size anyway — so it is sent the crossing
+ * once it has settled, and what it was sent before stands until then. A fold,
+ * and the crossing's end, go at once.
+ */
+export function crossingForBody(
+  worn: CrossingMirror | null,
+  sent: CrossingMirror | null,
+): CrossingMirror | null {
+  if (worn !== null && worn.still !== null && !worn.settled && worn.fold === null) return sent;
+  return worn;
+}
+
+/** The `card.context` the shell owes `cardId`'s body now. */
+export function cardContextFor(deck: IDeckManagerStore, cardId: string): CardContextValue {
   const spaceId = deck.spaceOf(cardId);
   const spaces = deck.getSpacesSnapshot();
   const layerShown = spaceId === null || spaceId === spaces.activeSpaceId;
@@ -260,8 +349,7 @@ export function pinnedRailSideOf(state: DeckState, cardId: string): SidebarSide 
   return isSidebarPinned(state.imposition, componentId) ? sidebarSide(state.imposition, componentId) : null;
 }
 
-function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
-  const state = deck.getSnapshot();
+function readDeckFacts(deck: IDeckManagerStore): DeckFactsValue {
   return {
     theme: getOnScreenTheme(),
     zoom: pageZoomStore.getFactor(),
@@ -270,23 +358,26 @@ function readDeckFacts(deck: IDeckManagerStore): DeckFacts {
     // while the shell has the keyboard, and its chord rings read this.
     modifierLatch: heldModifiers(),
     focusRingModality: focusRingModalityStore.getMode(),
-    appActive: state.hasFocus,
-    // The arrangement's menu facts, which a body's one-card deck cannot
-    // project for itself: the gates a body posts for its card's Go, View and
-    // Window items read these ([F19]).
-    menu: {
-      projection: projectDeckState(state, deck.getSpacesSnapshot()),
-      focusTravel: focusTravelDirections(
-        state,
-        { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
-        deck.getFirstResponderCardId(),
-      ),
-    },
-    // The project a card with no session of its own resolves against, which
-    // a body's one-card deck cannot find.
-    frontmostProject: { binding: frontmostProjectBinding() },
+    appActive: deck.getSnapshot().hasFocus,
     // The hand switch is the deck's; a body stills its own loops by it.
     motionDemoted: motionBreaker.demoted,
+  };
+}
+
+/**
+ * The arrangement's menu facts, which a body's one-card deck cannot project
+ * for itself: the gates a body posts for its card's Go, View and Window items
+ * read these ([F19]).
+ */
+function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
+  const state = deck.getSnapshot();
+  return {
+    projection: projectDeckState(state, deck.getSpacesSnapshot()),
+    focusTravel: focusTravelDirections(
+      state,
+      { rail: deck.getRailRunHeight(), column: deck.getColumnRunHeight() },
+      deck.getFirstResponderCardId(),
+    ),
   };
 }
 
@@ -298,70 +389,49 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   if (!hostCapabilitiesStore.get().bodyViews) return () => {};
   const releases: Array<() => void> = [];
   // The Layout miniature's crossing: the gauges its body draws and the
-  // canvas verbs its drags drive (`miniature-relay.ts`).
-  const miniatureRelay = createShellMiniatureRelay({
-    send: (cardId, command) => sendBus(connection, { card: cardId }, { kind: "card-command", payload: command }),
-    getSnapshot: () => deck.getSnapshot(),
-    getHost: getDropZoneHost,
-    flashCard: (cardId) => flashCardPane(deck, cardId),
-  });
-  releases.push(() => miniatureRelay.dispose());
+  // canvas verbs its drags drive (`miniature-bus.ts`).
+  releases.push(
+    answerMiniature({
+      getSnapshot: () => deck.getSnapshot(),
+      getHost: getDropZoneHost,
+      flashCard: (cardId) => flashCardPane(deck, cardId),
+    }),
+  );
 
   // ---- Per-card registrations, held while the card is a body card ----
 
   const perCard = new Map<string, () => void>();
-  /** Cards whose body has spoken, so their first `card-facts` is answered. */
-  const heard = new Set<string>();
+  const bus = pageBus();
+  /** The body cards whose page has said hello. */
+  const attachedBodies = (): string[] => [...bus.attachedCards()].filter((id) => bodyCardsStore.has(id));
+  const attachedBody = (cardId: string): boolean => bodyCardsStore.has(cardId) && bus.isAttached({ card: cardId });
   /**
    * Whether a command for `cardId` goes to its body: the card is a body card
-   * and its body has spoken. Until then no page is bound to take a bus
-   * message for it, so one sent then is lost — a ⌘W just after ⌘N, or a
-   * second workspace switch right behind the first, did nothing. The shell
-   * answers those itself; its chain reaches the deck through the card's
-   * pane.
+   * and its page has said hello. Until then the bus would hold the command
+   * for a page still coming up, and the key a ⌘W just after ⌘N, or a second
+   * workspace switch right behind the first, waits on would land late. The
+   * shell answers those itself; its chain reaches the deck through the
+   * card's pane.
    */
-  const takesCommands = (cardId: string): boolean => bodyCardsStore.has(cardId) && heard.has(cardId);
-  /** The last `card-context` sent each card, as JSON. */
-  const sentContext = new Map<string, string>();
-  /** Cards whose bodies have said they hold a session, so its going away clears the binding. */
-  const sessionHolds = new BodySessionHolds();
+  const takesCommands = attachedBody;
   /**
-   * Which halves of each body's paint the shell has heard: the host's (its
-   * first frame composited) and the bus's (sent behind every `card-facts` that
-   * frame was drawn with). The card is `painted` to the placer only once both
-   * have arrived, so a body is never shown under chrome its facts are still on
-   * their way to change — a Session card's masthead, which grows the title
+   * The body cards whose first frame the host has composited. The card is
+   * `painted` to the placer only once the host has said so and the card's
+   * `card.painted` has arrived — set behind the facts that frame was drawn
+   * with — so a body is never shown under chrome its facts are still on
+   * their way to change: a Session card's masthead, which grows the title
    * bar by 52 pt (`at0738-body-arrival`).
    */
-  const paintHeard = new Map<string, { host: boolean; bus: boolean }>();
-  const notePaint = (cardId: string, half: "host" | "bus"): void => {
-    const heardPaint = { ...(paintHeard.get(cardId) ?? { host: false, bus: false }), [half]: true };
-    paintHeard.set(cardId, heardPaint);
-    if (heardPaint.host && heardPaint.bus) bodyCardsStore.setState(cardId, "painted");
+  const hostPainted = new Set<string>();
+  const notePaint = (cardId: string): void => {
+    if (hostPainted.has(cardId) && cardPainted.getFor(cardId)) bodyCardsStore.setState(cardId, "painted");
   };
   /** The member each card's sheet reservation was claimed under. */
   const reservedUnder = new Map<string, string>();
-  /** The latest intent decided for each body card its body has not yet spoken to take. */
-  const pendingIntents = new Map<string, BodyIntent>();
-  /** The Jots body cards owed a jot capture their body has not yet spoken to take. */
-  const pendingJotCaptures = new Set<string>();
-  /**
-   * The question each body card is showing, sent again to each body the
-   * card's first `card-facts` says is new — a body not yet heard, or one
-   * remade after a termination or a failure — so it stands until answered.
-   */
-  const standingAsks = new Map<string, PendingAsk>();
-  const sendAsk = (cardId: string, ask: PendingAsk | null): void => {
-    sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "ask", payload: { ask } } });
-  };
   /** Each body card's deck-scope surface, drawn over the deck. */
   const surfaces = new ShellSurfaceDrawer({
-    onActivate: (cardId, path) => {
-      sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "surface-activate", path } });
-    },
-    onDismiss: (cardId) => {
-      sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "surface-dismissed" } });
-    },
+    onActivate: (cardId, path) => surfaceActivate.dispatch({ path }, { card: cardId }),
+    onDismiss: (cardId) => surfaceDismissed.dispatch({}, { card: cardId }),
   });
   releases.push(() => surfaces.dispose());
 
@@ -377,10 +447,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     for (const release of modalHolds.values()) release();
     modalHolds.clear();
   });
-  /** Whether each such body's guard would ask, as it last said. */
-  const closeAsks = new Map<string, boolean>();
-  /** The close decision each body card owes, while one is asked. */
-  const pendingDecisions = new Map<string, (answer: "close" | "cancel") => void>();
   /** The card each following body card follows, by the shell's focus manager. */
   const followedOf = new Map<string, string>();
   /** The reveal consumer held for a Settings body, with its release. */
@@ -399,38 +465,23 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     if (recentKeys[0] !== key) recentKeys = [key, ...recentKeys.filter((k) => k !== key)].slice(0, 2);
   };
 
-  /** The Cards body whose list cursor the shell's layout cursor is, if one is. */
-  let cursorFrom: string | null = null;
   const forget = (cardId: string): void => {
     perCard.get(cardId)?.();
     perCard.delete(cardId);
-    heard.delete(cardId);
-    miniatureRelay.forget(cardId);
-    sentContext.delete(cardId);
-    sessionHolds.forget(cardId);
     reservedUnder.delete(cardId);
-    paintHeard.delete(cardId);
-    pendingIntents.delete(cardId);
-    pendingJotCaptures.delete(cardId);
-    standingAsks.delete(cardId);
+    hostPainted.delete(cardId);
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
     dropModalHold(cardId);
     cardIdentityElsewhere.set(cardId, null);
     paneTitleBarItemsStore.set(cardId, null);
-    closeAsks.delete(cardId);
-    pendingDecisions.get(cardId)?.("cancel");
+    withdrawCloseDecision(cardId);
     followedOf.delete(cardId);
     settingsReveals.get(cardId)?.();
     settingsReveals.delete(cardId);
     devLogRelays.get(cardId)?.();
     devLogRelays.delete(cardId);
-    // A Cards body's list cursor goes with its page.
-    if (cursorFrom === cardId) {
-      cursorFrom = null;
-      setLayoutCursorCard(null);
-    }
     syncInspection();
   };
 
@@ -469,45 +520,41 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   };
 
   /**
-   * Keep each body card's inspection publisher running exactly while a
-   * devtools body follows it: ask a newly followed body to publish, tell
-   * one nobody follows to stop, and empty a devtools body's inspection when
-   * the card it follows changed so it never shows the card it left.
+   * Keep each body card's inspection published exactly while a devtools
+   * body follows it (`card.inspected`), and each devtools body shown the
+   * inspection of the card it follows now (`devtools.inspection`), so it
+   * never shows the card it left.
    */
+  const devtoolsBodies = (): string[] => attachedBodies().filter((id) => kindOf(id) === DEVTOOLS_KIND);
   const syncInspection = (): void => {
     const wanted = new Map<string, Set<string>>();
-    for (const devtools of heard) {
-      if (kindOf(devtools) !== DEVTOOLS_KIND) continue;
+    for (const devtools of devtoolsBodies()) {
       const followed = followedOf.get(devtools);
       if (followed === undefined || !bodyCardsStore.has(followed)) continue;
       let set = wanted.get(followed);
       if (set === undefined) wanted.set(followed, (set = new Set()));
       set.add(devtools);
     }
-    for (const [followed, had] of [...inspecting]) {
-      const now = wanted.get(followed);
-      if (now === undefined) {
-        inspecting.delete(followed);
-        if (bodyCardsStore.has(followed)) {
-          sendBus(connection, { card: followed }, { kind: "card-command", payload: { command: "inspect", on: false } });
-        }
-      }
-      for (const devtools of had) {
-        if ((now === undefined || !now.has(devtools)) && heard.has(devtools)) {
-          sendBus(connection, { card: devtools }, { kind: "card-command", payload: { command: "inspection", inspection: null } });
-        }
-      }
+    for (const followed of [...inspecting.keys()]) {
+      if (wanted.has(followed)) continue;
+      inspecting.delete(followed);
+      if (bodyCardsStore.has(followed)) cardInspected.setFor(followed, false);
     }
     for (const [followed, set] of wanted) {
-      const had = inspecting.get(followed);
       inspecting.set(followed, set);
-      // A devtools body that joined a card already publishing hears the
-      // current inspection only if the publisher starts over.
-      if (had === undefined || [...set].some((d) => !had.has(d))) {
-        sendBus(connection, { card: followed }, { kind: "card-command", payload: { command: "inspect", on: true } });
-      }
+      cardInspected.setFor(followed, true);
+    }
+    relayInspections();
+  };
+  /** Show each devtools body the inspection of the card it follows, or null. */
+  const relayInspections = (): void => {
+    for (const devtools of devtoolsBodies()) {
+      const followed = followedOf.get(devtools);
+      const shown = followed !== undefined && inspecting.get(followed)?.has(devtools) === true;
+      devtoolsInspection.setFor(devtools, shown ? cardInspection.getFor(followed) : null);
     }
   };
+  releases.push(cardInspection.subscribe(relayInspections));
 
   /** Send `cardId`'s devtools body this page's dev log: all of it now, then each entry as it lands. */
   const relayDevLog = (cardId: string): void => {
@@ -517,11 +564,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       const entries = tugDevLogStore.getSnapshot().entries.filter((e) => e.id > sentThrough);
       if (entries.length === 0) return;
       sentThrough = entries[entries.length - 1].id;
-      sendBus(
-        connection,
-        { card: cardId },
-        { kind: "card-command", payload: { command: "dev-log", payload: { entries: entries.map(relayableLogEntry) } } },
-      );
+      devtoolsLogEntries.dispatch({ entries: entries.map(relayableLogEntry) }, { card: cardId });
     };
     devLogRelays.set(cardId, tugDevLogStore.subscribe(send));
     send();
@@ -532,9 +575,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     if (settingsReveals.has(cardId)) return;
     settingsReveals.set(
       cardId,
-      registerSettingsRevealConsumer((section) => {
-        sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "reveal-settings", payload: { section } } });
-      }),
+      registerSettingsRevealConsumer((section) => settingsReveal.dispatch({ section }, { card: cardId })),
     );
   };
 
@@ -542,93 +583,26 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   const holdCloseGuard = (cardId: string): void => {
     if (closeGuards.has(cardId)) return;
     const release = registerCardCloseGuard(cardId, {
-      needsDecision: () => closeAsks.get(cardId) === true,
-      run: () =>
-        new Promise<"close" | "cancel">((resolve) => {
-          pendingDecisions.get(cardId)?.("cancel");
-          let timer: ReturnType<typeof setTimeout> | null = null;
-          const settle = (answer: "close" | "cancel"): void => {
-            if (timer !== null) clearTimeout(timer);
-            if (pendingDecisions.get(cardId) === settle) pendingDecisions.delete(cardId);
-            resolve(answer);
-          };
-          pendingDecisions.set(cardId, settle);
-          if (closeAsks.get(cardId) !== true) {
-            timer = setTimeout(() => {
-              tugDevLogStore.error("body", "a body did not answer its close decision; the close is cancelled", { cardId });
-              settle("cancel");
-            }, BODY_CLOSE_ANSWER_MS);
-          }
-          sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "close-decision" } });
-        }),
+      needsDecision: () => cardHolds.getFor(cardId).closeGuardAsks === true,
+      // The body's own guard decides, in the card it concerns
+      // (`close-decision.ts`): its sheet's person, or a deadline.
+      run: () => askCloseDecision(cardId, cardHolds.getFor(cardId).closeGuardAsks === true),
     });
     closeGuards.set(cardId, release);
   };
 
-  /** What a body card's context carries beyond its own card: the arrangement, the followed card, the app identity. */
-  const contextExtras = (cardId: string): Pick<CardContext, "arrangement" | "followed" | "appInfo" | "crossing"> => {
-    const registration = registrationOf(cardId);
-    const extras: Pick<CardContext, "arrangement" | "followed" | "appInfo" | "crossing"> = {};
-    // The crossing the card's pane stands under, which the body holds its
-    // card root through: read off the pane and the placeholder the hold
-    // writes its sizes on.
+  /**
+   * The crossing `cardId`'s pane stands under, which the body holds its card
+   * root through: read off the pane and the placeholder the hold writes its
+   * sizes on. Null when none stands.
+   */
+  const crossingOf = (cardId: string): CrossingMirror | null => {
     const placeholder = document.querySelector<HTMLElement>(
       `[data-body-placeholder][data-card-id="${CSS.escape(cardId)}"]`,
     );
     const frame = placeholder?.closest<HTMLElement>(".tug-pane") ?? null;
-    const crossing = placeholder != null && frame !== null ? crossingMirrorOf(frame, placeholder) : null;
-    if (crossing !== null) extras.crossing = crossing;
-    if (registration?.bodyDeck === "arrangement") {
-      const arrangement = projectArrangement(
-        deck,
-        (id) => cardSessionBindingStore.getBinding(id),
-        (id) => {
-          const title = cardTitleStore.get(id);
-          const masthead = cardTitleStore.getMasthead(id);
-          return title === null && masthead === null ? null : { title, masthead };
-        },
-        liveCardIdentity,
-        bodyFactsStore.activityOf,
-      );
-      // A workspace verb is the visible Workspaces card's to answer: a parked
-      // one that took it would open a field nobody can see.
-      arrangement.spaceVerb = cardContextFor(deck, cardId).layerShown ? cardsSpaceVerbRequest.getSnapshot() : null;
-      if (registration.componentId === CARDS_CARD_ID) {
-        // The Cards list builds the layout selection in its page and the
-        // deck's verbs read this one's: what stands here goes back to it
-        // (`cards-selection-mirror.ts`). And it lists every card's session,
-        // a parked workspace's too, from a bindings cache its page may have
-        // come up too late to fill.
-        const { ids, anchorId } = cardsSelectionStore.getSnapshot();
-        arrangement.selection = { ids: [...ids], anchorId };
-        arrangement.ledgerBindings = spaceBindingsLedgerStore.loaded()
-          ? [...spaceBindingsLedgerStore.getSnapshot().values()]
-          : null;
-      }
-      extras.arrangement = arrangement;
-    }
-    if (registration?.bodyFollows === true) {
-      const followed = followedOf.get(cardId) ?? null;
-      extras.followed =
-        followed === null ? null : { cardId: followed, binding: cardSessionBindingStore.getBinding(followed) ?? null };
-    }
-    if (registration?.componentId === ABOUT_KIND) {
-      // The host sends the app's identity with its `show-card`, which only
-      // this page hears; the About body reads it from its context.
-      const info = appInfoStore.getSnapshot();
-      if (info !== null) extras.appInfo = info;
-    }
-    return extras;
-  };
-
-  /** Whether `cardId`'s context carries anything beyond its own card. */
-  const hasExtras = (cardId: string): boolean => {
-    const registration = registrationOf(cardId);
-    return (
-      registration?.bodyDeck === "arrangement" ||
-      registration?.bodyFollows === true ||
-      registration?.componentId === ABOUT_KIND
-    );
+    const mirror = placeholder != null && frame !== null ? crossingMirrorOf(frame, placeholder) : null;
+    return crossingForBody(mirror, cardCrossing.getFor(cardId));
   };
 
   const attach = (cardId: string): void => {
@@ -638,10 +612,10 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       deck.observeCardWillBeginDestruction(cardId, () => {
         postToHost("bodyDestroy", { cardId, save: false });
         forget(cardId);
+        bus.forgetCard(cardId);
         failures.delete(cardId);
         forgetBodyIntent(cardId);
         bodyCardsStore.drop(cardId);
-        bodyFactsStore.drop(cardId);
         bodyChordCaptureStore.clear(cardId);
       }),
     ];
@@ -650,10 +624,20 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     });
   };
 
+  /** Set the shell's stores for `cardId`, which its page is sent at hello: current from the start. */
+  const seedCard = (cardId: string): void => {
+    cardCrossing.setFor(cardId, crossingOf(cardId));
+    cardContext.setFor(cardId, cardContextFor(deck, cardId));
+    const followed = followedOf.get(cardId);
+    if (followed !== undefined) cardFollowed.setFor(cardId, { cardId: followed });
+  };
+
   const syncCards = (): void => {
     const ids = bodyCardsStore.cardIds();
     for (const cardId of ids) {
-      if (!perCard.has(cardId)) attach(cardId);
+      if (perCard.has(cardId)) continue;
+      attach(cardId);
+      seedCard(cardId);
     }
     for (const cardId of [...perCard.keys()]) {
       if (!bodyCardsStore.has(cardId)) forget(cardId);
@@ -782,47 +766,72 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   releases.push(bodyCardsStore.subscribe(queueWarm), restorePassGate.subscribe(queueWarm), deck.subscribeSpaces(queueWarm));
   queueWarm();
 
-  // ---- Intents decided for a card already in its body ----
-
-  // A session the shell decides for a body card — a harness spawn, a resume
-  // asked for from another card — is sent to its body, which replays it. A
-  // body not yet heard from has no page bound to take it, so the latest one
-  // waits and goes out behind the body's first `card-facts`.
-  const sendIntent = (cardId: string, intent: BodyIntent): void => {
-    sendBus(connection, { card: cardId }, {
-      kind: "card-command",
-      payload: { command: "intent", payload: intent as unknown as Record<string, unknown> },
-    });
-  };
-  setBodyIntentForwarder((cardId, intent) => {
-    if (heard.has(cardId)) sendIntent(cardId, intent);
-    else pendingIntents.set(cardId, intent);
-  });
-  releases.push(() => setBodyIntentForwarder(null));
   // The Overview composer's draft outlives its card, which a rail hidden and
-  // shown destroys and mints afresh: the shell holds it, and hands it to the
-  // next Overview card's first body.
-  releases.push(installOverviewDraftShellHolder());
+  // shown destroys and mints afresh: the shell holds it (`overview.draft`),
+  // and the next Overview body seeds its composer from it.
+  releases.push(holdOverviewDraftInShell(bus));
 
   // ---- What the shell tells its bodies ----
 
-  let sentDeckFacts = "";
+  // The stores are set on every change they might follow; each sends only
+  // what moved, and a body that says hello is sent their current values.
   const publishDeckFacts = (): void => {
-    if (bodyCardsStore.cardIds().length === 0) return;
-    const facts = readDeckFacts(deck);
-    const json = JSON.stringify(facts);
-    if (json === sentDeckFacts) return;
-    sentDeckFacts = json;
-    sendBus(connection, "body", { kind: "deck-facts", payload: facts });
+    deckFacts.set(readDeckFacts(deck));
+    deckMenu.set(readDeckMenu(deck));
+    // The project a card with no session of its own resolves against, which
+    // a body's one-card deck cannot find.
+    deckFrontmostProject.set({ binding: frontmostProjectBinding() });
   };
 
-  const sendContext = (cardId: string, force: boolean): void => {
-    const context: CardContext = { ...cardContextFor(deck, cardId), ...contextExtras(cardId) };
-    const json = JSON.stringify(context);
-    if (!force && sentContext.get(cardId) === json) return;
-    sentContext.set(cardId, json);
-    sendBus(connection, { card: cardId }, { kind: "card-context", payload: context });
+  /**
+   * Keep every body card's context and crossing current, whether or not its
+   * page has said hello yet: what one that does is sent is what stands now.
+   */
+  const publishCards = (): void => {
+    for (const cardId of bodyCardsStore.cardIds()) {
+      cardCrossing.setFor(cardId, crossingOf(cardId));
+      cardContext.setFor(cardId, cardContextFor(deck, cardId));
+    }
   };
+
+  // What a body reads of the deck beyond its own card. Each store sends only
+  // what moved, so these are set on every change they might follow.
+  const publishBindings = (): void => {
+    deckCardBindings.set(projectBindings(deck, (id) => cardSessionBindingStore.getBinding(id)));
+  };
+  const publishActivities = (): void => {
+    deckCardActivities.set(projectActivities(deck, bodyFactsStore.activityOf));
+  };
+  const publishCardFacts = (): void => {
+    arrangementCardFacts.set(
+      projectArrangementCardFacts(
+        deck,
+        (id) => {
+          const title = cardTitleStore.get(id);
+          const masthead = cardTitleStore.getMasthead(id);
+          return title === null && masthead === null ? null : { title, masthead };
+        },
+        liveCardIdentity,
+      ),
+    );
+  };
+  const publishLedgerBindings = (): void => {
+    cardsLedgerBindings.set(spaceBindingsLedgerStore.loaded() ? [...spaceBindingsLedgerStore.getSnapshot().values()] : null);
+  };
+  // The host sends the app's identity with its `show-card`, which only this
+  // page hears; the About body reads it from here.
+  const publishAppInfo = (): void => appInfo.set(appInfoStore.getSnapshot());
+  /** The arrangement, and what moves with the deck's card set. */
+  const publishArrangement = (): void => {
+    arrangementDeck.set(projectArrangementDeck(deck));
+    arrangementSpaces.set(projectArrangementSpaces(deck));
+    publishCardFacts();
+    publishBindings();
+    publishActivities();
+  };
+  publishArrangement();
+  publishLedgerBindings();
+  publishAppInfo();
 
   let focusedBody: string | null | undefined;
   /**
@@ -865,15 +874,13 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       const key = manager.keyCard();
       if (key === null) return;
       noteKey(key);
-      let moved = false;
-      for (const cardId of heard) {
+      for (const cardId of attachedBodies()) {
         if (key === cardId || registrationOf(cardId)?.bodyFollows !== true) continue;
         if (followedOf.get(cardId) !== key) {
           followedOf.set(cardId, key);
-          moved = true;
+          cardFollowed.setFor(cardId, { cardId: key });
         }
       }
-      if (moved) for (const cardId of heard) sendContext(cardId, false);
       syncInspection();
     };
     follow();
@@ -889,7 +896,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   releases.push(
     deck.subscribe(() => {
       watchFocus();
-      for (const cardId of heard) sendContext(cardId, false);
+      publishCards();
+      publishArrangement();
       publishDeckFacts();
       // A drawn surface hangs off its card, wherever the card now stands.
       surfaces.placeAll();
@@ -904,7 +912,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       }
     }),
     deck.subscribeSpaces(() => {
-      for (const cardId of heard) sendContext(cardId, false);
+      publishCards();
+      publishArrangement();
       // The menu facts project the workspaces too, and a workspace made or
       // renamed moves no deck state.
       publishDeckFacts();
@@ -917,31 +926,29 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     cardSessionBindingStore.subscribe(publishDeckFacts),
     motionBreaker.onChange(publishDeckFacts),
   );
-  // An arrangement card lists every card's binding and title, and a
-  // following card names its followed card's binding: a change to either
-  // store is a change to what those cards were sent.
-  const resendExtras = (): void => {
-    for (const cardId of heard) if (hasExtras(cardId)) sendContext(cardId, false);
-  };
-  let sentActivities = JSON.stringify(projectActivities(deck, bodyFactsStore.activityOf));
+  publishDeckFacts();
+  // A workspace's live-session count reads the bindings and the bindings
+  // cache, so a change to either is a change to the workspaces too.
+  const publishSpaces = (): void => arrangementSpaces.set(projectArrangementSpaces(deck));
   releases.push(
-    cardSessionBindingStore.subscribe(resendExtras),
-    cardTitleStore.subscribe(resendExtras),
-    cardIdentityElsewhere.subscribe(resendExtras),
-    appInfoStore.subscribe(resendExtras),
-    // What a Cards body is told beside the arrangement: the layout selection
-    // and the bindings cache.
-    cardsSelectionStore.subscribe(resendExtras),
-    spaceBindingsLedgerStore.subscribe(resendExtras),
-    // An arrangement card lists every card's phase too, read from what each
-    // body reported. A body publishes on every telemetry tick as well, so
-    // the resend waits for some card's phase to move ([B06]).
-    bodyFactsStore.subscribe(() => {
-      const activities = JSON.stringify(projectActivities(deck, bodyFactsStore.activityOf));
-      if (activities === sentActivities) return;
-      sentActivities = activities;
-      for (const cardId of heard) if (registrationOf(cardId)?.bodyDeck === "arrangement") sendContext(cardId, false);
+    cardSessionBindingStore.subscribe(() => {
+      publishBindings();
+      publishSpaces();
     }),
+    cardTitleStore.subscribe(publishCardFacts),
+    cardIdentityElsewhere.subscribe(publishCardFacts),
+    appInfoStore.subscribe(publishAppInfo),
+    spaceBindingsLedgerStore.subscribe(() => {
+      publishLedgerBindings();
+      publishSpaces();
+    }),
+    // A body publishes on every telemetry tick; the store sends only when
+    // some card's phase moved.
+    bodyFactsStore.subscribe(publishActivities),
+    // The layout selection is the shell's, and the Cards list proposes to it.
+    shareLayoutSelection(bus),
+    // A body card's binding is the shell's, and its body proposes each change.
+    shareCardBinding(bus),
     // A followed card's body may come up after the devtools body did: a
     // session spawned into it, or the card re-adopted.
     bodyCardsStore.subscribe(syncInspection),
@@ -955,7 +962,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     for (const frame of frames) {
       for (const el of frame.querySelectorAll<HTMLElement>("[data-body-placeholder][data-card-id]")) {
         const cardId = el.dataset.cardId;
-        if (cardId !== undefined && heard.has(cardId)) sendContext(cardId, false);
+        if (cardId !== undefined && bodyCardsStore.has(cardId)) cardCrossing.setFor(cardId, crossingOf(cardId));
       }
     }
   });
@@ -966,284 +973,224 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // motion's first frame, and a body renders in its own page. A row press in
   // the Layout body comes back a frame sooner; the deferred send that follows
   // finds the same context and sends nothing.
-  if (deck.subscribeSync !== undefined) releases.push(deck.subscribeSync(() => resendExtras(), "body-arrangement"));
+  if (deck.subscribeSync !== undefined) releases.push(deck.subscribeSync(publishArrangement, "body-arrangement"));
   // A workspace verb the menu asked the Cards card to answer lands in this
-  // page's slot, which a Cards body never reads: it goes to every Cards body
-  // in the workspace on screen, on its arrangement, and leaves the slot once
-  // one has been sent it. With none heard there yet — the verb also reveals
-  // the card, and New stands a fresh workspace whose card has not spoken —
-  // it waits for the first one. A parked workspace's card is never sent it.
+  // page's slot, which a Cards body never reads: it goes to the Cards card of
+  // the workspace on screen as soon as the deck holds one, and leaves the
+  // slot. The verb also reveals the card, and New stands a fresh workspace
+  // whose card has not spoken: the bus holds it until that card's page says
+  // hello, behind the stores it reads. A parked workspace's card is never
+  // sent it.
   const relaySpaceVerb = (): void => {
-    if (cardsSpaceVerbRequest.getSnapshot() === null) return;
-    const cardsBodies = [...heard].filter(
-      (id) => registrationOf(id)?.componentId === CARDS_CARD_ID && cardContextFor(deck, id).layerShown,
-    );
-    if (cardsBodies.length === 0) return;
-    for (const cardId of cardsBodies) sendContext(cardId, false);
+    const request = cardsSpaceVerbRequest.getSnapshot();
+    if (request === null) return;
+    const cardsCard = deck.getSnapshot().cards.find((c) => c.componentId === CARDS_CARD_ID);
+    if (cardsCard === undefined || !bodyCardsStore.has(cardsCard.id)) return;
     cardsSpaceVerbRequest.clear();
+    cardsSpaceVerb.dispatch({ verb: request.verb, spaceId: request.spaceId }, { card: cardsCard.id });
   };
-  releases.push(cardsSpaceVerbRequest.subscribe(relaySpaceVerb));
-  // Escape's shrink, answered in this page (the deck root's entry), runs the
-  // Cards table in the Cards body on screen, which holds its filter.
-  setCardsShrinkForwarder(() => {
-    const cardsBody = [...heard].find(
-      (id) => registrationOf(id)?.componentId === CARDS_CARD_ID && cardContextFor(deck, id).layerShown,
-    );
-    if (cardsBody === undefined) return false;
-    sendBus(connection, { card: cardsBody }, {
-      kind: "card-command",
-      payload: { command: "dispatch", id: CARDS_SHRINK_COMMAND },
-    });
-    return true;
-  });
-  releases.push(() => setCardsShrinkForwarder(null));
-
-  // ---- What the bodies tell the shell ----
-
   releases.push(
-    onBus(connection, "card-facts", (message) => {
-      const cardId = message.from.cardId;
-      if (cardId === null || !bodyCardsStore.has(cardId)) return;
-      applyFacts(cardId, message.payload);
-      if (!heard.has(cardId)) {
-        heard.add(cardId);
-        // A following card's history starts with the latest key card that is
-        // not itself — the one it was opened over.
-        const key = getFocusManager()?.keyCard() ?? null;
-        if (key !== null) noteKey(key);
-        const prior = recentKeys.find((k) => k !== cardId) ?? null;
-        if (prior !== null && registrationOf(cardId)?.bodyFollows === true && !followedOf.has(cardId)) {
-          followedOf.set(cardId, prior);
-        }
-        sendBus(connection, { card: cardId }, { kind: "deck-facts", payload: readDeckFacts(deck) });
-        sendContext(cardId, true);
-        const pending = pendingIntents.get(cardId);
-        if (pending !== undefined) {
-          pendingIntents.delete(cardId);
-          sendIntent(cardId, pending);
-        }
-        if (pendingJotCaptures.delete(cardId)) {
-          sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "new-jot" } });
-        }
-        const standing = standingAsks.get(cardId);
-        if (standing !== undefined) sendAsk(cardId, standing);
-        relaySpaceVerb();
-        const kind = kindOf(cardId);
-        if (kind === DEVTOOLS_KIND) relayDevLog(cardId);
-        if (kind === SETTINGS_KIND) relaySettingsReveal(cardId);
-        syncInspection();
+    cardsSpaceVerbRequest.subscribe(relaySpaceVerb),
+    deck.subscribe(relaySpaceVerb),
+    bodyCardsStore.subscribe(relaySpaceVerb),
+  );
+  relaySpaceVerb();
+
+  // The deck verbs an arrangement card makes, called on the deck: the
+  // flow-offset calls are prototype methods, and a detached call loses its
+  // `this`.
+  releases.push(
+    deckActivateCard.handle(({ cardId, reveal }) =>
+      reveal === undefined ? deck.activateCard(cardId) : deck.activateCard(cardId, { reveal }),
+    ),
+    deckSetFlowOffset.handle(({ offset, landing }) =>
+      landing === undefined ? deck.setFlowOffset(offset) : deck.setFlowOffset(offset, landing),
+    ),
+    deckPreviewFlowOffset.handle(({ offset }) => deck.previewFlowOffset(offset)),
+    deckActivateSpace.handle(({ spaceId }) => deck.activateSpace(spaceId)),
+    deckRenameSpace.handle(({ spaceId, name }) => deck.renameSpace(spaceId, name)),
+    deckChooseSpaceTheme.handle(({ spaceId, theme }) => deck.chooseSpaceTheme(spaceId, theme)),
+    deckMoveCardToSpace.handle(({ cardId, spaceId }) => void deck.moveCardToSpace(cardId, spaceId)),
+    deckReorderSpaces.handle(({ order }) => deck.reorderSpaces(order)),
+  );
+  // ---- A body's page says hello ----
+
+  // By here its stores have gone to it, ahead of anything held for it. What
+  // the shell still keeps by hand for a body not yet there goes now, after
+  // them — a page that reloads says hello again and is sent it again.
+  releases.push(
+    bus.onAttach((cardId) => {
+      if (!bodyCardsStore.has(cardId)) return;
+      // A following card's history starts with the latest key card that is
+      // not itself — the one it was opened over.
+      const key = getFocusManager()?.keyCard() ?? null;
+      if (key !== null) noteKey(key);
+      const prior = recentKeys.find((k) => k !== cardId) ?? null;
+      if (prior !== null && registrationOf(cardId)?.bodyFollows === true && !followedOf.has(cardId)) {
+        followedOf.set(cardId, prior);
+        cardFollowed.setFor(cardId, { cardId: prior });
       }
-    }),
-    onBus(connection, "card-advice", (message) => {
-      const cardId = message.from.cardId;
-      if (cardId === null || !bodyCardsStore.has(cardId)) return;
-      applyAdvice(cardId, message.payload);
+      const kind = kindOf(cardId);
+      if (kind === DEVTOOLS_KIND) relayDevLog(cardId);
+      if (kind === SETTINGS_KIND) relaySettingsReveal(cardId);
+      syncInspection();
     }),
   );
 
-  const applyFacts = (cardId: string, facts: CardFacts): void => {
-    if (!bodyFactsStore.applyFacts(cardId, facts)) return;
-    cardIdentityElsewhere.set(cardId, (facts.identity ?? null) as CardIdentityFacts | null);
-    paneTitleBarItemsStore.set(cardId, (facts.titleBar ?? null) as PaneTitleBarItem[] | null);
-    const masthead = facts.masthead as (BusMasthead & CardMastheadPayload) | null;
-    if (masthead !== null) {
-      cardTitleStore.set(cardId, facts.title, masthead);
+  // ---- What the bodies tell the shell ----
+
+  /**
+   * Call `apply` for each body card whose replica of the card-owned `store`
+   * moved since the last call, with the value it had. A replica keeps its
+   * object until its value moves, so identity is the change; a card that is
+   * not a body card is forgotten, and taken afresh once it is one.
+   */
+  const watchCardStore = <T>(store: SharedStore<T>, apply: (cardId: string, value: T, prev: T) => void): void => {
+    const initial = store.declaration.initial;
+    const last = new Map<string, T>();
+    const sync = (): void => {
+      for (const cardId of new Set([...bodyCardsStore.cardIds(), ...last.keys()])) {
+        if (!bodyCardsStore.has(cardId)) {
+          last.delete(cardId);
+          continue;
+        }
+        const value = store.getFor(cardId);
+        const prev = last.has(cardId) ? (last.get(cardId) as T) : initial;
+        if (value === prev) continue;
+        if (value === initial) last.delete(cardId);
+        else last.set(cardId, value);
+        apply(cardId, value, prev);
+      }
+    };
+    releases.push(store.subscribe(sync), bodyCardsStore.subscribe(sync));
+  };
+
+  const applyFacts = (cardId: string, facts: CardFactsValue): void => {
+    cardIdentityElsewhere.set(cardId, facts.identity);
+    paneTitleBarItemsStore.set(cardId, facts.titleBar);
+    if (facts.masthead !== null) {
+      cardTitleStore.set(cardId, facts.title, facts.masthead);
     } else {
       cardTitleStore.set(cardId, facts.title);
     }
-    // A card that let its session go — no masthead, and an identity that
-    // names none — takes the binding the shell keeps for it along. A
-    // rebind's masthead gap is not that: its identity names the new session.
-    if (sessionHolds.letGo(cardId, facts)) cardSessionBindingStore.clearBinding(cardId);
   };
 
-  const applyAdvice = (cardId: string, advice: CardAdvice): void => {
-    switch (advice.advice) {
-      case "close-advice":
-      case "fold-guard":
-        bodyFactsStore.applyAdvice(cardId, advice);
-        return;
-      case "sheet-reservation": {
-        // A warm workspace's picker reports while parked: its claim goes on
-        // the parked record the first visit swaps in ([B24] of the bodies
-        // migration), so the arrival is laid out at the floor it needs.
-        const spaceId = deck.spaceOf(cardId);
-        const parked = spaceId !== null && spaceId !== deck.getSpacesSnapshot().activeSpaceId ? spaceId : null;
-        const claim = (memberId: string, height: number | null): void => {
-          if (parked !== null && deck.setParkedSheetReservation !== undefined) deck.setParkedSheetReservation(parked, memberId, height);
-          else deck.setSheetReservation(memberId, height);
-        };
-        const standing = sheetReservationMemberIdOf(ownDeckOf(deck, cardId), cardId);
-        if (advice.heightPx === null) {
-          const claimed = standing ?? reservedUnder.get(cardId);
-          reservedUnder.delete(cardId);
-          if (claimed !== undefined) claim(claimed, null);
-          return;
-        }
-        if (standing === null) return;
-        reservedUnder.set(cardId, standing);
-        claim(standing, advice.heightPx);
-        return;
-      }
-      case "opening-bid":
-        openingBidForCard(cardId, advice.heightPx);
-        return;
-      case "activate":
-        // A parked body cannot be pressed: an activation from one — a warm
-        // workspace's card taking focus in its own page — is not the user's,
-        // and would name a key card the deck does not show.
-        if (!cardContextFor(deck, cardId).layerShown) return;
-        deck.activateCard(cardId);
-        return;
-      case "painted":
-        notePaint(cardId, "bus");
-        return;
-      case "close-request": {
-        const paneId = paneOf(deck.getSnapshot(), cardId);
-        if (paneId !== null) deck.removeCard(paneId, cardId);
-        return;
-      }
-      case "add-card": {
-        const paneId = paneOf(deck.getSnapshot(), cardId);
-        if (paneId !== null) deck.addCardToPane(paneId, advice.componentId);
-        return;
-      }
-      case "dispatch":
-        // A deck verb no command names (`dispatchShellAction`) runs against
-        // the shell's registry, which alone holds its handler.
-        if (runShellActionForCard(advice.id, advice.payload)) return;
-        // The body's chain did not answer it; this one does, and never
-        // forwards it back ([P04]: one front door, routed by the entry).
-        dispatchCommand(advice.id, advice.payload, { local: true });
-        return;
-      case "focus-exit": {
-        // The body's walk ran off an end: the card's chrome stops here come
-        // next, from the end the walk arrived at; with none, the walk goes
-        // back into the body — unless the body just said it has none either.
-        if (deck.getFirstResponderCardId() !== cardId) return;
-        const edge = advice.direction === "next" ? "first" : "last";
-        const manager = getFocusManager();
-        if (manager !== null && manager.keyCard() === cardId && enterKeyViewWalk(manager, edge)) {
-          postFocus(false);
-          return;
-        }
-        if (advice.empty !== true) enterBody(cardId, edge);
-        return;
-      }
-      case "surface":
-        surfaces.draw(cardId, advice.surface);
-        return;
-      case "logout":
-        requestLogout();
-        return;
-      case "capture-armed":
-        bodyChordCaptureStore.set(cardId, advice.armed);
-        return;
-      case "deck-call": {
-        // The Layout miniature's gauges and drop-zone verbs (`miniature-relay.ts`).
-        if (miniatureRelay.handle(cardId, advice.method, advice.args)) return;
-        // The Cards list's selection and cursor, built in its page and read
-        // by this one's verbs (`cards-selection-mirror.ts`): only a Cards
-        // card's to say.
-        if (isSelectionCall(advice.method)) {
-          if (registrationOf(cardId)?.componentId !== CARDS_CARD_ID) {
-            tugDevLogStore.error("body", "a body that is not the Cards card set the layout selection", { cardId });
-            return;
-          }
-          applySelectionCall(advice.method, advice.args, cardsSelectionStore, (next) => {
-            // Another Cards body letting go of a cursor it does not hold
-            // (a parked one unmounting) leaves the standing one alone.
-            if (next === null && cursorFrom !== null && cursorFrom !== cardId) return;
-            cursorFrom = next === null ? null : cardId;
-            setLayoutCursorCard(next);
-          });
-          return;
-        }
-        // Only the calls an arrangement card is allowed; anything else — a
-        // workspace delete above all, which must walk the close guards — is
-        // refused here and said so.
-        if (!isBodyDeckCall(advice.method)) {
-          tugDevLogStore.error("body", "a body asked for a deck call it may not make", { cardId, method: advice.method });
-          return;
-        }
-        // Called on the deck: the flow-offset calls are prototype methods,
-        // and a detached call loses its `this`.
-        const method = deck[advice.method] as (...args: unknown[]) => unknown;
-        method.apply(deck, advice.args);
-        return;
-      }
-      case "close-guard":
-        closeAsks.set(cardId, advice.asks);
-        holdCloseGuard(cardId);
-        return;
-      case "close-decision":
-        pendingDecisions.get(cardId)?.(advice.answer);
-        return;
-      case "modal-hold": {
-        dropModalHold(cardId);
-        if (advice.reason === null) return;
+  /**
+   * The holds the shell keeps for a body card in its own stores, moved with
+   * the card's: the close guard it holds once the card says it has one, the
+   * modal hold, and the chord capture. The close advice and the fold guard
+   * are read from the replica at gesture time (`bodyFactsStore`).
+   */
+  const applyHolds = (cardId: string, holds: CardHoldsValue, prev: CardHoldsValue): void => {
+    if (holds.closeGuardAsks !== null) holdCloseGuard(cardId);
+    const hold = holds.modalHold;
+    const was = prev.modalHold;
+    if (hold?.reason !== was?.reason || hold?.admitsFold !== was?.admitsFold) {
+      dropModalHold(cardId);
+      if (hold !== null) {
         modalHolds.set(
           cardId,
           cardModalHoldStore.hold(cardId, {
-            reason: advice.reason,
-            admitsFold: advice.admitsFold === true,
-            refuse: () => sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "refuse-hold" } }),
+            reason: hold.reason,
+            admitsFold: hold.admitsFold,
+            refuse: () => cardRefuseHold.dispatch({}, { card: cardId }),
           }),
         );
-        return;
-      }
-      case "ask-response":
-        // The card's dialog answered: the question is this page's, and so is
-        // the answer to the blocked caller.
-        pendingAskStore.respond(advice.requestId, advice.choice);
-        return;
-      case "inspection": {
-        // The followed card's inspection goes to every devtools body following it.
-        const to = inspecting.get(cardId);
-        if (to === undefined) return;
-        for (const devtools of to) {
-          sendBus(connection, { card: devtools }, { kind: "card-command", payload: { command: "inspection", inspection: advice.inspection } });
-        }
-        return;
       }
     }
+    bodyChordCaptureStore.set(cardId, holds.captureArmed);
   };
+
+  const applyReservations = (cardId: string, next: CardReservationsValue, prev: CardReservationsValue): void => {
+    if (next.sheetPx !== prev.sheetPx) {
+      // A warm workspace's picker reports while parked: its claim goes on
+      // the parked record the first visit swaps in ([B24] of the bodies
+      // migration), so the arrival is laid out at the floor it needs.
+      const spaceId = deck.spaceOf(cardId);
+      const parked = spaceId !== null && spaceId !== deck.getSpacesSnapshot().activeSpaceId ? spaceId : null;
+      const claim = (memberId: string, height: number | null): void => {
+        if (parked !== null && deck.setParkedSheetReservation !== undefined) deck.setParkedSheetReservation(parked, memberId, height);
+        else deck.setSheetReservation(memberId, height);
+      };
+      const standing = sheetReservationMemberIdOf(ownDeckOf(deck, cardId), cardId);
+      if (next.sheetPx === null) {
+        const claimed = standing ?? reservedUnder.get(cardId);
+        reservedUnder.delete(cardId);
+        if (claimed !== undefined) claim(claimed, null);
+      } else if (standing !== null) {
+        reservedUnder.set(cardId, standing);
+        claim(standing, next.sheetPx);
+      }
+    }
+    if (next.openingBidPx !== prev.openingBidPx) openingBidForCard(cardId, next.openingBidPx);
+  };
+
+  watchCardStore(cardFacts, (cardId, facts) => {
+    if (facts !== null) applyFacts(cardId, facts);
+  });
+  watchCardStore(cardHolds, applyHolds);
+  watchCardStore(cardReservations, applyReservations);
+  watchCardStore(cardSurface, (cardId, surface: ShellSurface | null) => surfaces.draw(cardId, surface));
+  watchCardStore(cardPainted, (cardId, painted) => {
+    if (painted) notePaint(cardId);
+  });
+
+  /** The body card a verb came from, when it is one this shell holds. */
+  const fromBody = (from: { cardId: string | null }): string | null =>
+    from.cardId !== null && bodyCardsStore.has(from.cardId) ? from.cardId : null;
+  releases.push(
+    cardActivate.handle((_payload, from) => {
+      const cardId = fromBody(from);
+      if (cardId === null) return;
+      // A parked body cannot be pressed: an activation from one — a warm
+      // workspace's card taking focus in its own page — is not the user's,
+      // and would name a key card the deck does not show.
+      if (!cardContextFor(deck, cardId).layerShown) return;
+      deck.activateCard(cardId);
+    }),
+    cardClose.handle((_payload, from) => {
+      const cardId = fromBody(from);
+      if (cardId === null) return;
+      const paneId = paneOf(deck.getSnapshot(), cardId);
+      if (paneId !== null) deck.removeCard(paneId, cardId);
+    }),
+    cardAddSibling.handle(({ componentId }, from) => {
+      const cardId = fromBody(from);
+      if (cardId === null) return;
+      const paneId = paneOf(deck.getSnapshot(), cardId);
+      if (paneId !== null) deck.addCardToPane(paneId, componentId);
+    }),
+    // The body's chain did not answer it; this one does, and never sends it
+    // back ([P04]: one front door, routed by the entry).
+    answerBodyCommands(bus),
+    appLogout.handle((_payload, from) => {
+      if (fromBody(from) === null) return;
+      requestLogout();
+    }),
+  );
 
   /** Hand the key card's walk into its body at `edge`, and the keyboard with it. */
   const enterBody = (cardId: string, edge: "first" | "last"): void => {
     const manager = getFocusManager();
     if (manager !== null && manager.keyCard() === cardId) manager.setKeyView(null);
-    sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "focus-enter", edge } });
+    focusEnter.dispatch({ edge }, { card: cardId });
     postFocus(false);
   };
-  // A step of the shell's walk while a body card is key — the View menu's
-  // Next / Previous Keyboard Focus, a Tab the shell holds — is the body's
-  // to take while the shell holds none of the card's stops: it steps from
-  // the body's own key view. Run off the end of the shell's chrome stops,
-  // it goes into the body.
+  // The body's walk ran off an end: the card's chrome stops here come next,
+  // from the end the walk arrived at; with none, the walk goes back into the
+  // body — unless the body just said it has none either.
   releases.push(
-    setFocusWalkEdge((direction) => {
-      const fr = deck.getFirstResponderCardId();
-      if (fr === null || !takesCommands(fr)) return false;
-      if (shellHoldsStop(fr)) {
-        enterBody(fr, direction === 1 ? "first" : "last");
-        return true;
+    focusExit.handle(({ direction, empty }, from) => {
+      const cardId = from.cardId;
+      if (cardId === null || !bodyCardsStore.has(cardId)) return;
+      if (deck.getFirstResponderCardId() !== cardId) return;
+      const edge = direction === "next" ? "first" : "last";
+      const manager = getFocusManager();
+      if (manager !== null && manager.keyCard() === cardId && enterKeyViewWalk(manager, edge)) {
+        postFocus(false);
+        return;
       }
-      const id = direction === 1 ? TUG_ACTIONS.NEXT_KEYBOARD_FOCUS : TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS;
-      sendBus(connection, { card: fr }, { kind: "card-command", payload: { command: "dispatch", id } });
-      postFocus(false);
-      return true;
-    }),
-  );
-  // ⌥⇥ dispatched here while a body card is key — the View menu's item, the
-  // palette, the chord while the shell holds the keyboard — toggles the
-  // card's own cycle, which is in its body with its stops.
-  releases.push(
-    setCycleFocusForwarder(() => {
-      const fr = deck.getFirstResponderCardId();
-      if (fr === null || !takesCommands(fr)) return false;
-      sendBus(connection, { card: fr }, { kind: "card-command", payload: { command: "dispatch", id: TUG_ACTIONS.CYCLE_FOCUS_MODE } });
-      return true;
+      if (empty !== true) enterBody(cardId, edge);
     }),
   );
 
@@ -1270,7 +1217,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
       case "painted":
         // Its first frame of content is composited; the placer may show it
         // once the bus has said so too, behind the facts the frame drew.
-        notePaint(cardId, "host");
+        hostPainted.add(cardId);
+        notePaint(cardId);
         return;
       case "shown":
         // The host's container is placed, opaque and drawn: the lid lifts.
@@ -1287,43 +1235,33 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         if (typeof report.planId === "number") bodyBeatsCancelled(cardId, report.planId);
         return;
       case "terminated":
-        // Reloading under the same card: its first `card-facts` is answered
-        // again, since the page that heard the last answer is gone. The
-        // masthead the old page showed goes with it: the new page reports
+        // Reloading under the same card: the card is detached until the new
+        // page says hello, which is answered with its stores again, since
+        // the page that held them is gone. What only that page held — its
+        // holds, its surface, its paint, its restore, its inspection —
+        // clears with the detach, and the shell's holds go with them. The
+        // masthead the old page showed stands: the new page reports
         // none until its restore binds, and that is a page starting, not a
         // card letting its session go — the binding the shell keeps stands.
         bodyCardsStore.setState(cardId, "creating");
-        heard.delete(cardId);
-        miniatureRelay.forget(cardId);
-        sentContext.delete(cardId);
-        sessionHolds.forget(cardId);
-        paintHeard.delete(cardId);
-        surfaces.remove(cardId);
-        // The page whose capture was armed is gone, and so is its disarm.
-        bodyChordCaptureStore.clear(cardId);
         // The page that would have answered a close decision is gone, and
-        // so is the run that held the card.
-        pendingDecisions.get(cardId)?.("cancel");
-        dropModalHold(cardId);
-        // And the restore it said it was running, which the restore gate held for.
-        bodyFactsStore.endRestoreHold(cardId);
+        // the detach cancels it; a question it showed is shown again.
+        bus.detach(cardId);
+        hostPainted.delete(cardId);
         return;
       case "failed": {
         // The host has destroyed the body. The card stays a body card —
         // every card is one, so the shell has no other place for it — and
         // what the gone page told the shell goes with the page, as at a
-        // termination. Marked failed, so an arrival waiting on the body
-        // reveals now rather than at its bound: the card stands lidded.
-        heard.delete(cardId);
-        sentContext.delete(cardId);
-        sessionHolds.forget(cardId);
-        paintHeard.delete(cardId);
-        surfaces.remove(cardId);
-        closeAsks.delete(cardId);
-        bodyChordCaptureStore.clear(cardId);
-        pendingDecisions.get(cardId)?.("cancel");
-        dropModalHold(cardId);
-        bodyFactsStore.drop(cardId);
+        // termination, its facts too. Marked failed, so an arrival waiting
+        // on the body reveals now rather than at its bound: the card stands
+        // lidded. Forgetting the card drops the shell's own stores for it
+        // as well, which the next page is sent at hello, so they are set
+        // again at once.
+        bus.detach(cardId);
+        bus.forgetCard(cardId);
+        seedCard(cardId);
+        hostPainted.delete(cardId);
         bodyCardsStore.setState(cardId, "failed");
         const attempts = (failures.get(cardId) ?? 0) + 1;
         failures.set(cardId, attempts);
@@ -1356,19 +1294,24 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
 
   // ---- Menu commands bound for the key card ----
 
-  /** Whether a shell surface holds the chain ahead of the deck's first-responder card. */
-  const shellAheadNow = (): boolean => {
+  /** The shell's chain against the deck's first-responder card, or null with no chain. */
+  const chainNow = () => {
     const firstResponderCardId = deck.getFirstResponderCardId();
     const manager = getResponderChainManager();
-    if (manager === null) return false;
+    if (manager === null) return null;
     const paneId =
       firstResponderCardId === null ? null : paneOf(deck.getSnapshot(), firstResponderCardId);
-    return shellSurfaceAhead({
+    return {
       responder: manager.getFirstResponder() ?? null,
       paneId,
       cardId: firstResponderCardId,
-      isWithin: (id, ancestorId) => manager.nodeIsWithin(id, ancestorId),
-    });
+      isWithin: (id: string, ancestorId: string) => manager.nodeIsWithin(id, ancestorId),
+    };
+  };
+  /** Whether a shell surface holds the chain ahead of the deck's first-responder card. */
+  const shellAheadNow = (): boolean => {
+    const chain = chainNow();
+    return chain !== null && shellSurfaceAhead(chain);
   };
 
   // ---- The keyboard is the body's while its card is the first responder ----
@@ -1384,25 +1327,24 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return keyboardBody() !== null && !shellAheadNow();
       },
       () => postFocus(true),
+      keyboardBody,
     ),
     // A shell gesture's hold takes the keyboard from the key body at once,
     // ahead of the Escape it listens for, and gives it back when it ends.
     subscribeShellKeyboardHold(() => postFocus(false)),
-    // While the keyboard is a body's, the shell wears that body's
-    // keyboard-focus paint: the Overview's seeded caret stands the mode's
-    // paint down in its page, and the shell's root must not paint it beside.
-    setYieldedKbfPaintSource(() => {
-      const body = keyboardBody();
-      return body === null ? null : bodyFactsStore.kbfPaintOf(body);
-    }),
   );
-  // The body's paint answer moves with no change in the shell's own focus
-  // state, so the shell's engine is asked to repaint when the word it would
-  // read moves.
+  // While the keyboard is a body's, the shell wears that body's
+  // keyboard-focus paint (`card.kbfPaint`, which the shell's engine reads
+  // for the body the yield names): the Overview's seeded caret stands the
+  // mode's paint down in its page, and the shell's root must not paint it
+  // beside. The body's answer moves with no change in the shell's own focus
+  // state, so the engine is asked to repaint when the word it would read
+  // moves.
   let yieldedPaint: boolean | null = null;
   releases.push(
     bodyFactsStore.subscribe(() => {
-      const now = keyboardBody() === null ? null : yieldedKbfPaint();
+      const body = keyboardBody();
+      const now = body === null ? null : bodyFactsStore.kbfPaintOf(body);
       if (now === yieldedPaint) return;
       yieldedPaint = now;
       getFocusManager()?.settleKbfEngagement();
@@ -1421,74 +1363,46 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   window.addEventListener("pointerup", onShellPointerUp, true);
   releases.push(() => window.removeEventListener("pointerup", onShellPointerUp, true));
 
+  // The key card's commands, and the shell's walk off the end of its own
+  // stops: the route (`bus/command-route.ts`) hands each to the key card's
+  // body while that card is a body card whose page has said hello and no
+  // shell surface holds the chain ahead of it. A command sent there takes the
+  // keyboard with it: the shell may hold it (a popover it raised took the
+  // click) while the deck's first responder is the body's card, and a command
+  // that focuses something in the body is no use if keys still land here.
+  //
+  // A step of the shell's walk while a body card is key — a Tab the shell
+  // holds — is the body's to take while the shell holds none of the card's
+  // stops: it steps from the body's own key view. Run off the end of the
+  // shell's chrome stops, it goes into the body.
   releases.push(
-    setKeyCardForwarder((entry, payload) => {
-      const firstResponderCardId = deck.getFirstResponderCardId();
-      const target = bodyCommandRoute({
-        id: entry.id,
-        routing: entry.routing,
-        firstResponderCardId,
-        isBodyCard: takesCommands,
-        shellResponderAhead: shellAheadNow(),
-      });
-      if (target === null) return false;
-      sendBus(
-        connection,
-        { card: target },
-        {
-          kind: "card-command",
-          payload: { command: "dispatch", id: entry.id, ...(payload !== undefined ? { payload } : {}) },
-        },
-      );
-      // The keyboard follows: the shell may hold it (a popover it raised took
-      // the click) while the deck's first responder is the body's card, and a
-      // command that focuses something in the body is no use if keys still
-      // land here.
-      postFocus(true);
-      return true;
-    }),
-  );
-
-  // A chain action addressed to a body card's content runs in the body's own
-  // chain, where that content's responders live: the shell's has none of them.
-  releases.push(
-    setCardContentForwarder((cardId, action) => {
-      if (!bodyCardsStore.has(cardId)) return false;
-      sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "content-action", id: action } });
-      return true;
-    }),
-    // ⌘J's capture opens the editor in the Jots card's own page, whose store
-    // holds the open row. A card that is about to be a body, or whose body
-    // has not yet spoken, takes it once its body does.
-    setJotCaptureForwarder((cardId) => {
-      const kind = kindOf(cardId);
-      if (kind === undefined || !isBodyKind(kind)) return false;
-      if (heard.has(cardId)) {
-        sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "new-jot" } });
-      } else {
-        pendingJotCaptures.add(cardId);
-      }
-      return true;
-    }),
-    // A question for a Session card is shown in the card's own page, whose
-    // store holds its session; one whose body has not yet spoken takes it
-    // once its body does. A card whose body failed shows nothing, so the
-    // question finds no card and its caller hears the fallback at once.
-    setAskForwarder({
-      holds: (cardId) => bodyCardsStore.has(cardId) && bodyCardsStore.stateOf(cardId) !== "failed",
-      show: (cardId, ask) => {
-        if (ask === null) standingAsks.delete(cardId);
-        else standingAsks.set(cardId, ask);
-        if (heard.has(cardId)) sendAsk(cardId, ask);
+    installKeyCardRoute({
+      target: (entry) => {
+        const chain = chainNow();
+        return bodyCommandRoute({
+          id: entry.id,
+          routing: entry.routing,
+          owner: entry.owner,
+          firstResponderCardId: deck.getFirstResponderCardId(),
+          isBodyCard: takesCommands,
+          shellResponderAhead: chain !== null && shellSurfaceAhead(chain),
+          shellResponderAbove: chain !== null && shellResponderAboveCard(chain),
+          shellHoldsStop,
+        });
       },
-    }),
-    // An open of a file a body Text card already holds reveals the asked-for
-    // line in that card, whose editor is in its own page.
-    setBodyLineRevealer((cardId, line, endLine, columns) => {
-      const payload: Record<string, unknown> = { line };
-      if (endLine !== undefined) payload.endLine = endLine;
-      if (columns !== undefined) payload.columns = [...columns];
-      sendBus(connection, { card: cardId }, { kind: "card-command", payload: { command: "reveal-line", payload } });
+      sent: () => postFocus(true),
+      walkEdge: (direction) => {
+        const fr = deck.getFirstResponderCardId();
+        if (fr === null || !takesCommands(fr)) return false;
+        if (shellHoldsStop(fr)) {
+          enterBody(fr, direction === 1 ? "first" : "last");
+          return true;
+        }
+        const id = direction === 1 ? TUG_ACTIONS.NEXT_KEYBOARD_FOCUS : TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS;
+        commandForCard.dispatch({ id }, { card: fr });
+        postFocus(false);
+        return true;
+      },
     }),
   );
 

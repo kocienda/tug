@@ -1,26 +1,40 @@
 /**
- * The deck a body's card sees is synthesized from the shell's `card-context`:
+ * The deck a body's card sees is synthesized from the shell's `card.context`:
  * its fold, its arrival and the deck's first responder read back through the
  * selectors the card uses, the card's activation fires on a flip to it and
  * only on one, and a verb that belongs to the deck's arrangement does nothing
  * and says so with its inert answer. A card that reads the whole deck reads
- * the shell's arrangement from its context instead — panes, band, workspaces
- * — is told when it moves, and sends the deck calls it makes to the shell;
- * a following card reads the card it follows. A warm workspace's key card is
- * key while it stands parked, and its first visit does not activate it again.
+ * the shell's arrangement instead — panes, band, workspaces — is told when it
+ * moves, and the deck calls it makes run on the shell's deck; a following
+ * card reads the card it follows. A warm workspace's key card is key while it
+ * stands parked, and its first visit does not activate it again.
  *
  * @covers tugdeck/src/body/body-deck-bridge.ts
  */
-import { describe, expect, test } from "bun:test";
-import type { CardAdvice, CardContext } from "@tugproto/bus";
+import { afterEach, describe, expect, test } from "bun:test";
+import { cardActivate, cardAddSibling, cardClose } from "../../bus/declarations/verbs";
+import type { CardContextValue, CardReservationsValue } from "../../bus/declarations/card";
+import {
+  deckActivateCard,
+  deckActivateSpace,
+  deckSetFlowOffset,
+  type ArrangementDeckValue,
+  type ArrangementSpaces,
+} from "../../bus/declarations/arrangement";
+import { createTestBus, type TestBus } from "../../bus/test-bus";
 import { cardArrivingOf, cardFoldedOf } from "../../deck-store-selectors";
 import { BodyDeckBridge, bodyPaneId } from "../body-deck-bridge";
-import type { BodyArrangement } from "../../lib/body-arrangement";
 import type { DeckState, TugPaneState } from "../../layout-tree";
 
 const CARD = "c-bridge";
 
-function context(over: Partial<CardContext> = {}): CardContext {
+let testBus: TestBus | undefined;
+afterEach(() => {
+  testBus?.dispose();
+  testBus = undefined;
+});
+
+function context(over: Partial<CardContextValue> = {}): CardContextValue {
   return {
     folded: false,
     arriving: false,
@@ -31,23 +45,41 @@ function context(over: Partial<CardContext> = {}): CardContext {
   };
 }
 
-function bridge(advice: CardAdvice[] = []): BodyDeckBridge {
+function bridge(reserved: CardReservationsValue[] = []): BodyDeckBridge {
   return new BodyDeckBridge({
     cardId: CARD,
     componentId: "session",
-    advise: (a) => advice.push(a),
+    reserve: (r) => reserved.push(r),
     putCardState: () => Promise.resolve(true),
   });
 }
 
-function arrangementBridge(advice: CardAdvice[] = []): BodyDeckBridge {
+function arrangementBridge(): BodyDeckBridge {
   return new BodyDeckBridge({
     cardId: CARD,
     componentId: "cards",
     deckMode: "arrangement",
-    advise: (a) => advice.push(a),
     putCardState: () => Promise.resolve(true),
   });
+}
+
+/**
+ * A shell and this card's body page on the test bus, the body's installed as
+ * this page's, and the deck calls the shell runs, in order.
+ */
+async function bodyPage(componentId: string): Promise<{ shellCalls: Array<[string, unknown]> }> {
+  testBus = createTestBus();
+  const shell = testBus.shell();
+  const shellCalls: Array<[string, unknown]> = [];
+  deckSetFlowOffset.on(shell.bus).handle((p) => shellCalls.push(["setFlowOffset", p]));
+  deckActivateSpace.on(shell.bus).handle((p) => shellCalls.push(["activateSpace", p]));
+  deckActivateCard.on(shell.bus).handle((p) => shellCalls.push(["activateCard", p]));
+  cardActivate.on(shell.bus).handle((_p, from) => shellCalls.push(["card.activate", from.cardId]));
+  cardClose.on(shell.bus).handle((_p, from) => shellCalls.push(["card.close", from.cardId]));
+  cardAddSibling.on(shell.bus).handle((p, from) => shellCalls.push(["card.addSibling", { ...p, from: from.cardId }]));
+  testBus.install(testBus.body(CARD, componentId));
+  await testBus.flush();
+  return { shellCalls };
 }
 
 function paneState(id: string, cardIds: string[]): TugPaneState {
@@ -62,7 +94,7 @@ function paneState(id: string, cardIds: string[]): TugPaneState {
   };
 }
 
-function arrangement(bandWidth: number, spaceName = "Main"): BodyArrangement {
+function arrangement(bandWidth: number, spaceName = "Main"): { value: ArrangementDeckValue; spaces: ArrangementSpaces } {
   const panes = [paneState("p-own", [CARD]), paneState("p-a", ["a"]), paneState("p-b", ["b"])];
   const deck: DeckState = {
     cards: panes.flatMap((p) => p.cardIds.map((id) => ({ id, componentId: "session", title: "", closable: true }))),
@@ -71,7 +103,7 @@ function arrangement(bandWidth: number, spaceName = "Main"): BodyArrangement {
     hasFocus: true,
   };
   return {
-    deck,
+    value: { deck, bandWidth, columnRunHeight: 900, railRunHeight: 880 },
     spaces: {
       activeSpaceId: "s1",
       spaces: [{ id: "s1", name: spaceName }],
@@ -80,18 +112,11 @@ function arrangement(bandWidth: number, spaceName = "Main"): BodyArrangement {
       liveSessions: { s1: 2 },
       cardCounts: { s1: 3 },
     },
-    bandWidth,
-    columnRunHeight: 900,
-    railRunHeight: 880,
-    bindings: {},
-    identities: {},
-    activities: {},
-    titles: {},
   };
 }
 
 describe("the synthesized deck", () => {
-  test("answers fold, arrival and first responder from each card-context in turn", () => {
+  test("answers fold, arrival and first responder from each card.context in turn", () => {
     const b = bridge();
     expect(b.getSnapshot().panes.map((p) => p.id)).toEqual([bodyPaneId(CARD)]);
     expect(b.getSnapshot().cards.map((c) => c.id)).toEqual([CARD]);
@@ -181,20 +206,26 @@ describe("activation", () => {
 });
 
 describe("the shell's verbs", () => {
-  test("a forwarded verb becomes advice, and an inert one answers inertly", () => {
-    const advice: CardAdvice[] = [];
-    const b = bridge(advice);
+  test("a forwarded verb is the shell's, a reservation the card's whole reservations, and an inert one answers inertly", async () => {
+    const { shellCalls } = await bodyPage("session");
+    const reserved: CardReservationsValue[] = [];
+    const b = bridge(reserved);
     b.setSheetReservation(CARD, 240);
-    b.setOpeningBid(CARD, null);
+    b.setOpeningBid(CARD, 120);
+    b.setSheetReservation(CARD, null);
     b.activateCard(CARD);
     b.removeCard(bodyPaneId(CARD), CARD);
     expect(b.addCardToPane(bodyPaneId(CARD), "spike-run-display")).toBe(null);
-    expect(advice).toEqual([
-      { advice: "sheet-reservation", heightPx: 240 },
-      { advice: "opening-bid", heightPx: null },
-      { advice: "activate" },
-      { advice: "close-request" },
-      { advice: "add-card", componentId: "spike-run-display" },
+    expect(reserved).toEqual([
+      { sheetPx: 240, openingBidPx: null },
+      { sheetPx: 240, openingBidPx: 120 },
+      { sheetPx: null, openingBidPx: 120 },
+    ]);
+    await testBus!.flush();
+    expect(shellCalls).toEqual([
+      ["card.activate", CARD],
+      ["card.close", CARD],
+      ["card.addSibling", { componentId: "spike-run-display", from: CARD }],
     ]);
 
     expect(b.addCard("session")).toBe(null);
@@ -205,9 +236,10 @@ describe("the shell's verbs", () => {
 });
 
 describe("an arrangement card", () => {
-  test("reads the shell's panes, band and workspaces from its context, its own pane re-keyed", () => {
+  test("reads the shell's panes, band and workspaces, its own pane re-keyed", () => {
     const b = arrangementBridge();
-    b.applyContext(context({ arrangement: arrangement(1600) }));
+    const a = arrangement(1600);
+    b.applyArrangement(a.value, a.spaces);
     expect(b.getSnapshot().panes.length).toBe(3);
     expect(b.getSnapshot().panes[0].id).toBe(bodyPaneId(CARD));
     expect(b.getBandWidth()).toBe(1600);
@@ -229,7 +261,8 @@ describe("an arrangement card", () => {
       imposition: { sidebars: {} },
       hasFocus: false,
     };
-    b.applyContext(context({ spaceId: "s1", arrangement: listed }));
+    b.applyContext(context({ spaceId: "s1" }));
+    b.applyArrangement(listed.value, listed.spaces);
     expect(b.spaceOf(CARD)).toBe("s1");
     expect(b.spaceOf("a")).toBe("s1");
     // What lets `cardIdentity` reach a parked Session card's ledger row.
@@ -243,59 +276,71 @@ describe("an arrangement card", () => {
     let spaceNotes = 0;
     b.subscribe(() => deckNotes++);
     b.subscribeSpaces(() => spaceNotes++);
-    b.applyContext(context({ arrangement: arrangement(1600) }));
-    b.applyContext(context({ arrangement: arrangement(1600) }));
+    const a = arrangement(1600);
+    b.applyArrangement(a.value, a.spaces);
+    b.applyArrangement(a.value, a.spaces);
     expect([deckNotes, spaceNotes]).toEqual([1, 1]);
-    b.applyContext(context({ arrangement: arrangement(1600, "Renamed") }));
+    const renamed = arrangement(1600, "Renamed").spaces;
+    b.applyArrangement(a.value, renamed);
     expect([deckNotes, spaceNotes]).toEqual([2, 2]);
     expect(b.getSpacesSnapshot().spaces[0].name).toBe("Renamed");
+    // A band that moved re-synthesizes the deck and leaves the workspaces be.
+    b.applyArrangement({ ...a.value, bandWidth: 1200 }, renamed);
+    expect([deckNotes, spaceNotes]).toEqual([3, 2]);
+    expect(b.getBandWidth()).toBe(1200);
   });
 
-  test("a deck call goes to the shell as advice", () => {
-    const advice: CardAdvice[] = [];
-    const b = arrangementBridge(advice);
-    b.applyContext(context({ arrangement: arrangement(1600) }));
+  test("a deck call runs on the shell's deck", async () => {
+    const { shellCalls } = await bodyPage("cards");
+    const b = arrangementBridge();
+    const a = arrangement(1600);
+    b.applyArrangement(a.value, a.spaces);
     b.setFlowOffset(120);
     b.activateSpace("s1");
-    expect(advice).toEqual([
-      { advice: "deck-call", method: "setFlowOffset", args: [120] },
-      { advice: "deck-call", method: "activateSpace", args: ["s1"] },
+    await testBus!.flush();
+    expect(shellCalls).toEqual([
+      ["setFlowOffset", { offset: 120 }],
+      ["activateSpace", { spaceId: "s1" }],
     ]);
   });
 
-  test("raising another card names it to the shell; activating itself is its own advice", () => {
-    const advice: CardAdvice[] = [];
-    const b = arrangementBridge(advice);
-    b.applyContext(context({ arrangement: arrangement(1600) }));
+  test("raising another card names it to the shell; activating itself is its own card's", async () => {
+    const { shellCalls } = await bodyPage("cards");
+    const b = arrangementBridge();
+    const a = arrangement(1600);
+    b.applyArrangement(a.value, a.spaces);
     b.activateCard("other");
     b.activateCard(CARD);
-    expect(advice).toEqual([
-      { advice: "deck-call", method: "activateCard", args: ["other"] },
-      { advice: "activate" },
+    await testBus!.flush();
+    expect(shellCalls).toEqual([
+      ["activateCard", { cardId: "other" }],
+      ["card.activate", CARD],
     ]);
   });
 
-  test("a card-mode bridge sends no deck call and keeps its one-pane deck", () => {
-    const advice: CardAdvice[] = [];
-    const b = bridge(advice);
-    b.applyContext(context({ arrangement: arrangement(1600) }));
+  test("a card-mode bridge sends no deck call and keeps its one-pane deck", async () => {
+    const { shellCalls } = await bodyPage("session");
+    const b = bridge();
+    const a = arrangement(1600);
+    b.applyArrangement(a.value, a.spaces);
     b.setFlowOffset(120);
-    expect(advice).toEqual([]);
+    await testBus!.flush();
+    expect(shellCalls).toEqual([]);
     expect(b.getSnapshot().panes.map((p) => p.id)).toEqual([bodyPaneId(CARD)]);
     expect(b.getBandWidth()).toBe(null);
   });
 });
 
 describe("a following card", () => {
-  test("reads the card it follows from its context, and is told when it changes", () => {
+  test("reads the card it follows, and is told when it changes", () => {
     const b = bridge();
     let notes = 0;
     b.subscribe(() => notes++);
     expect(b.getFollowedCardId()).toBe(null);
-    b.applyContext(context({ followed: { cardId: "a", binding: null } }));
+    b.applyFollowed("a");
     expect(b.getFollowedCardId()).toBe("a");
-    b.applyContext(context({ followed: { cardId: "a", binding: null } }));
-    b.applyContext(context({ followed: { cardId: "b", binding: null } }));
+    b.applyFollowed("a");
+    b.applyFollowed("b");
     expect(b.getFollowedCardId()).toBe("b");
     expect(notes).toBe(2);
   });

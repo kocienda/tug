@@ -260,6 +260,22 @@ The transcript and the Overview mount the rows within one viewport of the scroll
 
 ---
 
+## Pages
+
+### L37. Pages share state through declared stores and verbs through declared actions. {#l37}
+
+What crosses between the shell and a body is a shared store (state one page owns and others read), a routed action (a verb with no answer), or a request (a verb that answers, with a horizon). Each is declared once, in `tugdeck/src/bus/declarations/`, beside its payload's codec, and listed in `bus/registry.ts`. There is no fourth thing: not a new bus kind, an advice variant, a `dispatch` id with its own sub-grammar, or a module singleton one page sets for another. A store has one owner, chosen by the state's lifetime. A replica reads it through `useSyncExternalStore` and edits it only by `propose`, which the owner applies and republishes, so no page holds a second copy to reconcile. The library holds what is sent to a page that is not attached and sends every store a page is scoped to before anything else, so no feature queues by hand. tugcast routes the envelope and reads none of it. Every wire that came before this was written by hand, with its own queue, its own dedupe and its own way of failing. The long form is [shell-and-bodies.md](shell-and-bodies.md).
+
+The test: *is the thing crossing a store, an action or a request declared in `bus/declarations/`?* If it is anything else, it fails. [L02, L27, L33]
+
+### L38. The shell is the hub: a body speaks to the shell, never to another body. {#l38}
+
+A body addresses the shell, and the shell addresses a body by its card. A body that needs another card's facts reads a store the shell projects for it. The library drops a body-to-body action or request at its owner. The shell stays the one authority on what a card knows about the deck, and a body that fails cannot reach a sibling. The long form is [shell-and-bodies.md](shell-and-bodies.md#star).
+
+The test: *does any body's code name another card as the target of a bus message?* If it does, it fails. [L02, L27, L33]
+
+---
+
 ## Licensing
 
 ### L21. Third-party code and patterns require license compliance before use. {#l21}

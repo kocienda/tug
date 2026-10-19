@@ -71,6 +71,7 @@ import { chordMatchesEvent } from "./chord-format";
 import { mark as perfMark } from "@/lib/perf-marks";
 import { scheduleAfterPaint, type CancelAfterPaint } from "@/lib/after-paint";
 import { isTugMotionEnabled } from "@/lib/scale-timing";
+import { forwardUnansweredTarget } from "@/bus/command-route";
 
 export type { TugAction, GalleryAction } from "./action-vocabulary";
 
@@ -475,23 +476,6 @@ function defaultButtonAnswersTo(
 function isChainDebugEnabled(): boolean {
   if (typeof window === "undefined") return false;
   return (window as unknown as { __tugChainDebug?: boolean }).__tugChainDebug === true;
-}
-
-/**
- * What answers a targeted dispatch that walked off a page's root unhandled.
- * A body installs one that hands a registered command to the shell: a
- * control sends its own action to its parent responder, and in a body the
- * handler may live in the deck the shell holds. One per page, so it is set
- * before the page's manager exists.
- */
-let unhandledTargetHook: ((event: ActionEvent) => boolean) | null = null;
-
-/** Install the unhandled-target hook. Returns the uninstall. */
-export function setUnhandledTargetHook(hook: (event: ActionEvent) => boolean): () => void {
-  unhandledTargetHook = hook;
-  return () => {
-    if (unhandledTargetHook === hook) unhandledTargetHook = null;
-  };
 }
 
 export class ResponderChainManager {
@@ -1272,10 +1256,9 @@ export class ResponderChainManager {
     );
     const { continuation, handledBy } = walked;
     // A walk that fell off this page's root may still be answered beyond it:
-    // a body hands a command its chain does not hold to the shell's.
-    const handled =
-      walked.handled ||
-      (unhandledTargetHook !== null && unhandledTargetHook(event as ActionEvent));
+    // a body hands a command its chain does not hold to the shell's
+    // (`forwardUnansweredTarget`, `bus/command-route.ts`).
+    const handled = walked.handled || forwardUnansweredTarget(event as ActionEvent);
     this.notifyDispatchObservers(event as ActionEvent, handled);
     this.logDispatch(event as ActionEvent, handled, handledBy);
     return { handled, continuation };

@@ -8,7 +8,7 @@
  *
  * **The turn.** A whole turn streams in a body: the shell's document holds no
  * transcript for the card, the shell's masthead dot reads working during the
- * turn and idle after (from the body's `card-facts`), tugcast lists one body
+ * turn and idle after (from the body's `card.facts`), tugcast lists one body
  * page for the card subscribed to its session alone, and the composited
  * window's rect is filled by the body's own pane surface — its commonest
  * colour, not an ink share, which the shell's grid would satisfy through an

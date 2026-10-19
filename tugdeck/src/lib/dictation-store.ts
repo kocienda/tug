@@ -48,6 +48,7 @@ import {
 } from "@/lib/dictation-bridge";
 import { getAppLifecycle } from "@/lib/app-lifecycle";
 import { cardModalHoldStore, isCardHeld } from "@/lib/card-modal-hold-store";
+import { getCardLifecycle } from "@/lib/card-lifecycle";
 import type { DictationHandle } from "@/components/tugways/prompt-insert-target";
 
 /**
@@ -461,10 +462,18 @@ export class DictationStore {
   }
 
   /**
-   * The two releases nothing else can see, registered for the length of one
+   * The releases nothing else can see, registered for the length of one
    * claim. The hold subscription reads the card by id rather than closing over
    * a boolean, so a hold taken on the owning card after the claim began is the
    * thing that fires it.
+   *
+   * The owning card's deactivation is the keyboard leaving it for another
+   * card, which a card whose content is in a page of its own sees nowhere
+   * else: a click into another card's field moves the keyboard to that card's
+   * page, and this page's focused field stays focused, so no `focusout` comes
+   * ([B02]). The card lifecycle publishes the departure in every page — the
+   * body's deck bridge fires it when its card stops being the deck's first
+   * responder — and it is finish-shaped, like the focus-out it stands for.
    */
   private observe(claim: DictationClaim): void {
     this.release();
@@ -474,6 +483,15 @@ export class DictationStore {
       this.unobserve.push(
         lifecycle.observeApplicationDidResignActive(() => {
           this.endIfOwnedBy(claim.composerId, "resigned");
+        }),
+      );
+    }
+
+    const cards = getCardLifecycle();
+    if (cards !== null) {
+      this.unobserve.push(
+        cards.observeCardDidDeactivate(claim.cardId, () => {
+          this.endIfOwnedBy(claim.composerId, "blurred");
         }),
       );
     }

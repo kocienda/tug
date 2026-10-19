@@ -110,7 +110,7 @@ import {
   settleFrameProbe,
   type SettleFrameReading,
 } from "./lib/settle-frame-probe";
-import { cardsSelectionStore } from "./lib/cards-selection-store";
+import { cardsSelectionStore, getLayoutCursorCard } from "./lib/cards-selection-store";
 import type { TaggedValue } from "./lib/tugbank-client";
 import type {
   LiveTurnPerf,
@@ -538,8 +538,14 @@ import {
  * `2.45.0`: `publishDraftFrame`, `publishSessionUpdated` and `renderedRows`
  * are on a body's surface too, over the body's own copies of the stores they
  * reach. Additive; major stays `2`.
+ *
+ * `2.46.0`: adds {@link TugTestSurface.getLayoutCursor}, on the shell's and a
+ * body's surface alike: the card the Cards list's cursor stands on, as this
+ * page holds it. The list moves it in the Cards card's page and the deck's
+ * verbs read it in the shell, so a test can say which page has heard it.
+ * Additive; major stays `2`.
  */
-export const SURFACE_VERSION = "2.45.0" as const;
+export const SURFACE_VERSION = "2.46.0" as const;
 
 /** Motion gates a test closed, by the handle `holdMotion` returned. */
 const testMotionHolds = new Map<number, () => void>();
@@ -2018,6 +2024,9 @@ export interface TugTestSurface {
 
   /** The layout selection's card ids, in selection order. */
   getLayoutSelection(): readonly string[];
+
+  /** The card the Cards list's cursor stands on, as this page holds it (SURFACE_VERSION 2.46.0). */
+  getLayoutCursor(): string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -3855,6 +3864,10 @@ function overviewSurfaceMethods() {
  */
 function pageStoreSurfaceMethods() {
   return {
+    getLayoutCursor(): string | null {
+      return getLayoutCursorCard();
+    },
+
     publishDraftFrame(payloadJson: string): boolean {
       try {
         _ingestDraftFrameForTest(JSON.parse(payloadJson));

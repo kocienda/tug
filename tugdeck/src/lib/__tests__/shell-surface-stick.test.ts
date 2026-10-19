@@ -18,7 +18,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import type { ShellSurface } from "@tugproto/bus";
+import type { ShellSurface } from "../../bus/declarations/card";
 
 import { installJsdom } from "../../__tests__/jsdom-deck";
 

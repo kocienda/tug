@@ -62,7 +62,7 @@ import { dictationStore } from "./dictation-store";
 import { getSettings, lastKnownMakerMode } from "./maker-mode-bridge";
 import { resolveColumnMenuFact } from "./layout-selection";
 import { focusTravelDirections } from "./directional-focus";
-import type { DeckMenuFacts } from "@tugproto/bus";
+import type { DeckMenuValue } from "../bus/declarations/deck";
 import {
   cardsSelectionStore,
   subscribeLayoutCursorCard,
@@ -1528,14 +1528,14 @@ export function bodyMenuPayload(payload: MenuStatePayload): Pick<
 }
 
 /** The shell's menu facts a body last received, and the body's projection push. */
-let shellMenuFacts: DeckMenuFacts | null = null;
+let shellMenuFacts: DeckMenuValue | null = null;
 let bodyPush: (() => void) | null = null;
 
 /**
- * A body received the shell's menu facts (`deck-facts.menu`): re-project
+ * A body received the shell's menu facts (the `deck.menu` store): re-project
  * from them. A no-op in the shell, which projects its own.
  */
-export function applyShellMenuFacts(menu: DeckMenuFacts): void {
+export function applyShellMenuFacts(menu: DeckMenuValue): void {
   shellMenuFacts = menu;
   bodyPush?.();
 }

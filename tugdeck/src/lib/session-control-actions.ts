@@ -47,6 +47,7 @@ import {
 import { decodeSessionUpdated, type CardBinding } from "../protocol";
 import { cardServicesStore } from "./card-services-store";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
+import { page } from "../bus/page";
 import {
   publishSessionUpdated,
   publishListCardBindingsOk,
@@ -84,9 +85,8 @@ export type SessionControlFilter = (
   payload: Record<string, unknown>,
 ) => Record<string, unknown> | null;
 
-/** What a body's card holds right now: its card id, and the session ids and line it wears. */
+/** What a body's card holds right now: the session ids and line it wears. Its card is the page's. */
 export interface HeldSession {
-  cardId: string;
   /** The segment ids the card answers to — its address and its seat. */
   sessionIds: readonly string[];
   lineId: string | null;
@@ -107,9 +107,10 @@ function str(value: unknown): string | null {
 /**
  * The body's filter, over the ack and what its card holds (read fresh on
  * every ack, so a card that binds mid-stream starts admitting its session's
- * pushes at once). Card-keyed acks need the card's id; session-keyed acks
- * need a session or line the card wears; the bindings list is cut to the
- * card's own row.
+ * pushes at once). Card-keyed acks need the page's card (`page.cardId`);
+ * session-keyed acks need a session or line the card wears; the bindings
+ * list is cut to the card's own row. A page with no card yet admits nothing
+ * of a card's.
  *
  * A card that **lists** other sessions (`lists: true` — the Cards card, the
  * Overview, the Arcs card) is shown what it lists: every ledger row push and
@@ -128,16 +129,18 @@ export function bodyCardFilter(
       return payload;
     }
     const h = held();
+    const cardId = page.cardId;
+    if (cardId === null) return null;
     const wearsSession = (id: string | null): boolean =>
       id !== null && h.sessionIds.includes(id);
     const wearsLine = (id: string | null): boolean => id !== null && id === h.lineId;
     if (CARD_KEYED.has(action)) {
-      return str(payload.card_id) === h.cardId ? payload : null;
+      return str(payload.card_id) === cardId ? payload : null;
     }
     switch (action) {
       case "bind_arc_ok": {
         const card = str(payload.card_id);
-        if (card !== null) return card === h.cardId ? payload : null;
+        if (card !== null) return card === cardId ? payload : null;
         return wearsLine(str(payload.line_id)) || wearsSession(str(payload.tug_session_id))
           ? payload
           : null;
@@ -162,7 +165,7 @@ export function bodyCardFilter(
       case "list_card_bindings_ok": {
         const rows = Array.isArray(payload.bindings) ? payload.bindings : [];
         const own = rows.filter(
-          (row) => (row as { card_id?: unknown } | null)?.card_id === h.cardId,
+          (row) => (row as { card_id?: unknown } | null)?.card_id === cardId,
         );
         return { ...payload, bindings: own };
       }

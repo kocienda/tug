@@ -8,7 +8,7 @@
  * learns it is in a body. This class answers that whole surface for one card:
  *
  * - **Real, here.** The snapshot is a synthesized one-pane deck holding the
- *   card, folded and arriving as the shell's last `card-context` says, with
+ *   card, folded and arriving as the shell's `card.context` says, with
  *   the pane active when the deck's first responder is this card. Card state,
  *   component state, assemblers, save callbacks, activation callbacks, host
  *   roots, engine hooks and lifecycle observers are the deck's own machinery,
@@ -16,22 +16,37 @@
  *   page — the shell never writes a body card's bag.
  * - **Forwarded.** What a card asks of the deck's arrangement — a sheet
  *   reservation, an opening bid, activation, its own close, a sibling added
- *   to its pane — goes to the shell as `card-advice`.
+ *   to its pane — goes to the shell: the reservations as `card.reservations`,
+ *   the rest as `card.activate`, `card.close` and `card.addSibling`.
  * - **Inert.** Every layout, rail, flow, column, space and add verb is the
  *   shell's. Here it does nothing, answers null or false, and says so once.
  *
  * A card that lists or moves the whole deck — a registration with
  * `bodyDeck: "arrangement"` — gets an **arrangement** bridge instead: its
  * snapshot, workspaces and band facts are the shell's own, read from the
- * `arrangement` its `card-context` carries (`lib/body-arrangement.ts`), and
- * the deck calls it makes go to the shell as `deck-call` advice. A card that
- * follows another (`bodyFollows`) reads the followed card from the same
- * context, through {@link BodyDeckBridge.getFollowedCardId}.
+ * arrangement stores ({@link BodyDeckBridge.applyArrangement}), and the
+ * deck calls it makes go to the shell as the `deck.*` actions. A card that
+ * follows another (`bodyFollows`) reads the followed card the shell names
+ * ({@link BodyDeckBridge.applyFollowed}), through
+ * {@link BodyDeckBridge.getFollowedCardId}.
  *
  * @module body/body-deck-bridge
  */
 
-import type { CardAdvice, CardContext } from "@tugproto/bus";
+import { cardActivate, cardAddSibling, cardClose } from "../bus/declarations/verbs";
+import { NO_CARD_CONTEXT, type CardContextValue, type CardReservationsValue } from "../bus/declarations/card";
+import {
+  deckActivateCard,
+  deckActivateSpace,
+  deckChooseSpaceTheme,
+  deckMoveCardToSpace,
+  deckPreviewFlowOffset,
+  deckRenameSpace,
+  deckReorderSpaces,
+  deckSetFlowOffset,
+  type ArrangementDeckValue,
+  type ArrangementSpaces,
+} from "../bus/declarations/arrangement";
 import type { EngineHooks, IDeckManagerStore, MovePaneOptions } from "../deck-manager-store";
 import type { CardStateBag, DeckState, TugPaneState } from "../layout-tree";
 import type { SpacesSnapshot } from "../spaces";
@@ -54,7 +69,7 @@ import type {
 import { DEFAULT_SIDEBAR_SIDE } from "../lib/layout-imposer";
 import { applyBagFocus } from "../focus-transfer";
 import { tugDevLogStore } from "../lib/tug-dev-log-store/tug-dev-log-store";
-import { arrangementSnapshot, type BodyArrangement } from "../lib/body-arrangement";
+import { arrangementSnapshot } from "../lib/body-arrangement";
 
 /** The pane id a body's card stands in — also its `CardHost`'s `hostStackId`. */
 export function bodyPaneId(cardId: string): string {
@@ -66,8 +81,8 @@ export interface BodyDeckBridgeOptions {
   cardId: string;
   /** The card's registry component id. */
   componentId: string;
-  /** Send one piece of advice to the shell. */
-  advise: (advice: CardAdvice) => void;
+  /** Say the room the card asks of its pane (`card.reservations`), whole, on every change. */
+  reserve?: (reservations: CardReservationsValue) => void;
   /** Write the card's bag durably (`settings-api`'s `putCardState`, guarded in test mode). */
   putCardState: CardStateCacheDeps["putCardState"];
   /** The card's bag as tugbank holds it at boot, if any. */
@@ -75,14 +90,6 @@ export interface BodyDeckBridgeOptions {
   /** What of the deck the card reads: its own card (the default) or the shell's arrangement. */
   deckMode?: "card" | "arrangement";
 }
-
-const NO_CONTEXT: CardContext = {
-  folded: false,
-  arriving: false,
-  firstResponderCardId: null,
-  layerShown: false,
-  spaceId: null,
-};
 
 const NO_SPACES: SpacesSnapshot = {
   spaces: [],
@@ -92,21 +99,22 @@ const NO_SPACES: SpacesSnapshot = {
   mountedDecks: new Map(),
 };
 
-/** The card a following card follows, as `card-context.followed` carries it. */
-function followedCardIdOf(context: CardContext): string | null {
-  const followed = context.followed as { cardId?: unknown } | null | undefined;
-  return typeof followed?.cardId === "string" ? followed.cardId : null;
+/** The shell's arrangement as an arrangement card reads it: the live deck and band, and the workspaces. */
+interface BodyArrangement extends ArrangementDeckValue {
+  spaces: ArrangementSpaces;
 }
 
 export class BodyDeckBridge implements IDeckManagerStore {
   readonly cardId: string;
   private readonly componentId: string;
-  private readonly advise: (advice: CardAdvice) => void;
+  private readonly reserve: (reservations: CardReservationsValue) => void;
+  private reservations: CardReservationsValue = { sheetPx: null, openingBidPx: null };
   private readonly deckMode: "card" | "arrangement";
-  private context: CardContext = NO_CONTEXT;
-  /** The shell's arrangement, in arrangement mode, once a context carried one. */
+  private context: CardContextValue = NO_CARD_CONTEXT;
+  /** The card a following card follows, as the shell names it. */
+  private followedCardId: string | null = null;
+  /** The shell's arrangement, in arrangement mode, once its deck has arrived. */
   private arrangement: BodyArrangement | null = null;
-  private arrangementJson = "";
   private spacesSnapshot: SpacesSnapshot = NO_SPACES;
   private readonly spacesListeners = new Set<() => void>();
   private deckState: DeckState;
@@ -128,7 +136,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
    * Whether this body's layer reads shown. False from mount — the body's
    * container is hidden until it is ready, so the card's entrance fade
    * declines and the host's fade is the only ramp — until the page is about
-   * to post ready; then whatever `card-context` says.
+   * to post ready; then whatever `card.context` says.
    */
   private layerShown = false;
   private readonly layerListeners = new Set<() => void>();
@@ -137,7 +145,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
   constructor(options: BodyDeckBridgeOptions) {
     this.cardId = options.cardId;
     this.componentId = options.componentId;
-    this.advise = options.advise;
+    this.reserve = options.reserve ?? (() => {});
     this.deckMode = options.deckMode ?? "card";
     this.cardStates = new CardStateCache(
       { putCardState: options.putCardState },
@@ -165,13 +173,10 @@ export class BodyDeckBridge implements IDeckManagerStore {
    * fact the snapshot carries moved, and fires the card's activation or
    * deactivation when the deck's first responder turned to or from it.
    */
-  applyContext(next: CardContext): void {
+  applyContext(next: CardContextValue): void {
     const prev = this.context;
     this.context = next;
-    const arrangementMoved = this.takeArrangement(next);
     if (
-      arrangementMoved ||
-      followedCardIdOf(prev) !== followedCardIdOf(next) ||
       prev.folded !== next.folded ||
       prev.arriving !== next.arriving ||
       prev.firstResponderCardId !== next.firstResponderCardId ||
@@ -179,9 +184,6 @@ export class BodyDeckBridge implements IDeckManagerStore {
     ) {
       this.deckState = this.synthesize();
       this.notify();
-    }
-    if (arrangementMoved) {
-      for (const listener of [...this.spacesListeners]) listener();
     }
     // A warm workspace's card its first visit will make key is key here
     // while it stands parked (`parkedKey`): an unbound Session card raises
@@ -209,8 +211,8 @@ export class BodyDeckBridge implements IDeckManagerStore {
     this.setLayerShown(true);
   }
 
-  /** The shell's last `card-context`. */
-  getContext(): CardContext {
+  /** The shell's last `card.context`. */
+  getContext(): CardContextValue {
     return this.context;
   }
 
@@ -221,46 +223,62 @@ export class BodyDeckBridge implements IDeckManagerStore {
   }
 
   /**
-   * In arrangement mode, keep the context's arrangement when it differs from
-   * the last one (JSON-compared, as the shell compares what it sends), and
-   * rebuild the spaces snapshot from it. Whether it moved.
+   * Take the shell's arrangement, in arrangement mode: its live deck and band
+   * (null until they have arrived) and its workspaces. A replica keeps its
+   * object until its value moves, so identity is the change. Re-synthesizes
+   * the deck when the deck moved, and rebuilds the spaces snapshot when the
+   * workspaces did.
    */
-  private takeArrangement(next: CardContext): boolean {
-    if (this.deckMode !== "arrangement" || next.arrangement === undefined) return false;
-    const json = JSON.stringify(next.arrangement);
-    if (json === this.arrangementJson) return false;
-    this.arrangementJson = json;
-    const arrangement = next.arrangement as BodyArrangement;
-    this.arrangement = arrangement;
-    const { spaces } = arrangement;
-    this.spacesSnapshot = {
-      spaces: spaces.spaces,
-      activeSpaceId: spaces.activeSpaceId,
-      mountedSpaceIds: spaces.mountedSpaceIds,
-      warmSpaceIds: [],
-      mountedDecks: new Map(
-        spaces.mountedSpaceIds
-          .filter((id) => id !== spaces.activeSpaceId && spaces.decks[id] !== undefined)
-          .map((id) => [id, spaces.decks[id]]),
-      ),
-    };
-    return true;
+  applyArrangement(deck: ArrangementDeckValue | null, spaces: ArrangementSpaces): void {
+    if (this.deckMode !== "arrangement" || deck === null) return;
+    const prev = this.arrangement;
+    if (prev !== null && prev.spaces === spaces && prev.deck === deck.deck && prev.bandWidth === deck.bandWidth &&
+      prev.columnRunHeight === deck.columnRunHeight && prev.railRunHeight === deck.railRunHeight) {
+      return;
+    }
+    this.arrangement = { ...deck, spaces };
+    if (prev?.spaces !== spaces) {
+      this.spacesSnapshot = {
+        spaces: spaces.spaces,
+        activeSpaceId: spaces.activeSpaceId,
+        mountedSpaceIds: spaces.mountedSpaceIds,
+        warmSpaceIds: [],
+        mountedDecks: new Map(
+          spaces.mountedSpaceIds
+            .filter((id) => id !== spaces.activeSpaceId && spaces.decks[id] !== undefined)
+            .map((id) => [id, spaces.decks[id]]),
+        ),
+      };
+    }
+    this.deckState = this.synthesize();
+    this.notify();
+    if (prev?.spaces !== spaces) {
+      for (const listener of [...this.spacesListeners]) listener();
+    }
   }
 
-  /** Send a deck call the shell runs for an arrangement card; says so once in card mode. */
-  private deckCall(method: string, args: unknown[]): void {
+  /** Take the card the shell says this following card follows. */
+  applyFollowed(cardId: string | null): void {
+    if (cardId === this.followedCardId) return;
+    this.followedCardId = cardId;
+    this.deckState = this.synthesize();
+    this.notify();
+  }
+
+  /** Run `call` on the shell for an arrangement card; says `method` is the shell's, once, in card mode. */
+  private deckCall(method: string, call: () => void): void {
     if (this.arrangement === null) {
       this.inert(method);
       return;
     }
-    this.advise({ advice: "deck-call", method, args });
+    call();
   }
 
   private synthesize(): DeckState {
     const paneId = bodyPaneId(this.cardId);
     if (this.arrangement !== null) {
       return {
-        ...arrangementSnapshot(this.arrangement, this.cardId, paneId),
+        ...arrangementSnapshot(this.arrangement.deck, this.cardId, paneId),
         hasFocus: typeof document !== "undefined" ? document.hasFocus() : true,
       };
     }
@@ -337,7 +355,7 @@ export class BodyDeckBridge implements IDeckManagerStore {
    * which only the shell's focus manager knows, so the shell says it in the
    * card's context. `useTrackFollowedCard` reads this in a body.
    */
-  getFollowedCardId = (): string | null => followedCardIdOf(this.context);
+  getFollowedCardId = (): string | null => this.followedCardId;
   /**
    * The edge the card stands pinned to when it is a rail, which the body's
    * page wears so it paints the rail's surface rather than a content card's;
@@ -434,27 +452,31 @@ export class BodyDeckBridge implements IDeckManagerStore {
 
   // ---- Forwarded to the shell ----
 
-  setSheetReservation = (_memberId: string, height: number | null): void =>
-    this.advise({ advice: "sheet-reservation", heightPx: height });
-  setOpeningBid = (_memberId: string, height: number | null): void =>
-    this.advise({ advice: "opening-bid", heightPx: height });
+  setSheetReservation = (_memberId: string, height: number | null): void => {
+    this.reservations = { ...this.reservations, sheetPx: height };
+    this.reserve(this.reservations);
+  };
+  setOpeningBid = (_memberId: string, height: number | null): void => {
+    this.reservations = { ...this.reservations, openingBidPx: height };
+    this.reserve(this.reservations);
+  };
   // An arrangement card raising another card — the Layout miniature's press,
   // a Cards row — names that card to the shell; activating this card itself
   // is the body's own `activate`.
   activateCard = (cardId: string, opts?: { reveal?: boolean }): void => {
     if (cardId !== this.cardId && this.arrangement !== null) {
-      this.deckCall("activateCard", opts === undefined ? [cardId] : [cardId, opts]);
+      deckActivateCard.dispatch({ cardId, reveal: opts?.reveal });
       return;
     }
-    this.advise({ advice: "activate" });
+    cardActivate.dispatch({});
   };
-  focusCard = (_cardId: string): void => this.advise({ advice: "activate" });
-  removeCard = (_paneId: string, _cardId: string): void => this.advise({ advice: "close-request" });
-  handlePaneClosed = (_paneId: string): void => this.advise({ advice: "close-request" });
+  focusCard = (_cardId: string): void => cardActivate.dispatch({});
+  removeCard = (_paneId: string, _cardId: string): void => cardClose.dispatch({});
+  handlePaneClosed = (_paneId: string): void => cardClose.dispatch({});
   // The new card is the shell's; its id is not known here, and the pane's
   // `ADD_TAB` handler — the one caller — never reads it.
   addCardToPane = (_paneId: string, componentId: string, _initialContent?: unknown): string | null => (
-    this.advise({ advice: "add-card", componentId }), null
+    cardAddSibling.dispatch({ componentId }), null
   );
 
   // ---- Inert: the deck's arrangement is the shell's ----
@@ -481,10 +503,11 @@ export class BodyDeckBridge implements IDeckManagerStore {
   setRailOffset = (_side: SidebarSide, _offset: number, _landing?: CommitLanding): void =>
     this.inert("setRailOffset");
   setFlowOffset = (offset: number, landing?: CommitLanding): void =>
-    this.deckCall("setFlowOffset", landing === undefined ? [offset] : [offset, landing]);
+    this.deckCall("setFlowOffset", () => deckSetFlowOffset.dispatch({ offset, landing }));
   railWidthLimits = (_side: SidebarSide): RailWidthLimits | null => null;
   setRailWidth = (_side: SidebarSide, _width: number): void => this.inert("setRailWidth");
-  previewFlowOffset = (offset: number): void => this.deckCall("previewFlowOffset", [offset]);
+  previewFlowOffset = (offset: number): void =>
+    this.deckCall("previewFlowOffset", () => deckPreviewFlowOffset.dispatch({ offset }));
   handlePaneMoved = (
     _paneId: string,
     _position: { x: number; y: number },
@@ -559,24 +582,26 @@ export class BodyDeckBridge implements IDeckManagerStore {
     if (spaceId === this.arrangement.spaces.activeSpaceId) return this.deckState;
     return this.arrangement.spaces.decks[spaceId] ?? null;
   };
-  activateSpace = (spaceId: string): void => this.deckCall("activateSpace", [spaceId]);
+  activateSpace = (spaceId: string): void => this.deckCall("activateSpace", () => deckActivateSpace.dispatch({ spaceId }));
   createSpace = (_name?: string): string => (this.inert("createSpace"), "");
-  renameSpace = (spaceId: string, name: string): void => this.deckCall("renameSpace", [spaceId, name]);
+  renameSpace = (spaceId: string, name: string): void =>
+    this.deckCall("renameSpace", () => deckRenameSpace.dispatch({ spaceId, name }));
   chooseSpaceTheme = (spaceId: string, theme: string): void =>
-    this.deckCall("chooseSpaceTheme", [spaceId, theme]);
+    this.deckCall("chooseSpaceTheme", () => deckChooseSpaceTheme.dispatch({ spaceId, theme }));
   duplicateSpace = (_spaceId: string): string | null => (this.inert("duplicateSpace"), null);
   spaceHoldsLiveSessions = (spaceId: string): number =>
     this.arrangement?.spaces.liveSessions[spaceId] ?? 0;
   spaceCardCount = (spaceId: string): number => this.arrangement?.spaces.cardCounts[spaceId] ?? 0;
   deleteSpace = (_spaceId: string): boolean => (this.inert("deleteSpace"), false);
-  reorderSpaces = (order: readonly string[]): void => this.deckCall("reorderSpaces", [[...order]]);
+  reorderSpaces = (order: readonly string[]): void =>
+    this.deckCall("reorderSpaces", () => deckReorderSpaces.dispatch({ order: [...order] }));
   /**
    * The move is the shell's to make or refuse; a body hands it over and
    * answers whether it could: true once handed to the shell, which reports
    * a refusal itself.
    */
   moveCardToSpace = (cardId: string, spaceId: string): boolean => {
-    this.deckCall("moveCardToSpace", [cardId, spaceId]);
+    this.deckCall("moveCardToSpace", () => deckMoveCardToSpace.dispatch({ cardId, spaceId }));
     return this.arrangement !== null;
   };
   setPaneWidth = (_paneId: string, _preset: ContentWidth): void => this.inert("setPaneWidth");

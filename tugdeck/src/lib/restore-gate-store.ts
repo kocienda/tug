@@ -14,7 +14,7 @@
  *
  * Under per-card web views a Session card's session store lives in its
  * body's page, so the shell's services store has none for it. Each body
- * reports its card's restore in its `card-facts` telemetry
+ * reports its card's restore in its `card.restoreHold`
  * (`body-publisher.ts`, read through `bodyFactsStore.restoreHoldOf`) and the
  * gate folds those reports beside the shell's own stores ([B29] of the
  * bodies migration).

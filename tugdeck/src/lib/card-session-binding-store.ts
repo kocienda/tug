@@ -24,6 +24,9 @@ import { useCallback } from "react";
 import { useSyncExternalStore } from "@/lib/gesture-scope";
 import { Subscribable } from "@/lib/subscribable";
 
+import { cardBinding } from "@/bus/declarations/relays";
+import { pageBus, type PageBus } from "@/bus/page-bus";
+
 import { sessionLineStore } from "./session-line-store";
 
 /**
@@ -195,6 +198,68 @@ export class CardSessionBindingStore extends Subscribable {
 
 /** Module-scope singleton — mirrors FeedStore's usage shape. */
 export const cardSessionBindingStore = new CardSessionBindingStore();
+
+/**
+ * Hold a body card's binding with the shell (`card.binding`).
+ *
+ * A body binds, resumes and rebinds in its own page, from the acks to its own
+ * spawns, which the shell's connection never hears; the shell reads the
+ * binding all the same. So the shell owns `card.binding`, and a body proposes
+ * every change of its own card's binding — the resume onto another segment
+ * above all. A page that has bound nothing yet says nothing, so a reload, or
+ * a page coming up before its restore binds, leaves the shell's binding
+ * standing; only a card that held a binding and let it go proposes `null`.
+ *
+ * In the shell, a body's proposal is applied to `store`, and every binding
+ * `store` holds is published back, which is what `deck.cardBindings` and the
+ * proposing body's acknowledgement are read from. Returns the release.
+ */
+export function shareCardBinding(
+  bus: PageBus = pageBus(),
+  store: CardSessionBindingStore = cardSessionBindingStore,
+): () => void {
+  const shared = cardBinding.on(bus);
+  const releases: Array<() => void> = [];
+  if (bus.page.role === "shell") {
+    const published = new Set<string>();
+    const publish = (): void => {
+      const bindings = store.getSnapshot();
+      for (const [cardId, binding] of bindings) {
+        shared.setFor(cardId, binding);
+        published.add(cardId);
+      }
+      for (const cardId of [...published]) {
+        if (bindings.has(cardId)) continue;
+        published.delete(cardId);
+        shared.setFor(cardId, null);
+      }
+    };
+    releases.push(
+      store.subscribe(publish),
+      shared.onProposal((binding, from) => {
+        if (from.cardId === null) return;
+        if (binding === null) store.clearBinding(from.cardId);
+        else store.setBinding(from.cardId, binding);
+      }),
+    );
+    publish();
+  } else {
+    const cardId = bus.page.cardId;
+    if (cardId === null) return () => {};
+    let said: CardSessionBinding | undefined;
+    const tell = (): void => {
+      const binding = store.getBinding(cardId);
+      if (binding === said) return;
+      said = binding;
+      shared.propose(binding ?? null);
+    };
+    releases.push(store.subscribe(tell));
+    if (store.getBinding(cardId) !== undefined) tell();
+  }
+  return () => {
+    for (const release of releases.splice(0)) release();
+  };
+}
 
 /**
  * The card currently bound to `sessionId`, or `null` when none is open — the

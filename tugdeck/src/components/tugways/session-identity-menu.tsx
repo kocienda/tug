@@ -65,7 +65,6 @@
 
 import React from "react";
 
-import { dispatchShellAction } from "@/action-registry";
 import { dispatchCommand } from "@/command-dispatch";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 
@@ -225,17 +224,15 @@ export function useSessionIdentityMenu({
   const resumeSession = React.useCallback((): void => {
     if (!resumable) return;
     const sessionId = cited.status === "found" ? cited.sessionId : identity.id;
-    // A shell action, not `dispatchCommand`: this verb is a menu-only action
-    // over a sampled target and so has no command-registry row for a command
-    // id to name ([ACTIONS_OUTSIDE_THE_TABLE]). The deck work lives in the
-    // shell's `action-dispatch.ts`, the only place that holds the DeckManager
-    // and the connection, so a menu in a body hands the action to the shell.
+    // The shell's command: the deck work lives in the shell's
+    // `action-dispatch.ts`, the only place that holds the DeckManager and
+    // the connection, so a menu in a body hands it to the shell.
     //
     // The host card goes along as the origin the resumed card is placed
     // beside — the same "left if it can, right if it must" rule a file link
     // opens under. It is the card being pointed at, which a right-click need
     // not have made first responder.
-    dispatchShellAction(TUG_ACTIONS.RESUME_SESSION, {
+    dispatchCommand(TUG_ACTIONS.RESUME_SESSION, {
       sessionId,
       projectDir,
       ...(hostCard != null ? { originCardId: hostCard } : {}),

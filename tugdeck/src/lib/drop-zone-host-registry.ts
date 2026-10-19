@@ -11,18 +11,21 @@
  * consumer must no-op cleanly on it.
  *
  * A page with no canvas — a card's body, where the Layout card's miniature
- * lives under per-card web views — registers a {@link MiniatureDropHost}
+ * lives under per-card web views — answers with a {@link MiniatureDropHost}
  * instead: the miniature's half of the seam, answered by the shell's canvas
- * over the bus (`miniature-relay.ts`). Its enumeration is asynchronous, the
+ * over the bus (`miniature-bus.ts`). Its enumeration is asynchronous, the
  * one difference the miniature's gesture has to know about.
  *
  * @module lib/drop-zone-host-registry
  */
 
+import { page } from "../bus/page";
 import type { DropZone, DropZoneHost, DropZoneSet } from "./drop-zones";
+import { getDeckStore } from "./deck-store-registry";
+import { bodyMiniatureHost } from "./miniature-bus";
 
 let dropZoneHostRef: DropZoneHost | null = null;
-let miniatureHostRef: MiniatureDropHost | null = null;
+let bodyHostRef: MiniatureDropHost | null = null;
 
 /** Register the current canvas's drop-zone host; last-wins semantics. */
 export function registerDropZoneHost(host: DropZoneHost | null): void {
@@ -36,7 +39,7 @@ export function getDropZoneHost(): DropZoneHost | null {
 
 /**
  * The verbs a drag on the Layout miniature uses — {@link DropZoneHost}'s
- * remote half. The canvas's own host is one; a body's relay is another, whose
+ * remote half. The canvas's own host is one; a body's is another, whose
  * `enumerateRemote` answers later (`null` when the shell could not answer)
  * and whose `commit` hands the zone over, the shell flashing a refusal itself.
  */
@@ -47,13 +50,16 @@ export interface MiniatureDropHost {
   commit(zone: DropZone, draggedPaneId: string): boolean;
 }
 
-/** Register a page's remote miniature host (a body's relay); last-wins. */
-export function registerMiniatureDropHost(host: MiniatureDropHost | null): void {
-  miniatureHostRef = host;
-}
-
-/** The host a miniature drag uses: this page's canvas when it has one, else
- *  the relay to the shell's, else `null`. */
+/**
+ * The host a miniature drag uses: this page's canvas when it has one, else,
+ * in a body, the shell's canvas over the bus, else `null`. A pane of the
+ * body's deck is named to the shell by the card in front of it.
+ */
 export function getMiniatureDropHost(): MiniatureDropHost | null {
-  return dropZoneHostRef ?? miniatureHostRef;
+  if (dropZoneHostRef !== null) return dropZoneHostRef;
+  if (!page.isBody) return null;
+  bodyHostRef ??= bodyMiniatureHost(
+    (paneId) => getDeckStore()?.getSnapshot().panes.find((p) => p.id === paneId)?.activeCardId ?? null,
+  );
+  return bodyHostRef;
 }

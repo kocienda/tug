@@ -24,7 +24,7 @@
  * **A card this page has no store for answers from what was reported.** A page
  * builds a session store only for a card it shows ([B02]): the shell for every
  * card it draws, a body page for its own card. For any other card the phase is
- * a short key somebody else computed — a body's `card-facts` in the shell
+ * a short key somebody else computed — a body's `card.facts` in the shell
  * (`bodyFactsStore`), and in a body page the shell's arrangement, mirrored
  * into `cardActivityElsewhere` ([B06]). Only when neither has a word is the
  * answer doubt.

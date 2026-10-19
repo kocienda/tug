@@ -346,6 +346,12 @@ describe.skipIf(!SHOULD_RUN)(
             await cursorTitle(app),
             "the caret is on the row about to move",
           ).toContain("Card C");
+          // The list moves its cursor in the Cards card's page, and the nudge
+          // is answered in the shell's: the cursor has to have reached it.
+          await app.waitForCondition<boolean>(
+            `window.__tug.getLayoutCursor() === "C"`,
+            { timeoutMs: 2_000 },
+          );
 
           await app.nativeKey("[", NUDGE);
           await wait(AFTER_LAND_MS);

@@ -38,10 +38,8 @@ import {
   type RestoredAttachmentEntry,
 } from "@/lib/composer-draft-payload";
 import type { TugTextEditingState } from "@/lib/tug-text-types";
-import type { CardStateBag } from "@/layout-tree";
-import { dispatchShellAction, registerAction } from "@/action-registry";
-import { setFirstBodyBagSeed } from "@/lib/body-handoff";
-import { OVERVIEW_CARD_ID } from "@/lib/overview-card-id";
+import { installedPageBus, pageBus, type PageBus } from "@/bus/page-bus";
+import { holdOverviewDraft, overviewDraft } from "@/bus/declarations/relays";
 
 /**
  * What the Overview composer preserves: one draft snapshot and the image
@@ -94,11 +92,11 @@ let _held: TugTextEditingState | null = null;
  *
  * Under per-card web views this module's state is the Overview body's page,
  * which goes with the card, so it no longer outlives the hide on its own. The
- * app-scoped copy is the shell's ({@link holdOverviewDraftInShell}): the
- * composer forwards every change of its words and pictures there
- * ({@link forwardOverviewDraft}), and the next Overview card's first body is
- * handed it as its bag ({@link overviewDraftSeedBag}), which the composer's
- * restore takes up as it takes up a relaunch's.
+ * app-scoped copy is the shell's (`overview.draft`, held by
+ * {@link holdOverviewDraftInShell}): the composer proposes every change of its
+ * words and pictures there ({@link forwardOverviewDraft}), and the next
+ * Overview body's composer seeds itself from the replica on mount
+ * ({@link takeShellOverviewDraft}).
  */
 export const overviewDraftHolder = {
   get(): TugTextEditingState | null {
@@ -110,76 +108,64 @@ export const overviewDraftHolder = {
 };
 
 /**
- * The deck action a body's composer hands its draft to the shell by
- * (`dispatchShellAction`, one of `SHELL_ACTIONS_FOR_CARDS`). The payload is
- * `{ draft, attachmentBytes? }`; `attachmentBytes` rides only when the
- * pictures moved, so a keystroke does not resend them.
- */
-export const HOLD_OVERVIEW_DRAFT = "hold-overview-draft";
-
-/**
- * Hand the composer's draft to the app-scoped holder: the shell's handler
- * where this page registers one, else over the bus to the shell. `null` (or
- * an empty draft) lets it go. Pass `attachmentBytes` when the pictures moved.
+ * Hand the composer's draft to the shell's hold, in a body: a proposal to
+ * `overview.draft`. `null` (or an empty draft) lets it go. Pass
+ * `attachmentBytes` when the pictures moved, so a keystroke does not resend
+ * them. A page that is not a body holds the draft itself, in
+ * {@link overviewDraftHolder}.
  */
 export function forwardOverviewDraft(
   draft: TugTextEditingState | null,
   attachmentBytes?: Record<string, RestoredAttachmentEntry>,
+  bus: PageBus | null = installedPageBus(),
 ): void {
-  dispatchShellAction(HOLD_OVERVIEW_DRAFT, {
+  if (bus?.page.role !== "body") return;
+  overviewDraft.on(bus).propose({
     draft: isEmptyDraft(draft) ? null : draft,
     ...(attachmentBytes !== undefined ? { attachmentBytes } : {}),
   });
 }
 
-/** The shell's copy: the draft the last Overview body forwarded, with its pictures. */
-let _shellHeld: OverviewComposerDraftState | null = null;
+/**
+ * The shell's hold on the Overview draft: apply each body's proposal, the
+ * words replacing the last and the pictures standing until they move
+ * (`holdOverviewDraft`). Returns the release.
+ */
+export function holdOverviewDraftInShell(bus: PageBus = pageBus()): () => void {
+  const held = overviewDraft.on(bus);
+  return held.onProposal((patch) => held.update((prev) => holdOverviewDraft(prev, patch)));
+}
 
 /**
- * The shell's handler for {@link HOLD_OVERVIEW_DRAFT}. The words replace the
- * last; the pictures replace theirs when they came, and stand otherwise. A
- * draft with nothing in it, or a payload that is not one, clears the hold.
+ * Hand `take` the draft the shell holds, once it has arrived — now, or when
+ * the shell's snapshot reaches a body that came up before it — and only when
+ * the shell holds one. Nothing in a page that is not a body. Returns the
+ * release, which a composer that seeded itself otherwise calls.
  */
-export function holdOverviewDraftInShell(payload: Record<string, unknown>): void {
-  const draft = isEditingState(payload.draft) ? payload.draft : null;
-  if (isEmptyDraft(draft)) {
-    _shellHeld = null;
-    return;
-  }
-  const bytes = payload.attachmentBytes;
-  const attachmentBytes =
-    bytes !== null && typeof bytes === "object"
-      ? (bytes as Record<string, RestoredAttachmentEntry>)
-      : _shellHeld?.attachmentBytes;
-  _shellHeld = {
-    draft,
-    ...(attachmentBytes !== undefined && Object.keys(attachmentBytes).length > 0 ? { attachmentBytes } : {}),
+export function takeShellOverviewDraft(
+  take: (held: OverviewComposerDraftState) => void,
+  bus: PageBus | null = installedPageBus(),
+): () => void {
+  if (bus?.page.role !== "body") return () => {};
+  const held = overviewDraft.on(bus);
+  let release: (() => void) | null = null;
+  const offer = (): boolean => {
+    if (!held.arrived()) return false;
+    release?.();
+    release = null;
+    const value = held.getSnapshot();
+    if (value !== null) take(value);
+    return true;
   };
-}
-
-/**
- * The bag a fresh Overview card's first body is handed (`body-handoff.ts`):
- * the held draft as the composer's payload, or nothing when none is held.
- */
-export function overviewDraftSeedBag(): CardStateBag | undefined {
-  return _shellHeld === null ? undefined : { content: _shellHeld };
-}
-
-/**
- * Install the shell's half: its handler for the forwarded draft, and the
- * seed of a fresh Overview card's first body. Returns the uninstall.
- */
-export function installOverviewDraftShellHolder(): () => void {
-  registerAction(HOLD_OVERVIEW_DRAFT, holdOverviewDraftInShell);
-  const releaseSeed = setFirstBodyBagSeed(OVERVIEW_CARD_ID, overviewDraftSeedBag);
+  if (offer()) return () => {};
+  release = held.subscribe(() => void offer());
   return () => {
-    releaseSeed();
-    _shellHeld = null;
+    release?.();
+    release = null;
   };
 }
 
 /** For tests. */
-export function _resetOverviewDraftShellHolderForTest(): void {
-  _shellHeld = null;
+export function _resetOverviewDraftHolderForTest(): void {
   _held = null;
 }

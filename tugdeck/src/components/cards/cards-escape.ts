@@ -26,6 +26,11 @@
 
 import type { AttachedFilterBinding } from "@/components/tugways/attached-filter";
 import { cardsSelectionStore } from "@/lib/cards-selection-store";
+import { bodyCardsStore } from "@/lib/body-cards-store";
+import { CARDS_CARD_ID } from "@/lib/cards-card-id";
+import { getDeckStore } from "@/lib/deck-store-registry";
+import { cardsShrink } from "@/bus/declarations/verbs";
+import { page } from "@/bus/page";
 
 let binding: AttachedFilterBinding | null = null;
 
@@ -55,28 +60,23 @@ export function shrinkCardsState(): CardsEscapeRung {
   if (cardsSelectionStore.getSnapshot().ids.length > 0) {
     // The Cards card drawn in its own body holds the filter this page cannot
     // see, beside its copy of the selection: the table runs there, filter
-    // first, and a clear there comes back here (`cards-selection-mirror.ts`).
+    // first, and a clear there comes back here (`layout.selection`).
     // Which rung it spends the press on is the body's; it spends it.
-    if (binding === null && shrinkForwarder?.() === true) return "selection";
+    if (binding === null && page.isShell) {
+      const cardsBody = shownCardsBody();
+      if (cardsBody !== null) {
+        cardsShrink.dispatch({}, { card: cardsBody });
+        return "selection";
+      }
+    }
     cardsSelectionStore.clear();
     return "selection";
   }
   return "focus-out";
 }
 
-/**
- * The `dispatch` id a shell sends a Cards body to run {@link shrinkCardsState}
- * in its own page.
- */
-export const CARDS_SHRINK_COMMAND = "cards-shrink";
-
-let shrinkForwarder: (() => boolean) | null = null;
-
-/**
- * Install (or, with `null`, remove) the shell's door to the Cards body's
- * table: called with no Cards card in this page, it answers whether a Cards
- * body was asked to shrink.
- */
-export function setCardsShrinkForwarder(next: (() => boolean) | null): void {
-  shrinkForwarder = next;
+/** The Cards card of the workspace on screen, when it is a body card: the one whose table a shrink runs. */
+function shownCardsBody(): string | null {
+  const card = getDeckStore()?.getSnapshot().cards.find((c) => c.componentId === CARDS_CARD_ID);
+  return card !== undefined && bodyCardsStore.has(card.id) ? card.id : null;
 }

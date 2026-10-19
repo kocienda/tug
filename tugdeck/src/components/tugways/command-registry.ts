@@ -367,6 +367,15 @@ export interface CommandEntry {
   readonly title: string;
   readonly routing: CommandRouting;
   /**
+   * Which page runs the command when a card's content lives in a body page
+   * of its own (`ownerOf`, `bus/command-route.ts`). Absent, it follows from
+   * `routing`: a chain routing is the key card's, `registry` the shell's.
+   * `"key-card"` on a `registry` row is a handler every page that holds a
+   * card registers for it: the shell's runs only while the key card is not a
+   * body, and a body's runs its own card's.
+   */
+  readonly owner?: "shell" | "key-card";
+  /**
    * The chain action to dispatch. Defaults to `id` when `id` is itself a
    * `TUG_ACTIONS` value; required when it is not.
    */
@@ -1938,12 +1947,15 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: TUG_ACTIONS.PREVIOUS_KEYBOARD_FOCUS,
     title: "Previous Keyboard Focus",
     routing: "registry",
+    // A body card's own stops are in its body, which steps its own walk.
+    owner: "key-card",
     menuItemId: "view.previousKeyboardFocus",
   },
   {
     id: TUG_ACTIONS.NEXT_KEYBOARD_FOCUS,
     title: "Next Keyboard Focus",
     routing: "registry",
+    owner: "key-card",
     menuItemId: "view.nextKeyboardFocus",
   },
   {
@@ -1952,6 +1964,17 @@ export const COMMANDS: readonly CommandEntry[] = [
     id: "set-theme",
     title: "Theme",
     routing: "registry",
+    parameterized: true,
+  },
+  {
+    // A Session/File/Edit/Help menu item carrying a local slash-command name
+    // (`payload.name`, optional `payload.args`), registered by every page
+    // that holds a card (`registerRunCardCommand`): it runs in the key
+    // card's own chain, which in a body is the body's.
+    id: "run-card-command",
+    title: "Run Card Command",
+    routing: "registry",
+    owner: "key-card",
     parameterized: true,
   },
   {
@@ -2499,6 +2522,26 @@ export const COMMANDS: readonly CommandEntry[] = [
     internal: true,
   },
   {
+    // Its doors are a session menu's Resume and a cited session's open: a
+    // verb over the session the menu sampled, which the shell runs because
+    // it holds the deck and the connection, whichever page the menu is in.
+    id: TUG_ACTIONS.RESUME_SESSION,
+    title: "Resume Session",
+    routing: "registry",
+    owner: "shell",
+    parameterized: true,
+  },
+  {
+    // Its door is a slash-command annotation's context menu: a verb over the
+    // command line the right-click landed on, run in the shell for the same
+    // reason as Resume Session.
+    id: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
+    title: "Run Command in New Session",
+    routing: "registry",
+    owner: "shell",
+    parameterized: true,
+  },
+  {
     // Its door is an Arcs card row: front the card working the arc and open
     // its Changes shade.
     id: "reveal-session-changes",
@@ -3014,8 +3057,10 @@ export const COMMANDS: readonly CommandEntry[] = [
     // meaning when no card claims it — see the handler in `action-dispatch`,
     // which asks the key card first and falls back to the global toggle.
     // Plain `key-card` routing made ⌥⇥ a dead key on every surface whose card
-    // registers no handler.
+    // registers no handler. A body card's cycle is in its body, with its
+    // stops, so the toggle runs there.
     routing: "registry",
+    owner: "key-card",
     menuItemId: "view.keyboardFocus",
     bindings: [chord({ key: "Tab", alt: true, label: "Tab" }, { preventDefault: true })],
   },
@@ -3398,7 +3443,6 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   TUG_ACTIONS.COPY_SESSION_DESCRIPTION,
   TUG_ACTIONS.COPY_SESSION_ACTIVITY,
   TUG_ACTIONS.SHOW_SESSION,
-  TUG_ACTIONS.RESUME_SESSION,
   TUG_ACTIONS.TOGGLE_COMMIT_DETAIL,
   TUG_ACTIONS.COPY_COMMIT_HASH,
   TUG_ACTIONS.COPY_COMMIT_SHORT_HASH,
@@ -3438,11 +3482,12 @@ export const ACTIONS_OUTSIDE_THE_TABLE: ReadonlySet<string> = new Set<string>([
   // meant "reveal somebody else's" would have no way to name whose.
   TUG_ACTIONS.REVEAL_CHANGES,
   TUG_ACTIONS.INSERT_INTO_PROMPT,
-  // The two runs on a slash-command annotation. Both mean "the command line
+  // The in-place run on a slash-command annotation means "the command line
   // the right-click landed on", which is the same thing that keeps every
   // sampled-target verb out of the table — a chord has no way to name it.
+  // Its sibling Run in New Session is a table row, because a body's menu
+  // hands it to the shell by its command id.
   TUG_ACTIONS.RUN_COMMAND_HERE,
-  TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION,
   TUG_ACTIONS.REVEAL_IN_FINDER,
   TUG_ACTIONS.OPEN_IMAGE_PREVIEW,
   // The selection the right-click landed on, handed to the system

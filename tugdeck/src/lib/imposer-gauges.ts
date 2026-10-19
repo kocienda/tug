@@ -169,7 +169,7 @@ export function registerGauge(signal: GaugeSignal, el: HTMLElement): () => void 
 //
 // Under per-card web views the publishers (the deck, the canvas) are the
 // shell page's and the instruments (the Layout card's miniature) are a
-// body's, and module state is per page. The relay (`miniature-relay.ts`)
+// body's, and module state is per page. The miniature's crossing (`miniature-bus.ts`)
 // carries the channel across: the shell TAPS every publish, and a body that
 // has registrations says so (DEMAND) and APPLIES what the shell published,
 // signal by signal, into its own copy of this channel. Nothing here knows

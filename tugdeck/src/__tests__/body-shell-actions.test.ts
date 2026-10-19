@@ -4,79 +4,98 @@
  * A body page registers none of the shell's deck handlers — they hold the
  * DeckManager and the connection, which only the shell's `initActionDispatch`
  * has — so a card that called its own page's registry handler for one did
- * nothing from a body: Resume Session and Run in New Session from a menu, and
- * `run-card-command` with arguments, which the shell sent to its own chain's
- * key card, where a body card has no content responder.
+ * nothing from a body: Resume Session and Run in New Session from a menu.
+ * Both are command rows the shell owns, so a body's dispatch of either goes
+ * to the shell as `command.shell`, which runs it once, locally.
+ *
+ * @covers tugdeck/src/command-dispatch.ts
+ * @covers tugdeck/src/bus/command-route.ts
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { ResponderChainManager } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
-import { setKeyCardForwarder } from "../command-dispatch";
-import {
-  SHELL_ACTIONS_FOR_CARDS,
-  dispatchShellAction,
-  runShellActionForCard,
-  setShellActionForwarder,
-} from "../action-registry";
-import {
-  _resetForTest,
-  dispatchAction,
-  registerAction,
-  registerResponderChainManager,
-  registerRunCardCommand,
-} from "../action-dispatch";
+import { COMMANDS_BY_ID } from "@/components/tugways/command-registry";
+import { _resetForTest, registerAction } from "../action-dispatch";
+import { answerBodyCommands, dispatchCommand } from "../command-dispatch";
+import { ownerOf } from "../bus/command-route";
+import { _resetPageForTest, installPage } from "../bus/page";
+import { createTestBus, type TestBus } from "../bus/test-bus";
+import { bodyCardsStore } from "../lib/body-cards-store";
 
+const SHELL_VERBS = [TUG_ACTIONS.RESUME_SESSION, TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION];
+
+let bus: TestBus | null = null;
 const releases: Array<() => void> = [];
 
 afterEach(() => {
   for (const release of releases.splice(0)) release();
+  bus?.dispose();
+  bus = null;
+  _resetPageForTest();
+  bodyCardsStore._reset();
   _resetForTest();
 });
 
-describe("dispatchShellAction", () => {
-  test("in the shell, runs the page's own handler and forwards nothing", () => {
-    const ran: unknown[] = [];
-    const forwarded: unknown[] = [];
-    registerAction(TUG_ACTIONS.RESUME_SESSION, (payload) => ran.push(payload));
-    releases.push(setShellActionForwarder((action, payload) => (forwarded.push({ action, payload }), true)));
+/** A shell answering body commands, and card `A`'s body, which is this page. */
+async function shellAndBody(): Promise<TestBus> {
+  bus = createTestBus();
+  const shell = bus.shell();
+  const body = bus.body("A", "session");
+  bodyCardsStore.mark("A");
+  installPage({ role: "body", cardId: "A", componentId: "session" });
+  bus.install(body);
+  releases.push(answerBodyCommands(shell.bus));
+  await bus.flush();
+  return bus;
+}
 
-    expect(dispatchShellAction(TUG_ACTIONS.RESUME_SESSION, { sessionId: "s", projectDir: "/p" })).toBe(true);
+/** The `command.shell` frames that crossed. */
+function commandsToShell(b: TestBus): unknown[] {
+  return b
+    .frames()
+    .filter((f) => f.envelope.kind === "action" && (f.envelope as { key?: string }).key === "command.shell")
+    .map((f) => (f.envelope as { payload?: unknown }).payload);
+}
+
+describe("the shell's deck verbs, from a card's body", () => {
+  test("both are command rows the shell owns", () => {
+    for (const id of SHELL_VERBS) {
+      const entry = COMMANDS_BY_ID.get(id);
+      expect(entry).toBeDefined();
+      expect(ownerOf(entry!)).toBe("shell");
+    }
+  });
+
+  test("a body's Resume Session runs once in the shell, and is not sent back", async () => {
+    const b = await shellAndBody();
+    expect(dispatchCommand(TUG_ACTIONS.RESUME_SESSION, { sessionId: "s", projectDir: "/p" })).toBe(true);
+    // The handler is the shell's: registered only once the body's dispatch
+    // has gone, so the body could not have run it in its own registry.
+    const ran: unknown[] = [];
+    registerAction(TUG_ACTIONS.RESUME_SESSION, (payload) => ran.push(payload));
+    await b.flush();
     expect(ran).toEqual([{ sessionId: "s", projectDir: "/p" }]);
-    expect(forwarded).toEqual([]);
+    expect(commandsToShell(b)).toEqual([{ id: TUG_ACTIONS.RESUME_SESSION, payload: { sessionId: "s", projectDir: "/p" } }]);
   });
 
-  test("in a body, which registers no deck handler, hands the action to the shell", () => {
-    const forwarded: unknown[] = [];
-    releases.push(setShellActionForwarder((action, payload) => (forwarded.push({ action, payload }), true)));
-
-    expect(
-      dispatchShellAction(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, { name: "brief", args: "x", originCardId: "A" }),
-    ).toBe(true);
-    expect(forwarded).toEqual([
-      { action: TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, payload: { name: "brief", args: "x", originCardId: "A" } },
-    ]);
-  });
-
-  test("an action outside the list is never forwarded", () => {
-    const forwarded: unknown[] = [];
-    releases.push(setShellActionForwarder((action) => (forwarded.push(action), true)));
-    expect(dispatchShellAction("eval", {})).toBe(false);
-    expect(forwarded).toEqual([]);
-  });
-
-  test("the shell runs a listed action a body handed over, and only a listed one", () => {
+  test("a body's Run in New Session carries its command line and origin to the shell", async () => {
+    const b = await shellAndBody();
+    dispatchCommand(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, { name: "brief", args: "x", originCardId: "A" });
     const ran: unknown[] = [];
-    registerAction(TUG_ACTIONS.RESUME_SESSION, (payload) => ran.push(payload));
-    registerAction("eval", () => ran.push("eval"));
+    registerAction(TUG_ACTIONS.RUN_COMMAND_IN_NEW_SESSION, (payload) => ran.push(payload));
+    await b.flush();
+    expect(ran).toEqual([{ name: "brief", args: "x", originCardId: "A" }]);
+  });
 
-    expect(runShellActionForCard(TUG_ACTIONS.RESUME_SESSION, { sessionId: "s" })).toBe(true);
-    expect(runShellActionForCard("eval", {})).toBe(false);
-    expect(runShellActionForCard(TUG_ACTIONS.CLOSE, undefined)).toBe(false);
-    expect(ran).toEqual([{ sessionId: "s" }]);
+  test("a command the shell does not answer either is not bounced back to the body", async () => {
+    const b = await shellAndBody();
+    dispatchCommand(TUG_ACTIONS.RESUME_SESSION, { sessionId: "s", projectDir: "/p" });
+    await b.flush();
+    expect(commandsToShell(b)).toHaveLength(1);
+    expect(b.frames().filter((f) => (f.envelope as { key?: string }).key === "command")).toEqual([]);
   });
 });
 
@@ -99,7 +118,7 @@ describe("card code reaches a shell deck verb through the shell", () => {
     // A card's page may be a body, where the handler is never registered:
     // `getRegistryHandler(…)?.()` there is a silent no-op.
     const names = Object.entries(TUG_ACTIONS)
-      .filter(([, wire]) => SHELL_ACTIONS_FOR_CARDS.has(wire))
+      .filter(([, wire]) => (SHELL_VERBS as readonly string[]).includes(wire))
       .map(([name]) => name);
     expect(names).toContain("RESUME_SESSION");
     expect(names).toContain("RUN_COMMAND_IN_NEW_SESSION");
@@ -108,33 +127,5 @@ describe("card code reaches a shell deck verb through the shell", () => {
       pattern.test(readFileSync(path, "utf8")),
     );
     expect(offenders).toEqual([]);
-  });
-});
-
-describe("run-card-command", () => {
-  test("with arguments, goes to the key card's body when the key card is one", () => {
-    const forwarded: unknown[] = [];
-    registerResponderChainManager(new ResponderChainManager());
-    releases.push(
-      setKeyCardForwarder((entry, payload) => (forwarded.push({ id: entry.id, routing: entry.routing, payload }), true)),
-    );
-    registerRunCardCommand();
-
-    // `resume` is bridged, but only bare: the arguments form has no entry.
-    dispatchAction({ action: "run-card-command", name: "resume", args: "quiet-harbor" });
-
-    expect(forwarded).toEqual([
-      { id: "run-card-command", routing: "key-card", payload: { name: "resume", args: "quiet-harbor" } },
-    ]);
-  });
-
-  test("a name no entry bridges goes to the key card's body too", () => {
-    const forwarded: unknown[] = [];
-    releases.push(setKeyCardForwarder((entry, payload) => (forwarded.push({ id: entry.id, payload }), true)));
-    registerRunCardCommand();
-
-    dispatchAction({ action: "run-card-command", name: "model" });
-
-    expect(forwarded).toEqual([{ id: "run-card-command", payload: { name: "model", args: "" } }]);
   });
 });

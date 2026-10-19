@@ -131,7 +131,7 @@ interface Gesture {
   drag: Drag | null;
   /**
    * Past the threshold with the zones still on their way — a body's host
-   * asks the shell's canvas for them (`miniature-relay.ts`). Until they come the hand's
+   * asks the shell's canvas for them (`miniature-bus.ts`). Until they come the hand's
    * last point is kept, and a release is held for them rather than lost.
    */
   awaiting: boolean;

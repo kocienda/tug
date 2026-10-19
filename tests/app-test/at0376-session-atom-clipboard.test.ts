@@ -462,7 +462,13 @@ describe.skipIf(!SHOULD_RUN)("at0376 — the session atom on the clipboard", () 
         // The mark itself, in the layer above the text. The chip records where
         // its dot would have gone; the layer seats a real `SessionPhaseDot`
         // there. Centre-to-centre against the well is the whole registration
-        // claim, read once the frame has rendered.
+        // claim, read once the frame has rendered. The layer measures the
+        // chip after the paste's frame, so the host is waited for before the
+        // geometry is read.
+        await app.body("A").waitForCondition<boolean>(
+          `document.querySelector('.cm-tug-session-dot-layer .cm-tug-session-dot-host') !== null`,
+          { timeoutMs: 4_000 },
+        );
         const seated = await app.body("A").evalJS<{
           hosts: number;
           dots: number;

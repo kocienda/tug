@@ -254,10 +254,13 @@ describe("routing matches the pre-migration mechanism", () => {
  *
  * - `command` — the wire is itself a registry id.
  * - `{ bridgeFor }` — the wire's parameter selects a per-value command; the
- *   entries are `<bridgeFor>:<value>`, which for `run-card-command` is a
- *   different name than the wire's own (it bridges to `run-slash-command`).
+ *   entries are `<bridgeFor>:<value>`.
  * - `data` — a tugcast/host data frame, deliberately outside the table
  *   ([P03]).
+ *
+ * `run-card-command` is a command of its own — the key card's, so a body
+ * card's runs in its body — whose handler bridges to a different name than
+ * the wire's (`run-slash-command:<name>`); both halves are checked below.
  */
 type WireKind = "command" | "data" | { readonly bridgeFor: string };
 
@@ -333,8 +336,8 @@ const SWIFT_WIRES: Readonly<Record<string, WireKind>> = {
   "previous-keyboard-focus": "command",
   "cycle-focus-mode": "command",
   "show-devtools": "command",
+  "run-card-command": "command",
   // The parameter picks the command.
-  "run-card-command": { bridgeFor: TUG_ACTIONS.RUN_SLASH_COMMAND },
   "set-pane-width": { bridgeFor: TUG_ACTIONS.SET_PANE_WIDTH },
   "go-to-slot": { bridgeFor: TUG_ACTIONS.GO_TO_SLOT },
   "focus-card": { bridgeFor: TUG_ACTIONS.FOCUS_CARD },
@@ -397,6 +400,10 @@ describe("SWIFT_WIRES is derived, not remembered", () => {
 
 describe("every Swift wire lands somewhere", () => {
   const wiresWithEntries = new Set(COMMANDS.map(commandWire));
+
+  test("run-card-command's handler bridges to the run-slash-command family", () => {
+    expect(wiresWithEntries.has(TUG_ACTIONS.RUN_SLASH_COMMAND)).toBe(true);
+  });
 
   for (const [wire, kind] of Object.entries(SWIFT_WIRES)) {
     const label = typeof kind === "string" ? kind : `bridge to ${kind.bridgeFor}`;

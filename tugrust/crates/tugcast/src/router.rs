@@ -31,7 +31,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use tugcast_core::{BusDelivered, BusFrom, BusOutbound, BusRole, BusTarget};
+use tugcast_core::{BusFrom, BusOutbound, BusRole, BusTarget};
 use tugcast_core::{
     CLOSE_BAD_HANDSHAKE, CLOSE_HANDSHAKE_TIMEOUT, CLOSE_VERSION_MISMATCH, ControlAction, FeedId,
     Frame, HANDSHAKE_TIMEOUT, PROTOCOL_NAME, PROTOCOL_VERSION, PageIdentity, PageRole,
@@ -867,10 +867,12 @@ fn admits(subscription: Option<&HashSet<FeedId>>, feed_id: FeedId) -> bool {
 
 /// Carry one `DECK_BUS` frame from a page to the pages it names (Spec S06).
 ///
-/// The sender is stamped from `from`, the identity its hello registered, so
-/// a `from` in the payload is never read. A tool is refused, a payload
-/// outside the vocabulary is malformed, and a target no live page answers
-/// is undeliverable; each refusal is the CONTROL error the sender gets back.
+/// tugcast reads the envelope's `to` and `kind` and carries every other
+/// field through verbatim. The sender is stamped from `from`, the identity
+/// its hello registered, so a `from` in the envelope is dropped. A tool is
+/// refused, an envelope with no target or an unknown kind is malformed, and
+/// a target no live page answers is undeliverable; each refusal is the
+/// CONTROL error the sender gets back.
 /// A delivery rides the page lane, so it is ordered with every tell.
 fn route_bus(
     pages: &PageRegistry,
@@ -898,15 +900,11 @@ fn route_bus(
         refusal["to"] = serde_json::to_value(&outbound.to).unwrap_or_default();
         return Err(refusal);
     };
-    let delivered = BusDelivered {
-        from: BusFrom {
-            page_id: from.page_id.clone().unwrap_or_default(),
-            role,
-            card_id: from.card_id.clone(),
-        },
-        to: outbound.to,
-        message: outbound.message,
-    };
+    let delivered = outbound.deliver(BusFrom {
+        page_id: from.page_id.clone().unwrap_or_default(),
+        role,
+        card_id: from.card_id.clone(),
+    });
     let Ok(bytes) = serde_json::to_vec(&delivered) else {
         return Err(error("bus_malformed"));
     };
@@ -3418,8 +3416,11 @@ mod tests {
         let sent = serde_json::json!({
             "from": {"pageId": "forged", "role": "shell", "cardId": null},
             "to": "shell",
-            "kind": "card-advice",
-            "payload": {"advice": "fold-guard", "guarded": true},
+            "kind": "state",
+            "key": "card.holds",
+            "card": "c1",
+            "version": 2,
+            "payload": {"guarded": true},
         });
         let from = page(PageRole::Body, "b1", Some("c1"));
         route_bus(&pages, &lane, &from, sent.to_string().as_bytes()).expect("delivered");
@@ -3430,6 +3431,7 @@ mod tests {
             serde_json::json!({"pageId": "b1", "role": "body", "cardId": "c1"})
         );
         assert_eq!(body["payload"]["guarded"], true);
+        assert_eq!(body["version"], 2);
     }
 
     #[test]
@@ -3439,24 +3441,48 @@ mod tests {
         let shell = page(PageRole::Shell, "s", None);
         let to_bodies = serde_json::json!({
             "to": "body",
-            "kind": "deck-facts",
-            "payload": {"theme": "ironclad", "zoom": 1.0, "keyboardAccess": false, "modifierLatch": [], "focusRingModality": "keyboard", "appActive": true},
+            "kind": "state",
+            "key": "deck.facts",
+            "version": 1,
+            "payload": {"theme": "ironclad"},
         });
         route_bus(&pages, &lane, &shell, to_bodies.to_string().as_bytes()).expect("delivered");
         assert_eq!(delivered(&mut rx).0, Delivery::Clients(vec![2, 3].into()));
-        let to_card = serde_json::json!({"to": {"card": "c2"}, "kind": "card-command", "payload": {"command": "interrupt"}});
+        let to_card = serde_json::json!({"to": {"card": "c2"}, "kind": "action", "key": "command", "payload": {"id": "interrupt"}});
         route_bus(&pages, &lane, &shell, to_card.to_string().as_bytes()).expect("delivered");
         assert_eq!(delivered(&mut rx).0, Delivery::Client(3));
-        let to_page = serde_json::json!({"to": {"page": "b1"}, "kind": "card-command", "payload": {"command": "turn-next"}});
+        let to_page = serde_json::json!({"to": {"page": "b1"}, "kind": "reply", "key": "miniature.zones", "requestId": "r1", "payload": {"ok": true, "value": null}});
         route_bus(&pages, &lane, &shell, to_page.to_string().as_bytes()).expect("delivered");
         assert_eq!(delivered(&mut rx).0, Delivery::Client(2));
+    }
+
+    /// A field no declaration names arrives instead of being stripped in
+    /// transit, inside the payload and beside it.
+    #[test]
+    fn an_envelope_keeps_a_field_no_declaration_names() {
+        let (pages, lane) = bus_pages();
+        let mut rx = lane.subscribe();
+        let sent = serde_json::json!({
+            "to": "shell",
+            "kind": "state",
+            "key": "card.facts",
+            "card": "c1",
+            "version": 1,
+            "payload": {"title": "Dev", "masthead": null, "activity": null, "telemetry": {}, "binding": {"tugSessionId": "s1"}},
+            "extra": [1, 2],
+        });
+        let from = page(PageRole::Body, "b1", Some("c1"));
+        route_bus(&pages, &lane, &from, sent.to_string().as_bytes()).expect("delivered");
+        let (_, body) = delivered(&mut rx);
+        assert_eq!(body["payload"]["binding"], serde_json::json!({"tugSessionId": "s1"}));
+        assert_eq!(body["extra"], serde_json::json!([1, 2]));
     }
 
     #[test]
     fn the_bus_refuses_a_tool_a_stranger_kind_and_a_target_nobody_answers() {
         let (pages, lane) = bus_pages();
         let mut rx = lane.subscribe();
-        let ok = serde_json::json!({"to": "shell", "kind": "card-advice", "payload": {"advice": "sheet-reservation", "heightPx": 240}});
+        let ok = serde_json::json!({"to": "shell", "kind": "action", "key": "card.close", "payload": {}});
         let refused = route_bus(
             &pages,
             &lane,
@@ -3472,7 +3498,10 @@ mod tests {
         let not_json = route_bus(&pages, &lane, &body, b"not json");
         assert_eq!(not_json.unwrap_err()["detail"], "bus_malformed");
 
-        let nobody = serde_json::json!({"to": {"card": "nobody"}, "kind": "card-command", "payload": {"command": "interrupt"}});
+        let nobody = serde_json::json!({"to": {"card": "nobody"}, "kind": "hello", "payload": {"role": "shell", "answer": true}});
+        let no_target = serde_json::json!({"kind": "state", "payload": {}});
+        let untargeted = route_bus(&pages, &lane, &body, no_target.to_string().as_bytes());
+        assert_eq!(untargeted.unwrap_err()["detail"], "bus_malformed");
         let undeliverable =
             route_bus(&pages, &lane, &body, nobody.to_string().as_bytes()).unwrap_err();
         assert_eq!(undeliverable["detail"], "bus_undeliverable");
@@ -3510,11 +3539,11 @@ mod tests {
         // messages now carry the card.
         let mut rx = lane.subscribe();
         let shell = page(PageRole::Shell, "s", None);
-        let to_card = serde_json::json!({"to": {"card": "c9"}, "kind": "card-command", "payload": {"command": "focus-prompt"}});
+        let to_card = serde_json::json!({"to": {"card": "c9"}, "kind": "hello", "payload": {"role": "shell", "answer": true}});
         route_bus(&pages, &lane, &shell, to_card.to_string().as_bytes()).expect("delivered");
         assert_eq!(delivered(&mut rx).0, Delivery::Client(SPARE));
-        let advice = serde_json::json!({"to": "shell", "kind": "card-advice", "payload": {"advice": "activate"}});
-        route_bus(&pages, &lane, &identity, advice.to_string().as_bytes()).expect("delivered");
+        let hello = serde_json::json!({"to": "shell", "kind": "hello", "payload": {"role": "body", "cardId": "c9", "componentId": "jots"}});
+        route_bus(&pages, &lane, &identity, hello.to_string().as_bytes()).expect("delivered");
         assert_eq!(delivered(&mut rx).1["from"]["cardId"], "c9");
 
         // CODE_INPUT for the session the new card seats is forwarded.

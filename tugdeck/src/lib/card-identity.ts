@@ -58,7 +58,7 @@ export type { CardIdentityFacts, CardIdentityResolution };
 /**
  * Live identities this page cannot resolve itself, because the card is
  * mounted in another page. A body card's page resolves its card's identity
- * and publishes it (`card-facts`), and the shell keeps it here; an
+ * and publishes it (`card.facts`), and the shell keeps it here; an
  * arrangement body keeps here what the shell resolved live for every card it
  * lists. The open registries and stores behind a registration's `live`
  * resolver are per page, so without this a body card would resolve from its

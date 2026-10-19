@@ -1,32 +1,43 @@
 /**
- * What a body tells the shell about its card, and only when it changes.
+ * What a body tells the shell about its card: the card's own shared stores
+ * (`bus/declarations/card.ts`), set on every read.
  *
  * The shell draws a body card's chrome — its masthead, its phase, its close
- * and fold gestures — from the last `card-facts` and `card-advice` it heard.
- * Close advice and the fold guard are asked synchronously at gesture time in
- * the shell, so across pages the body pushes them on change and the shell
- * answers from the last push. A keystroke that leaves `waive` where it was
- * sends nothing.
+ * and fold gestures — from the card's `card.facts` and `card.holds`. Close
+ * advice and the fold guard are asked synchronously at gesture time in the
+ * shell, so across pages the body keeps them current and the shell answers
+ * from its replica. A store sends only a value that changed, so a keystroke
+ * that leaves `waive` where it was sends nothing.
  *
  * A card that registered a close guard — a Text card holding unsaved edits —
- * also says whether its guard would ask (`close-guard`), on change, so the
- * shell's close gesture can front the card before it asks the body to
- * decide. A card with no guard says nothing of the kind, and the shell
- * closes it as it always has.
+ * also says whether its guard would ask (`closeGuardAsks`), so the shell's
+ * close gesture can front the card before it asks the body to decide. A
+ * card with no guard says null, and the shell closes it as it always has.
  *
- * A card held by a modal run (`/compact` in flight) says so (`modal-hold`),
- * with the reason and whether the run admits the fold, and says again when
- * the hold goes. The shell's chrome holds by it, and a door there that meets
- * the hold asks this page to speak the refusal (`refuse-hold`).
+ * A card held by a modal run (`/compact` in flight) says so (`modalHold`),
+ * with the reason and whether the run admits the fold. The shell's chrome
+ * holds by it, and a door there that meets the hold asks this page to speak
+ * the refusal (`refuse-hold`).
  *
- * {@link BodyPublisher} is the diffing half, over plain read functions, so it
- * is tested without a page; {@link installBodyPublisher} wires it to the
- * card's stores and the document.
+ * {@link BodyPublisher} sets the stores from plain read functions, so it is
+ * tested on the test bus without a document; {@link installBodyPublisher}
+ * wires it to the card's stores and the document.
  *
  * @module body/body-publisher
  */
 
-import type { BusMasthead, BusMessage, CardFacts } from "@tugproto/bus";
+import type { PageBus } from "../bus/page-bus";
+import { pageBus } from "../bus/page-bus";
+import {
+  cardContent,
+  cardFacts,
+  cardHolds,
+  cardKbfPaint,
+  cardRestoreHold,
+  type CardFactsValue,
+} from "../bus/declarations/card";
+import { cardActivate } from "../bus/declarations/verbs";
+import { chordCaptureState } from "../lib/chord-capture-state";
 import { cardTitleStore } from "../lib/card-title-store";
 import { cardServicesStore } from "../lib/card-services-store";
 import { restorePassGate, sessionRestoreRegistry } from "../lib/session-restore";
@@ -44,11 +55,11 @@ import { cardJoinReady, sessionPhaseFromSnapshot } from "../lib/code-session-sto
 import { cardSessionBindingStore } from "../lib/card-session-binding-store";
 import type { CodeSessionSnapshot } from "../lib/code-session-store";
 import { deriveRestoreGateHold } from "../lib/session-card-restore-gate";
-import { contentTelemetry } from "../lib/rail-fit";
+import { readPageContent } from "../lib/rail-fit";
 
 /** What the publisher reads, each answered fresh on every call. */
 export interface BodyPublisherSources {
-  readFacts(): CardFacts;
+  readFacts(): CardFactsValue;
   /** The card's close advice: true when a close need not confirm. */
   readWaive(): boolean;
   /** The card's fold guard: true when a fold may proceed. */
@@ -57,56 +68,36 @@ export interface BodyPublisherSources {
   readAsks(): boolean | null;
   /** The card's modal hold — its reason and whether it admits the fold — or null when it has none. */
   readHold(): { reason: string; admitsFold: boolean } | null;
+  /** Whether a chord capture is armed in the card. */
+  readCaptureArmed(): boolean;
+  /** The card's cold restore while the restore gate holds it, or null. */
+  readRestoreHold(): { turnsLoaded: number; turnsTarget: number } | null;
+  /** The card's content reading, for a rail card, or null. */
+  readContent(): { content: number; shown: number } | null;
+  /** Whether the page paints keyboard-focus mode, or null before its focus engine stands. */
+  readKbfPaint(): boolean | null;
 }
 
 export class BodyPublisher {
-  private lastFacts: string | null = null;
-  private lastWaive: boolean | null = null;
-  private lastGuarded: boolean | null = null;
-  private lastAsks: boolean | null = null;
-  private lastHold: string | null = null;
-
   constructor(
     private readonly sources: BodyPublisherSources,
-    private readonly send: (message: BusMessage) => void,
+    private readonly bus: PageBus,
   ) {}
 
-  /** Read every fact and advice; send each that differs from the last sent. */
+  /** Read every fact and hold, and set the card's stores; each sends only what changed. */
   publish(): void {
-    const facts = this.sources.readFacts();
-    const encoded = JSON.stringify(facts);
-    if (encoded !== this.lastFacts) {
-      this.lastFacts = encoded;
-      this.send({ kind: "card-facts", payload: facts });
-    }
-    const waive = this.sources.readWaive();
-    if (waive !== this.lastWaive) {
-      this.lastWaive = waive;
-      this.send({ kind: "card-advice", payload: { advice: "close-advice", waive } });
-    }
-    const guarded = this.sources.readGuarded();
-    if (guarded !== this.lastGuarded) {
-      this.lastGuarded = guarded;
-      this.send({ kind: "card-advice", payload: { advice: "fold-guard", guarded } });
-    }
-    const asks = this.sources.readAsks();
-    if (asks !== null && asks !== this.lastAsks) {
-      this.lastAsks = asks;
-      this.send({ kind: "card-advice", payload: { advice: "close-guard", asks } });
-    }
-    const hold = this.sources.readHold();
-    const holdEncoded = JSON.stringify(hold);
-    // The first read of no hold says nothing: the shell holds none until told.
-    if (holdEncoded !== (this.lastHold ?? "null")) {
-      this.lastHold = holdEncoded;
-      this.send({
-        kind: "card-advice",
-        payload:
-          hold === null
-            ? { advice: "modal-hold", reason: null }
-            : { advice: "modal-hold", reason: hold.reason, admitsFold: hold.admitsFold },
-      });
-    }
+    const s = this.sources;
+    cardFacts.on(this.bus).set(s.readFacts());
+    cardHolds.on(this.bus).set({
+      waive: s.readWaive(),
+      guarded: s.readGuarded(),
+      closeGuardAsks: s.readAsks(),
+      modalHold: s.readHold(),
+      captureArmed: s.readCaptureArmed(),
+    });
+    cardRestoreHold.on(this.bus).set(s.readRestoreHold());
+    cardContent.on(this.bus).set(s.readContent());
+    cardKbfPaint.on(this.bus).set(s.readKbfPaint());
   }
 
   /**
@@ -118,63 +109,48 @@ export class BodyPublisher {
    * the card already key costs it nothing.
    */
   pointerDown(): void {
-    this.send({ kind: "card-advice", payload: { advice: "activate" } });
+    cardActivate.on(this.bus).dispatch({});
   }
 }
 
 /**
  * The card's cold restore, for the shell's restore gate (`restore-gate-store.ts`),
  * which holds the app-modal for a body card as it did for a shell-hosted one
- * ([B29] of the bodies migration): `restoreHold` 1 for as long as
- * `deriveRestoreGateHold` holds the card — the replay window and the reveal
- * behind it — with the turns loaded and asked for beside it; nothing at all
- * otherwise, so a turn outside a restore moves no fact. The silence deadline
- * is the card's own store's, so a stalled replay errors the card here and the
- * hold goes with the next publish. Telemetry, because it is the card's own
- * opaque numbers: the bus carries it without a shape of its own.
+ * ([B29] of the bodies migration): the turns loaded and asked for, for as
+ * long as `deriveRestoreGateHold` holds the card — the replay window and the
+ * reveal behind it — and null otherwise, so a turn outside a restore moves
+ * nothing. The silence deadline is the card's own store's, so a stalled
+ * replay errors the card here and the hold goes with the next publish.
  */
-export function restoreHoldTelemetry(snapshot: CodeSessionSnapshot | null): Record<string, number> {
-  if (snapshot === null || !deriveRestoreGateHold(snapshot)) return {};
-  return {
-    restoreHold: 1,
-    restoreTurnsLoaded: snapshot.transcript.length,
-    restoreTurnsTarget: snapshot.restoreWindowTurns,
-  };
+export function readRestoreHold(snapshot: CodeSessionSnapshot | null): { turnsLoaded: number; turnsTarget: number } | null {
+  if (snapshot === null || !deriveRestoreGateHold(snapshot)) return null;
+  return { turnsLoaded: snapshot.transcript.length, turnsTarget: snapshot.restoreWindowTurns };
 }
 
 /**
- * Whether this page paints keyboard-focus mode (`kbfPaint`, 0 or 1), once its
- * focus engine stands: the shell wears this page's answer while this card
- * holds the keyboard, so a caret live here stands the shell's paint down too
- * (`lib/yielded-kbf-paint.ts`).
+ * Whether this page paints keyboard-focus mode, once its focus engine
+ * stands: the shell wears this page's answer while this card holds the
+ * keyboard, so a caret live here stands the shell's paint down too.
  */
-export function kbfPaintTelemetry(): Record<string, number> {
-  const manager = getFocusManager();
-  return manager === null ? {} : { kbfPaint: manager.kbfPainting() ? 1 : 0 };
+export function readKbfPaint(): boolean | null {
+  return getFocusManager()?.kbfPainting() ?? null;
 }
 
 /** The card's facts as its stores hold them now. */
-export function readBodyCardFacts(cardId: string, readContent = false): CardFacts {
+export function readBodyCardFacts(cardId: string): CardFactsValue {
   const masthead = cardTitleStore.getMasthead(cardId);
   const snapshot = cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null;
   return {
     title: cardTitleStore.get(cardId) ?? "",
-    masthead: masthead === null ? null : (masthead as unknown as BusMasthead),
+    masthead,
     // The key with the card's arc join folded in, as `useSessionPhase` reads
     // it here: every other page reads this card's phase from this report.
     activity: snapshot === null ? null : sessionPhaseFromSnapshot(snapshot, cardJoinReady(cardId)),
-    telemetry: {
-      canInterrupt: snapshot?.canInterrupt === true ? 1 : 0,
-      compacted: snapshot !== null && snapshot.compactionSeed !== null ? 1 : 0,
-      ...restoreHoldTelemetry(snapshot),
-      // The card's content height and what its scroller shows, for the
-      // shell's Resize Sidebars to Fit, which cannot read this page.
-      ...(readContent ? contentTelemetry() : {}),
-      ...kbfPaintTelemetry(),
-    },
+    canInterrupt: snapshot?.canInterrupt === true,
+    compacted: snapshot !== null && snapshot.compactionSeed !== null,
     // What the card holds as this page's own registries know it; the shell's
     // identity reads for the card answer from it.
-    identity: (ownLiveCardIdentity(cardId) as Record<string, unknown> | null) ?? null,
+    identity: ownLiveCardIdentity(cardId),
     // The pane's title-bar controls the card contributes, each with the
     // registry's enablement asked of this page's chain, which holds the
     // card's responders; the shell's title bar draws them from it.
@@ -186,25 +162,30 @@ export function readBodyCardFacts(cardId: string, readContent = false): CardFact
   };
 }
 
+/** An installed publisher: publish now, synchronously, or uninstall. */
+export interface InstalledBodyPublisher {
+  publish(): void;
+  release(): void;
+}
+
 /**
- * Publish `cardId`'s facts and advice from now on: once at install, and again
+ * Publish `cardId`'s facts and holds from now on: once at install, and again
  * on every notify of the card's session store, the restore registry and the
  * restore pass's gate (an unattached Session card waives its close confirm
  * only once the pass has settled), the
  * services store, the title store, the title-bar items store, the page's
- * responder chain, the modal-hold store, the close-guard registry and the
- * card's own close guard,
+ * responder chain, the modal-hold store, the chord capture, the close-guard
+ * registry and the card's own close guard,
  * and on every `input` in the document.
- * A capture-phase `pointerdown` asks for activation. Returns the uninstall.
+ * A capture-phase `pointerdown` asks for activation (`card.activate`).
  */
 export function installBodyPublisher(
   cardId: string,
-  send: (message: BusMessage) => void,
-  options: { watchContent?: boolean } = {},
-): () => void {
+  options: { watchContent?: boolean },
+): InstalledBodyPublisher {
   const publisher = new BodyPublisher(
     {
-      readFacts: () => readBodyCardFacts(cardId, options.watchContent === true),
+      readFacts: () => readBodyCardFacts(cardId),
       readWaive: () => readCardCloseAdvice(cardId)?.waive === true,
       readGuarded: () => cardMayFold(cardId),
       readAsks: () => {
@@ -215,8 +196,14 @@ export function installBodyPublisher(
         const hold = cardModalHoldStore.getFor(cardId);
         return hold === null ? null : { reason: hold.reason, admitsFold: hold.admitsFold === true };
       },
+      readCaptureArmed: () => chordCaptureState.isArmed(),
+      readRestoreHold: () => readRestoreHold(cardServicesStore.getServices(cardId)?.codeSessionStore.getSnapshot() ?? null),
+      // The card's content height and what its scroller shows, for the
+      // shell's Resize Sidebars to Fit, which cannot read this page.
+      readContent: () => (options.watchContent === true ? readPageContent() : null),
+      readKbfPaint,
     },
-    send,
+    pageBus(),
   );
   // The chain answers the title-bar items' enablement, and it changes with no
   // other notice — a responder registering, the key card moving — so the
@@ -299,6 +286,8 @@ export function installBodyPublisher(
     paneTitleBarItemsStore.subscribe(publish),
     // A run's hold moves the fold guard as well as the hold itself.
     cardModalHoldStore.subscribe(publish),
+    // A chord capture armed here parks the host's menu bar, which the shell pushes.
+    chordCaptureState.subscribe(publish),
     // The card's close guard says when its answer moves, so the shell's proxy
     // reads a fact that moved with the buffer, not with whatever else notified.
     watchCardCloseGuard(cardId, publish),
@@ -310,16 +299,19 @@ export function installBodyPublisher(
   followSession();
   followFocus();
 
-  return () => {
-    contentWatch?.disconnect();
-    contentArrival?.disconnect();
-    window.removeEventListener("resize", publish);
-    for (const release of releases) release();
-    releaseSession?.();
-    releaseChain?.();
-    releaseFocusRegistration();
-    releaseFocus?.();
-    document.removeEventListener("input", publish, true);
-    document.removeEventListener("pointerdown", onPointerDown, true);
+  return {
+    publish,
+    release: () => {
+      contentWatch?.disconnect();
+      contentArrival?.disconnect();
+      window.removeEventListener("resize", publish);
+      for (const release of releases) release();
+      releaseSession?.();
+      releaseChain?.();
+      releaseFocusRegistration();
+      releaseFocus?.();
+      document.removeEventListener("input", publish, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    },
   };
 }

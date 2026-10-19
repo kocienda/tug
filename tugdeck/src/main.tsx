@@ -36,6 +36,9 @@ import { installScrollPhaseBridge } from "./lib/scroll-phase-bridge";
 import { cardServicesStore } from "./lib/card-services-store";
 import { attachLiveTurnsDeck } from "./lib/live-turns-store";
 import { installBodyShell } from "./lib/body-shell";
+import { installPage, page } from "./bus/page";
+import { createPageBus, installPageBus, pageBus } from "./bus/page-bus";
+import { connectionTransport } from "./bus/transport";
 import { PointerClaimTracker } from "./lib/pointer-claim";
 import { bodyPlacementDiag } from "./lib/body-placement";
 import {
@@ -243,6 +246,12 @@ export const connection = new TugConnection(wsUrl, { host: "worker" });
 export const connectionLifecycle = new ConnectionLifecycle();
 connection.setLifecycle(connectionLifecycle);
 registerConnectionLifecycle(connectionLifecycle);
+
+// This page is the shell, and its page bus is the one `DECK_BUS` listener
+// it has: every store and verb that crosses to a body rides it
+// (`bus/page-bus.ts`).
+installPage({ role: "shell", cardId: null, componentId: null });
+installPageBus(createPageBus(connectionTransport(connection, connectionLifecycle), page));
 
 // Re-probe Claude login on every RECONNECT. tugcast answers with
 // `claude_auth_result`, which feeds the app-level `authStore`. The probe is
@@ -693,6 +702,10 @@ async function loadTestSurface(
   // side of each body — its facts, its advice, its context, its focus, its
   // teardown — is wired here, before the restore pass below hands any off.
   installBodyShell(connection, deck);
+  // Then the shell says hello to every body, and again on every open: a
+  // body that outlived a shell reload hears it and answers, and is sent
+  // every store it reads.
+  pageBus().announce();
   // And what the shell raises over a body — a popover, a sheet, a scrim —
   // keeps the pointer: the host passes everything else through to the body
   // beneath. Watches the overlay root, which arrives with the deck's mount.

@@ -8,13 +8,13 @@
  * the Workspaces card — has no store for any card it lists, and the phase
  * dot beside each row would read idle for every other session.
  *
- * What each card's body reports to the shell as its phase (`card-facts`
- * `activity`, kept in `bodyFactsStore`) the shell projects into the
- * arrangement it sends such a body (`BodyArrangement.activities`), and the
- * body keeps it here, beside `cardIdentityElsewhere` ([B06]). The phase
- * readers in `use-session-phase.ts` answer from it for a card the page has
- * no services for. Nothing here is a session to drive: it is one short
- * string per card, mirrored.
+ * What each card's body reports to the shell as its phase (`card.facts`
+ * `activity`, kept in `bodyFactsStore`) the shell projects into
+ * `deck.cardActivities`, which every body reads, and the body keeps it here,
+ * beside `cardIdentityElsewhere` ([B06]). The phase readers in
+ * `use-session-phase.ts` answer from it for a card the page has no services
+ * for. Nothing here is a session to drive: it is one short string per card,
+ * mirrored.
  *
  * @module lib/card-activity-elsewhere
  */

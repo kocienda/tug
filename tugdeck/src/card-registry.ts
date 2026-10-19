@@ -555,15 +555,15 @@ export interface CardRegistration {
   /**
    * What of the deck a card of this kind reads in its body. Omitted, the
    * body's deck is its one card. `"arrangement"` is for a kind that lists or
-   * moves the whole deck — Cards, Layout — and receives the shell's
-   * arrangement in its context.
+   * moves the whole deck — Cards, Layout — and reads the shell's
+   * arrangement (`bus/declarations/arrangement.ts`).
    */
   bodyDeck?: "arrangement";
   /**
    * Whether a card of this kind follows another card — the last key card
    * that is not it — as the Arcs and devtools cards do. Only the shell's
-   * focus manager knows that card, so the shell sends it in the body's
-   * `card-context`.
+   * focus manager knows that card, so the shell names it in the body's
+   * `card.followed`.
    */
   bodyFollows?: true;
 }

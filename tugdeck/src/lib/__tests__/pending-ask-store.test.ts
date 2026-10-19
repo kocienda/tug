@@ -221,21 +221,22 @@ describe("respond", () => {
     expect(sent).toEqual([]);
   });
 
-  it("in a body page, hands the answer to the page holding the question, and says this page does not", () => {
+  it("in a body page, hands the answer to the request the question was shown for, and says this page does not hold it", () => {
     // A Session card that is a body shows a question the shell keeps; the
-    // press in its dialog goes back to the shell, and the card takes its own
-    // copy down.
-    const forwarded: Array<[string, string]> = [];
-    const release = pendingAskStore.forwardResponses((requestId, choice) => forwarded.push([requestId, choice]));
+    // press in its dialog replies to the shell's `session.ask`, and the card
+    // takes its own copy down.
+    const relayed: string[] = [];
+    const release = pendingAskStore.relay("held-by-shell", (choice) => relayed.push(choice));
     try {
       expect(pendingAskStore.respond("held-by-shell", "run-all")).toBe(false);
-      expect(forwarded).toEqual([["held-by-shell", "run-all"]]);
+      expect(pendingAskStore.respond("someone-else", "run-all")).toBe(false);
+      expect(relayed).toEqual(["run-all"]);
       expect(sent, "a body page answers nothing on the wire itself").toEqual([]);
     } finally {
       release();
     }
-    pendingAskStore.respond("after-release", "cancel");
-    expect(forwarded, "the release stops the hand-off").toHaveLength(1);
+    pendingAskStore.respond("held-by-shell", "cancel");
+    expect(relayed, "the release stops the relay").toHaveLength(1);
   });
 });
 

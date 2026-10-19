@@ -6,7 +6,9 @@
  * button, or a slash bridge. Each of those resolves a command id and calls
  * `dispatchCommand`; the mechanism that carries it to its implementation is
  * read from the registry entry's `routing` field rather than chosen at the
- * call site ([P04]).
+ * call site ([P04]). Which page runs it is the entry's owner (`ownerOf`,
+ * `bus/command-route.ts`): in the shell, a key-card command while the key
+ * card is a body card goes to that card's body, which runs it as its own.
  *
  * ## Validation gates doors, not dispatch
  *
@@ -31,6 +33,11 @@ import {
   getRegistryHandler,
   getResponderChainManager,
 } from "./action-registry";
+import { forwardToShell, ownerOf, routeToKeyCard } from "./bus/command-route";
+import { cardContentAction, commandForShell } from "./bus/declarations/verbs";
+import type { PageBus } from "./bus/page-bus";
+import { page } from "./bus/page";
+import { bodyCardsStore } from "./lib/body-cards-store";
 
 /** Notified after every dispatch, handled or not. */
 export type CommandObserver = (id: string, handled: boolean) => void;
@@ -50,76 +57,9 @@ function notifyCommandObservers(id: string, handled: boolean): void {
 }
 
 /**
- * Takes a command bound for the key card when that card's responders live
- * in another document (a body), and says whether it took it. The shell
- * installs one; with none installed every command dispatches here.
- */
-export type KeyCardForwarder = (
-  entry: Pick<CommandEntry, "id" | "routing">,
-  payload: Record<string, unknown> | undefined,
-) => boolean;
-
-let keyCardForwarder: KeyCardForwarder | null = null;
-
-/** Install the forwarder for key-card commands. Returns the uninstall. */
-export function setKeyCardForwarder(forwarder: KeyCardForwarder): () => void {
-  keyCardForwarder = forwarder;
-  return () => {
-    if (keyCardForwarder === forwarder) keyCardForwarder = null;
-  };
-}
-
-/**
- * Hand a key-card action no command entry can carry — `run-card-command`
- * with arguments, or a name no entry bridges — to the key card's body, and
- * say whether one took it. The body runs `action` as it runs a forwarded
- * command, against its own registry; with no forwarder, or a key card whose
- * responders are in this document, nothing is taken.
- */
-export function forwardToKeyCard(action: string, payload: Record<string, unknown>): boolean {
-  return keyCardForwarder !== null && keyCardForwarder({ id: action, routing: "key-card" }, payload);
-}
-
-/**
- * Takes a command this document's chain did not handle, and says whether it
- * took it. A body installs one that hands the command to the shell, whose
- * chain holds the pane and the deck; the shell installs none.
- */
-export type UnhandledCommandFallback = (
-  entry: CommandEntry,
-  payload: Record<string, unknown> | undefined,
-) => boolean;
-
-let unhandledFallback: UnhandledCommandFallback | null = null;
-
-/** Install the fallback for commands nothing here handles. Returns the uninstall. */
-export function setUnhandledCommandFallback(fallback: UnhandledCommandFallback): () => void {
-  unhandledFallback = fallback;
-  return () => {
-    if (unhandledFallback === fallback) unhandledFallback = null;
-  };
-}
-
-/**
- * Takes a chain action addressed to a card's content when that content lives
- * in another document (a body), and says whether it took it. The shell
- * installs one; with none installed the action goes to this document's chain.
- */
-export type CardContentForwarder = (cardId: string, action: string) => boolean;
-
-let cardContentForwarder: CardContentForwarder | null = null;
-
-/** Install the forwarder for card-content actions. Returns the uninstall. */
-export function setCardContentForwarder(forwarder: CardContentForwarder): () => void {
-  cardContentForwarder = forwarder;
-  return () => {
-    if (cardContentForwarder === forwarder) cardContentForwarder = null;
-  };
-}
-
-/**
  * Send `action` to `cardId`'s content responder, wherever that card's
- * content lives, and say whether anything took it.
+ * content lives, and say whether anything took it. A body card's content is
+ * in its body, which runs it in its own chain (`card.contentAction`).
  *
  * The target is the card-content scope, not the bare card id: `sendToTarget`
  * walks upward from its target, the bare id is `card-host`'s, and a card's
@@ -127,7 +67,10 @@ export function setCardContentForwarder(forwarder: CardContentForwarder): () => 
  * registers no such responder, so the miss is reported rather than thrown.
  */
 export function sendToCardContent(cardId: string, action: string): boolean {
-  if (cardContentForwarder !== null && cardContentForwarder(cardId, action)) return true;
+  if (cardId !== page.cardId && bodyCardsStore.has(cardId)) {
+    cardContentAction.dispatch({ action }, { card: cardId });
+    return true;
+  }
   const manager = getResponderChainManager();
   const target = `${cardId}-card-content`;
   if (manager === null || !manager.hasResponder(target)) return false;
@@ -137,9 +80,9 @@ export function sendToCardContent(cardId: string, action: string): boolean {
 
 export interface DispatchCommandOptions {
   /**
-   * Dispatch in this document only: consult neither the key-card forwarder
-   * nor the unhandled fallback. The shell uses it for a command a body
-   * handed back, which must not be forwarded to the body again.
+   * Dispatch in this document only: consult neither the key-card route nor
+   * the hand-off to the shell. The shell uses it for a command a body handed
+   * it, which must not be sent back.
    */
   local?: boolean;
 }
@@ -212,7 +155,7 @@ export function dispatchCommand(
     return false;
   }
   const unhandled = (): boolean => {
-    if (!local && unhandledFallback !== null && unhandledFallback(entry, payload)) {
+    if (!local && forwardToShell(entry, payload)) {
       notifyCommandObservers(id, true);
       return true;
     }
@@ -220,10 +163,17 @@ export function dispatchCommand(
     return false;
   };
 
+  // The key card's command, in the shell while that card is a body card: its
+  // body runs it, against the chain and registry that hold the card.
+  if (!local && page.isShell && ownerOf(entry) === "key-card" && routeToKeyCard(entry, payload)) {
+    notifyCommandObservers(id, true);
+    return true;
+  }
+
   if (entry.routing === "registry") {
     const handler = getRegistryHandler(commandWire(entry));
     if (handler === undefined) {
-      if (local || unhandledFallback === null) console.warn(`dispatchCommand: ${id} has no registered handler`);
+      if (local || !page.isBody) console.warn(`dispatchCommand: ${id} has no registered handler`);
       return unhandled();
     }
     handler(registryPayload(entry, payload));
@@ -238,11 +188,6 @@ export function dispatchCommand(
     console.warn(`dispatchCommand: ${id} is performed natively and is not JS-routable`);
     notifyCommandObservers(id, false);
     return false;
-  }
-
-  if (!local && keyCardForwarder !== null && keyCardForwarder(entry, payload)) {
-    notifyCommandObservers(id, true);
-    return true;
   }
 
   const manager = getResponderChainManager();
@@ -325,3 +270,16 @@ export {
   validateCommand,
   validateCommandId,
 } from "@/components/tugways/command-registry";
+
+/**
+ * The shell's answer to `command.shell`: a command a body card's own chain
+ * did not answer runs here, in this page's chain and registry, as a local
+ * dispatch, so it is never sent back. `installBodyShell` installs it.
+ * Returns the release ([L27]).
+ */
+export function answerBodyCommands(bus: PageBus): () => void {
+  return commandForShell.on(bus).handle(({ id, payload }, from) => {
+    if (from.cardId === null || !bodyCardsStore.has(from.cardId)) return;
+    dispatchCommand(id, payload, { local: true });
+  });
+}

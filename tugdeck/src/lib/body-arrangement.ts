@@ -1,20 +1,15 @@
 /**
- * The shell's arrangement, as a body that lists or moves the whole deck
- * reads it.
+ * The shell's arrangement, projected for the bodies that read it.
  *
  * A card whose registration says `bodyDeck: "arrangement"` — the Cards card,
  * the Layout card — reads more than its own card: every pane, every
  * workspace, the band's width, and the session identity and title of every
  * card it lists. In the shell those are the deck's and the app stores'; in a
- * body they are not there at all. So the shell projects them into the card's
- * own `card-context` ({@link projectArrangement}), and the body's deck bridge
- * answers the card's reads from it ({@link arrangementSnapshot} and the
- * spaces fields).
- *
- * What such a card asks of the deck goes back as `deck-call` advice, which
- * the shell runs only for a method in {@link BODY_DECK_CALLS}. Deleting a
- * workspace is not one of them: a raw delete would skip the close-guard
- * walk, so it is a registered command the shell answers instead.
+ * body they are not there at all. So the shell projects them into the
+ * arrangement stores (`bus/declarations/arrangement.ts`), one projector per
+ * store, and the body's deck bridge answers the card's reads from the
+ * replicas ({@link arrangementSnapshot} and the spaces fields). Every card's
+ * binding and reported phase go to every body the same way.
  *
  * Everything here is plain JSON over plain data.
  *
@@ -25,97 +20,14 @@ import type { DeckState } from "../layout-tree";
 import type { CardIdentityFacts } from "../card-registry";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { CardSessionBinding } from "./card-session-binding-store";
-import type { CardMastheadPayload } from "./card-title-store";
-import type { CardBinding } from "../protocol";
+import type {
+  ArrangementCardFacts,
+  ArrangementDeckValue,
+  ArrangementSpaces,
+  ArrangementTitle,
+} from "../bus/declarations/arrangement";
 
-/** A card's title override and masthead, as the shell's title store holds them. */
-export interface ArrangementTitle {
-  title: string | null;
-  masthead: CardMastheadPayload | null;
-}
-
-/** Every workspace, as an arrangement card lists them. */
-export interface ArrangementSpaces {
-  activeSpaceId: string;
-  spaces: Array<{ id: string; name: string; theme?: string }>;
-  mountedSpaceIds: string[];
-  /** Every workspace's deck but the active one's, which is `deck`. */
-  decks: Record<string, DeckState>;
-  /** `spaceHoldsLiveSessions`, per workspace. */
-  liveSessions: Record<string, number>;
-  /** `spaceCardCount`, per workspace. */
-  cardCounts: Record<string, number>;
-}
-
-/** The `card-context` field an arrangement body reads the deck from. */
-export interface BodyArrangement {
-  deck: DeckState;
-  spaces: ArrangementSpaces;
-  bandWidth: number | null;
-  columnRunHeight: number | null;
-  railRunHeight: number | null;
-  /** The shell's session binding for each card the arrangement holds. */
-  bindings: Record<string, CardSessionBinding>;
-  /** The shell's title and masthead for each card the arrangement holds. */
-  titles: Record<string, ArrangementTitle>;
-  /**
-   * What each card the arrangement holds is, as the shell resolves it live —
-   * its own open registries for a card it draws, a body's published facts for
-   * a body card — for each card that resolves live at all.
-   */
-  identities: Record<string, CardIdentityFacts>;
-  /**
-   * The session phase key each card's body last reported to the shell
-   * (`card-facts` `activity`), for each card whose body has reported one.
-   * The page reading this builds no session store for any card but its own,
-   * so this is where the Layout and Workspaces bodies read the live dot for
-   * every other card from ([B06]).
-   */
-  activities: Record<string, string>;
-  /**
-   * A workspace verb the shell's menu or a chord asked the Cards card to
-   * answer (`cardsSpaceVerbRequest` in the shell), until a Cards body has been
-   * sent it. Its `token` tells a fresh request from one already answered.
-   */
-  spaceVerb?: { verb: "rename" | "delete"; spaceId: string; token: number } | null;
-  /**
-   * The shell's layout selection, for the Cards card, whose list builds it in
-   * its own page while the deck's verbs read the shell's
-   * (`lib/cards-selection-mirror.ts`).
-   */
-  selection?: { ids: string[]; anchorId: string | null };
-  /**
-   * The shell's cache of the server's card bindings (`spaceBindingsLedgerStore`),
-   * for the Cards card, which lists every card's session — a parked
-   * workspace's included — and whose page may have come up after the frame
-   * that filled it. Null until the shell's cache has loaded.
-   */
-  ledgerBindings?: CardBinding[] | null;
-}
-
-/**
- * The deck methods an arrangement body may call, and no others. The shell
- * drops a `deck-call` naming anything else.
- */
-export const BODY_DECK_CALLS = [
-  "activateCard",
-  "setFlowOffset",
-  "previewFlowOffset",
-  "activateSpace",
-  "renameSpace",
-  "chooseSpaceTheme",
-  "moveCardToSpace",
-  "reorderSpaces",
-] as const;
-
-export type BodyDeckCall = (typeof BODY_DECK_CALLS)[number];
-
-/** Whether `method` is one a body may call. */
-export function isBodyDeckCall(method: string): method is BodyDeckCall {
-  return (BODY_DECK_CALLS as readonly string[]).includes(method);
-}
-
-/** What {@link projectArrangement} reads from the shell's deck. */
+/** What the projectors read from the shell's deck. */
 export type ArrangementDeck = Pick<
   IDeckManagerStore,
   | "getSnapshot"
@@ -144,37 +56,48 @@ export function arrangementCardIds(deck: ArrangementDeck): string[] {
   return [...cardIds];
 }
 
+/** Each of `cardIds` `read` answers non-null for, keyed by card. */
+function collect<T>(cardIds: readonly string[], read: (cardId: string) => T | null | undefined): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const cardId of cardIds) {
+    const value = read(cardId);
+    if (value !== null && value !== undefined) out[cardId] = value;
+  }
+  return out;
+}
+
+/** `deck.cardBindings`: the binding of every card the arrangement holds that has one. */
+export function projectBindings(
+  deck: ArrangementDeck,
+  bindings: (cardId: string) => CardSessionBinding | undefined,
+): Record<string, CardSessionBinding> {
+  return collect(arrangementCardIds(deck), bindings);
+}
+
 /**
- * The reported phase of every card the arrangement holds that has one —
- * what {@link projectArrangement} fills `activities` with, and what the
- * shell compares to resend a body's context only when some card's phase
- * moved, rather than on every telemetry tick a body publishes.
+ * `deck.cardActivities`: the reported phase of every card the arrangement
+ * holds that has one. A card whose body has not reported is absent, never
+ * idle by assumption.
  */
 export function projectActivities(
   deck: ArrangementDeck,
   activities: (cardId: string) => string | null,
 ): Record<string, string> {
-  const reported: Record<string, string> = {};
-  for (const cardId of arrangementCardIds(deck)) {
-    const key = activities(cardId);
-    if (key !== null) reported[cardId] = key;
-  }
-  return reported;
+  return collect(arrangementCardIds(deck), activities);
 }
 
-/**
- * The shell's arrangement now. `bindings`, `titles`, `identities` and
- * `activities` are read for the cards the arrangement holds — every
- * workspace's — and nothing else.
- */
-export function projectArrangement(
-  deck: ArrangementDeck,
-  bindings: (cardId: string) => CardSessionBinding | undefined,
-  titles: (cardId: string) => ArrangementTitle | null,
-  identities: (cardId: string) => CardIdentityFacts | null,
-  activities: (cardId: string) => string | null,
-): BodyArrangement {
-  const live = deck.getSnapshot();
+/** `arrangement.deck`: the live deck and its band. */
+export function projectArrangementDeck(deck: ArrangementDeck): ArrangementDeckValue {
+  return {
+    deck: deck.getSnapshot(),
+    bandWidth: deck.getBandWidth(),
+    columnRunHeight: deck.getColumnRunHeight(),
+    railRunHeight: deck.getRailRunHeight(),
+  };
+}
+
+/** `arrangement.spaces`: every workspace, and every workspace's deck but the live one. */
+export function projectArrangementSpaces(deck: ArrangementDeck): ArrangementSpaces {
   const spacesSnapshot = deck.getSpacesSnapshot();
   const decks: Record<string, DeckState> = {};
   const liveSessions: Record<string, number> = {};
@@ -186,43 +109,28 @@ export function projectArrangement(
     const parked = deck.getSpaceDeck(space.id);
     if (parked !== null) decks[space.id] = parked;
   }
-  const cardIds = arrangementCardIds(deck);
-  const boundCards: Record<string, CardSessionBinding> = {};
-  const titledCards: Record<string, ArrangementTitle> = {};
-  const knownCards: Record<string, CardIdentityFacts> = {};
-  const reportedCards: Record<string, string> = {};
-  for (const cardId of cardIds) {
-    const binding = bindings(cardId);
-    if (binding !== undefined) boundCards[cardId] = binding;
-    const title = titles(cardId);
-    if (title !== null) titledCards[cardId] = title;
-    const identity = identities(cardId);
-    if (identity !== null) knownCards[cardId] = identity;
-    const activity = activities(cardId);
-    if (activity !== null) reportedCards[cardId] = activity;
-  }
   return {
-    deck: live,
-    spaces: {
-      activeSpaceId: spacesSnapshot.activeSpaceId,
-      spaces: spacesSnapshot.spaces.map((s) => ({
-        id: s.id,
-        name: s.name,
-        ...(s.theme !== undefined ? { theme: s.theme } : {}),
-      })),
-      mountedSpaceIds: [...spacesSnapshot.mountedSpaceIds],
-      decks,
-      liveSessions,
-      cardCounts,
-    },
-    bandWidth: deck.getBandWidth(),
-    columnRunHeight: deck.getColumnRunHeight(),
-    railRunHeight: deck.getRailRunHeight(),
-    bindings: boundCards,
-    titles: titledCards,
-    identities: knownCards,
-    activities: reportedCards,
+    activeSpaceId: spacesSnapshot.activeSpaceId,
+    spaces: spacesSnapshot.spaces.map((s) => ({
+      id: s.id,
+      name: s.name,
+      ...(s.theme !== undefined ? { theme: s.theme } : {}),
+    })),
+    mountedSpaceIds: [...spacesSnapshot.mountedSpaceIds],
+    decks,
+    liveSessions,
+    cardCounts,
   };
+}
+
+/** `arrangement.cardFacts`: the title and live identity of every card the arrangement holds, and of no other. */
+export function projectArrangementCardFacts(
+  deck: ArrangementDeck,
+  titles: (cardId: string) => ArrangementTitle | null,
+  identities: (cardId: string) => CardIdentityFacts | null,
+): ArrangementCardFacts {
+  const cardIds = arrangementCardIds(deck);
+  return { titles: collect(cardIds, titles), identities: collect(cardIds, identities) };
 }
 
 /**
@@ -232,12 +140,7 @@ export function projectArrangement(
  * The pane-keyed marks that name it — the active pane, the bullseye, the
  * arrival — follow it.
  */
-export function arrangementSnapshot(
-  arrangement: BodyArrangement,
-  cardId: string,
-  bodyPaneId: string,
-): DeckState {
-  const deck = arrangement.deck;
+export function arrangementSnapshot(deck: DeckState, cardId: string, bodyPaneId: string): DeckState {
   const own = deck.panes.find((p) => p.cardIds.includes(cardId))?.id;
   if (own === undefined) return deck;
   const rekey = (id: string): string => (id === own ? bodyPaneId : id);

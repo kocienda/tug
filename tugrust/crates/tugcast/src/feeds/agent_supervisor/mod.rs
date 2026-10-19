@@ -9745,6 +9745,134 @@ mod tests {
         assert_eq!(ack["arc_id"], "arc-1");
     }
 
+    /// **A closed segment of the card's own line is another conversation,
+    /// not a reload.** A body restores its card's tip when it binds, so a
+    /// card that is then asked to resume an older segment of its line already
+    /// holds a bridge on that line. Re-holding it seated the card on the tip
+    /// it was leaving; the asked-for segment opens instead, on a bridge of its
+    /// own, and the one it replaces goes with every live row it held, so the
+    /// ack seats nothing newer over the segment the card resumed.
+    #[tokio::test]
+    async fn a_resume_of_a_closed_segment_of_the_line_supersedes_the_cards_bridge() {
+        let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        // The line as a rotation leaves it: the root, closed; the tip, live,
+        // and the bridge the card restored at bind running it.
+        ledger
+            .record_spawn("root", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("the root segment");
+        ledger.mark_closed("root").expect("closed");
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload_on_line("card-1", "tip", "line-1"),
+            10,
+        )
+        .await
+        .expect_handled();
+        ledger
+            .record_spawn("tip", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("the tip segment");
+        while control_rx.try_recv().is_ok() {}
+
+        sup.handle_control("spawn_session", &resume_payload("card-1", "root"), 10)
+            .await
+            .expect_handled();
+
+        {
+            let held = sup.ledger.lock().await;
+            assert_eq!(held.len(), 1, "one card, one bridge");
+            assert!(
+                held.contains_key(&TugSessionId::new("root")),
+                "and it is the segment the card asked for, not the tip it left",
+            );
+        }
+        assert_eq!(
+            ledger.get("tip").unwrap().expect("row").state,
+            crate::session_ledger::SessionState::Closed,
+            "the superseded tip no longer reads live, so nothing seats over the root",
+        );
+
+        let mut ack = None;
+        while let Ok(frame) = control_rx.try_recv() {
+            let v: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if v["action"] == "spawn_session_ok" {
+                ack = Some(v);
+            }
+        }
+        let ack = ack.expect("spawn_session_ok ack");
+        assert_eq!(ack["tug_session_id"], "root");
+        assert_ne!(ack["seated_session_id"], "tip", "the ack seats the segment resumed");
+    }
+
+    /// **And after a relaunch, where the segment already has an entry.** A
+    /// relaunch rebinds an idle entry for every row a card holds, so the
+    /// resume of the closed root finds its own key and used to take the
+    /// ordinary path past the line, leaving the tip's bridge running and its
+    /// row the line's newest live one: the ack seated the tip. The root's
+    /// entry is reused, and the running tip is retired first.
+    #[tokio::test]
+    async fn a_relaunched_resume_of_a_closed_segment_retires_the_running_tip() {
+        let (mut sup, _state_rx, _meta_rx, mut control_rx) = make_supervisor_with_store();
+        let ledger = Arc::new(crate::session_ledger::SessionLedger::open_in_memory().unwrap());
+        sup.session_ledger = Some(Arc::clone(&ledger));
+
+        ledger
+            .record_spawn("root", "ws", "/proj", "card-1", 1_000, "line-1", None)
+            .expect("the root segment");
+        ledger.mark_closed("root").expect("closed");
+        // The relaunch's rebind: an idle entry for the root, held by the card.
+        {
+            let entry = insert_ledger_entry(&sup, &TugSessionId::new("root")).await;
+            let mut guard = entry.lock().await;
+            guard.card_id = Some("card-1".to_owned());
+            guard.line_id = Some("line-1".to_owned());
+        }
+        // The bind-time restore of the tip, running.
+        sup.handle_control(
+            "spawn_session",
+            &spawn_payload_on_line("card-1", "tip", "line-1"),
+            10,
+        )
+        .await
+        .expect_handled();
+        ledger
+            .record_spawn("tip", "ws", "/proj", "card-1", 2_000, "line-1", None)
+            .expect("the tip segment");
+        {
+            let held = sup.ledger.lock().await;
+            let tip = held.get(&TugSessionId::new("tip")).cloned().expect("tip entry");
+            drop(held);
+            tip.lock().await.spawn_state = SpawnState::Live;
+        }
+        while control_rx.try_recv().is_ok() {}
+
+        sup.handle_control("spawn_session", &resume_payload("card-1", "root"), 10)
+            .await
+            .expect_handled();
+
+        {
+            let held = sup.ledger.lock().await;
+            assert!(held.contains_key(&TugSessionId::new("root")), "the root's entry is the one used");
+            assert!(!held.contains_key(&TugSessionId::new("tip")), "and the tip's bridge is gone");
+        }
+        assert_eq!(
+            ledger.get("tip").unwrap().expect("row").state,
+            crate::session_ledger::SessionState::Closed,
+        );
+        let mut ack = None;
+        while let Ok(frame) = control_rx.try_recv() {
+            let v: serde_json::Value = serde_json::from_slice(&frame.payload).unwrap();
+            if v["action"] == "spawn_session_ok" {
+                ack = Some(v);
+            }
+        }
+        let ack = ack.expect("spawn_session_ok ack");
+        assert_eq!(ack["tug_session_id"], "root");
+        assert_ne!(ack["seated_session_id"], "tip", "the ack seats the segment resumed");
+    }
+
     /// The second way in: the card asks under the name *claude* knows the
     /// conversation by, which a bridge records on its entry at `session_init`.
     #[tokio::test]

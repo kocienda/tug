@@ -5,6 +5,15 @@
 
 use super::*;
 
+/// What a resume does with a bridge the card already holds ([B03]).
+enum HeldBridge {
+    /// The bridge is running the conversation asked for: re-hold it.
+    Attach(TugSessionId),
+    /// The bridge is running another conversation of the card's line: retire
+    /// it, then open the one asked for.
+    Superseded(TugSessionId),
+}
+
 impl AgentSupervisor {
     /// Build a `SESSION_SIDEBAND` replay frame from the persisted ledger
     /// row, for a bind whose in-memory `latest_metadata` slot is empty.
@@ -236,30 +245,50 @@ impl AgentSupervisor {
     /// 2. an entry whose `claude_session_id` is the requested id — the card
     ///    asked under the name claude knows the conversation by;
     /// 3. an entry on the requested id's **line** held by the requesting
-    ///    card — the reload above.
+    ///    card — the reload above, which asks for the segment the bridge is
+    ///    running now and so finds that segment's row live.
     ///
     /// Only a resume can attach. A `mode=new` spawn is a line being born
     /// ([P03]) and has nothing to re-enter, so it is left to insert.
+    ///
+    /// A line match whose requested segment is **closed** is not a reload:
+    /// the card is opening another conversation of its own line — one its
+    /// bridge rotated past, or one a restore at bind put behind it — and
+    /// re-holding the bridge would seat it on the conversation it left. That
+    /// answers [`HeldBridge::Superseded`], and the spawn retires the card's
+    /// bridge before it opens the one asked for.
+    ///
+    /// The same holds when the asked-for segment already has an entry — the
+    /// idle one a relaunch rebinds for every row a card holds — while another
+    /// of the card's bridges is running on its line: the entry is reused, and
+    /// the running bridge is the one retired.
     async fn attachable_bridge_for(
         &self,
         requested: &TugSessionId,
         card_id: &str,
         line_id: Option<&str>,
-    ) -> Option<TugSessionId> {
+    ) -> Option<HeldBridge> {
         // A snapshot, so no entry is locked under the ledger lock. The window
         // it opens is the one every spawn already runs in: phase 1's
         // `entry().or_insert_with` is still the atomic decision, and this only
         // ever tells it a different key to ask about.
         let entries: Vec<(TugSessionId, Arc<Mutex<LedgerEntry>>)> = {
             let ledger = self.ledger.lock().await;
-            if ledger.contains_key(requested) {
-                return None;
-            }
             ledger
                 .iter()
                 .map(|(id, entry)| (id.clone(), entry.clone()))
                 .collect()
         };
+        let requested_has_entry = entries.iter().any(|(id, _)| id == requested);
+        // The requested segment's row: whether it is live decides a line
+        // match, and its line is the fallback for a payload that named none.
+        let row = self
+            .session_ledger
+            .as_ref()
+            .and_then(|l| l.get(&requested.0).ok().flatten());
+        let requested_closed = row
+            .as_ref()
+            .is_some_and(|row| row.state != crate::session_ledger::SessionState::Live);
         // The line the requested id belongs to: the one the payload named,
         // else the one the sessions ledger files that segment under. A reload
         // carries the line it is seating on, so the ledger read is the
@@ -267,20 +296,32 @@ impl AgentSupervisor {
         let line = line_id
             .map(str::to_owned)
             .filter(|id| !id.is_empty())
-            .or_else(|| {
-                self.session_ledger
-                    .as_ref()
-                    .and_then(|l| l.get(&requested.0).ok().flatten())
-                    .map(|row| row.line_id)
-                    .filter(|id| !id.is_empty())
-            });
+            .or_else(|| row.map(|row| row.line_id).filter(|id| !id.is_empty()));
         let mut by_line: Option<TugSessionId> = None;
         for (key, entry_arc) in entries {
+            if &key == requested {
+                continue;
+            }
             let entry = entry_arc.lock().await;
+            if requested_has_entry {
+                // The ordinary path: the requested id keys an entry, and
+                // there is nothing to re-point. Only a closed segment asks
+                // anything of the others — whether the card is running
+                // another conversation of its line that must go first.
+                if requested_closed
+                    && entry.card_id.as_deref() == Some(card_id)
+                    && line.is_some()
+                    && entry.line_id == line
+                    && matches!(entry.spawn_state, SpawnState::Spawning | SpawnState::Live)
+                {
+                    return Some(HeldBridge::Superseded(key));
+                }
+                continue;
+            }
             if entry.claude_session_id.as_deref() == Some(requested.as_str()) {
                 // The strongest match there is — the same conversation, named
                 // the way claude names it. Taken at once.
-                return Some(key);
+                return Some(HeldBridge::Attach(key));
             }
             if by_line.is_none()
                 && entry.card_id.as_deref() == Some(card_id)
@@ -290,7 +331,13 @@ impl AgentSupervisor {
                 by_line = Some(key);
             }
         }
-        by_line
+        by_line.map(|key| {
+            if requested_closed {
+                HeldBridge::Superseded(key)
+            } else {
+                HeldBridge::Attach(key)
+            }
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -334,7 +381,7 @@ impl AgentSupervisor {
                     .attachable_bridge_for(&tug_session_id, card_id, line_id.as_deref())
                     .await
                 {
-                    Some(held) => {
+                    Some(HeldBridge::Attach(held)) => {
                         tracing::info!(
                             target: "dev::session-lifecycle",
                             event = "spawn.attached_to_held_bridge",
@@ -344,6 +391,23 @@ impl AgentSupervisor {
                             "the card already hosts this session; re-holding its bridge",
                         );
                         held
+                    }
+                    Some(HeldBridge::Superseded(held)) => {
+                        // One card, one bridge, and the seat is the segment
+                        // asked for: the bridge and every live row the line
+                        // holds go before the asked-for conversation opens,
+                        // so nothing is left newer on the line to seat over it.
+                        tracing::info!(
+                            target: "dev::session-lifecycle",
+                            event = "spawn.superseded_held_bridge",
+                            card_id = card_id,
+                            requested = %tug_session_id,
+                            superseded = %held,
+                            "the card is opening another segment of its line; retiring its bridge",
+                        );
+                        self.close_card_session_keeping(card_id, &held, Some(&tug_session_id))
+                            .await;
+                        tug_session_id
                     }
                     None => tug_session_id,
                 }
