@@ -93,15 +93,15 @@ import type { TugConnection } from "../connection";
 import type { IDeckManagerStore } from "../deck-manager-store";
 import type { DeckState } from "../layout-tree";
 import { getResponderChainManager } from "../action-registry";
-import { answerBodyCommands, dispatchCommand } from "../command-dispatch";
-import { enterKeyViewWalk, getFocusManager } from "../components/tugways/focus-manager";
+import { answerBodyCommands } from "../command-dispatch";
+import { enterKeyViewWalk, getFocusManager } from "./active-focus-manager";
 import { TUG_ACTIONS } from "./action-vocabulary";
 import { setKeyboardYield } from "./keyboard-yield";
 import { getOnScreenTheme, subscribeOnScreenTheme } from "../contexts/theme-provider";
 import { cardArrivingOf, cardFoldedOf } from "../deck-store-selectors";
 import { keyboardAccessStore } from "../keyboard-access-store";
 import { focusRingModalityStore } from "../focus-ring-modality-store";
-import { heldModifiers, subscribeModifierLatch } from "../components/tugways/modifier-latch";
+import { heldModifiers, subscribeModifierLatch } from "./modifier-latch";
 import { projectDeckState } from "./host-menu-state";
 import { focusTravelDirections } from "./directional-focus";
 import { bodyCardsStore } from "./body-cards-store";
@@ -114,11 +114,12 @@ import { registerCardFoldGuard } from "./card-fold";
 import { cardSessionBindingStore, shareCardBinding } from "./card-session-binding-store";
 import { cardTitleStore } from "./card-title-store";
 import { CARDS_CARD_ID } from "./cards-card-id";
-import { cardsSpaceVerbRequest } from "@/components/cards/cards-space-verb-request";
+import { cardsSpaceVerbRequest } from "./cards-space-verb-request";
 import { requestLogout } from "./logout-store";
 import { ShellSurfaceDrawer } from "./shell-surface";
 import { askCloseDecision, withdrawCloseDecision } from "./close-decision";
-import { pageBus } from "../bus/page-bus";
+import { closeRefusalStore } from "./close-refusal-store";
+import { pageBus, type PageBus } from "../bus/page-bus";
 import { installKeyCardRoute } from "../bus/command-route";
 import {
   appLogout,
@@ -178,9 +179,9 @@ import { pageZoomStore } from "./page-zoom-store";
 import { bodyChordCaptureStore } from "./body-chord-capture-store";
 import { sheetReservationMemberIdOf } from "./sheet-reservation";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
-import { getRegistration, isSidebarCard, type CardIdentityFacts } from "../card-registry";
+import { getRegistration, isSidebarCard } from "../card-registry";
 import { cardIdentityElsewhere, liveCardIdentity } from "./card-identity";
-import { paneTitleBarItemsStore, type PaneTitleBarItem } from "./pane-title-bar-items-store";
+import { paneTitleBarItemsStore } from "./pane-title-bar-items-store";
 import { isSidebarPinned, sidebarSide, type SidebarSide } from "./layout-imposer";
 import {
   projectActivities,
@@ -218,7 +219,7 @@ import { appInfoStore } from "./app-info-store";
 import { registerSettingsRevealConsumer } from "./settings-reveal";
 import { frontmostProjectBinding } from "./frontmost-project";
 import { motionBreaker } from "./motion-guard/breaker";
-import { holdOverviewDraftInShell } from "../components/overview/overview-composer-draft";
+import { holdOverviewDraftInShell } from "./overview-composer-draft";
 import { CROSSING_FRAME_ATTRS, crossingMirrorOf } from "./fold-crossing";
 import type { TugDevLogEntry } from "./tug-dev-log-store/types";
 
@@ -381,6 +382,53 @@ function readDeckMenu(deck: IDeckManagerStore): DeckMenuValue {
   };
 }
 
+/** The shell's gate on showing a body: {@link createBodyPaintGate}. */
+export interface BodyPaintGate {
+  /** The host composited the card's first frame. */
+  hostPainted(cardId: string): void;
+  /** The card's page is gone: its host half no longer stands. */
+  forget(cardId: string): void;
+  dispose(): void;
+}
+
+/**
+ * When a body card may be shown: once the host has composited its first
+ * frame, `card.painted` has arrived, and `card.facts` has arrived. The
+ * facts are waited on here rather than trusted to arrive first, so the
+ * order snapshots reach the shell in never decides when a body is shown
+ * under chrome its facts are still on their way to change — a Session
+ * card's masthead grows the title bar by 52 pt (`at0738-body-arrival`).
+ * Reads the stores on `bus`, the shell's page bus.
+ */
+export function createBodyPaintGate(bus: PageBus, markPainted: (cardId: string) => void): BodyPaintGate {
+  /** Cards the host has painted, still waiting on the bus's half. */
+  const waiting = new Set<string>();
+  const painted = cardPainted.on(bus);
+  const facts = cardFacts.on(bus);
+  const check = (cardId: string): void => {
+    if (!waiting.has(cardId) || !painted.getFor(cardId) || !facts.arrived(cardId)) return;
+    waiting.delete(cardId);
+    markPainted(cardId);
+  };
+  const checkAll = (): void => {
+    for (const cardId of [...waiting]) check(cardId);
+  };
+  const releases = [painted.subscribe(checkAll), facts.subscribe(checkAll)];
+  return {
+    hostPainted(cardId) {
+      waiting.add(cardId);
+      check(cardId);
+    },
+    forget(cardId) {
+      waiting.delete(cardId);
+    },
+    dispose() {
+      for (const release of releases) release();
+      waiting.clear();
+    },
+  };
+}
+
 /**
  * Wire the shell to its bodies. Called once from the deck's boot, after the
  * deck exists; a no-op when the host makes no bodies. Returns the uninstall.
@@ -415,17 +463,14 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
    */
   const takesCommands = attachedBody;
   /**
-   * The body cards whose first frame the host has composited. The card is
-   * `painted` to the placer only once the host has said so and the card's
-   * `card.painted` has arrived — set behind the facts that frame was drawn
-   * with — so a body is never shown under chrome its facts are still on
-   * their way to change: a Session card's masthead, which grows the title
-   * bar by 52 pt (`at0738-body-arrival`).
+   * The card is `painted` to the placer only once the host has composited
+   * its first frame and both `card.painted` and `card.facts` have arrived
+   * ({@link createBodyPaintGate}).
    */
-  const hostPainted = new Set<string>();
-  const notePaint = (cardId: string): void => {
-    if (hostPainted.has(cardId) && cardPainted.getFor(cardId)) bodyCardsStore.setState(cardId, "painted");
-  };
+  const paintGate = createBodyPaintGate(bus, (cardId) => bodyCardsStore.setState(cardId, "painted"));
+  releases.push(() => paintGate.dispose());
+  // A close decision the body did not answer flashes its pane; the banner is the placeholder's.
+  releases.push(closeRefusalStore.onRefuse((cardId) => flashCardPane(deck, cardId)));
   /** The member each card's sheet reservation was claimed under. */
   const reservedUnder = new Map<string, string>();
   /** Each body card's deck-scope surface, drawn over the deck. */
@@ -469,7 +514,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
     perCard.get(cardId)?.();
     perCard.delete(cardId);
     reservedUnder.delete(cardId);
-    hostPainted.delete(cardId);
+    paintGate.forget(cardId);
+    closeRefusalStore.clear(cardId);
     surfaces.remove(cardId);
     closeGuards.get(cardId)?.();
     closeGuards.delete(cardId);
@@ -1131,9 +1177,6 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   watchCardStore(cardHolds, applyHolds);
   watchCardStore(cardReservations, applyReservations);
   watchCardStore(cardSurface, (cardId, surface: ShellSurface | null) => surfaces.draw(cardId, surface));
-  watchCardStore(cardPainted, (cardId, painted) => {
-    if (painted) notePaint(cardId);
-  });
 
   /** The body card a verb came from, when it is one this shell holds. */
   const fromBody = (from: { cardId: string | null }): string | null =>
@@ -1216,9 +1259,8 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         return;
       case "painted":
         // Its first frame of content is composited; the placer may show it
-        // once the bus has said so too, behind the facts the frame drew.
-        hostPainted.add(cardId);
-        notePaint(cardId);
+        // once the bus has said so too, and the facts the frame drew are in.
+        paintGate.hostPainted(cardId);
         return;
       case "shown":
         // The host's container is placed, opaque and drawn: the lid lifts.
@@ -1247,7 +1289,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         // The page that would have answered a close decision is gone, and
         // the detach cancels it; a question it showed is shown again.
         bus.detach(cardId);
-        hostPainted.delete(cardId);
+        paintGate.forget(cardId);
         return;
       case "failed": {
         // The host has destroyed the body. The card stays a body card —
@@ -1261,7 +1303,7 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
         bus.detach(cardId);
         bus.forgetCard(cardId);
         seedCard(cardId);
-        hostPainted.delete(cardId);
+        paintGate.forget(cardId);
         bodyCardsStore.setState(cardId, "failed");
         const attempts = (failures.get(cardId) ?? 0) + 1;
         failures.set(cardId, attempts);
@@ -1355,13 +1397,21 @@ export function installBodyShell(connection: TugConnection, deck: IDeckManagerSt
   // on the key card's own title bar changes nothing in the deck, so the
   // subscription above posts nothing. After the gesture lands, the keyboard
   // goes back to the body if the shell has yielded it.
+  let pointerUpTimer: number | null = null;
   const onShellPointerUp = (): void => {
-    window.setTimeout(() => {
+    if (pointerUpTimer !== null) window.clearTimeout(pointerUpTimer);
+    pointerUpTimer = window.setTimeout(() => {
+      pointerUpTimer = null;
       if (keyboardBody() !== null && !shellAheadNow()) postFocus(true);
     }, 0);
   };
   window.addEventListener("pointerup", onShellPointerUp, true);
-  releases.push(() => window.removeEventListener("pointerup", onShellPointerUp, true));
+  releases.push(() => {
+    window.removeEventListener("pointerup", onShellPointerUp, true);
+    // The uninstall leaves no timer behind to post into a shell that is gone.
+    if (pointerUpTimer !== null) window.clearTimeout(pointerUpTimer);
+    pointerUpTimer = null;
+  });
 
   // The key card's commands, and the shell's walk off the end of its own
   // stops: the route (`bus/command-route.ts`) hands each to the key card's

@@ -15,7 +15,11 @@
  *   re-notifies, so snapshots stay reference-stable for
  *   `useSyncExternalStore`.
  * - **Snapshot on attach.** When a peer says hello the owner sends it the
- *   current value before anything held for it.
+ *   current value before anything held for it, and after the snapshots of
+ *   the stores the declaration names in `after`.
+ * - **Only the owner speaks for the value.** A replica takes a snapshot only
+ *   from the owner's role, and the shell takes a card's value only from that
+ *   card's own page, so no body writes a sibling's replica ([L38]).
  * - **Write-back.** A store declared with `proposals` lets a replica
  *   `propose(patch)`: the replica shows the patch at once, the owner's
  *   `onProposal` applies or refuses it, and the owner republishes after every
@@ -34,7 +38,7 @@ import type { BusFrom, EnvelopeIn, EnvelopeOut } from "./envelope";
 import { INVALID, type Codec } from "./codec";
 import { recordDeclaration } from "./declared";
 import { jsonEqual } from "./equal";
-import { bindEveryPageBus, pageBus, type PageBus, type PeerTarget } from "./page-bus";
+import { bindEveryPageBus, pageBus, thrownText, type PageBus, type PeerTarget } from "./page-bus";
 
 export type StoreOwner = "shell" | "card";
 export type StoreScope = { deck: true } | { card: true } | { kinds: (componentId: string) => boolean };
@@ -52,6 +56,12 @@ export interface SharedStoreDeclaration<T, P = never> {
   proposals?: Codec<P>;
   /** How a replica shows its own patch before the owner answers. Default: the patch is the new value. */
   applyProposal?: (prev: T, patch: P) => T;
+  /**
+   * Stores whose snapshot a peer that attaches is sent before this one's.
+   * Declare the order a reader relies on here, rather than leave it to the
+   * order the declaration modules happen to be imported in.
+   */
+  after?: readonly { readonly kind: "store"; readonly key: string }[];
 }
 
 /** A store as one page reads and writes it. */
@@ -107,11 +117,20 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
   const listeners = new Set<() => void>();
   let proposalHandler: ((patch: P, from: BusFrom) => void) | null = null;
   let nextProposal = 0;
-  /** While an owner handles a proposal: whether its handler already published. */
-  let publishedDuringProposal = false;
+  /** While an owner handles a proposal: the entry keys its handler already published. */
+  const publishedDuringProposal = new Set<string>();
+  /** The owner: the card each proposing replica page shows, so its ack goes when the card does. */
+  const proposerCard = new Map<string, string>();
 
+  // Each subscriber fails alone: one React subscriber that throws must not starve the next.
   const notify = (): void => {
-    for (const l of [...listeners]) l();
+    for (const l of [...listeners]) {
+      try {
+        l();
+      } catch (error) {
+        bus.log.warn("bus", `${d.key}: a subscriber threw; the others still run`, { error: thrownText(error) });
+      }
+    }
   };
 
   const entry = (key: string): Entry<T> => {
@@ -144,7 +163,7 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
   };
 
   const publish = (key: string, e: Entry<T>): void => {
-    publishedDuringProposal = true;
+    publishedDuringProposal.add(key);
     if (cardScoped) {
       const to: PeerTarget = d.owner === "shell" ? { card: key } : "shell";
       bus.post(snapshot(to, key, e), { coalesce: `${d.key}:${key}` });
@@ -230,6 +249,10 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
 
   const receiveSnapshot = (delivered: EnvelopeIn): void => {
     if (isOwner()) return;
+    if (delivered.from.role !== ownerRole) {
+      bus.log.warn("bus", `${d.key}: a snapshot from a page that does not own it; refused`, { from: delivered.from });
+      return;
+    }
     const value = d.codec.decode(delivered.payload);
     if (value === INVALID) {
       bus.log.warn("bus", `${d.key}: a snapshot its codec refuses; dropped`, { from: delivered.from });
@@ -242,6 +265,14 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
         return;
       }
       if (bus.page.role === "body" && delivered.card !== bus.page.cardId) return;
+      // The shell takes a card's value only from that card's own page.
+      if (bus.page.role === "shell" && delivered.card !== delivered.from.cardId) {
+        bus.log.warn("bus", `${d.key}: a snapshot for a card its sender does not show; refused`, {
+          from: delivered.from,
+          card: delivered.card,
+        });
+        return;
+      }
       key = delivered.card;
     }
     const version = typeof delivered.version === "number" ? delivered.version : 0;
@@ -279,7 +310,8 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
     }
     const e = entry(key);
     if (typeof delivered.proposal === "number") e.acks[delivered.from.pageId] = delivered.proposal;
-    publishedDuringProposal = false;
+    if (delivered.from.cardId !== null) proposerCard.set(delivered.from.pageId, delivered.from.cardId);
+    publishedDuringProposal.clear();
     const patch = d.proposals.decode(delivered.payload);
     if (patch === INVALID) {
       bus.log.warn("bus", `${d.key}: a proposal its codec refuses; refused`, { from: delivered.from });
@@ -287,7 +319,8 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
       proposalHandler(patch, delivered.from);
     }
     // Every handled proposal is answered, applied or not, so the replica's ack arrives.
-    if (!publishedDuringProposal) {
+    // A handler that published only other entries has not answered this one.
+    if (!publishedDuringProposal.has(key)) {
       e.version += 1;
       e.arrived = true;
       publish(key, e);
@@ -297,23 +330,32 @@ function bindStore<T, P>(d: SharedStoreDeclaration<T, P>, bus: PageBus): StoreVi
   bus.route("state", d.key, receiveSnapshot);
   bus.route("action", d.key, receiveProposal);
 
-  bus.onPeerHello((peer) => {
-    if (!isOwner()) return;
-    if (peer === "shell") {
-      // A body's own card value, to the shell.
-      if (!cardScoped || d.owner !== "card" || bus.page.cardId === null) return;
-      const e = entries.get(bus.page.cardId);
-      if (e !== undefined && e.version > 0) bus.post(snapshot("shell", bus.page.cardId, e));
-      return;
-    }
-    const key = cardScoped ? peer.card : DECK;
-    const e = entries.get(key);
-    if (e === undefined || e.version === 0) return;
-    if (kinds !== null && !admits(peer.card)) return;
-    bus.post(snapshot({ card: peer.card }, key, e));
-  });
+  bus.onPeerHello(
+    (peer) => {
+      if (!isOwner()) return;
+      if (peer === "shell") {
+        // A body's own card value, to the shell.
+        if (!cardScoped || d.owner !== "card" || bus.page.cardId === null) return;
+        const e = entries.get(bus.page.cardId);
+        if (e !== undefined && e.version > 0) bus.post(snapshot("shell", bus.page.cardId, e));
+        return;
+      }
+      const key = cardScoped ? peer.card : DECK;
+      const e = entries.get(key);
+      if (e === undefined || e.version === 0) return;
+      if (kinds !== null && !admits(peer.card)) return;
+      bus.post(snapshot({ card: peer.card }, key, e));
+    },
+    { name: `store:${d.key}`, after: d.after?.map((s) => `store:${s.key}`) },
+  );
 
   bus.onCardGone((cardId, forgotten) => {
+    // A replica page that is gone acknowledges nothing more: its acks leave every snapshot.
+    for (const [pageId, card] of [...proposerCard]) {
+      if (card !== cardId) continue;
+      proposerCard.delete(pageId);
+      for (const e of entries.values()) delete e.acks[pageId];
+    }
     if (!cardScoped || !entries.has(cardId)) return;
     if (forgotten || (!isOwner() && d.clearOnDetach === true)) {
       entries.delete(cardId);

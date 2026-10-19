@@ -151,11 +151,6 @@ const AT_LIVE_EDGE = `(function () {
   return el.scrollHeight - el.clientHeight - el.scrollTop <= 4;
 })()`;
 
-const BUTTON_VISIBLE = `(function () {
-  var b = document.querySelector('${JUMP_BUTTON}');
-  return b !== null && b.getAttribute("data-visible") === "true";
-})()`;
-
 const BUTTON_HIDDEN = `(function () {
   var b = document.querySelector('${JUMP_BUTTON}');
   return b === null || b.getAttribute("data-visible") !== "true";

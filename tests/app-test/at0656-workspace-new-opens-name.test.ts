@@ -33,7 +33,7 @@
  * path runs through: the request store New hands the verb to, and the header
  * whose field it opens.
  *
- * @covers tugdeck/src/components/cards/cards-space-verb-request.ts
+ * @covers tugdeck/src/lib/cards-space-verb-request.ts
  * @covers tugdeck/src/components/cards/cards-space-header.tsx
  */
 

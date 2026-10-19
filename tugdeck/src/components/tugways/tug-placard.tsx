@@ -65,7 +65,8 @@ import { X } from "lucide-react";
 
 import { TugButton } from "@/components/tugways/internal/tug-button";
 import { cn } from "@/lib/utils";
-import { layoutPxOf, layoutRectOf } from "@/lib/page-zoom-store";
+import { layoutPxOf } from "@/lib/page-zoom-store";
+import { applyAvailableHeight } from "@/lib/placard-available-height";
 import { isCancelChordEvent } from "./keymap-registry";
 import {
   clampOffsetFraction,
@@ -89,9 +90,6 @@ const RIGHT_INSET = DRAG_INSET + 12;
 
 /** Default horizontal fraction when no position has been saved: right-aligned. */
 const DEFAULT_FRACTION = 1;
-
-/** Inset (px) kept short of the edge the guard measures toward. */
-const AVAILABLE_EDGE_INSET = 8;
 
 /**
  * Horizontal travel available to the panel: the container's inner width
@@ -176,36 +174,9 @@ export interface TugPlacardProps {
   "aria-label"?: string;
 }
 
-/**
- * Write `--radix-popover-content-available-height` onto the placard from the
- * gap between its anchored edge and the edge it grows toward, so a composed
- * `TugPopupList` scroller never overflows ([R01]). The anchored edge is the one
- * the caller's CSS pins (`bottom:` upward, `top:` downward), so this value is
- * stable across height changes and cannot feed a layout loop.
- */
-export function applyAvailableHeight(
-  panel: HTMLDivElement,
-  growth: TugPlacardGrowth,
-  boundEl: HTMLElement | null | undefined,
-): void {
-  // Layout px throughout: the value is a CSS length, and the window and the
-  // rects are divided by the zoom to meet it.
-  const box = layoutRectOf(panel);
-  const windowBottom = layoutPxOf(window.innerHeight);
-  // The bound's edge in the growth direction — but never past the window,
-  // which the bound (a canvas taller than the window, scrolled) can be.
-  const bound = boundEl == null ? null : layoutRectOf(boundEl);
-  const floor = bound === null ? windowBottom : Math.min(bound.bottom, windowBottom);
-  const ceiling = bound === null ? 0 : Math.max(bound.top, 0);
-  const available =
-    growth === "down"
-      ? Math.max(0, floor - box.top - AVAILABLE_EDGE_INSET)
-      : Math.max(0, box.bottom - ceiling - AVAILABLE_EDGE_INSET);
-  panel.style.setProperty(
-    "--radix-popover-content-available-height",
-    `${available}px`,
-  );
-}
+// The height guard is shared with the shell's drawn surface, so it lives in
+// `lib/placard-available-height.ts`; re-exported here.
+export { applyAvailableHeight };
 
 /**
  * Place the placard's `left` imperatively. Repositionable placards derive it

@@ -7,7 +7,8 @@
  * @covers tugdeck/src/lib/body-facts-store.ts
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { cardFacts, cardHolds, NO_CARD_HOLDS, type CardFactsValue } from "../../bus/declarations/card";
+import { cardContent, cardFacts, cardHolds, NO_CARD_HOLDS, type CardFactsValue } from "../../bus/declarations/card";
+import { _pageBusBinderCountForTest } from "../../bus/page-bus";
 import { createTestBus, type TestBus, type TestPage } from "../../bus/test-bus";
 import type { CardMastheadPayload } from "../card-title-store";
 import { BodyFactsStore } from "../body-facts-store";
@@ -26,7 +27,11 @@ function facts(over: Partial<CardFactsValue> = {}): CardFactsValue {
 }
 
 let bus: TestBus;
-afterEach(() => bus?.dispose());
+const made: BodyFactsStore[] = [];
+afterEach(() => {
+  for (const store of made.splice(0)) store.dispose();
+  bus?.dispose();
+});
 
 async function setup(): Promise<{ store: BodyFactsStore; a: TestPage; b: TestPage }> {
   bus = createTestBus();
@@ -34,7 +39,9 @@ async function setup(): Promise<{ store: BodyFactsStore; a: TestPage; b: TestPag
   const a = bus.body("a", "session");
   const b = bus.body("b", "session");
   await bus.flush();
-  return { store: new BodyFactsStore(() => shell.bus), a, b };
+  const store = new BodyFactsStore(() => shell.bus);
+  made.push(store);
+  return { store, a, b };
 }
 
 describe("facts", () => {
@@ -96,5 +103,32 @@ describe("holds", () => {
     const { store } = await setup();
     expect(store.get("a")).toBe(store.get("never"));
     expect(store.factsOf("a")).toBe(null);
+  });
+});
+
+describe("release", () => {
+  test("a store disposed leaves no binder behind and is notified of nothing after", async () => {
+    const before = _pageBusBinderCountForTest();
+    const { store, a } = await setup();
+    expect(_pageBusBinderCountForTest()).toBe(before + 1);
+    let heard = 0;
+    store.subscribe(() => heard++);
+
+    store.dispose();
+    expect(_pageBusBinderCountForTest()).toBe(before);
+    cardFacts.on(a.bus).set(facts({ activity: "streaming" }));
+    await bus.flush();
+    expect(heard).toBe(0);
+  });
+
+  test("a body setting card.content notifies the store's readers", async () => {
+    const { store, a } = await setup();
+    let heard = 0;
+    store.subscribe(() => heard++);
+
+    cardContent.on(a.bus).set({ content: 400, shown: 300 });
+    await bus.flush();
+    expect(heard).toBeGreaterThan(0);
+    expect(store.contentOf("a")).toEqual({ content: 400, shown: 300 });
   });
 });

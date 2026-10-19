@@ -41,6 +41,16 @@ const selection = defineSharedStore<Selection, Selection>({
   proposals: obj({ ids: arr(str) }),
 });
 const nudge = defineAction({ id: "test.store.nudge", owner: "card", codec: num });
+// Declared in the reverse of the order a peer must hear them, as a reordered import would bind them.
+const shownLate = defineSharedStore({
+  key: "test.store.shownLate",
+  owner: "card",
+  scope: { card: true },
+  codec: num,
+  initial: 0,
+  after: [{ kind: "store", key: "test.store.factsFirst" }],
+});
+const factsFirst = defineSharedStore({ key: "test.store.factsFirst", owner: "card", scope: { card: true }, codec: str, initial: "" });
 
 describe("deck scope", () => {
   test("a shell-owned deck store reaches two bodies; a late body gets the snapshot before anything held for it", async () => {
@@ -292,5 +302,102 @@ describe("codecs at the receiver", () => {
     const c = opaque((v): v is { x: 1 } => typeof v === "object" && v !== null && (v as { x?: unknown }).x === 1, { x: 1 });
     expect(c.decode({ x: 1 })).toEqual({ x: 1 });
     expect(c.decode({ x: 2 })).toBe(INVALID);
+  });
+});
+
+describe("only the owner speaks for the value", () => {
+  test("a body cannot move a sibling's replica of a shell-owned store, and the refusal is logged", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const b1 = bus.body("c1");
+    const b2 = bus.body("c2");
+    await bus.flush();
+    theme.on(shell.bus).set("ironclad");
+    await bus.flush();
+
+    b1.bus.post({ to: { page: b2.pageId }, kind: "state", key: "test.store.theme", version: 99, payload: "forged" });
+    await bus.flush();
+
+    expect(theme.on(b2.bus).getSnapshot()).toBe("ironclad");
+    expect(b2.log.some((l) => l.level === "warn" && l.message.includes("test.store.theme") && l.message.includes("refused"))).toBe(true);
+  });
+
+  test("a body cannot write another card's value in the shell, and the refusal is logged", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const b1 = bus.body("c1");
+    const b2 = bus.body("c2");
+    await bus.flush();
+    title.on(b2.bus).set("Two");
+    await bus.flush();
+
+    b1.bus.post({ to: "shell", kind: "state", key: "test.store.title", card: "c2", version: 99, payload: "forged" });
+    await bus.flush();
+
+    expect(title.on(shell.bus).getFor("c2")).toBe("Two");
+    expect(shell.log.some((l) => l.level === "warn" && l.message.includes("test.store.title") && l.message.includes("refused"))).toBe(true);
+  });
+});
+
+describe("attach order is declared", () => {
+  test("a store bound before another it names in `after` is still snapshotted after it on attach", async () => {
+    bus = createTestBus();
+    const body = bus.body("c1");
+    shownLate.on(body.bus).set(1);
+    factsFirst.on(body.bus).set("facts");
+    await bus.flush();
+    bus.shell();
+    await bus.flush();
+
+    const keys = bus
+      .frames()
+      .filter((f) => f.envelope.kind === "state" && f.from === body.pageId)
+      .map((f) => f.envelope.key);
+    expect(keys.indexOf("test.store.factsFirst")).toBeGreaterThanOrEqual(0);
+    expect(keys.indexOf("test.store.factsFirst")).toBeLessThan(keys.indexOf("test.store.shownLate"));
+  });
+});
+
+describe("the ack record is exact", () => {
+  test("a proposal whose handler publishes only a different card's entry is still acknowledged, and the proposer settles", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const b1 = bus.body("c1", "cards");
+    bus.body("c2", "cards");
+    await bus.flush();
+    selection.on(shell.bus).setFor("c1", { ids: ["a"] });
+    await bus.flush();
+    // The handler refuses c1's patch, and moves c2 instead.
+    selection.on(shell.bus).onProposal(() => selection.on(shell.bus).setFor("c2", { ids: ["other"] }));
+
+    selection.on(b1.bus).propose({ ids: ["x"] });
+    expect(selection.on(b1.bus).getSnapshot()).toEqual({ ids: ["x"] });
+    await bus.flush();
+
+    expect(selection.on(b1.bus).getSnapshot()).toEqual({ ids: ["a"] });
+    expect(selection.on(shell.bus).getFor("c2")).toEqual({ ids: ["other"] });
+  });
+
+  test("a replica page that detaches leaves the owner's ack record", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const first = bus.body("c1", "cards");
+    await bus.flush();
+    selection.on(shell.bus).setFor("c1", { ids: ["a"] });
+    selection.on(shell.bus).onProposal((patch) => selection.on(shell.bus).setFor("c1", patch));
+    selection.on(first.bus).propose({ ids: ["b"] });
+    await bus.flush();
+
+    bus.detach("c1");
+    bus.body("c1", "cards");
+    await bus.flush();
+
+    const acks = bus
+      .frames()
+      .filter((f) => f.envelope.kind === "state" && f.envelope.key === "test.store.selection")
+      .map((f) => f.envelope.ack ?? {});
+    const last = acks[acks.length - 1];
+    expect(Object.keys(acks[acks.length - 2] ?? {})).toContain(first.pageId);
+    expect(Object.keys(last)).not.toContain(first.pageId);
   });
 });

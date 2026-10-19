@@ -50,7 +50,7 @@
  * so it carries no `@foreground`.
  *
  * @covers tugdeck/src/lib/pending-ask-store.ts
- * @covers tugdeck/src/lib/ask-forwarder.ts
+ * @covers tugdeck/src/bus/declarations/verbs.ts
  * @covers tugdeck/src/components/tugways/chrome/session-app-test-ask-dialog.tsx
  * @covers tugdeck/src/components/tugways/chrome/session-app-test-ask-dialog.css
  * @covers tugdeck/src/lib/code-session-store/lifecycle-state.ts

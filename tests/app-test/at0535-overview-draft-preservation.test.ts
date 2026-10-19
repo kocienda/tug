@@ -39,7 +39,7 @@
  *     picture sendable rather than a reserved slot.
  *
  * @covers tugdeck/src/components/overview/overview-card.tsx
- * @covers tugdeck/src/components/overview/overview-composer-draft.ts
+ * @covers tugdeck/src/lib/overview-composer-draft.ts
  * @covers tugdeck/src/lib/composer-draft-payload.ts
  */
 

@@ -86,7 +86,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, realpathSync, writeFileSync } from "node:fs";
+import { realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { launchTugApp, note, type App } from "./_harness";
@@ -100,10 +100,8 @@ import {
   createArc,
   arcBriefPath,
   arcTasksPath,
-  arcWorktreePath,
   disarmAutoreplay,
   fixturePlanDocument,
-  gitRetry,
   makeArcScratchRepo,
   rmArcScratchRepo,
   rmScratchSession,
@@ -123,42 +121,6 @@ const SID_PLANNED = "a7c0d1ea-0000-4000-8000-000000000505";
 
 const CARD = '[data-card-id="A"]';
 const PROMPT_INPUT = `${CARD} [data-slot="tug-text-editor"] .cm-content`;
-const STAGE_DIVIDERS = `${CARD} [data-boundary="stage"]`;
-const MASTHEAD_ARC =
-  '[data-slot="session-masthead"] [data-slot="session-identity-arc"]';
-/** The Z2 ARC cell — the placard the incident blanked. */
-const Z2_ARC_VALUE = `${CARD} [data-slot="tug-status-cell"][data-priority="tasks"] [data-slot="session-telemetry-arc-value"]`;
-
-/**
- * **Whether the deck moves the card's seat onto the segment a rotation
- * created — which since W7 it does.**
- *
- * This is the postmortem's own symptom, still standing after W1-W5, and this
- * file is what found it. The server side is entirely correct and is asserted
- * unconditionally above: the wheel mints the segment, `seat_line_binding`
- * moves the arc onto it, and `arc bind --dry-run` run with the card's
- * spawn-time id reports `rotated: true` and resolves to it. What does not
- * happen was the *deck* reading any of it. The row push that announces the
- * fresh segment carries its `(session_id, line_id)` pair and the deck has
- * always seated its line store on it — but the card's *seat* was never asked
- * for: `cardLineFacts` answered the card's binding `tugSessionId`, which is
- * the card's **address** and must not move (its `CardServices` bag is built
- * around it, and every frame it sends is stamped with it). So the seat is
- * derived — card → line → the line's current segment — and the arc lookup
- * every identity surface makes walks the same way on a miss. The masthead's
- * `^<arc>` sigil and the Z2 ARC cell were one lookup failing twice.
- *
- * The constant stays rather than being deleted with the defect: it is what
- * says the assertions below it are the postmortem's own screen, and flipping
- * it back is the one-line way to re-pin this file if the seat is ever lost
- * again. It was `false` for exactly one workstream — W6 found the defect here
- * and W7 closed it — and a run still says which reading it took.
- */
-const DECK_SEAT_FOLLOWS_A_ROTATION = true;
-
-/** Said either way, so a green run states the claim as loudly as a red one. */
-const DECK_SEAT_NOTE =
-  "the deck moves the card onto the segment the wheel seated";
 
 const PLAIN_ARC = "at0504-plain";
 const PLANNED_ARC = "at0504-planned";
@@ -278,45 +240,6 @@ async function waitForRotation(name: string): Promise<ArcReading> {
     }
     await new Promise((r) => setTimeout(r, 1_000));
   }
-}
-
-/**
- * `arc bind --dry-run --json`, run with `stale` in the environment.
- *
- * From **node**, not from the card's `$` route, and that is the whole point:
- * the `$` route stamps the session id the card holds *now*, and the id the
- * incident was about is the one a process born before the rotation is still
- * carrying. `--dry-run` is the reading that shows the resolution and writes
- * nothing, so the assertion costs the binding nothing.
- */
-function bindDryRun(
-  name: string,
-  stale: string,
-): {
-  posted_session_id: string;
-  tug_session_id: string;
-  state: string | null;
-  line_id: string | null;
-  rotated: boolean;
-  resolved: boolean;
-} {
-  const out = JSON.parse(
-    tugtool(["arc", "bind", name, "--dry-run", "--json"], {
-      cwd: projectDir(),
-      binaryRoot: CHECKOUT,
-      env: { ...scratch?.cli.env, TUG_SESSION_ID: stale },
-    }),
-  ) as {
-    data: {
-      posted_session_id: string;
-      tug_session_id: string;
-      state: string | null;
-      line_id: string | null;
-      rotated: boolean;
-      resolved: boolean;
-    };
-  };
-  return out.data;
 }
 
 describe.skipIf(!SHOULD_RUN)("AT0504: a rotation the work does not notice", () => {

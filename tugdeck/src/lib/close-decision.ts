@@ -4,16 +4,19 @@
  * A body card's close guard runs in its body, where its sheet comes up in
  * the card it concerns; the shell's close gesture asks it as the
  * `card.closeDecision` request and waits. A guard that said it would ask
- * waits on the person at its sheet, with no deadline. One that said it
- * would not answers at once, so a body silent past the deadline is not
- * answering, and the close is cancelled and logged rather than left
- * pending. A body that goes away cancels it, and so does a newer ask of the
- * same card.
+ * waits on the person at its sheet, with no deadline ([L33]'s person-exit:
+ * the sheet is the exit, and a deadline would be on the person). One that
+ * said it would not answers at once, so a body silent past the deadline is
+ * not answering: the close is cancelled, and the card's pane says so
+ * (`close-refusal-store.ts`) beside the dev-log line, rather than the close
+ * silently not happening. A body that goes away cancels it, and so does a
+ * newer ask of the same card.
  *
  * @module lib/close-decision
  */
 
 import { CLOSE_DECISION_EXIT, CLOSE_DECISION_MS, cardCloseDecision } from "../bus/declarations/verbs";
+import { closeRefusalStore } from "./close-refusal-store";
 import { tugDevLogStore } from "./tug-dev-log-store/tug-dev-log-store";
 
 /** The decision standing for each card, by its request id. */
@@ -29,6 +32,8 @@ export async function askCloseDecision(
   deadlineMs: number = CLOSE_DECISION_MS,
 ): Promise<"close" | "cancel"> {
   withdrawCloseDecision(cardId);
+  // Asking again is the answer to a refusal that stood.
+  closeRefusalStore.clear(cardId);
   const pending = cardCloseDecision.ask(
     {},
     { card: cardId, horizon: asks ? { person: CLOSE_DECISION_EXIT } : { ms: deadlineMs } },
@@ -39,6 +44,7 @@ export async function askCloseDecision(
   if (result.ok) return result.value.answer;
   if (result.reason === "timeout") {
     tugDevLogStore.error("body", "a body did not answer its close decision; the close is cancelled", { cardId });
+    closeRefusalStore.refuse(cardId);
   }
   return "cancel";
 }

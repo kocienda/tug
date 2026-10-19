@@ -1396,6 +1396,7 @@ export function CardsContent({ cardId }: CardsContentProps): React.ReactElement 
       cardIdByRowId: byRowId,
       visibleCardOrder: order,
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `rowsVersion` names the rows the data source holds, per the note above
   }, [dataSource, rowsVersion, selection]);
 
   // A group header maps to no card, so every intent answers `false` for one and

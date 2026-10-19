@@ -11,8 +11,10 @@
  * `onDetach` decides: `fail` resolves it `detached`; `redeliver` sends it
  * again when the card's page next says hello. A requester may `withdraw`
  * a request; the owner's handler sees its signal abort, and the requester
- * resolves `withdrawn`. A reply to a request no longer pending is logged and
- * dropped.
+ * resolves `withdrawn`. The signal also aborts when the asker's page goes
+ * away — its card detaches, or the shell says hello from a new page (a
+ * reload) — since a reply would have nothing to go to. A reply to a
+ * request no longer pending is logged and dropped.
  *
  * @module bus/request
  */
@@ -22,6 +24,14 @@ import { INVALID, type Codec } from "./codec";
 import { recordDeclaration } from "./declared";
 import { bindEveryPageBus, pageBus, selfFrom, type PageBus, type PeerTarget } from "./page-bus";
 
+/**
+ * A request's horizon ([L33]). `{ms}` bounds a wait on another page: a
+ * deadline, ending `timeout`. `{person}` is L33's person-exit: the wait is on
+ * the person at the surface the request raised — a dialog, a sheet — which
+ * the string names as the user exit, so it arms no deadline (the deadline
+ * would be on the person); it still ends `withdrawn` or `detached`, and its
+ * handler's signal aborts when the asking page goes away.
+ */
 export type Horizon = { ms: number } | { person: string };
 
 export type RequestFailure = "timeout" | "detached" | "refused" | "withdrawn";
@@ -69,6 +79,8 @@ interface Outbound<R> {
 interface Inbound {
   controller: AbortController;
   fromCard: string | null;
+  /** The page that asked: a shell hello from another page means it is gone. */
+  fromPage: string;
 }
 
 function bindRequest<Q, R>(d: RequestDeclaration<Q, R>, bus: PageBus): RequestView<Q, R> {
@@ -92,7 +104,7 @@ function bindRequest<Q, R>(d: RequestDeclaration<Q, R>, bus: PageBus): RequestVi
       return;
     }
     const controller = new AbortController();
-    inbound.set(requestId, { controller, fromCard: delivered.from.cardId });
+    inbound.set(requestId, { controller, fromCard: delivered.from.cardId, fromPage: delivered.from.pageId });
     const done = (result: { ok: true; value: R } | { ok: false }): void => {
       if (inbound.get(requestId)?.controller !== controller) return;
       inbound.delete(requestId);
@@ -152,8 +164,20 @@ function bindRequest<Q, R>(d: RequestDeclaration<Q, R>, bus: PageBus): RequestVi
     pending.settle({ ok: true, value });
   });
 
-  bus.onPeerHello((peer) => {
-    if (peer === "shell") return;
+  bus.onPeerHello((peer, from) => {
+    if (peer === "shell") {
+      // A new shell epoch: whatever the old shell asked of this body has no one to answer.
+      for (const [requestId, pending] of [...inbound]) {
+        if (pending.fromCard !== null || pending.fromPage === from.pageId) continue;
+        inbound.delete(requestId);
+        pending.controller.abort();
+      }
+      for (let i = early.length - 1; i >= 0; i--) {
+        const e = early[i];
+        if (e.from.role === "shell" && e.from.pageId !== from.pageId) early.splice(i, 1);
+      }
+      return;
+    }
     for (const pending of outbound.values()) {
       if (pending.resend && pending.target !== "shell" && pending.target.card === peer.card) {
         pending.resend = false;

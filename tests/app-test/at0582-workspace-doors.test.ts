@@ -66,7 +66,7 @@
  * @covers tugdeck/src/components/cards/cards-store/cards-store.ts
  * @covers tugdeck/src/components/cards/cards-space-header.tsx
  * @covers tugdeck/src/components/cards/cards-card.tsx
- * @covers tugdeck/src/components/cards/cards-space-verb-request.ts
+ * @covers tugdeck/src/lib/cards-space-verb-request.ts
  */
 
 import { describe, expect, test } from "bun:test";

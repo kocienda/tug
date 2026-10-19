@@ -133,3 +133,23 @@ describe("a body's own card stores", () => {
     expect(bus.frames().length).toBe(before);
   });
 });
+
+describe("card.facts speaks only for its own card", () => {
+  test("a body that sends card.facts naming a sibling moves neither the sibling's facts nor its epoch in the shell", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const b1 = bus.body("c1", "session");
+    const b2 = bus.body("c2", "session");
+    await bus.flush();
+    cardFacts.on(b2.bus).set(FACTS);
+    await bus.flush();
+    const before = shell.bus.census().extensions["store:card.facts"];
+
+    b1.bus.post({ to: "shell", kind: "state", key: "card.facts", card: "c2", version: 1, payload: { ...FACTS, title: "forged" } });
+    await bus.flush();
+
+    expect(cardFacts.on(shell.bus).getFor("c2")).toEqual(FACTS);
+    expect(shell.bus.census().extensions["store:card.facts"]).toEqual(before);
+    expect(shell.log.some((l) => l.level === "warn" && l.message.includes("card.facts") && l.message.includes("refused"))).toBe(true);
+  });
+});

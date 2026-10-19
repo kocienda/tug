@@ -115,7 +115,6 @@ import { useFocusManager } from "../use-focusable";
 import { useCycleMode } from "../use-cycle-mode";
 import { useCardDelegate, useCardLifecycle } from "@/lib/card-lifecycle";
 import { TUG_ACTIONS } from "../action-vocabulary";
-import { getDeckStore } from "@/lib/deck-store-registry";
 import { openAttachmentPath } from "@/lib/open-attachment";
 
 // ---------------------------------------------------------------------------

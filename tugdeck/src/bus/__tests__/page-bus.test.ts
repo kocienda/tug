@@ -1,13 +1,18 @@
 /**
  * The page bus as an exchange between pages: hello and its answer, the
  * per-target hold, detach, reconnect, a reloaded shell, the one parse, and
- * the undeliverable reading — each on `createTestBus()` with the real page
- * bus on every page.
+ * the undeliverable reading, and a throwing handler failing alone — each on
+ * `createTestBus()` with the real page bus on every page.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { EnvelopeIn, HelloPayload } from "../envelope";
 import { deckFacts } from "../declarations/deck";
+import { jotsNewJot } from "../declarations/verbs";
+import { num, str } from "../codec";
+import { defineAction } from "../routed-action";
+import { defineSharedStore } from "../shared-store";
+import { _pageBusBinderCountForTest, bindEveryPageBus } from "../page-bus";
 import { createTestBus, type TestBus, type TestPage } from "../test-bus";
 
 let bus: TestBus;
@@ -20,6 +25,9 @@ function receiveOn(page: TestPage, kind: "state" | "action", key: string): unkno
   page.bus.route(kind, key, (d: EnvelopeIn) => got.push(d.payload));
   return got;
 }
+
+const fencedTheme = defineSharedStore({ key: "test.fence.theme", owner: "shell", scope: { deck: true }, codec: str, initial: "" });
+const fencedNudge = defineAction({ id: "test.fence.nudge", owner: "card", codec: num });
 
 function hellos(): Array<{ from: string; to: string[]; payload: HelloPayload }> {
   return bus
@@ -331,5 +339,108 @@ describe("census", () => {
     expect(census.sent["action:t.verb"].bytes).toBeGreaterThan(0);
     expect(census.sent.hello.frames).toBe(2);
     expect(census.attached).toEqual([{ cardId: "c1", componentId: "session", pageId: expect.any(String) }]);
+  });
+});
+
+describe("a throwing handler fails alone", () => {
+  test("a store subscriber that throws starves neither the next subscriber nor an action behind it, and is logged once against the store", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const body = bus.body("c1");
+    await bus.flush();
+
+    const ran: string[] = [];
+    fencedTheme.on(body.bus).subscribe(() => {
+      throw new Error("a subscriber's bug");
+    });
+    fencedTheme.on(body.bus).subscribe(() => ran.push(`theme ${fencedTheme.on(body.bus).getSnapshot()}`));
+    fencedNudge.on(body.bus).handle((n) => ran.push(`nudge ${String(n)}`));
+
+    fencedTheme.on(shell.bus).set("ironclad");
+    fencedNudge.on(shell.bus).dispatch(3, { card: "c1" });
+    await bus.flush();
+
+    expect(ran).toEqual(["theme ironclad", "nudge 3"]);
+    const warnings = body.log.filter((l) => l.level === "warn");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain("test.fence.theme");
+    expect(String((warnings[0].data as { error: string }).error)).toContain("a subscriber's bug");
+  });
+
+  test("a route that throws is logged against its kind and key, and the next frame is still delivered", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const body = bus.body("c1");
+    await bus.flush();
+
+    body.bus.route("action", "t.throws", () => {
+      throw new Error("a handler's bug");
+    });
+    const got = receiveOn(body, "action", "t.after");
+    shell.bus.post({ to: { card: "c1" }, kind: "action", key: "t.throws", payload: 1 });
+    shell.bus.post({ to: { card: "c1" }, kind: "action", key: "t.after", payload: 2 });
+    await bus.flush();
+
+    expect(got).toEqual([2]);
+    const line = body.log.find((l) => l.message.includes("action:t.throws"));
+    if (line === undefined) throw new Error("no log line names action:t.throws");
+    expect(line.level).toBe("warn");
+    expect((line.data as { from: { pageId: string } }).from.pageId).toBe(shell.pageId);
+  });
+
+  test("a hello listener that throws does not keep what was held for the peer from draining", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    await bus.flush();
+    shell.bus.onPeerHello(() => {
+      throw new Error("a hello listener's bug");
+    });
+    shell.bus.post({ to: { card: "c1" }, kind: "action", key: "t.held", payload: "x" });
+    const body = bus.body("c1");
+    const got = receiveOn(body, "action", "t.held");
+    await bus.flush();
+
+    expect(got).toEqual(["x"]);
+    expect(shell.log.some((l) => l.level === "warn" && l.message.includes("hello from card c1"))).toBe(true);
+  });
+});
+
+describe("what a forgotten card had held", () => {
+  test("a jots.newJot held for a card that is then forgotten is logged as dropped, naming the card and the verb", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    await bus.flush();
+    jotsNewJot.on(shell.bus).dispatch({}, { card: "j1" });
+    expect(shell.bus.census().queued["card:j1"]).toBe(1);
+
+    shell.bus.forgetCard("j1");
+
+    const line = shell.log.find((l) => l.message.includes("action:jots.newJot"));
+    if (line === undefined) throw new Error("no log line names action:jots.newJot");
+    expect(line.level).toBe("warn");
+    expect(line.message).toContain("j1");
+    expect(shell.bus.census().queued["card:j1"]).toBeUndefined();
+  });
+});
+
+describe("bindEveryPageBus", () => {
+  test("its unbind releases what it bound on every live bus, and binds no bus created after", () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const before = _pageBusBinderCountForTest();
+    const bound: string[] = [];
+    const released: string[] = [];
+    const unbind = bindEveryPageBus((b) => {
+      bound.push(b.pageId);
+      return () => released.push(b.pageId);
+    });
+    const body = bus.body("c1");
+    expect(bound).toEqual([shell.pageId, body.pageId]);
+
+    unbind();
+    expect(released).toEqual([shell.pageId, body.pageId]);
+    expect(_pageBusBinderCountForTest()).toBe(before);
+    bus.body("c2");
+    expect(bound).toHaveLength(2);
   });
 });

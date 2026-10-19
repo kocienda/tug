@@ -43,7 +43,6 @@ import {
   SHOULD_RUN,
   TEST_TIMEOUT_MS,
   TOL,
-  activeSingleTabDeckShape,
   band,
   flowDeckShape,
   inactiveMultiTabDeckShape,

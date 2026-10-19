@@ -76,6 +76,7 @@ import {
 } from "./tug-progress-indicator";
 import { TugStepFraction } from "./tug-step-fraction";
 import { TugStepRow, type TugStepRowStatus } from "./tug-step-row";
+import { useMotionHold } from "@/lib/motion-guard";
 
 export { CELLS_UP_TO };
 
@@ -170,6 +171,9 @@ function Tally({ m }: { m: RunPanelModel }) {
  * {@link CELLS_UP_TO} a cell is too thin to read and the band takes over.
  */
 export function TugRunTrack({ m }: { m: RunPanelModel }): React.ReactElement | null {
+  // A running cell breathes for as long as its unit runs, which is a loop the
+  // motion probe has to see.
+  useMotionHold(m.track === "cells" && m.units.some((u) => u.status === "running"));
   if (m.track === "none") return null;
   if (m.track === "cells") {
     return (

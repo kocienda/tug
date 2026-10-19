@@ -86,7 +86,7 @@ import { expect } from "bun:test";
 import { launchTugApp, note, type App } from "./_harness";
 import type { SettleFrameReading } from "./_harness/client";
 import { testTmpDir } from "./_harness/test-cleanup";
-import { bindAndSettle, transcriptArms, type TranscriptSize } from "./real-transcript-fixture";
+import { bindAndSettle, type TranscriptSize } from "./real-transcript-fixture";
 import {
   DEFAULT_SETTLE_BARS,
   GAP_FRAMES_BAR as SETTLE_GAP_FRAMES_BAR,

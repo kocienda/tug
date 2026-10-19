@@ -19,7 +19,6 @@ import { launchTugApp, note, type App, type BodyApp } from "./_harness";
 import {
   AUTOMATIC_SAVE_MODE,
   mkTempTugbank,
-  rmTempTugbank,
   seedTugbankForLaunch,
   tugbankWrite,
 } from "./_harness/tugbank-helpers";

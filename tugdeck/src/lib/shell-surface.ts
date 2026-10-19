@@ -31,8 +31,8 @@
  */
 
 import type { ShellSurface } from "../bus/declarations/card";
-import { isCancelChordEvent } from "../components/tugways/keymap-registry";
-import { applyAvailableHeight } from "../components/tugways/tug-placard";
+import { isCancelChordEvent } from "./keymap-source";
+import { applyAvailableHeight } from "./placard-available-height";
 import * as canvasOverlayRegistry from "./canvas-overlay-registry";
 import { layoutPxOf, layoutRectOf } from "./page-zoom-store";
 import { paneCanvasOf } from "./pane-frame-selectors";

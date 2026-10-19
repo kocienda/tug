@@ -169,6 +169,7 @@ describe.skipIf(!SHOULD_RUN)("at0742 — a turn that runs on through a dropped s
           const tugcast = existsSync(logs) ? readdirSync(logs).find((f) => f.startsWith("tugcast.log")) : undefined;
           if (tugcast !== undefined) {
             const lines = readFileSync(join(logs, tugcast), "utf8")
+              // oxlint-disable-next-line no-control-regex -- strips the log's ANSI colour codes, which begin with ESC
               .replace(/\x1b\[[0-9;]*m/g, "")
               .split("\n")
               .filter((l) => /replay|inflight|spawn\.|stub|reconnect/i.test(l))

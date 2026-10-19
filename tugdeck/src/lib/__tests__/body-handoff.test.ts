@@ -203,9 +203,9 @@ describe("with the capability", () => {
     const bag = { content: { draft: { text: "seeded" } } };
     cardStates.set("s1", bag);
     fireRestore("s1", "tug-1", "/p", connection, "launch");
-    const sent = (posted[0]?.body as { intent: BodyIntent }).intent;
-    expect(sent.kind).toBe("resume");
-    expect(sent.bag).toEqual(bag);
+    const sent = (posted[0]?.body as { intent: BodyIntent } | undefined)?.intent;
+    expect(sent?.kind).toBe("resume");
+    expect(sent?.bag).toEqual(bag);
   });
 
   test("a fresh spawn carries its stashed opening command into the intent", () => {

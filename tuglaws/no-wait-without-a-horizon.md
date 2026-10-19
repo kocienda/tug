@@ -16,6 +16,14 @@ Three things make an answer pass.
 
 Two of the three is not compliance. The three defects that opened this document's arc each had exactly one of the three, and each read to the user as the app having died.
 
+### The person-exit
+
+The three are for a wait on a **process**. A wait whose other party is the **person** in front of the surface — a dialog, a sheet, a question shown in a card — is a different thing, and the law admits it on different terms: it names its user exit and its terminal states, and arms no deadline, because the deadline would be on the person. A close sheet that closes itself while someone is deciding has not bounded a wait; it has taken a decision away from the one party entitled to make it.
+
+The exit is the surface itself, and it has to be in front of them: a dialog behind another card, or raised by a page that has gone, is not an exit. That is why a body answering a request aborts the request's signal when the asking page goes away — the card that asked, or the shell after a reload — so the dialog comes down rather than standing over a question nobody can receive the answer to (`shell-and-bodies.md`, requests).
+
+The line between the two is drawn by who answers, not by what the code looks like. The shell's close decision for a body card is both, by the body's own word: a guard that says it will ask waits on the person at its sheet (`{ person: CLOSE_DECISION_EXIT }` in `lib/close-decision.ts`), and one that says it will not is a wait on the body's page, so it takes a deadline (`{ ms: CLOSE_DECISION_MS }`). When that deadline passes, the terminal state is the user's to see — the card's pane flashes and a banner on it says the card did not answer, naming Option-click on the close box as the way out (`lib/close-refusal-store.ts`) — not a dev-log line and a close that silently did not happen.
+
 ## Why it is a law and not a habit
 
 Three independent reports arrived from one flight with bad wifi — a Stop that did nothing behind a dead stop button, a restore that hung forever behind an app-wide modal, and an app that would not start. A fourth of the same shape was already written up in `briefs/arc-stop-resume-brief.md`. None of the four was a wait on the network: the deck talks to tugcast over loopback and that link is healthy at 35,000 feet. In every case Tug was waiting on **itself**, and the bad network only supplied the conditions that exposed a wait nobody had bounded.

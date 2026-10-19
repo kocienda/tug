@@ -63,6 +63,7 @@ import { TrackedMark } from "./focus-marks";
 import { keyboardYielded, keyboardYieldedTo, noteKeyboardYield } from "@/lib/keyboard-yield";
 import { bodyFactsStore } from "@/lib/body-facts-store";
 import { takeFocusWalkEdge } from "@/lib/focus-walk-edge";
+import { getFocusManager as getActiveFocusManager } from "@/lib/active-focus-manager";
 
 /**
  * The behavior a key-view component declares to the engine ([P01]): the pure
@@ -4645,39 +4646,15 @@ export const FocusManagerContext = createContext<FocusManager | null>(null);
 
 // ---- Global handle ----
 //
-// Last-registration-wins module singleton so framework code outside the React
-// tree can reach the engine — the same arrangement as
-// `registerResponderChainManager`. Used by the single-channel focus dispatcher
-// (`applyBagFocus` in `focus-transfer.ts`) to set the key card on activation and
-// re-light the keyboard ring as part of a focus-axis restore. Set by
-// `responder-chain-provider` on mount.
-
-let activeFocusManager: FocusManager | null = null;
-const focusManagerRegistrationListeners = new Set<() => void>();
-
-/** Register the active FocusManager. Called by the provider on mount. */
-export function registerFocusManager(manager: FocusManager | null): void {
-  if (activeFocusManager === manager) return;
-  activeFocusManager = manager;
-  for (const listener of [...focusManagerRegistrationListeners]) listener();
-}
-
-/**
- * Hear the active FocusManager change — for a reader outside the React tree
- * that starts before the provider mounts (a body's publisher). Returns the
- * release.
- */
-export function observeFocusManagerRegistration(listener: () => void): () => void {
-  focusManagerRegistrationListeners.add(listener);
-  return () => {
-    focusManagerRegistrationListeners.delete(listener);
-  };
-}
-
-/** The active FocusManager, or `null` outside a mounted provider. */
-export function getFocusManager(): FocusManager | null {
-  return activeFocusManager;
-}
+// The handle `lib` reaches the engine by, and the walk entry the shell's body
+// wiring lands with, live in `lib/active-focus-manager.ts` so `lib` can hold
+// them; re-exported here for the component layer.
+export {
+  enterKeyViewWalk,
+  getFocusManager,
+  observeFocusManagerRegistration,
+  registerFocusManager,
+} from "@/lib/active-focus-manager";
 
 /**
  * Advance the key view one stop in the current mode's authored order and land
@@ -4718,27 +4695,6 @@ export function advanceKeyViewFocus(
 }
 
 /**
- * Land the keyboard on the first or last stop of the key card's walk, as a
- * walk arriving from another page does: the same movement a Tab is, from
- * the end it came in by. Returns whether there was a stop to land on.
- */
-export function enterKeyViewWalk(
-  manager: FocusManager | null,
-  edge: "first" | "last",
-): boolean {
-  if (manager === null) return false;
-  if (!manager.kbfEngaged()) manager.setKbfManual(true);
-  const id = manager.focusWalkEnd(edge);
-  if (id === null) return false;
-  manager.place(
-    null,
-    { kind: "focusable", id },
-    { modality: "keyboard", arrival: "movement" },
-  );
-  return true;
-}
-
-/**
  * May an activation dispatch claim the keyboard for `targetCardId`?
  * (Spec S03.) The entry point every programmatic focus path calls — see
  * {@link FocusManager.mayClaimActivationFocus} for the rules.
@@ -4753,7 +4709,7 @@ export function mayClaimActivationFocus(
   state: DeckState,
   opts?: { reason?: string },
 ): boolean {
-  const manager = activeFocusManager;
+  const manager = getActiveFocusManager();
   if (manager === null) {
     return FocusManager.deckStatePermits(targetCardId, state);
   }

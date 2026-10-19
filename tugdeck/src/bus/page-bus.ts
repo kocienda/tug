@@ -26,6 +26,11 @@
  * route names is logged once per key and dropped, and so is a kind the
  * envelope does not name.
  *
+ * **One throw fails alone.** The bus is the page's one `DECK_BUS` listener,
+ * so it is where a frame fans out into app code: each route, and each
+ * listener the bus calls, runs fenced, and a throw is logged against what
+ * it was answering and goes no further.
+ *
  * @module bus/page-bus
  */
 
@@ -132,8 +137,10 @@ export interface PageBus {
   /**
    * A peer said hello: send it what it is owed. Runs after the answer and
    * before the held envelopes drain, so a snapshot precedes everything held.
+   * A listener that names itself in `order` runs after every listener its
+   * `after` names; the rest run in the order they were added.
    */
-  onPeerHello(listener: (peer: PeerTarget, from: BusFrom) => void): () => void;
+  onPeerHello(listener: (peer: PeerTarget, from: BusFrom) => void, order?: HelloOrder): () => void;
   /** A card detached (`forgotten` false) or was forgotten (`forgotten` true). Runs before {@link onDetach} listeners. */
   onCardGone(listener: (cardId: string, forgotten: boolean) => void): () => void;
   /** Add a section to {@link census}. */
@@ -143,6 +150,43 @@ export interface PageBus {
 interface Held {
   envelope: EnvelopeOut;
   coalesce: string | null;
+}
+
+/** Where a hello listener runs: after the listeners named in `after`. */
+export interface HelloOrder {
+  name: string;
+  after?: readonly string[];
+}
+
+interface HelloListener {
+  listener: (peer: PeerTarget, from: BusFrom) => void;
+  order: HelloOrder | null;
+}
+
+/**
+ * Hello listeners in the order they run: as added, except that a listener
+ * runs only after every listener its `after` names. A cycle runs in the
+ * order added past the point it closes.
+ */
+function helloRunOrder(entries: readonly HelloListener[]): HelloListener[] {
+  const named = new Map<string, HelloListener>();
+  for (const e of entries) if (e.order !== null) named.set(e.order.name, e);
+  const ran = new Set<HelloListener>();
+  const visiting = new Set<HelloListener>();
+  const out: HelloListener[] = [];
+  const visit = (e: HelloListener): void => {
+    if (ran.has(e) || visiting.has(e)) return;
+    visiting.add(e);
+    for (const name of e.order?.after ?? []) {
+      const before = named.get(name);
+      if (before !== undefined) visit(before);
+    }
+    visiting.delete(e);
+    ran.add(e);
+    out.push(e);
+  };
+  for (const e of entries) visit(e);
+  return out;
 }
 
 function peerKey(target: PeerTarget): string {
@@ -161,6 +205,11 @@ function readHello(payload: unknown): HelloPayload | null {
   if (p.componentId !== undefined && typeof p.componentId !== "string") return null;
   if (p.answer !== undefined && p.answer !== true) return null;
   return p as unknown as HelloPayload;
+}
+
+/** What a throw says, for the log: an `Error`'s stack (or message), anything else as a string. */
+export function thrownText(error: unknown): string {
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 function listeners<T>(): { add(l: T): () => void; each(f: (l: T) => void): void } {
@@ -195,11 +244,23 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
   const censusSections = new Map<string, () => unknown>();
   const attachListeners = listeners<(cardId: string, componentId: string) => void>();
   const detachListeners = listeners<(cardId: string) => void>();
-  const helloListeners = listeners<(peer: PeerTarget, from: BusFrom) => void>();
+  const helloListeners: HelloListener[] = [];
+  const eachHello = (what: string, peer: PeerTarget, from: BusFrom): void => {
+    for (const { listener } of helloRunOrder(helloListeners)) fenced(what, from, () => listener(peer, from));
+  };
   const goneListeners = listeners<(cardId: string, forgotten: boolean) => void>();
   let disposed = false;
   /** Whether this page has announced itself, so every later open announces it again. */
   let announced = false;
+
+  /** Run `f` so a throw is logged against `what` and goes no further. */
+  const fenced = (what: string, from: BusFrom | null, f: () => void): void => {
+    try {
+      f();
+    } catch (error) {
+      log.warn("bus", `${what} threw; the bus goes on`, { from, error: thrownText(error) });
+    }
+  };
 
   const isAttached = (target: PeerTarget): boolean =>
     target === "shell" ? shellAttached : attached.has(target.card);
@@ -286,9 +347,11 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
       attached.set(cardId, { cardId, componentId: payload.componentId, pageId: delivered.from.pageId });
       components.set(cardId, payload.componentId);
       if (payload.answer !== true) hello(target, true);
-      helloListeners.each((l) => l(target, delivered.from));
+      eachHello(`hello from card ${cardId}`, target, delivered.from);
       drain(target);
-      attachListeners.each((l) => l(cardId, payload.componentId as string));
+      attachListeners.each((l) =>
+        fenced(`attach of card ${cardId}`, delivered.from, () => l(cardId, payload.componentId as string)),
+      );
       return;
     }
     // A body hears the shell.
@@ -296,7 +359,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
     shellAttached = true;
     if (page.cardId === null) return; // a spare: silent until it is bound
     if (payload.answer !== true) hello("shell", true);
-    helloListeners.each((l) => l("shell", delivered.from));
+    eachHello("hello from the shell", "shell", delivered.from);
     drain("shell");
   };
 
@@ -324,7 +387,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
       logUnknown(kind, envelope.key, envelope.from);
       return;
     }
-    route(envelope);
+    fenced(`${kind}:${envelope.key}`, envelope.from, () => route(envelope));
   };
 
   const believedAttached = (to: BusTarget): boolean => {
@@ -339,6 +402,14 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
     const key = peerKey({ card: cardId });
     const queue = held.get(key);
     if (forgotten) {
+      // A forgotten card's page will never attach: what was held for it is
+      // gone, and each verb dropped says so ([L31]). Snapshots are not news.
+      for (const h of queue ?? []) {
+        if (h.coalesce !== null) continue;
+        log.warn("bus", `held ${sentKey(h.envelope)} for card ${cardId} dropped: the card was forgotten`, {
+          to: h.envelope.to,
+        });
+      }
       held.delete(key);
       components.delete(cardId);
     } else if (queue !== undefined) {
@@ -346,8 +417,8 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
       if (kept.length > 0) held.set(key, kept);
       else held.delete(key);
     }
-    goneListeners.each((l) => l(cardId, forgotten));
-    detachListeners.each((l) => l(cardId));
+    goneListeners.each((l) => fenced(`card ${cardId} gone`, null, () => l(cardId, forgotten)));
+    detachListeners.each((l) => fenced(`detach of card ${cardId}`, null, () => l(cardId)));
   };
 
   const releases: Array<() => void> = [
@@ -411,6 +482,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
       if (disposed) return;
       disposed = true;
       liveBuses.delete(bus);
+      for (const entry of binders) entry.bound.delete(bus);
       for (const release of releases) release();
       held.clear();
       attached.clear();
@@ -434,7 +506,14 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
         if (routes.get(name) === handler) routes.delete(name);
       };
     },
-    onPeerHello: (l) => helloListeners.add(l),
+    onPeerHello(listener, order) {
+      const entry: HelloListener = { listener, order: order ?? null };
+      helloListeners.push(entry);
+      return () => {
+        const at = helloListeners.indexOf(entry);
+        if (at >= 0) helloListeners.splice(at, 1);
+      };
+    },
     onCardGone: (l) => goneListeners.add(l),
     addCensus(name, read) {
       censusSections.set(name, read);
@@ -444,7 +523,7 @@ export function createPageBus(transport: BusTransport, page: PageIdentity, optio
     },
   };
   liveBuses.add(bus);
-  for (const binder of binders) binder(bus);
+  for (const entry of binders) bindOne(entry, bus);
   return bus;
 }
 
@@ -453,18 +532,44 @@ export function selfFrom(bus: PageBus): BusFrom {
   return { pageId: bus.pageId, role: bus.page.role, cardId: bus.page.cardId };
 }
 
-type Binder = (bus: PageBus) => void;
-const binders: Binder[] = [];
+/** Bind to one page bus; return what releases the binding, or nothing to release. */
+type Binder = (bus: PageBus) => void | (() => void);
+interface BinderEntry {
+  binder: Binder;
+  /** What the binder took on each live bus, to release on unbind. */
+  bound: Map<PageBus, () => void>;
+}
+const binders: BinderEntry[] = [];
 const liveBuses = new Set<PageBus>();
+
+const bindOne = (entry: BinderEntry, bus: PageBus): void => {
+  const release = entry.binder(bus);
+  if (typeof release === "function") entry.bound.set(bus, release);
+};
 
 /**
  * Bind a declaration to every page bus: those alive now and every one
  * created after. This is how a declaration answers on its page whatever
  * order the modules were imported in — and on each page of a test bus.
+ * Returns the unbind: no bus created after it is bound, and what the binder
+ * returned on each live bus is released ([L27]).
  */
-export function bindEveryPageBus(binder: Binder): void {
-  binders.push(binder);
-  for (const bus of liveBuses) binder(bus);
+export function bindEveryPageBus(binder: Binder): () => void {
+  const entry: BinderEntry = { binder, bound: new Map() };
+  binders.push(entry);
+  for (const bus of liveBuses) bindOne(entry, bus);
+  return () => {
+    const at = binders.indexOf(entry);
+    if (at < 0) return;
+    binders.splice(at, 1);
+    for (const release of entry.bound.values()) release();
+    entry.bound.clear();
+  };
+}
+
+/** How many binders answer every new page bus: for a test that a release left none behind. */
+export function _pageBusBinderCountForTest(): number {
+  return binders.length;
 }
 
 declare global {

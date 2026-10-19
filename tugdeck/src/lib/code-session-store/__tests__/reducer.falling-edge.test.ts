@@ -130,7 +130,7 @@ const TERMINAL_EVENTS: ReadonlyArray<{
   name: string;
   event: CodeSessionEvent;
   /** What follows the event before the turn is over, where one is not enough. */
-  then?: ReadonlyArray<CodeSessionEvent>;
+  followedBy?: ReadonlyArray<CodeSessionEvent>;
 }> = [
   {
     name: "turn_complete(error)",
@@ -153,7 +153,7 @@ const TERMINAL_EVENTS: ReadonlyArray<{
     // closes without a snapshot.
     name: "transport_close, then an in-flight answer with no turn",
     event: { type: "transport_close" },
-    then: [
+    followedBy: [
       { type: "transport_open" },
       { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
       { type: "replay_complete", count: 0, ipc_version: 2 } as CodeSessionEvent,
@@ -177,7 +177,7 @@ describe("every terminal event lands a live turn on a quiet phase", () => {
 
     for (const terminal of TERMINAL_EVENTS) {
       it(`${route.phase} + ${terminal.name} → quiet`, () => {
-        const after = applyAll(route.reach(), [terminal.event, ...(terminal.then ?? [])]);
+        const after = applyAll(route.reach(), [terminal.event, ...(terminal.followedBy ?? [])]);
         expect([terminal.name, after.phase, QUIET_PHASES.has(after.phase)]).toEqual(
           [terminal.name, after.phase, true],
         );

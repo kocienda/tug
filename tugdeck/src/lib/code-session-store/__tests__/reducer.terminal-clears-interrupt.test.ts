@@ -108,7 +108,7 @@ function caseBInterrupt(): CodeSessionState {
 type TerminalRow = {
   event: CodeSessionEvent;
   /** What follows the event before the terminal has landed, where one is not enough. */
-  then?: ReadonlyArray<CodeSessionEvent>;
+  followedBy?: ReadonlyArray<CodeSessionEvent>;
   phase?: CodeSessionState["phase"];
 } | null;
 
@@ -133,7 +133,7 @@ const TERMINALS: Record<LastErrorCause, TerminalRow> = {
     // reconnect's answer that tugcode has no turn — an in-flight bracket
     // that closes without a snapshot.
     event: { type: "transport_close" },
-    then: [
+    followedBy: [
       { type: "transport_open" },
       { type: "transport_settled" },
       { type: "replay_started", inflight_only: true, ipc_version: 2 } as CodeSessionEvent,
@@ -163,7 +163,7 @@ function drive(row: NonNullable<TerminalRow>) {
   const base = caseBInterrupt();
   const seeded: CodeSessionState =
     row.phase === undefined ? base : { ...base, phase: row.phase };
-  return applyAll(seeded, [row.event, ...(row.then ?? [])]);
+  return applyAll(seeded, [row.event, ...(row.followedBy ?? [])]);
 }
 
 describe("reducer — every terminal clears the per-interrupt fields", () => {

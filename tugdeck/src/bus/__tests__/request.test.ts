@@ -1,11 +1,13 @@
 /**
  * Requests between pages: an answer, a refusal, a timeout armed at the ask
  * (so time held for an unattached card counts), `fail` and `redeliver` on
- * detach, and a withdrawal the owner's handler sees.
+ * detach, a withdrawal the owner's handler sees, and a body's answers
+ * aborted when the shell that asked is replaced.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { num, obj, str } from "../codec";
+import { sessionAsk } from "../declarations/verbs";
 import { defineRequest } from "../request";
 import { createTestBus, type TestBus } from "../test-bus";
 
@@ -152,5 +154,71 @@ describe("requests", () => {
     await bus.flush();
 
     expect(shell.log.some((l) => l.message.includes("no longer pending"))).toBe(true);
+  });
+});
+
+describe("the asker's page goes away", () => {
+  const QUESTION = {
+    requestId: "q1",
+    title: "Proceed?",
+    description: null,
+    options: [{ value: "yes", label: "Yes" }],
+    unattendedChoice: null,
+    countdownSecs: null,
+  };
+
+  test("a body's pending session.ask aborts when the shell page is replaced, and no reply crosses", async () => {
+    bus = createTestBus();
+    const first = bus.shell();
+    const body = bus.body("c1", "session");
+    await bus.flush();
+    let answer: ((choice: string) => void) | null = null;
+    let aborted = false;
+    sessionAsk.on(body.bus).handle(
+      (_p, _from, signal) =>
+        new Promise<{ choice: string }>((resolve) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+          answer = (choice) => resolve({ choice });
+        }),
+    );
+    void sessionAsk.on(first.bus).ask(QUESTION, { card: "c1", horizon: { person: "the ask dialog" } });
+    await bus.flush();
+    expect(body.bus.census().extensions["request:session.ask"]).toMatchObject({ answering: 1 });
+
+    bus.leave(first);
+    bus.shell();
+    await bus.flush();
+
+    expect(aborted).toBe(true);
+    expect(body.bus.census().extensions["request:session.ask"]).toMatchObject({ answering: 0 });
+    (answer as ((choice: string) => void) | null)?.("yes");
+    await bus.flush();
+    expect(bus.frames().some((f) => f.envelope.kind === "reply" && f.envelope.key === "session.ask")).toBe(false);
+  });
+
+  test("the same shell saying hello again after a reconnect aborts nothing", async () => {
+    bus = createTestBus();
+    const shell = bus.shell();
+    const body = bus.body("c1", "session");
+    await bus.flush();
+    let aborted = false;
+    sessionAsk.on(body.bus).handle(
+      (_p, _from, signal) =>
+        new Promise<{ choice: string }>(() => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+        }),
+    );
+    void sessionAsk.on(shell.bus).ask(QUESTION, { card: "c1", horizon: { person: "the ask dialog" } });
+    await bus.flush();
+
+    bus.reconnect(shell);
+    await bus.flush();
+
+    expect(aborted).toBe(false);
+    expect(body.bus.census().extensions["request:session.ask"]).toMatchObject({ answering: 1 });
   });
 });

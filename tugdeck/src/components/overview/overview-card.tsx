@@ -2208,7 +2208,7 @@ function OverviewComposer({
       overviewDraftHolder.set(restored.draft);
       editor.restoreState(restored.draft);
     });
-  }, []);
+  }, [bytesStore]);
 
   const submit = (): void => {
     if (pending) return;

@@ -124,6 +124,8 @@ import { CardPortal } from "./card-portal";
 import { bodyCardsStore } from "@/lib/body-cards-store";
 import { hostCapabilitiesStore, reloadBody } from "@/lib/body-handoff";
 import { TugPushButton } from "@/components/tugways/tug-push-button";
+import { TugPaneBanner } from "@/components/tugways/tug-pane-banner";
+import { CLOSE_REFUSAL_LABEL, CLOSE_REFUSAL_MESSAGE, closeRefusalStore } from "@/lib/close-refusal-store";
 import { deckTrace, type SaveCallbackSource } from "../../deck-trace";
 import { applyBagFocus } from "../../focus-transfer";
 import { CardIdContext } from "@/lib/card-id-context";
@@ -675,6 +677,11 @@ function CardHostSwitch(props: CardHostProps): React.ReactElement | null {
  * A card whose body failed, and failed again when the shell asked for it
  * once more (`lib/body-shell.ts`), stands here as a placard saying so, with a
  * Reload that asks for its body again.
+ *
+ * A card whose body did not answer its close decision stands a status banner
+ * on its pane saying so (`lib/close-refusal-store.ts`), naming Option-click on
+ * the close box as the way out, until it is dismissed or the card is asked
+ * again. The banner is pane chrome, so the shell draws it over the body.
  */
 function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps): React.ReactElement {
   const { ResponderScope, responderRef } = useResponder({
@@ -683,6 +690,12 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
     actions: {},
   });
   const failed = useSyncExternalStore(bodyCardsStore.subscribe, () => bodyCardsStore.stateOf(cardId) === "failed");
+  const closeRefused = useSyncExternalStore(closeRefusalStore.subscribe, () => closeRefusalStore.isRefused(cardId));
+  // The banner portals into the pane's card root, as a card's own banner does.
+  // That root is the pane's, shared by every tab, so the banner stands only
+  // while this card is the tab shown: a refusal is about this card, never the
+  // one beside it.
+  const hostCardRootEl = useHostStackRootElement(hostStackId);
   return (
     <CardPortal hostStackId={hostStackId}>
       <ResponderScope>
@@ -700,6 +713,23 @@ function BodyPlaceholder({ cardId, hostStackId, isActive = true }: CardHostProps
               </TugPushButton>
             </div>
           ) : null}
+          <TugPanePortalContext value={hostCardRootEl}>
+            <CardIdContext value={cardId}>
+              <TugPaneBanner
+                visible={closeRefused && isActive}
+                variant="status"
+                tone="caution"
+                icon="CircleAlert"
+                label={CLOSE_REFUSAL_LABEL}
+                message={CLOSE_REFUSAL_MESSAGE}
+                footer={
+                  <TugPushButton emphasis="outlined" onClick={() => closeRefusalStore.clear(cardId)}>
+                    Dismiss
+                  </TugPushButton>
+                }
+              />
+            </CardIdContext>
+          </TugPanePortalContext>
         </div>
       </ResponderScope>
     </CardPortal>

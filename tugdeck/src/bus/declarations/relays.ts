@@ -35,7 +35,7 @@ import { isEditingState, type RestoredAttachmentEntry } from "../../lib/composer
 import type { DropZone, DropZoneSet } from "../../lib/drop-zones";
 import { OVERVIEW_CARD_ID } from "../../lib/overview-card-id";
 import type { TugTextEditingState } from "../../lib/tug-text-types";
-import type { OverviewComposerDraftState } from "../../components/overview/overview-composer-draft";
+import type { OverviewComposerDraftState } from "../../lib/overview-composer-draft";
 import { bool, literal, nullable, obj, opaque, str } from "../codec";
 import { defineRequest } from "../request";
 import { defineAction } from "../routed-action";

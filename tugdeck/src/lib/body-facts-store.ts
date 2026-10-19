@@ -50,16 +50,29 @@ function shellPageBus(): PageBus | null {
 
 export class BodyFactsStore extends Subscribable {
   private readonly composed = new Map<string, BodyFacts>();
+  /** Releases the binding to every page bus and the subscriptions taken on each. */
+  private readonly unbind: () => void;
 
   /** `bus` names the page bus to read; the default is this page's, when it is the shell. */
   constructor(private readonly bus: () => PageBus | null = shellPageBus) {
     super();
-    bindEveryPageBus((bound) => {
+    this.unbind = bindEveryPageBus((bound) => {
       const changed = (): void => {
         if (this.bus() === bound) this.notify();
       };
-      for (const store of [cardFacts, cardHolds, cardRestoreHold, cardKbfPaint]) store.on(bound).subscribe(changed);
+      const releases = [cardFacts, cardHolds, cardRestoreHold, cardKbfPaint, cardContent].map((store) =>
+        store.on(bound).subscribe(changed),
+      );
+      return () => {
+        for (const release of releases) release();
+      };
     });
+  }
+
+  /** Stop reading: no page bus is bound any more, and nothing here is notified. */
+  dispose(): void {
+    this.unbind();
+    this.composed.clear();
   }
 
   /** Everything the card has said. Stable by identity until it says something new. */

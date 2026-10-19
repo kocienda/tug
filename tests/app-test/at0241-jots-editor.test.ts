@@ -23,7 +23,7 @@
  * @covers tugdeck/src/components/jots/jots-card.tsx
  * @covers tugdeck/src/lib/jots-store.ts
  * @covers tugdeck/src/lib/jots-doc.ts
- * @covers tugdeck/src/lib/jot-capture.ts
+ * @covers tugdeck/src/body/body-verbs.ts
  * @covers tugdeck/src/components/tugways/tug-text-editor/
  * @covers tugdeck/src/components/chrome/deck-canvas.tsx
  */

@@ -90,4 +90,16 @@ describe("the bus registry", () => {
     const failing = SHARED_STORES.filter((s) => s.declaration.codec.decode(s.declaration.initial) === INVALID).map((s) => s.key);
     expect(failing).toEqual([]);
   });
+
+  test("every store a declaration names in `after` is a registered store", () => {
+    const stores = new Set(SHARED_STORES.map((s) => s.key));
+    const dangling = SHARED_STORES.flatMap((s) =>
+      (s.declaration.after ?? []).filter((a) => !stores.has(a.key)).map((a) => `${s.key} after ${a.key}`),
+    );
+    expect(dangling).toEqual([]);
+    // The orders the shell and the bodies rely on are declared, not inherited from import order.
+    const afterOf = (key: string) => SHARED_STORES.find((s) => s.key === key)?.declaration.after?.map((a) => a.key);
+    expect(afterOf("card.painted")).toEqual(["card.facts"]);
+    expect(afterOf("card.context")).toEqual(["card.crossing"]);
+  });
 });

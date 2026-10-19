@@ -18,9 +18,11 @@
  * a page holds only while it stands clear when the shell detaches the card;
  * the rest stand until the reloaded page replaces them.
  *
- * `card.painted` is declared after `card.facts`, so a body that attaches
- * sends its facts first: the shell shows a body only once its facts have
- * arrived.
+ * The orders a reader relies on are declared with `after`, not left to
+ * declaration order: `card.painted` goes after `card.facts`, so a body that
+ * attaches sends its facts first (and the shell's paint gate waits for the
+ * facts besides), and `card.context` goes after `card.crossing`, so a body
+ * reads its crossing before its context.
  *
  * @module bus/declarations/card
  */
@@ -69,8 +71,8 @@ export const NO_CARD_CONTEXT: CardContextValue = {
 /**
  * The crossing the card's pane stands under — a fold, a settle's height
  * tween, a sash drag — written into the card's body so it holds its card
- * root through it, as the shell holds an in-document card's. Declared ahead
- * of `card.context` so a body that attaches reads its crossing first.
+ * root through it, as the shell holds an in-document card's. `card.context`
+ * names it in `after`, so a body that attaches reads its crossing first.
  */
 export const cardCrossing = defineSharedStore<CrossingMirror | null>({
   key: "card.crossing",
@@ -93,6 +95,7 @@ export const cardContext = defineSharedStore<CardContextValue>({
   key: "card.context",
   owner: "shell",
   scope: { card: true },
+  after: [cardCrossing],
   codec: obj({
     folded: bool,
     arriving: bool,
@@ -259,6 +262,7 @@ export const cardPainted = defineSharedStore<boolean>({
   key: "card.painted",
   owner: "card",
   scope: { card: true },
+  after: [cardFacts],
   clearOnDetach: true,
   codec: bool,
   initial: false,

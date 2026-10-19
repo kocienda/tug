@@ -45,7 +45,7 @@
 
 import type { BodyIntent } from "../body/body-intent";
 import { getRegistration } from "../card-registry";
-import type { CardStateBag, DeckState } from "../layout-tree";
+import type { DeckState } from "../layout-tree";
 import { bodyCardsStore } from "./body-cards-store";
 import { getDeckStore } from "./deck-store-registry";
 import { installedPageBus } from "../bus/page-bus";

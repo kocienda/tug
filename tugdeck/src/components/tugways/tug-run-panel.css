@@ -190,10 +190,11 @@ body {
   box-shadow: none;
 }
 
+/* @tug-motion-hold ./tug-run-panel.tsx */
 .tug-run-panel-cell[data-status="running"] {
   background-color: var(--tugx-run-running-fill);
   box-shadow: none;
-  animation: tug-run-panel-breathe 2s ease-in-out infinite;
+  animation: tug-run-panel-breathe 2s ease-in-out var(--tug-loop-iterations, infinite);
 }
 
 .tug-run-panel-cell[data-status="skipped"] {

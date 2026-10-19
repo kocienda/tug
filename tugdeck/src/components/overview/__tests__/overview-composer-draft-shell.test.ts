@@ -10,7 +10,7 @@
  * (`takeShellOverviewDraft`), whenever the shell's snapshot reaches it. An
  * empty draft lets it go.
  *
- * @covers tugdeck/src/components/overview/overview-composer-draft.ts
+ * @covers tugdeck/src/lib/overview-composer-draft.ts
  * @covers tugdeck/src/bus/declarations/relays.ts
  */
 import { afterEach, describe, expect, test } from "bun:test";
