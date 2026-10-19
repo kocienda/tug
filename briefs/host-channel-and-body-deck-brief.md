@@ -52,7 +52,7 @@ The answer is yes, narrowly. The shell↔body bus held: every crossing the arc n
 
 **[B08] The host-channel rule becomes law.** `shell-and-bodies.md#channels` gains: a host↔page message is declared in the vocabulary or it does not exist, and a guard test refuses an `as? [String: Any]` on a message body anywhere but the dispatcher, as `no-legacy-bus.test.ts` refuses the old kinds. Whether this is a clause on [L37] or its own law is the arc's call when it writes it.
 
-**[B09] This lands on the arc's branch, between its steps.** The arc opens with `--base tugarc/card-is-one-view` after step 7 is committed, since the files it touches are the ones that arc has reshaped. When it joins, card-is-one-view resumes at step 8, and its steps 10 and 13 to 16 are rewritten to speak the vocabulary rather than add to the switch. Forking from `main` would mean a nine-thousand-line merge nobody wants.
+**[B09] This lands on `main`, between the two halves of card-is-one-view.** Card-is-one-view's steps 1 to 7 are a verified half (three groups of kinds carry their chrome, host gestures are live) and join to `main` first; this arc forks from that `main`. The remaining twelve steps of that plan are not resumed: they are restated in a successor brief, `briefs/shell-beneath-the-cards-brief.md`, on the vocabulary, `CardDeck` and `deck.cards` this arc lands, and that arc runs after this one joins. Nesting this arc onto the old branch was considered and rejected: it would leave a planned arc stopped mid-implement with a stale nineteen-step ledger and a stale review.
 
 ---
 
@@ -76,13 +76,13 @@ The answer is yes, narrowly. The shell↔body bus held: every crossing the arc n
 
 ## Exit {#exit}
 
-An arc, opened onto `tugarc/card-is-one-view` once step 7 lands. The order the pieces must land in:
+An arc from `main`, once card-is-one-view's first seven steps have joined. The order the pieces must land in:
 
 1. **The vocabulary and its two dispatchers**, with the parity fixture and the guard test, carrying the existing messages unchanged in meaning: a behaviour-neutral step verified by the existing body and placement tests.
 2. **The geometry family typed**, both sides, with `BodyViewController.swift`'s hand parsing replaced by decoded types.
 3. **`CardDeck`**, the components re-pointed, `body-deck-bridge.ts` deleted, the body's own `CardDeck` built from replicas and verbs, the no-inert-member test; step 7's `card.geometryChanged` re-read under it.
 4. **`deck.cards`** and the mirror's retirement; `pane.chrome` tabs by id.
 5. **The close rule and the rail edge**, with their tests.
-6. **The law and the doc**, then the join; card-is-one-view's steps 10 and 13 to 16 are rewritten against the vocabulary before it resumes at step 8.
+6. **The law and the doc**, then the join. The successor arc (`briefs/shell-beneath-the-cards-brief.md`) opens on the result.
 
 The verdict at each stage is the unit suite, `just test-swift`, lint, and the app-tests derived from the files touched. No core tier: nothing here runs before a test's first assertion.
