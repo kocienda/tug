@@ -3540,15 +3540,19 @@ impl AgentSupervisor {
     /// when `segment` has no ledger entry. A report no rule attaches is still
     /// published, with a `null` id, as the card's line: a guessed block would
     /// be worse than an honest card-level one ([P03]).
+    ///
+    /// `segment` is the live segment the server resolved the report's posted
+    /// id to, and after a rotation that is not the key the card's entry sits
+    /// under — every arc stage runs on a rotated segment. So the entry is
+    /// found by [`Self::card_entry_for_segment`], and the frame goes out under
+    /// the card's own id, the one the deck is bound to; looked up directly, a
+    /// rotated card's every report was `unknown_session` and dropped.
     pub async fn publish_run_progress(
         &self,
         segment: &str,
         report: RunProgressReport,
     ) -> Option<(bool, Option<String>)> {
-        let entry_arc = {
-            let ledger = self.ledger.lock().await;
-            ledger.get(&TugSessionId::new(segment)).cloned()
-        }?;
+        let (card, entry_arc) = self.card_entry_for_segment(segment).await?;
         let attached = {
             let mut entry = entry_arc.lock().await;
             let attached = entry.attach_run(report.tool_use_id.as_deref(), &report.needles);
@@ -3563,7 +3567,7 @@ impl AgentSupervisor {
             attached
         };
         let payload = run_progress_payload(
-            segment,
+            card.as_str(),
             attached.as_deref(),
             &report,
             crate::session_ledger::now_millis(),
@@ -8018,6 +8022,34 @@ mod tests {
             "a report without units is the one line, as before: {frame}"
         );
         assert!(frame["at_ms"].as_i64().is_some());
+    }
+
+    /// Every arc stage runs on a rotated segment: the server resolves the
+    /// report's posted id to the live segment, and the card's entry still
+    /// sits under the card's own id. The report has to reach that entry's
+    /// open call and go out under the id the deck is bound to.
+    #[tokio::test]
+    async fn a_report_from_a_rotated_segment_reaches_the_cards_block() {
+        let (sup, _state_rx, _meta_rx, _control_rx) = make_supervisor_with_store();
+        let id = TugSessionId::new("sess-card");
+        let entry = insert_ledger_entry(&sup, &id).await;
+        entry.lock().await.claude_session_id = Some("segment-5".to_string());
+        let mut code_rx = sup.code_output.subscribe();
+
+        sup.record_run_open(&id, &bash_use("toolu_R", "just app-test", false))
+            .await;
+        let answer = sup
+            .publish_run_progress("segment-5", report(&["just app-test"]))
+            .await;
+        assert_eq!(answer, Some((true, Some("toolu_R".to_owned()))));
+        let frame = next_run_progress(&mut code_rx, "sess-card");
+        assert_eq!(frame["tool_use_id"], "toolu_R");
+
+        assert_eq!(
+            sup.publish_run_progress("nobody", report(&[])).await,
+            None,
+            "a segment no card wears is still unknown",
+        );
     }
 
     #[tokio::test]
