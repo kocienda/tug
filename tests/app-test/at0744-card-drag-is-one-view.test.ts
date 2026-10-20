@@ -60,7 +60,7 @@ describe.skipIf(!SHOULD_RUN)("at0744: a card is one view", () => {
           press: ".tug-pane-title-bar .tug-pane-grab-handle",
           chromeRowPx: 10,
           reading: "bands",
-          standIn: ".tug-pane[data-chrome-in-body]",
+          standIn: ".tug-pane",
         });
       } finally {
         await app.close();
@@ -86,7 +86,7 @@ describe.skipIf(!SHOULD_RUN)("at0744: a card is one view", () => {
           press: ".tug-pane-title-bar",
           chromeRowPx: 6,
           reading: "edges",
-          standIn: `.tug-pane[data-chrome-in-body][data-pane-id="${RAIL}-pane"]`,
+          standIn: `.tug-pane[data-pane-id="${RAIL}-pane"]`,
         });
       } finally {
         await app.close();

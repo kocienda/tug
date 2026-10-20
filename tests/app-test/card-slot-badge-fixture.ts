@@ -71,7 +71,7 @@ const badgesInPage = (skipStandIns: boolean): string => `(function () {
   return Array.prototype.slice.call(
     document.querySelectorAll(${JSON.stringify(BADGE)})
   ).filter(function (el) {
-    return !(${skipStandIns} && el.closest("[data-chrome-in-body]"));
+    return !(${skipStandIns} && el.closest(".tug-pane"));
   }).map(function (el) {
     var pane = el.closest("[data-pane-id]");
     var chip = el.querySelector('[data-slot="tug-slot"]');
@@ -91,7 +91,7 @@ export async function chromeCards(app: App): Promise<Map<string, string>> {
   const pairs = await app.evalJS<Array<[string, string]>>(
     `(function () {
       var deck = window.tugdeck.diag.getDeckState();
-      return Array.prototype.slice.call(document.querySelectorAll(".tug-pane[data-chrome-in-body]")).map(function (f) {
+      return Array.prototype.slice.call(document.querySelectorAll(".tug-pane")).map(function (f) {
         var pane = deck.panes.find(function (p) { return p.id === f.getAttribute("data-pane-id"); });
         return [f.getAttribute("data-pane-id"), pane ? pane.activeCardId : ""];
       });

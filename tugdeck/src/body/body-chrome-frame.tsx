@@ -30,7 +30,7 @@ import { PaneChrome } from "../components/chrome/pane-chrome";
 import type { CardTitleBarHandle } from "../components/chrome/card-title-bar";
 import { CardHost } from "../components/chrome/card-host";
 import { CANVAS_BACKGROUND_ATTRIBUTE } from "../lib/pane-frame-selectors";
-import { CARD_APRON_PX, CHROME_IN_BODY_ATTRIBUTE } from "../lib/chrome-placement";
+import { CARD_APRON_PX } from "../lib/chrome-placement";
 import { pageZoomStore } from "../lib/page-zoom-store";
 import { onHostMessage, postToHost } from "../host/channel";
 import { paintedToHost } from "../host/declarations/lifecycle";
@@ -45,6 +45,9 @@ import "../components/chrome/rail-shadow.css";
 
 /** On the frame once the card's own content has painted: the content lid lifts. */
 export const CONTENT_PAINTED_ATTRIBUTE = "data-content-painted";
+
+/** On the document while this page's chrome frame is mounted: the page lays its pane out inset by the apron, on nothing (`body-page.css`). */
+export const CHROME_FRAME_ATTRIBUTE = "data-chrome-frame";
 
 /**
  * Where the pane stands within the view, per side, in this page's layout px:
@@ -166,7 +169,7 @@ export function BodyChromeFrame({
   // DOM).
   useLayoutEffect(() => {
     const root = document.documentElement;
-    root.setAttribute(CHROME_IN_BODY_ATTRIBUTE, "");
+    root.setAttribute(CHROME_FRAME_ATTRIBUTE, "");
     const write = (): void => {
       const zoom = pageZoomStore.getFactor();
       for (const side of Object.keys(INSET_PROPERTIES) as Array<keyof Insets>) {
@@ -179,7 +182,7 @@ export function BodyChromeFrame({
     return () => {
       release();
       insetListeners.delete(write);
-      root.removeAttribute(CHROME_IN_BODY_ATTRIBUTE);
+      root.removeAttribute(CHROME_FRAME_ATTRIBUTE);
       for (const property of Object.values(INSET_PROPERTIES)) root.style.removeProperty(property);
     };
   }, []);

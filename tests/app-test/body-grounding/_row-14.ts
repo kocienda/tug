@@ -39,7 +39,6 @@
 import { launchTugApp, type App } from "../_harness";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { floorMeasure } from "./_frames";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { standUp, type Rect, type Standing } from "./_motion";
@@ -90,7 +89,7 @@ export async function withKind(launch: Launch, kind: CardKind, name: string, leg
     await standUpKind(app, kind, card);
     await app.dispatchControlAction("focus-session-card", { cardId: card });
     await Bun.sleep(400);
-    const { standing, crop } = await standUp(app, card, floorMeasure(kind.rail));
+    const { standing, crop } = await standUp(app, card);
     await legs({ app, card, standing, crop });
   } finally {
     await app.close();

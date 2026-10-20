@@ -16,7 +16,7 @@ import { expect } from "bun:test";
 
 import { note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading, HostFrameReading } from "../_harness/client";
-import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, FLOOR_BY_CLASS, framesDiffer, pollFor, readPalette, showsBareHole, type FloorMeasure, type FrameClasses, type Palette } from "./_frames";
+import { classifyFrame, describeFrames, FLOOR_BY_CANVAS, framesDiffer, pollFor, readPalette, showsBareHole, type FrameClasses, type Palette } from "./_frames";
 import { focusBody } from "./_bodies";
 
 export interface Rect {
@@ -31,13 +31,8 @@ export interface Sample {
   frame: Rect;
   /** Null while the card has no placeholder — a folded card's content box is not rendered. */
   placeholder: Rect | null;
-  /**
-   * Where the host's container should stand: the placeholder, or a whole
-   * card's view — its stand-in frame outset by the apron. Null as above.
-   */
+  /** Where the host's container should stand: the card's stand-in frame outset by the apron. Null as above. */
   view: Rect | null;
-  /** The card draws its own chrome: its pane is a stand-in, and its view the whole card. */
-  whole: boolean;
   /** The canvas wears `data-imposer-settling`: a settle is running. */
   settling: boolean;
   /** The shell's last placement posts the card shown (`placeCards`): what the host shows. */
@@ -79,46 +74,38 @@ export async function hostShows(app: App, cardId: string, timeoutMs = 5_000): Pr
 export const frameOf = (cardId: string): string => `.tug-pane:has([data-card-id="${cardId}"])`;
 export const placeholderOf = (cardId: string): string => `[data-body-placeholder][data-card-id="${cardId}"]`;
 
-/** What a card draws its chrome in its own page under: its pane is a stand-in (`lib/chrome-placement.ts`). */
-export const CHROME_IN_BODY = "data-chrome-in-body";
-/** How far a whole card's view reaches past its pane: `CARD_APRON_PX`. */
+/** How far a card's view reaches past its pane: `CARD_APRON_PX`. */
 export const CARD_APRON_PX = 10;
 
 /**
- * The page-side expression for where `cardId`'s body view should stand: its
- * placeholder's rect, or, for a card that draws its own chrome, its stand-in
- * frame outset by the apron, since the card's view is the whole pane.
+ * The page-side expression for where `cardId`'s view should stand: its
+ * stand-in frame outset by the apron, since the card's view is the whole
+ * pane. Null while the card has no placeholder.
  */
 const viewRectJs = (cardId: string): string => `(function () {
   var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))});
   if (ph === null) return null;
   var frame = ph.closest(".tug-pane");
-  var whole = frame !== null && frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)});
-  var r = (whole ? frame : ph).getBoundingClientRect();
-  var a = whole ? ${CARD_APRON_PX} : 0;
+  if (frame === null) return null;
+  var r = frame.getBoundingClientRect();
+  var a = ${CARD_APRON_PX};
   return { x: r.x - a, y: r.y - a, width: r.width + 2 * a, height: r.height + 2 * a };
 })()`;
-
-/** Whether `cardId` draws its own chrome: its pane in the shell is a stand-in. */
-export const isWholeCard = (app: App, cardId: string): Promise<boolean> =>
-  app.evalJS<boolean>(
-    `(function () { var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))}); var f = ph && ph.closest(".tug-pane"); return f !== null && f.hasAttribute(${JSON.stringify(CHROME_IN_BODY)}); })()`,
-  );
 
 /** Where the host's container for `cardId` should stand, read in the shell (`viewRectJs`). */
 export const viewRectOf = (app: App, cardId: string): Promise<Rect | null> => app.evalJS<Rect | null>(viewRectJs(cardId));
 
 /**
  * The page-side expression for the region `cardId`'s paint is judged in: its
- * placeholder's rect, or a whole card's pane rect, which is its stand-in
- * frame — chrome and content, without the apron, where the floor shows.
+ * pane rect, which is its stand-in frame — chrome and content, without the
+ * apron. Null while the card has no placeholder.
  */
 const regionRectJs = (cardId: string): string => `(function () {
   var ph = document.querySelector(${JSON.stringify(placeholderOf(cardId))});
   if (ph === null) return null;
   var frame = ph.closest(".tug-pane");
-  var whole = frame !== null && frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)});
-  var r = (whole ? frame : ph).getBoundingClientRect();
+  if (frame === null) return null;
+  var r = frame.getBoundingClientRect();
   return { x: r.x, y: r.y, width: r.width, height: r.height };
 })()`;
 
@@ -172,7 +159,6 @@ export async function armSampler(app: App, cardId: string): Promise<void> {
             frame: read(frame),
             placeholder: region,
             view: view,
-            whole: frame.hasAttribute(${JSON.stringify(CHROME_IN_BODY)}),
             settling: canvas !== null && canvas.hasAttribute("data-imposer-settling"),
             shown: ph !== null && ${postedShownJs(cardId)},
           });
@@ -250,7 +236,7 @@ export interface Standing {
 }
 
 /** The palette from a probe of `cardId`'s standing body, whose content box fills with its own paint. */
-export async function readStanding(app: App, cardId: string, placeholder: Rect, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<Standing> {
+export async function readStanding(app: App, cardId: string, placeholder: Rect): Promise<Standing> {
   const probeCrop = {
     x: Math.ceil(placeholder.x) + 2,
     y: Math.ceil(placeholder.y) + 2,
@@ -263,11 +249,10 @@ export async function readStanding(app: App, cardId: string, placeholder: Rect, 
   const palette = await readPalette(app, probe.windowBackground, standingFrame);
   const standing = classifyFrame(standingFrame, palette);
   note(`${cardId}: palette ${JSON.stringify(palette)}; body standing: ${describeFrames([standing])}`);
-  // A whole card's region is its chrome as well as its content, and its
-  // title band's tint lies inside the grid's reach, as a rail's ink does:
-  // it is read by the canvas and the bare window alone.
-  const own = (await isWholeCard(app, cardId)) ? FLOOR_BY_CANVAS : measure;
-  expect(own.own(standing), `${cardId}: the standing body fills its rect with its own paint`).toBeGreaterThan(0.95);
+  // The card's region is its chrome as well as its content, and its title
+  // band's tint lies inside the grid's reach, as a rail's ink does: it is
+  // read by the canvas and the bare window alone.
+  expect(FLOOR_BY_CANVAS.own(standing), `${cardId}: the standing body fills its rect with its own paint`).toBeGreaterThan(0.95);
   return { palette, standing, scale: probe.scale, contentWidth: probe.contentWidth };
 }
 
@@ -508,11 +493,10 @@ export function judgeCarried(
     if (showsBareHole(whole)) bare += 1;
     const i = sampleIndexAt(samples, f.wall);
     if (i < 0 || samples[i].placeholder === null) continue;
-    // A whole card is judged where the host has it: its view is the card,
-    // the shell's stand-in a model the user never sees, so the question is
-    // whether the card's own paint fills the view, inset by its apron. A
-    // content box under the shell's chrome is judged where the shell has it.
-    const held = samples[i].whole ? presentedAt(presented, f.wall) : null;
+    // The card is judged where the host has it: its view is the card, the
+    // shell's stand-in a model the user never sees, so the question is
+    // whether the card's own paint fills the view, inset by its apron.
+    const held = presentedAt(presented, f.wall);
     const box = intersect(
       held === null
         ? samples[i].placeholder!
@@ -713,9 +697,9 @@ export async function setUpGesture(app: App, card: string, label: string, run: (
 }
 
 /** The palette from `card`'s standing body, and a crop across the window at its content box's top. */
-export async function standUp(app: App, card: string, measure: FloorMeasure = FLOOR_BY_CLASS): Promise<{ standing: Standing; crop: Rect }> {
+export async function standUp(app: App, card: string): Promise<{ standing: Standing; crop: Rect }> {
   const start = await expectAtRest(app, card, `${card}: at the start`);
-  const standing = await readStanding(app, card, start, measure);
+  const standing = await readStanding(app, card, start);
   const frame = (await rectOf(app, frameOf(card)))!;
   const crop = { x: 0, y: Math.floor(frame.y), width: standing.contentWidth, height: Math.min(320, Math.floor(start.y + start.height - frame.y)) };
   note(`${card}: crop ${JSON.stringify(crop)} at scale ${standing.scale}`);

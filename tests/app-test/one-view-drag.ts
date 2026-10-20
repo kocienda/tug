@@ -62,7 +62,7 @@ export async function expectDragsAsOneView(app: App, body: BodyApp, d: OneViewDr
   const bar = await rectIn(body, ".tug-pane-title-bar");
   expect(bar, "the card's page draws its title bar").not.toBeNull();
   // card-dom: shell
-  const shellBars = await app.evalJS<number>(`document.querySelectorAll('.tug-pane[data-chrome-in-body] .tug-pane-title-bar').length`);
+  const shellBars = await app.evalJS<number>(`document.querySelectorAll('.tug-pane .tug-pane-title-bar').length`);
   expect(shellBars, "the shell's stand-in draws no title bar").toBe(0);
   const content = (await rectIn(body, ".tug-pane-content"))!;
   const chromeHeight = content.y - bar!.y;

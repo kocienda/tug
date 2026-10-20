@@ -48,7 +48,7 @@ export async function dragKind(launch: Launch, kind: CardKind): Promise<void> {
       press: kind.rail ? ".tug-pane-title-bar" : ".tug-pane-title-bar .tug-pane-grab-handle",
       chromeRowPx: kind.rail ? 6 : MASTHEAD_ROW_PX,
       reading: kind.rail ? "edges" : "bands",
-      standIn: `.tug-pane[data-chrome-in-body][data-pane-id="${card}-pane"]`,
+      standIn: `.tug-pane[data-pane-id="${card}-pane"]`,
     });
   } finally {
     await app.close();

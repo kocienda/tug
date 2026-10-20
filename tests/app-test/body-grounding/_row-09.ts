@@ -45,7 +45,6 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, foldedOf, pollFor, responders, spawnStub, waitForBody } from "./_bodies";
-import { floorMeasure } from "./_frames";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import {
@@ -216,7 +215,7 @@ export async function foldKind(launch: Launch, kind: CardKind, leg: Leg): Promis
     await app.dispatchControlAction("focus-session-card", { cardId: card });
     await Bun.sleep(400);
     const start = await expectAtRest(app, card, "at the start");
-    const standing = await readStanding(app, card, start, floorMeasure(kind.rail));
+    const standing = await readStanding(app, card, start);
     await readLeg(app, card, leg, standing, join(tmpdir(), `tug-row09-${leg}-${kind.componentId}-${Date.now()}`), false);
   } finally {
     await app.close();

@@ -62,7 +62,7 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, promptPhase, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { classifyFrame, describeFrames, floorMeasure } from "./_frames";
+import { classifyFrame, describeFrames } from "./_frames";
 import { kindDeck, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import {
@@ -216,7 +216,7 @@ async function standUpBody(app: App, card: string, stubDir: string): Promise<voi
  */
 async function standing(app: App, card: string, rail?: string, kind?: CardKind): Promise<{ standing: Standing; crop: Rect }> {
   const start = await expectAtRest(app, card, `${card}: at the start`);
-  const s = await readStanding(app, card, start, floorMeasure(kind?.rail ?? false));
+  const s = await readStanding(app, card, start);
   const height = await app.evalJS<number>("window.innerHeight");
   const railRect = rail === undefined ? null : await rectOf(app, `.tug-pane[data-pane-id="${rail}"]`);
   const x = railRect === null ? 0 : Math.ceil(railRect.x + railRect.width);

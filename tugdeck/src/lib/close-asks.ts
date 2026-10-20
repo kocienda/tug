@@ -4,11 +4,11 @@
  *
  * The pane's × (and Close Pane) discards the whole pane, ⌘W the active
  * card, Close All Card Tabs every tab. Each asks on its own rule, and this
- * module is the one place the rules are written: the shell's pane calls
- * {@link closeAsksOf} at the gesture with each card's live waive, and the
- * shell's `pane.chrome` projection calls it with the waives the bodies
- * published, so a card's page reads its asks and decides nothing. It is the
- * only reader of a registration's `confirmClose`.
+ * module is the one place the rules are written: the shell's `pane.chrome`
+ * projection (`lib/pane-chrome-projection.ts`) calls {@link closeAsksOf} with
+ * the waives the bodies published, and a card's page, which draws the pane's
+ * chrome, reads its asks from there and decides nothing. It is the only
+ * reader of a registration's `confirmClose`.
  *
  * - A card **confirms** when its kind opts in (`defaultMeta.confirmClose`).
  * - A card **waives** when it says it holds nothing a close would lose (an

@@ -74,7 +74,7 @@ function deck(): Record<string, unknown> {
 // card-dom: shell — the stand-ins are the shell's model of where each card stands.
 const READ_STAND_INS = `function () {
   var out = {};
-  document.querySelectorAll('.tug-pane[data-chrome-in-body]:not([data-departing])').forEach(function (f) {
+  document.querySelectorAll('.tug-pane:not([data-departing])').forEach(function (f) {
     var ph = f.querySelector('[data-body-placeholder][data-card-id]');
     if (!ph) return;
     var r = f.getBoundingClientRect();
@@ -105,7 +105,7 @@ const CENSUS = `(function () {
       paints(p, label + which);
     });
   }
-  var frames = document.querySelectorAll('.tug-pane[data-chrome-in-body]');
+  var frames = document.querySelectorAll('.tug-pane');
   frames.forEach(function (f) {
     var id = f.getAttribute('data-pane-id');
     judge(f, id);

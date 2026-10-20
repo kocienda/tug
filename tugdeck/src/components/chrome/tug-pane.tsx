@@ -52,7 +52,6 @@ import type { ActionEvent } from "@/components/tugways/responder-chain";
 import { TUG_ACTIONS } from "@/components/tugways/action-vocabulary";
 import { TugPaneFrameContext } from "./pane-chrome";
 import { plainEqual } from "@/lib/plain-equal";
-import { CHROME_IN_BODY_ATTRIBUTE } from "@/lib/chrome-placement";
 import { useDeckManager } from "@/deck-manager-context";
 import {
   imposeStyle,
@@ -818,9 +817,8 @@ function TugPaneImpl({
       {...(folded ? { "data-folded": "true" } : {})}
       // The card is a view the host stands over this page, and draws the
       // pane's chrome in its own page: this frame is the arrangement's
-      // stand-in, laid out and read, painting nothing ([L06]).
+      // stand-in, laid out and read, painting nothing ([D216], [L06]).
       data-body-card="true"
-      {...{ [CHROME_IN_BODY_ATTRIBUTE]: "" }}
       // What the host carries the card in its hand by (`placeCards`): the
       // edges the arrangement offers, whether the pane is free, and its floor.
       data-grips={grips.join(" ")}

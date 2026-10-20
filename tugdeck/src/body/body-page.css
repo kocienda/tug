@@ -26,9 +26,9 @@ html[data-body-page] .tug-sheet-clip {
   top: 0;
 }
 
-/* A card that carries its pane's chrome (`body-chrome-frame.tsx`) has a
-   title bar again, so the clip starts under it, as it does in the shell. */
-html[data-body-page][data-chrome-in-body] .tug-sheet-clip {
+/* A card whose chrome frame is mounted (`body-chrome-frame.tsx`) has a title
+   bar again, so the clip starts under it. */
+html[data-body-page][data-chrome-frame] .tug-sheet-clip {
   top: calc(var(--tugx-pane-chrome-height, var(--tug-chrome-height)) + 1px);
 }
 
@@ -37,8 +37,8 @@ html[data-body-page][data-chrome-in-body] .tug-sheet-clip {
    pane out inset by it, on nothing. What the page does not paint — the
    apron outside the pane's border and shadow — shows what is beneath the
    view. */
-html[data-body-page][data-chrome-in-body] body,
-html[data-body-page][data-chrome-in-body] #deck-container {
+html[data-body-page][data-chrome-frame] body,
+html[data-body-page][data-chrome-frame] #deck-container {
   background: transparent;
 }
 

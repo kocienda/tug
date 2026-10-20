@@ -101,9 +101,9 @@ const placeholderRect = (app: App): Promise<Rect | null> =>
       var el = document.querySelector('[data-body-placeholder][data-card-id="${BODY_CARD}"]');
       if (el === null) return null;
       var frame = el.closest(".tug-pane");
-      var whole = frame !== null && frame.hasAttribute("data-chrome-in-body");
-      var r = (whole ? frame : el).getBoundingClientRect();
-      var a = whole ? 10 : 0;
+      if (frame === null) return null;
+      var r = frame.getBoundingClientRect();
+      var a = 10;
       return { x: r.x - a, y: r.y - a, width: r.width + 2 * a, height: r.height + 2 * a };
     })()`,
   );

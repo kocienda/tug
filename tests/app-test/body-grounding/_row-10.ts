@@ -36,7 +36,6 @@ import { launchTugApp, note, type App } from "../_harness";
 import type { BodyViewSnapshot, CaptureBurstReading } from "../_harness/client";
 import { STUB_TRANSCRIPT_DIR_ENV, stubDirectory } from "../streaming-stub-fixture";
 import { focusBody, pollFor, sessionPane, spawnStub, waitForBody } from "./_bodies";
-import { floorMeasure } from "./_frames";
 import { kindDeck, openKind, standUpKind } from "./_kind-bodies";
 import type { CardKind } from "./_kinds";
 import { classifyFrame, showsBareHole } from "./_frames";
@@ -218,7 +217,7 @@ export async function switchKind(launch: Launch, kind: CardKind, leg: Leg): Prom
     const home = await app.evalJS<string>(ACTIVE_SPACE);
     const places = new Map<string, Rect>();
     places.set(K, await restAt(app, K, `${K} at home`));
-    const standing = await readStanding(app, K, (await regionRectOf(app, K))!, floorMeasure(kind.rail));
+    const standing = await readStanding(app, K, (await regionRectOf(app, K))!);
     const crop = { x: 0, y: 0, width: standing.contentWidth, height: Math.ceil(Math.max(...[...places.values()].map((r) => r.y + r.height))) + 16 };
 
     await app.evalJS<null>(`(window.tugdeck.lab.dispatch("new-space"), null)`);
