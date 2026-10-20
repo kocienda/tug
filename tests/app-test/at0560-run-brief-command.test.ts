@@ -45,6 +45,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { launchTugApp } from "./_harness";
+import { restoreGateGone } from "./overlay-fixture";
 import { waitForBodyReady } from "./_harness/card-reach";
 import { sessionCardShape, SESSION_CARD_SIZE_SHORT } from "./_harness/shapes";
 
@@ -152,6 +153,10 @@ async function seedCardWithCommandLine(
     `document.querySelector(${JSON.stringify(SPAN)}) !== null`,
     { timeoutMs: 10_000 },
   );
+  // The resume raised the restore gate over the whole window: every gesture
+  // below is made at the card, so it waits for the gate to go and for the
+  // host to have heard that it went.
+  await restoreGateGone(app);
   return app;
 }
 

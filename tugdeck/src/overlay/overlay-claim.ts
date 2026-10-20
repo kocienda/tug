@@ -14,7 +14,12 @@
  *   card; none at all when it shows nothing.
  *
  * Read on a mutation of the page, coalesced to one reading a frame; posted
- * only when it says something new.
+ * only when it says something new. What was last posted is stamped on the
+ * document as {@link OVERLAY_CLAIM_STATE_ATTRIBUTE}, after the post: a
+ * reader of this page that sees the stamp knows the host has the claim,
+ * since the post and the read's reply leave this process on one ordered
+ * connection. The harness reads it to make a card's gesture only once a
+ * modal's claim on the whole window has been given up.
  *
  * @module overlay/overlay-claim
  */
@@ -23,6 +28,15 @@ import type { OverlayClaim } from "../host/declarations/overlay";
 
 /** What marks an element as one the overlay takes the pointer inside. */
 export const OVERLAY_CLAIM_ATTRIBUTE = "data-overlay-claim";
+
+/** On the document: the kind of claim last posted to the host, `all`, `rects` or `none`. */
+export const OVERLAY_CLAIM_STATE_ATTRIBUTE = "data-overlay-claim-state";
+
+/** The kind {@link OVERLAY_CLAIM_STATE_ATTRIBUTE} names a claim by. */
+export function overlayClaimKind(claim: OverlayClaim): "all" | "rects" | "none" {
+  if ("all" in claim) return "all";
+  return claim.rects.length > 0 ? "rects" : "none";
+}
 
 const DIALOGS = '[role="dialog"], [role="alertdialog"]';
 
@@ -64,6 +78,7 @@ export function installOverlayClaim(
     if (sameClaim(last, next)) return;
     last = next;
     post(next);
+    doc.documentElement.setAttribute(OVERLAY_CLAIM_STATE_ATTRIBUTE, overlayClaimKind(next));
   };
   const schedule = (): void => {
     if (pending) return;

@@ -44,11 +44,19 @@ export async function overlayReady(app: App, timeoutMs = 20_000): Promise<BodyAp
 /**
  * Wait until the restore gate — the app-modal the shell's restore fold
  * raises in the overlay page while a resumed card's replay reveals — has
- * come down. While it stands it is the overlay's claim on the whole window:
- * a click or a right-click anywhere lands on it and the keyboard is its, so
- * a gesture meant for a card is made after it has gone.
+ * come down, and the host has heard so. While it stands it is the overlay's
+ * claim on the whole window: a click or a right-click anywhere lands on it
+ * and the keyboard is its, so a gesture meant for a card is made after it
+ * has gone. The gate's element leaving the page is not enough: the claim
+ * that frees the window is posted a frame later, so a gesture made in that
+ * frame still lands on the overlay. The page stamps the claim it last posted
+ * (`data-overlay-claim-state`, `overlay/overlay-claim.ts`), and the post
+ * reaches the host ahead of the read that sees the stamp.
  */
 export async function restoreGateGone(app: App, timeoutMs = 15_000): Promise<void> {
   const overlay = await overlayReady(app);
-  await overlay.waitForCondition<boolean>(`document.querySelector('[data-slot="tug-restore-gate"]') === null`, { timeoutMs });
+  await overlay.waitForCondition<boolean>(
+    `document.querySelector('[data-slot="tug-restore-gate"]') === null && document.documentElement.getAttribute("data-overlay-claim-state") !== "all"`,
+    { timeoutMs },
+  );
 }
