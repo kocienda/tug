@@ -1,5 +1,5 @@
 /**
- * at0513-atom-surfaces-one-height.test.ts — one pill height, on five live
+ * at0513-atom-surfaces-one-height.test.ts — one pill height, on four live
  * surfaces at once.
  *
  * The regression this pins is the whole of the arc it was written for ([F06]).
@@ -18,19 +18,17 @@
  * for which number. So the assertion has to be `getBoundingClientRect` on the
  * real elements, on every surface at once, in one running app.
  *
- * ## The five surfaces, and why each one
+ * ## The four surfaces, and why each one
  *
  *   1. **The Arcs card's block** — the every-arc surface, and the one whose
  *      block carries two pills at once (the arc and its bound worker), so a
  *      skin that sized them differently shows up inside one row.
- *   2. **The ARC placard** — the masthead's, one of the two the user's report
- *      named. It heads with the same block on a popover rather than in a list.
- *   3. **The Changes shade's arc lane** — the same block again, in a sheet,
+ *   2. **The Changes shade's arc lane** — the same block again, in a sheet,
  *      where the surrounding type is the shade's rather than the rail's.
- *   4. **The arc receipt in the transcript** — the surface that was WRONG.
+ *   3. **The arc receipt in the transcript** — the surface that was WRONG.
  *      It composed an arc atom and a lifecycle line by hand; it wears the
  *      block now, and this is what holds it there.
- *   5. **A citation standing in rendered prose** — the other half of the
+ *   4. **A citation standing in rendered prose** — the other half of the
  *      user's pair, and the one surface here that no arc block encloses. It is
  *      what keeps the guard from being a test about the arc block alone. It is
  *      an Overview post's rendered body, the way `at0368` puts a citation in
@@ -41,6 +39,12 @@
  *      the pair grammar's project half is lowercase, so the handle would never
  *      be a candidate. The uuid needs no such evidence and the ledger — where
  *      the spawn below put this session — is what confirms it.
+ *
+ * The ARC placard was a sixth surface, and the other half of the user's pair.
+ * It left the census when its head became the session masthead's title line
+ * — the phase dot, the identity with its `^<arc>` run, the lifecycle mark —
+ * which wears no chip pill, as the masthead wears none. There is nothing on
+ * it left to disagree about the box.
  *
  * The declared number is never written down in this file. It is read off the
  * gallery's own published `--tugx-atom-height` before the deck is seeded (the
@@ -107,9 +111,6 @@ const GALLERY_HOST = '[data-testid="gallery-atom"] .gallery-atom-register .galle
 
 /** The Arcs card's block for this arc. */
 const ARCS_BLOCK = `.arcs-section [data-slot="tug-arc-lifecycle-block"][data-arc="${ARC_NAME}"]`;
-/** The Z2 work cell, and the placard its press opens. */
-const CELL = `${CARD} [data-slot="tug-status-cell"][data-priority="tasks"]`;
-const PLACARD_HEAD = '[data-slot="session-arc-popover-body"] .session-arc-popover-head';
 /** The Changes shade, and the arc lane's row inside it. */
 const SHEET = `${CARD} .session-view-pane[data-view="changes"] [data-slot="tug-sheet"]`;
 const SHADE_ROW = `${SHEET} [data-slot="session-changes-arc-lane"] [data-slot="session-changes-arc-row"][data-arc="${ARC_NAME}"]`;
@@ -265,17 +266,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
           ...(await measure(app, kindBody(app, "dashes"), "arcs-card-worker", ARCS_BLOCK, null)),
         ];
 
-        // ── 2. The ARC placard ─────────────────────────────────────────────
-        await app.body("A").click(CELL);
-        await app.body("A").waitForCondition<boolean>(
-          `document.querySelector(${JSON.stringify(PLACARD_HEAD)}) !== null`,
-          { timeoutMs: 20_000 },
-        );
-        const placard = await measure(app, app.body("A"), "arc-placard", PLACARD_HEAD, null);
-        await app.nativeKey("Escape");
-        await settle(400);
-
-        // ── 3. The Changes shade's arc lane ────────────────────────────────
+        // ── 2. The Changes shade's arc lane ────────────────────────────────
         await app.body("A").nativeClickAtElement(PROMPT);
         await app.nativeType("/commit");
         await settle();
@@ -288,7 +279,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
         );
         const shade = await measure(app, app.body("A"), "changes-shade", SHADE_ROW, null);
 
-        // ── 4. The arc receipt in the transcript ───────────────────────────
+        // ── 3. The arc receipt in the transcript ───────────────────────────
         await app.driveSession("A", {
           op: "shellExchange",
           exchangeId: "at0513-arc",
@@ -306,7 +297,7 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
           '[data-slot="tug-arc-lifecycle-name"]',
         );
 
-        // ── 5. A citation standing in rendered prose ───────────────────────
+        // ── 4. A citation standing in rendered prose ───────────────────────
         // A ref is what makes the card acquire the post's workspace, and the
         // workspace is what mounts the annotation context its prose resolves
         // against — without one the sentence has nothing to resolve in
@@ -359,11 +350,10 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
         );
         const citation = await measure(app, kindBody(app, "overview"), "citation", CITATION_RUN, null);
 
-        // ── One number, five surfaces ──────────────────────────────────────
+        // ── One number, four surfaces ──────────────────────────────────────
         const measured = {
           declared,
           arcsCard,
-          placard,
           shade,
           receipt,
           citation,
@@ -374,7 +364,6 @@ describe.skipIf(!SHOULD_RUN)("AT0513: one pill height, on every surface", () => 
         // that stopped rendering its pill would pass by measuring nothing.
         for (const [surface, heights] of Object.entries({
           arcsCard,
-          placard,
           shade,
           receipt,
           citation,

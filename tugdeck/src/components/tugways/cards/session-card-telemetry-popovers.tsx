@@ -157,7 +157,13 @@ import {
   type GoalState,
 } from "@/lib/code-session-store/select-goal";
 import { composeJobsCellSummary } from "@/lib/code-session-store/select-work";
-import { ArcLifecycleBlock } from "@/components/tugways/arc-lifecycle-block";
+import { ArcLifecycleMark } from "@/components/tugways/arc-lifecycle-mark";
+import { TugArcAtom } from "@/components/tugways/tug-arc-atom";
+import { TugSessionIdentity } from "@/components/tugways/tug-session-identity";
+import { SessionPhaseDot } from "@/components/tugways/session-phase-dot";
+import { TUG_SESSION_ROW_STACK_DOT_SIZE } from "@/components/tugways/tug-session-row";
+import { useSessionIdentity } from "@/lib/session-identity";
+import { arcGlanceFraction } from "@/lib/arc-meta-facts";
 import type { ArcSessionFact } from "@/lib/arc-session-index";
 import {
   formatRunProgressLine,
@@ -1630,17 +1636,65 @@ export function JobsPopoverContent({
 // ---------------------------------------------------------------------------
 
 /**
+ * The ARC placard's head: the session masthead's title line, rebuilt from the
+ * same parts `SessionIdentityRow` composes — the bound session's phase dot,
+ * its identity with the `^<arc>` run, then the compact lifecycle mark — so the
+ * placard and the masthead read in one order. The fraction counts the
+ * declared run, as the masthead's does. An arc with no bound session has no
+ * dot or identity to show, and its head is the arc's atom and the mark.
+ */
+function ArcPopoverHead({ fact }: { fact: ArcSessionFact }): React.ReactElement {
+  const identity = useSessionIdentity(fact.boundSession);
+  const glance = arcGlanceFraction(
+    fact.runPosition,
+    fact.runLength,
+    fact.stepCurrent,
+    fact.stepTotal,
+  );
+  const bound = fact.boundSession.length > 0;
+  return (
+    <div className="session-arc-popover-head" data-slot="session-arc-popover-head">
+      {bound ? (
+        <>
+          <span className="session-arc-popover-head-dot">
+            <SessionPhaseDot
+              sessionId={fact.boundSession}
+              size={TUG_SESSION_ROW_STACK_DOT_SIZE}
+            />
+          </span>
+          <TugSessionIdentity
+            identity={identity}
+            tier="line"
+            dot={false}
+            arc={fact}
+          />
+        </>
+      ) : (
+        <TugArcAtom name={fact.name} slot="session-arc-popover-head-arc" />
+      )}
+      <span className="session-arc-popover-head-mark">
+        <ArcLifecycleMark
+          model={fact.track}
+          size="read"
+          name={fact.name}
+          fraction={glance}
+        />
+      </span>
+    </div>
+  );
+}
+
+/**
  * `ARC` popup — opened from the status row's fourth cell while the session is
  * driving an arc, in place of the `TASKS` reading.
  *
  * The cockpit detail for one arc, in the vocabulary the Arcs card and the Changes
- * shade already speak: `ArcLifecycleBlock` at the reading scale — the atom
- * and the workers over the track, the phase glyph, the fraction, the phase in
- * a word, and every divergence fact the arc carries — then **the plan's
+ * shade already speak: a head that is the session masthead's title line —
+ * the phase dot, the session's identity with its `^<arc>` run, then the
+ * compact lifecycle mark (pill · glyph · fraction) — then **the plan's
  * ledger**, the arc's own step list, which is where a reader reads step
- * titles. Composed, not restated: every mark here is the same
- * component the row surfaces render, so the three readings of one arc cannot
- * disagree.
+ * titles. Composed, not restated: every mark here is the same component the
+ * masthead renders, so the two readings of one arc cannot disagree.
  *
  * The list is the ledger and not the [D100] task list, which is what it used to
  * be. A run creates one task per step, so the two coincide when everything goes
@@ -1654,7 +1708,7 @@ export function JobsPopoverContent({
  * An arc driving no plan has no ledger, and there the task list is the only
  * checklist there is — so that is exactly, and only, when it is shown.
  *
- * With neither, the placard stops at the block. It used to say `None`, the
+ * With neither, the placard stops at the head. It used to say `None`, the
  * word this file's other empty lists earn — but those are lists that could
  * only be empty, and this one sits under a track, a phase glyph and a word
  * that have just said what the arc is doing. `None` answered a question the
@@ -1730,22 +1784,10 @@ export function ArcPopoverContent({
         ref={scrollerRef}
         data-slot="session-arc-popover-body"
       >
-        {/* The placard's heading is the same block every arc surface wears,
-            at the reading scale this list is set in: the atom and the workers
-            over the track, the fraction, the note and the divergence facts.
-            The steps below are the plan's rows; this is the arc. */}
-        <div className="session-arc-popover-head">
-          <ArcLifecycleBlock
-            name={fact.name}
-            worker={fact.boundSession}
-            model={model}
-            stepTitle={fact.stepTitle}
-            facts={facts}
-            // The placard has a list under the block, so the block's line
-            // carries a mark and the sentences go below in full ([B06]).
-            troublePlacement="mark"
-          />
-        </div>
+        {/* The placard's heading is the masthead's title line, in the
+            masthead's order: dot, session^arc, status. The steps below are
+            the plan's rows; this is the arc. */}
+        <ArcPopoverHead fact={fact} />
         {steps.length > 0 ? (
           <ArcStepItems steps={steps} live={model.live} />
         ) : tasks.length > 0 ? (
